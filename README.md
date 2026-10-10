@@ -11,10 +11,6 @@
   </a>
 </p>
 
-<p>
-  <sub><em>If HushFacebook Web makes Facebook better for you, a coffee helps me keep up with Facebook's changes.</em></sub>
-</p>
-
 # HushFacebook Web
 
 HushFacebook Web is a userscript for Facebook in a desktop browser. It's the web sibling of [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app, and it's working toward the same list: a feed without ads or suggested posts, less Meta AI, downloads, privacy switches and playback controls.
