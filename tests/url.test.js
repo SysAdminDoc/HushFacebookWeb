@@ -26,8 +26,20 @@ test('Facebook tracking tags go and the context a link needs stays', () => {
   assert.equal(cleanUrl('https://www.facebook.com/reel/123?mibextid=abc&rdid=x&share_url=y'), 'https://www.facebook.com/reel/123');
 });
 
-test('outside links only lose fbclid', () => {
-  assert.equal(cleanUrl('https://example.com/?ref=abc&fbclid=1'), 'https://example.com/?ref=abc');
+test('keys Facebook needs stay, and ref goes only as ref=share', () => {
+  const functional = 'https://www.facebook.com/events/?eid=5&ref=bookmarks&tracking=x&aref=1&referrer=a&referral_code=b';
+  assert.equal(cleanUrl(functional), functional);
+  assert.equal(cleanUrl('https://www.facebook.com/groups/1/?ref=share'), 'https://www.facebook.com/groups/1/');
+  assert.equal(cleanUrl('https://www.facebook.com/x?notif_id=1&notif_t=2'), 'https://www.facebook.com/x?notif_id=1&notif_t=2');
+});
+
+test('kept keys keep their exact bytes, and the fragment survives', () => {
+  assert.equal(cleanUrl('https://www.facebook.com/x?a=%7e+b&__tn__=R#frag'), 'https://www.facebook.com/x?a=%7e+b#frag');
+  assert.equal(cleanUrl('https://www.facebook.com/x?%E0%A4%A=1&fbclid=2'), 'https://www.facebook.com/x?%E0%A4%A=1');
+});
+
+test('outside links lose only the any-host keys', () => {
+  assert.equal(cleanUrl('https://example.com/?ref=abc&fbclid=1&fb_source=x&utm_source=fb'), 'https://example.com/?ref=abc&utm_source=fb');
 });
 
 test('signed CDN URLs are never touched', () => {
@@ -41,8 +53,8 @@ test('a URL that needs nothing comes back as the same string', () => {
   assert.equal(cleanUrl('mailto:someone@example.com'), 'mailto:someone@example.com');
 });
 
-test('relative links resolve against the page', () => {
-  assert.equal(cleanUrl('/groups/1/?__tn__=x', { base: 'https://www.facebook.com/' }), 'https://www.facebook.com/groups/1/');
+test('relative links are judged by the page they sit on and stay relative', () => {
+  assert.equal(cleanUrl('/groups/1/?__tn__=x', { base: 'https://www.facebook.com/' }), '/groups/1/');
 });
 
 test('cleanUrl leaves the redirect alone when unwrap is off', () => {
