@@ -1,0 +1,34 @@
+// Where the script runs and what the userscript manager gives it.
+//
+// Network, JSON and media hooks have to patch Facebook's own window. Tampermonkey
+// (@sandbox JavaScript) and Violentmonkey (page mode) put the script where unsafeWindow is
+// that window. When a manager can only run us as a content script, page hooks would patch
+// an isolated copy and do nothing, so features that need the page are skipped and
+// Diagnostics says why.
+
+export const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : globalThis;
+
+export const version = typeof __HFW_VERSION__ !== 'undefined' ? __HFW_VERSION__ : 'dev';
+
+const info = typeof GM_info !== 'undefined' ? GM_info : null;
+
+export const pageAccess = info?.injectInto === 'content' || info?.sandboxMode === 'dom' ? 'content' : 'page';
+
+export function managerInfo() {
+  return {
+    manager: info?.scriptHandler ?? 'unknown',
+    managerVersion: info?.version ?? 'unknown',
+    mode: info?.injectInto ?? info?.sandboxMode ?? 'unknown',
+    pageAccess,
+  };
+}
+
+export function registerMenuCommand(label, handler) {
+  if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand(label, handler);
+}
+
+// Runs fn once the document has a body, or right away when it already does.
+export function whenBodyReady(fn) {
+  if (document.body) return fn();
+  document.addEventListener('DOMContentLoaded', () => fn(), { once: true });
+}
