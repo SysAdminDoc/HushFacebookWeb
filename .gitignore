@@ -1,0 +1,22 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.log
+
+# Working notes and planning, kept local
+CLAUDE.md
+CODEX_CHANGELOG.md
+.claude/
+ROADMAP.md
+Roadmap_Blocked.md
+RESEARCH.md
+
+# Captured Facebook responses can hold account data; commit only scrubbed fixtures
+captures/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
