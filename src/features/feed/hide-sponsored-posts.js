@@ -5,7 +5,7 @@ export default {
   section: 'feed',
   android: 'Hide sponsored posts',
   title: 'Hide sponsored posts',
-  description: 'Removes sponsored and promoted posts from the news feed, with no gap left behind.',
+  description: 'Removes ads from the news feed, Marketplace and search results before Facebook draws them.',
   default: true,
   needsPage: true,
 
