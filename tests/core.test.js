@@ -3,8 +3,9 @@ import { test } from 'node:test';
 import { createLog } from '../src/core/log.js';
 import { createSettings } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
-import { renderFeatureCss } from '../src/core/style.js';
+import { mountFeatureStyles, renderFeatureCss } from '../src/core/style.js';
 import { SKIP, walk } from '../src/core/json-walk.js';
+import { rootlessDocument } from './fake-dom.js';
 
 test('the log keeps a bounded buffer and tells subscribers', () => {
   const printed = [];
@@ -30,6 +31,17 @@ test('feature CSS covers only features that are on, and nothing while paused', (
   assert.equal(renderFeatureCss(features, settings), '/* a */\n.a{}\n/* c */\n.c{color:red}');
   settings.set('paused', true);
   assert.equal(renderFeatureCss(features, settings), '');
+});
+
+test('feature CSS waits for <html> when the script starts before it exists', () => {
+  const features = [{ id: 'a', title: 'A', default: true, css: '.a{}' }];
+  const settings = createSettings({ storage: createMemoryStorage(), features });
+  const { doc, addRoot } = rootlessDocument();
+  const style = mountFeatureStyles({ features, settings, doc });
+  const appended = [];
+  addRoot({ append: (element) => appended.push(element) });
+  assert.deepEqual(appended, [style]);
+  assert.equal(style.textContent, '/* a */\n.a{}');
 });
 
 test('walk reaches every nested object and honors SKIP', () => {

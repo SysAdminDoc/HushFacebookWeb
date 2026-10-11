@@ -27,6 +27,19 @@ export function registerMenuCommand(label, handler) {
   if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand(label, handler);
 }
 
+// Runs fn once the document has an <html> element, or right away when it already does.
+// At document-start there may be none yet (Chrome's earliest injection does this).
+export function whenRootReady(fn, doc = globalThis.document) {
+  if (!doc || doc.documentElement) return fn();
+  const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
+  const observer = new Observer(() => {
+    if (!doc.documentElement) return;
+    observer.disconnect();
+    fn();
+  });
+  observer.observe(doc, { childList: true });
+}
+
 // Runs fn once the document has a body, or right away when it already does.
 export function whenBodyReady(fn) {
   if (document.body) return fn();

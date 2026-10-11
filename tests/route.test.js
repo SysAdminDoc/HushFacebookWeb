@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createRouter, parseRoute } from '../src/core/route.js';
 import { followingFeedUrl, isPlainHome } from '../src/features/opening/following-feed.js';
+import { rootlessDocument } from './fake-dom.js';
 
 const fb = (path) => `https://www.facebook.com${path}`;
 
@@ -52,6 +53,21 @@ test('the router follows history changes and stamps <html>', () => {
   assert.equal(dataset.hfwRoute, 'groups');
   assert.equal(dataset.hfwPermalink, 'true');
   assert.equal(router.current().path, '/groups/1/posts/2/');
+});
+
+test('the first route stamp waits for <html> when the router starts before it exists', () => {
+  const { doc, addRoot } = rootlessDocument();
+  const win = {
+    location: { href: fb('/reel/1') },
+    document: doc,
+    history: { pushState() {}, replaceState() {} },
+    addEventListener() {},
+    setInterval() {},
+  };
+  createRouter({ win, pageAccess: 'page' });
+  const dataset = {};
+  addRoot({ dataset });
+  assert.equal(dataset.hfwRoute, 'reel');
 });
 
 test('the Following feed only takes over the plain Home URL', () => {

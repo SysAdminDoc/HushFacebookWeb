@@ -1,7 +1,7 @@
 // Boot order matters: settings and network hooks are set up synchronously at
 // document-start, before Facebook's first script runs. The settings panel waits for <body>.
 
-import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady } from './core/env.js';
+import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady, whenRootReady } from './core/env.js';
 import { createLog } from './core/log.js';
 import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
@@ -61,13 +61,15 @@ function boot() {
 }
 
 // Two copies would wrap fetch twice and draw two panels. The second one stays out of the
-// way and leaves a note the first one reports.
-const root = document.documentElement;
-const running = root?.getAttribute(RUNNING);
+// way and leaves a note the first one reports. The mark goes on the page window, which
+// exists before <html> does, and on <html>, which copies in other worlds can see.
+const RUNNING_KEY = Symbol.for('hushfacebook-web.running');
+const running = pageWindow[RUNNING_KEY] ?? document.documentElement?.getAttribute(RUNNING);
 if (running) {
-  root.setAttribute(DUPLICATE, version);
+  whenRootReady(() => document.documentElement.setAttribute(DUPLICATE, version));
   console.warn(`[HushFacebook Web] v${version} didn't start because v${running} is already running.`);
 } else {
-  root?.setAttribute(RUNNING, version);
+  pageWindow[RUNNING_KEY] = version;
+  whenRootReady(() => document.documentElement.setAttribute(RUNNING, version));
   boot();
 }

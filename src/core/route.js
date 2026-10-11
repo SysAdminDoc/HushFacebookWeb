@@ -3,6 +3,8 @@
 // features can scope themselves to one kind of page. Attributes on <html> are safe; writes
 // on the feed's own children are not (they've been seen to stall infinite scroll).
 
+import { whenRootReady } from './env.js';
+
 const ROUTE_TYPES = {
   '': 'home',
   marketplace: 'marketplace',
@@ -83,7 +85,7 @@ export function createRouter({ win, pageAccess, log, pollMs = 500 }) {
     win.setInterval(check, pollMs);
   }
   win.addEventListener('hashchange', check);
-  stamp();
+  whenRootReady(stamp, win.document);
 
   return {
     current: () => current,
