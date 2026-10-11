@@ -40,6 +40,11 @@ import sanitizeLinks from './links/sanitize-links.js';
 import directLinks from './links/direct-links.js';
 import tapToPlay from './playback/tap-to-play.js';
 import limitHdr from './playback/hdr-brightness.js';
+import resumeVideos from './playback/resume-videos.js';
+import keepSpeed from './playback/keep-speed.js';
+import holdForSpeed from './playback/hold-for-speed.js';
+import pictureInPicture from './playback/picture-in-picture.js';
+import keepControls from './playback/keep-controls.js';
 import marketplaceOnly from './opening/marketplace-only.js';
 import openOnTab from './opening/open-on-tab.js';
 import followingFeed from './opening/following-feed.js';
@@ -63,7 +68,8 @@ import customCss from './appearance/custom-css.js';
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
   hideSponsoredReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping,
-  commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr,
+  commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
+  keepSpeed, holdForSpeed, pictureInPicture, keepControls,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
   menuEntry, hideMenuPromotions, hideMetaUpsells,
   // In this order: the first to claim a Home load redirects it (opening/start.js).

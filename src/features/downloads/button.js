@@ -1,4 +1,5 @@
-// The Download button. It floats over the photo or video under the pointer, inside its own
+// The Download button, also used for the picture-in-picture button. It floats over the photo
+// or video under the pointer, inside its own
 // closed shadow root, so it never becomes part of Facebook's markup and Facebook's styles
 // can't reach it.
 //
@@ -12,6 +13,8 @@ const MIN_SIZE = 160;
 const HIDE_AFTER = 450;
 const LOOK_UP = 6;
 const OWN_LAYER = 12;
+const ROW_HEIGHT = 40; // px between buttons stacked in one corner
+const DOWNLOAD_ICON = 'M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14';
 
 const CSS = `
 :host { all: initial; }
@@ -68,8 +71,9 @@ export function mediaAt(doc, host, x, y, { through = false } = {}) {
 
 // find(element) returns what the button would save ({ ... }) or null. run(found) saves it.
 // active() says whether any download switch is on, so nothing is looked up otherwise.
-// onMissing() is called when a click finds nothing to save any more.
-export function createDownloadButton({ doc, win, find, run, active, log, onMissing }) {
+// onMissing() is called when a click finds nothing to save any more. Another feature can use
+// the same button with its own name, words and icon, and a row below the Download button.
+export function createDownloadButton({ doc, win, find, run, active, log, onMissing, name = 'download', text = 'Download', busyText = 'Saving', icon = DOWNLOAD_ICON, row = 0, failText = 'The download failed' }) {
   let host = null;
   let shadow = null;
   let button = null;
@@ -86,7 +90,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
   function mount() {
     if (host?.isConnected) return;
     host = doc.createElement('div');
-    host.setAttribute('data-hushfacebook-web', 'download');
+    host.setAttribute('data-hushfacebook-web', name);
     shadow = host.attachShadow({ mode: 'closed' });
     const style = doc.createElement('style');
     style.textContent = CSS;
@@ -100,15 +104,15 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     (doc.body ?? doc.documentElement).append(host);
   }
 
-  function label(text) {
+  function label(words) {
     button.replaceChildren();
     const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 24 24');
     svg.setAttribute('aria-hidden', 'true');
     const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', 'M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14');
+    path.setAttribute('d', icon);
     svg.append(path);
-    button.append(svg, doc.createTextNode(text));
+    button.append(svg, doc.createTextNode(words));
   }
 
   function hide() {
@@ -121,10 +125,10 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
   function showState() {
     if (busy()) {
       button.setAttribute('aria-busy', 'true');
-      label('Saving');
+      label(busyText);
     } else {
       button.removeAttribute('aria-busy');
-      label('Download');
+      label(typeof text === 'function' ? text(current) : text);
     }
   }
 
@@ -140,7 +144,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
       hide();
       return;
     }
-    button.style.top = `${Math.max(rect.top, 0) + 10}px`;
+    button.style.top = `${Math.max(rect.top, 0) + 10 + row * ROW_HEIGHT}px`;
     button.style.right = `${Math.max(win.innerWidth - rect.right, 0) + 10}px`;
   }
 
@@ -215,7 +219,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     try {
       await run(found, shadow);
     } catch (error) {
-      log?.error('The download failed', error);
+      log?.error(failText, error);
     } finally {
       saving.delete(media);
       if (current === media) showState();

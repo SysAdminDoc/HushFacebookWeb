@@ -48,6 +48,11 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Marketplace only
 * Tap to play
 * Turn off HDR brightness
+* Resume long videos
+* Keep your video speed
+* Hold a reel for 2x
+* Picture-in-picture button
+* Keep video controls on screen
 * Force dark mode
 * AMOLED black theme
 * Accent color

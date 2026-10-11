@@ -18,7 +18,8 @@ export function linkTarget(href) {
   const text = String(href ?? '');
   let found = text.match(/\/reels?\/(\d{6,})/);
   if (found) return { kind: 'reel', id: found[1] };
-  found = text.match(/\/videos\/(?:[^/?#]+\/)?(\d{6,})/) ?? text.match(/\/(?:watch|video\.php)\/?\?(?:[^#]*&)?v=(\d{6,})/);
+  // A past live video opens at /watch/live/?v=<id> (live 2026-10-11).
+  found = text.match(/\/videos\/(?:[^/?#]+\/)?(\d{6,})/) ?? text.match(/\/(?:watch(?:\/live)?|video\.php)\/?\?(?:[^#]*&)?v=(\d{6,})/);
   if (found) return { kind: 'video', id: found[1] };
   found = text.match(/\/photo(?:\.php)?\/?\?(?:[^#]*&)?fbid=(\d{6,})/) ?? text.match(/\/photos\/[^/?#]+\/(\d{6,})/);
   if (found) return { kind: 'photo', id: found[1] };
