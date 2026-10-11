@@ -5,7 +5,8 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, hasSponsoredLabel, pruneAds } from '../src/features/feed/ad-markers.js';
+import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, hasSponsoredLabel, markersFor, pruneAds } from '../src/features/feed/ad-markers.js';
+import { features } from '../src/features/index.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
 
 const rule = { id: 'hideSponsoredPosts', markers: AD_MARKER_TEXT, transform: (doc) => pruneAds(doc).length > 0 };
@@ -51,22 +52,57 @@ const SAMPLES = {
   'sponsored label': labelOnly,
   MarketplaceFeedAdStory: () => ({ node: { __typename: 'MarketplaceFeedAdStory', id: 'ad', ad_id_string: '1' }, cursor: 'm' }),
   SEARCH_ADS: () => ({ cursor: 's', node: { __typename: 'SearchRenderable', role: 'SEARCH_ADS' }, rendering_strategy: { __typename: 'SearchResultsAdRenderingStrategy' } }),
+  // The shape is the live empty answer (tests/fixtures/useInstreamAdsHaloFetcherQuery.jsonl) with one break in it.
+  instream_video_ad_breaks: () => ({ instream_video_ad_breaks: [{ id: 'break-1', start_time_ms: 30000 }], post_roll_ad_break: { id: 'post-roll' } }),
 };
 
 test('every row says where it was seen, what lets it past the prefilter and what it does', () => {
   const ids = AD_MARKERS.map((row) => row.id);
+  const switches = new Set(features.map((feature) => feature.id));
   assert.equal(new Set(ids).size, ids.length, 'ids are unique');
   for (const row of AD_MARKERS) {
     assert.ok(row.surface && row.seen, `${row.id} names its surface and live check`);
+    assert.ok(switches.has(row.feature), `${row.id} belongs to a real switch`);
     assert.ok(row.text.length > 0 && row.text.every((text) => AD_MARKER_TEXT.includes(text)), `${row.id} has prefilter text`);
     assert.equal(typeof row.match, 'function');
-    assert.equal(row.action, 'drop-node');
+    assert.ok(['drop-node', 'empty-list'].includes(row.action), `${row.id} has a known action`);
+    if (row.action === 'empty-list') assert.equal(row.kind, 'object', `${row.id}: empty-list works on objects`);
   }
+});
+
+test('a row only fires under its own switch', () => {
+  const doc = () => ({ data: { serpResponse: { results: { edges: [SAMPLES.SEARCH_ADS()] } }, news_feed: { edges: [SAMPLES.th_dat_spo()] } } });
+  assert.deepEqual(pruneAds(doc(), markersFor('hideSponsoredSearch').rows), ['SEARCH_ADS']);
+  assert.deepEqual(pruneAds(doc(), markersFor('hideSponsoredPosts').rows), ['th_dat_spo']);
+  assert.deepEqual(markersFor('hideSponsoredMarketplace').text, ['"MarketplaceFeedAdStory"']);
+  const search = adRule('hideSponsoredSearch', () => true);
+  const fired = [];
+  const withReport = adRule('hideSponsoredPosts', () => true, (ids) => fired.push(...ids));
+  const line = JSON.stringify(doc());
+  assert.equal(rulesFor(line, [search]).length, 1);
+  const out = JSON.parse(transformDocumentLine(line, [search, withReport]));
+  assert.equal(out.data.serpResponse.results.edges[0].node, undefined);
+  assert.equal(out.data.news_feed.edges[0].node, undefined);
+  assert.deepEqual(fired, ['th_dat_spo']);
+  assert.equal(search.match({ transport: 'xhr', path: '/api/graphql/' }), true);
+  assert.equal(search.match({ transport: 'xhr', path: '/ajax/bz' }), false);
+});
+
+test('in-stream ad breaks are emptied to what Facebook sends when there are none', () => {
+  const answer = { data: { scrubber: SAMPLES.instream_video_ad_breaks() }, extensions: { is_final: true } };
+  assert.deepEqual(pruneAds(answer), ['instream_video_ad_breaks']);
+  assert.deepEqual(answer.data.scrubber, { instream_video_ad_breaks: [], post_roll_ad_break: null });
+  const onlyPostRoll = { scrubber: { instream_video_ad_breaks: [], post_roll_ad_break: { id: 'p' } } };
+  assert.deepEqual(pruneAds(onlyPostRoll), ['instream_video_ad_breaks']);
+  assert.equal(onlyPostRoll.scrubber.post_roll_ad_break, null);
+  const none = { scrubber: { instream_video_ad_breaks: [], post_roll_ad_break: null } };
+  assert.deepEqual(pruneAds(none), []);
 });
 
 test('every row has a sample, and its line gets past the prefilter and is pruned by that row', () => {
   assert.deepEqual(Object.keys(SAMPLES).sort(), AD_MARKERS.map((row) => row.id).sort());
   for (const row of AD_MARKERS) {
+    if (row.action !== 'drop-node') continue;
     const edge = SAMPLES[row.id]();
     assert.equal(adMarkerFor(edge)?.id, row.id, `${row.id} catches its own sample first`);
     const line = JSON.stringify({ data: { viewer: { news_feed: { edges: [edge2026('o1'), edge] } } } });

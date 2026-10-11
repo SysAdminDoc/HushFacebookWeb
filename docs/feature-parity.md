@@ -5,14 +5,14 @@
 What the status words mean:
 
 * **Tested**: it ran on facebook.com and did its job in a test browser. Separately, Tampermonkey and Violentmonkey on Chrome were checked for running in the page, Marketplace and search ads, Copy link, story views and saved settings.
-* **Written**: the code is in the script, but it hasn't been checked on facebook.com yet.
+* **Written**: the code is in the script, but it hasn't been seen doing its job on facebook.com yet, often because the test account hasn't been shown what it removes.
 * **Planned**: there's a clear way to do it on the web and it's on the list.
 * **Needs research**: it probably has a web version, but someone has to look at how Facebook's site handles it first.
 * **Android only**: it fixes something the web doesn't have. The reason is in the last column.
 
 | Android patch | Status | On the web |
 |---|---|---|
-| Hide sponsored posts | Tested | Removes ads from the feed data before Facebook draws it, including the first screen that comes inline with the page. Tested on Marketplace and search ads so far. |
+| Hide sponsored posts | Written | Removes ads from the feed data before Facebook draws it, including the first screen that comes inline with the page. It runs on every page, but the test account hasn't been shown a feed ad to watch it go yet. |
 | View stories anonymously | Tested | Holds back the request that tells Facebook you saw a story. |
 | Sanitize sharing links | Tested | Strips tracking tags from links you open or copy. Copy link and Share to WhatsApp give the post's own address instead of a facebook.com/share link, and sharing to Messenger, a group or a friend's profile works as before. |
 | Open links in external browser | Tested | Becomes "Skip Facebook's link redirect": outside links open directly instead of through l.facebook.com. |
@@ -21,10 +21,10 @@ What the status words mean:
 | Hushfacebook settings | Tested | The settings panel, opened from the corner button or your userscript manager's menu. |
 | Following feed on Home | Tested | Opens Home on Facebook's most recent feed, from everyone you follow or just friends, favorites, groups or Pages. |
 | Hide sponsored profile posts | Planned | Same feed cleanup, applied to profile and Page timelines. |
-| Hide sponsored reels | Planned | Ads between reels and in-video ads. |
+| Hide sponsored reels | Written | Drops the ad breaks Facebook schedules inside videos and reels. Every video the test account opened came with an empty list, so it hasn't had one to drop yet. Ads between reels need a capture first. |
 | Hide sponsored stories | Planned | Ad cards in the story viewer. |
-| Hide sponsored search results | Planned | Ads in search results. |
-| Hide sponsored Marketplace listings | Planned | Ads and boosted listings in Marketplace. |
+| Hide sponsored search results | Tested | Takes the ad results out of search before Facebook draws them. |
+| Hide sponsored Marketplace listings | Tested | Takes ad cards out of the Marketplace feed before Facebook draws them, and the listings around them stay put. |
 | Hide suggested and promoted posts | Planned | Suggested for you, People you may know, suggested groups and Pages. |
 | Hide suggested stories | Planned | Stories from people and Pages you don't follow. |
 | Hide Reels in the feed | Planned | Reel rows between posts. |

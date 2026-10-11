@@ -105,6 +105,19 @@ test('search: the ad edge is emptied beside the organic results', async () => {
   assert.equal(countMatches(after, (value) => value.__typename === 'CometStorySponsoredLabelStrategy'), 0);
 });
 
+test('a video with no in-stream ads: the live answer is left alone and never parsed', async () => {
+  const [line] = await fixtureLines('useInstreamAdsHaloFetcherQuery.jsonl');
+  const doc = parseLine(line);
+  assert.deepEqual(doc.data.scrubber, { instream_video_ad_breaks: [], post_roll_ad_break: null });
+  assert.equal(rulesFor(line, [rule]).length, 0, 'empty breaks carry none of the markers');
+  assert.deepEqual(pruneAds(doc), []);
+  // The same answer with a break in it is emptied back to this shape.
+  const filled = parseLine(line);
+  filled.data.scrubber.instream_video_ad_breaks.push({ id: 'break-1' });
+  const out = transformDocumentLine(JSON.stringify(filled), [rule]);
+  assert.deepEqual(parseLine(out), doc);
+});
+
 test('the story seen request is the one View stories anonymously holds back', async () => {
   const lines = await fixtureLines('storiesUpdateSeenStateMutation.request.jsonl');
   assert.equal(lines.length, 2);

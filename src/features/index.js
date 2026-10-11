@@ -13,11 +13,17 @@
 //               hider.hide(post.element, 'Reason', 'detail'), hider.show(element) (src/core/dom/hide.js)
 
 import hideSponsoredPosts from './feed/hide-sponsored-posts.js';
+import hideSponsoredReels from './reels/hide-sponsored-reels.js';
 import anonymousStories from './stories/anonymous-stories.js';
+import hideSponsoredSearch from './search/hide-sponsored-search.js';
+import hideSponsoredMarketplace from './marketplace/hide-sponsored-marketplace.js';
 import sanitizeLinks from './links/sanitize-links.js';
 import directLinks from './links/direct-links.js';
 import tapToPlay from './playback/tap-to-play.js';
 import limitHdr from './playback/hdr-brightness.js';
 import followingFeed from './opening/following-feed.js';
 
-export const features = [hideSponsoredPosts, anonymousStories, sanitizeLinks, directLinks, tapToPlay, limitHdr, followingFeed];
+export const features = [
+  hideSponsoredPosts, hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace,
+  sanitizeLinks, directLinks, tapToPlay, limitHdr, followingFeed,
+];
