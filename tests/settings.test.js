@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildSchema, createSettings, isValid } from '../src/core/settings.js';
+import { accountFromCookie, buildSchema, createSettings, EXPORT_SCHEMA, isValid, storageKeyFor } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 
 const features = [
@@ -102,6 +102,59 @@ test('reset hands back what it cleared so Undo can restore it', () => {
   assert.equal(settings.get('beta'), false);
   settings.restore(previous);
   assert.equal(settings.get('beta'), true);
+});
+
+test('the signed-in account comes from the c_user cookie, and nothing else', () => {
+  assert.equal(accountFromCookie('datr=abc; c_user=615000000000017; xs=12%3Aabc'), '615000000000017');
+  assert.equal(accountFromCookie('c_user=615000000000017'), '615000000000017');
+  assert.equal(accountFromCookie('datr=abc; xs=1'), null);
+  assert.equal(accountFromCookie('not_c_user=615000000000017'), null);
+  assert.equal(accountFromCookie('c_user=deleted'), null);
+  assert.equal(accountFromCookie(undefined), null);
+});
+
+test('two accounts in one browser keep their own settings, and signed out uses the shared ones', () => {
+  const storage = createMemoryStorage();
+  const first = createSettings({ storage, features, account: '615000000000017' });
+  const second = createSettings({ storage, features, account: '615000000000018' });
+  first.set('beta', true);
+  second.set('beta.days', 3);
+  assert.equal(createSettings({ storage, features, account: '615000000000017' }).get('beta.days'), 7);
+  assert.equal(createSettings({ storage, features, account: '615000000000018' }).get('beta'), false);
+  const signedOut = createSettings({ storage, features });
+  assert.equal(signedOut.perAccount, false);
+  assert.equal(signedOut.get('beta'), false);
+  assert.equal(first.perAccount, true);
+  // The ids themselves are never written down.
+  assert.ok(Object.keys(storage.dump()).every((key) => !key.includes('615000000000')));
+  assert.notEqual(storageKeyFor('615000000000017'), storageKeyFor('615000000000018'));
+});
+
+test('settings from before the switch carry over once to each account seen for the first time', () => {
+  const storage = createMemoryStorage({ settings: { beta: true, 'beta.words': 'crypto', junk: 1 } });
+  const account = createSettings({ storage, features, account: '615000000000017' });
+  assert.equal(account.get('beta'), true);
+  assert.equal(account.get('beta.words'), 'crypto');
+  assert.deepEqual(storage.dump()[storageKeyFor('615000000000017')], { beta: true, 'beta.words': 'crypto' });
+  // From now on the account's own copy counts: changing the shared settings doesn't reach it.
+  account.set('beta.words', 'politics');
+  createSettings({ storage, features }).set('beta', false);
+  const again = createSettings({ storage, features, account: '615000000000017' });
+  assert.equal(again.get('beta'), true);
+  assert.equal(again.get('beta.words'), 'politics');
+  // An account that cleared everything stays cleared rather than picking the shared ones up again.
+  const other = createSettings({ storage, features, account: '615000000000018' });
+  other.reset();
+  createSettings({ storage, features }).set('beta', true);
+  assert.equal(createSettings({ storage, features, account: '615000000000018' }).get('beta'), false);
+});
+
+test('an export says which schema it uses', () => {
+  const { settings } = make();
+  const exported = JSON.parse(settings.exportJson(new Date('2026-10-11T00:00:00Z')));
+  assert.equal(exported.schema, EXPORT_SCHEMA);
+  assert.equal(EXPORT_SCHEMA, 1);
+  assert.deepEqual(Object.keys(exported), ['app', 'schema', 'version', 'exported', 'settings']);
 });
 
 test('isValid knows every setting type', () => {

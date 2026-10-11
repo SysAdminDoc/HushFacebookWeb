@@ -64,7 +64,7 @@ Most Facebook cleanup tools hunt for posts on the page and hide them. That break
 
 Some things can only be done on the page itself, like download buttons or hiding a menu item. Those use the page, kept to the parts of Facebook's markup that change least.
 
-Nothing leaves your browser. The script doesn't talk to any server, and your settings stay in your userscript manager.
+Nothing leaves your browser. The script doesn't talk to any server, and your settings stay in your userscript manager, kept apart for each Facebook account you sign in with.
 
 ## Install
 

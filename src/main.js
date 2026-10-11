@@ -9,11 +9,21 @@ import { createPostTracker } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
 import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
-import { createSettings } from './core/settings.js';
+import { accountFromCookie, createSettings } from './core/settings.js';
 import { createGmStorage } from './core/storage.js';
 import { mountFeatureStyles } from './core/style.js';
 import { features } from './features/index.js';
 import { mountPanel } from './ui/panel.js';
+
+// Which Facebook account is signed in, from its c_user cookie, so each one keeps its own
+// settings. null when signed out or when the cookie can't be read.
+function signedInAccount() {
+  try {
+    return accountFromCookie(document.cookie);
+  } catch {
+    return null;
+  }
+}
 
 const RUNNING = 'data-hushfacebook-web';
 const DUPLICATE = 'data-hushfacebook-web-duplicate';
@@ -21,7 +31,7 @@ const DUPLICATE = 'data-hushfacebook-web-duplicate';
 function boot() {
   const log = createLog();
   const storage = createGmStorage();
-  const settings = createSettings({ storage, features, log, version });
+  const settings = createSettings({ storage, features, log, version, account: signedInAccount() });
   const net = pageAccess === 'page' ? installNetworkHooks({ win: pageWindow, log }) : null;
   const router = createRouter({ win: pageWindow, pageAccess, log });
   const posts = createPostTracker({ doc: document, log });
@@ -30,6 +40,7 @@ function boot() {
     notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote') === true,
   });
   const diagnostics = createDiagnostics();
+  diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'));
   const actions = createActions();
   const unavailable = new Set();
   // Toasts wait for the panel, which mounts once there's a body.

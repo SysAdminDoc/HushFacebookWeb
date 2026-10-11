@@ -1,7 +1,28 @@
 // Settings built from the feature list. Only values that differ from their default are
 // stored, so changing a default in a later version reaches everyone who never touched it.
+//
+// Each Facebook account keeps its own settings, the way Social Fixer and F.B. Purity do it,
+// under a key made from the account's id (the c_user cookie). The id itself isn't stored.
+// An account seen for the first time starts from the settings everyone shared before, so
+// nothing is lost on upgrade. Signed out, the shared settings are used.
 
 const STORAGE_KEY = 'settings';
+export const EXPORT_SCHEMA = 1;
+
+export function accountFromCookie(cookie) {
+  return /(?:^|;\s*)c_user=(\d+)(?:;|$)/.exec(String(cookie ?? ''))?.[1] ?? null;
+}
+
+// FNV-1a, enough to tell a few accounts apart without writing their ids down.
+export function storageKeyFor(account) {
+  if (!account) return STORAGE_KEY;
+  let hash = 0x811c9dc5;
+  for (const char of String(account)) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${STORAGE_KEY}@${hash.toString(36)}`;
+}
 
 const GLOBAL_SETTINGS = [
   { key: 'paused', type: 'toggle', default: false, label: 'Pause HushFacebook Web' },
@@ -40,10 +61,25 @@ export function isValid(spec, value) {
   }
 }
 
-export function createSettings({ storage, features, log, version = 'dev' }) {
+export function createSettings({ storage, features, log, version = 'dev', account = null }) {
   const schema = buildSchema(features);
   const listeners = new Set();
-  let values = sanitize(storage.get(STORAGE_KEY, {}));
+  const key = storageKeyFor(account);
+  let values = sanitize(load());
+
+  function load() {
+    const own = storage.get(key, undefined);
+    if (own !== undefined || key === STORAGE_KEY) return own ?? {};
+    const shared = sanitize(storage.get(STORAGE_KEY, {}));
+    if (Object.keys(shared).length) {
+      try {
+        storage.set(key, shared);
+      } catch (error) {
+        log?.error('Could not copy your settings to this account', error);
+      }
+    }
+    return shared;
+  }
 
   function sanitize(raw) {
     const clean = {};
@@ -57,7 +93,7 @@ export function createSettings({ storage, features, log, version = 'dev' }) {
 
   function persist() {
     try {
-      storage.set(STORAGE_KEY, values);
+      storage.set(key, values);
     } catch (error) {
       log?.error('Could not save settings', error);
       throw error;
@@ -80,7 +116,7 @@ export function createSettings({ storage, features, log, version = 'dev' }) {
     return found;
   }
 
-  storage.onChange?.(STORAGE_KEY, (raw) => {
+  storage.onChange?.(key, (raw) => {
     values = sanitize(raw);
     notify([...schema.keys()], true);
   });
@@ -91,6 +127,7 @@ export function createSettings({ storage, features, log, version = 'dev' }) {
 
   return {
     schema,
+    perAccount: key !== STORAGE_KEY,
     get,
     set(key, value) {
       const found = spec(key);
@@ -122,7 +159,7 @@ export function createSettings({ storage, features, log, version = 'dev' }) {
       return previous;
     },
     exportJson(now = new Date()) {
-      return JSON.stringify({ app: 'HushFacebook Web', version, exported: now.toISOString(), settings: values }, null, 2);
+      return JSON.stringify({ app: 'HushFacebook Web', schema: EXPORT_SCHEMA, version, exported: now.toISOString(), settings: values }, null, 2);
     },
     importJson(text) {
       const parsed = JSON.parse(text);
