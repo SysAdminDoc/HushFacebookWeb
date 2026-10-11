@@ -8,13 +8,14 @@
 //   options     extra settings: [{ key, type: toggle|select|text|number, label, default, choices? }]
 //   css         string, or (get) => string, applied while the feature is on
 //   setup(ctx)  runs once at document-start
-//               ctx = { win, doc, net, router, posts, hider, diagnostics, actions, storage, log, toast, settings,
-//                       enabled, option }
+//               ctx = { win, doc, net, router, posts, hider, diagnostics, actions, storage, log, toast, openSettings,
+//                       settings, enabled, option }
 //               net is null in content mode (needsPage features never get that far)
 //               diagnostics.add('Row label', () => 'value') adds a Diagnostics row (src/core/diagnostics.js)
 //               actions.add('Button label', run) puts a button on the feature's card (src/core/actions.js)
 //               storage.get(key, fallback) / storage.set(key, value): GM storage beside the settings
 //               toast('Message', { tone: 'error' }): a short note at the bottom of the page
+//               openSettings(sectionId?): opens the settings panel, at that section if given
 //               posts.on('post/add' | 'post/update' | 'post/remove' | 'reset', fn) (src/core/dom/posts.js)
 //               hider.hide(post.element, 'Reason', 'detail'), hider.show(element) (src/core/dom/hide.js)
 
@@ -51,6 +52,7 @@ import noTransitions from './appearance/no-transitions.js';
 import hideTabs from './appearance/hide-tabs.js';
 import hideTabBadges from './appearance/hide-tab-badges.js';
 import hideMenuPromotions from './menu/hide-menu-promotions.js';
+import menuEntry from './menu/menu-entry.js';
 import hideMetaUpsells from './meta/hide-meta-upsells.js';
 import customCss from './appearance/custom-css.js';
 
@@ -59,7 +61,7 @@ export const features = [
   hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace, hideReadReceipts, hideTyping,
   commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
-  hideMenuPromotions, hideMetaUpsells, followingFeed,
+  menuEntry, hideMenuPromotions, hideMetaUpsells, followingFeed,
   // Last, so its rules come after every built-in style.
   customCss,
 ];

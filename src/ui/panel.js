@@ -4,13 +4,9 @@
 
 import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
+import { SLIDERS_ICON } from './icons.js';
 import { panelCss } from './styles.js';
 
-const SLIDERS_ICON = [
-  'M3 5h10v2H3z', 'M17 5h4v2h-4z', 'M13 3h4v6h-4z',
-  'M3 11h4v2H3z', 'M11 11h10v2H11z', 'M7 9h4v6H7z',
-  'M3 17h12v2H3z', 'M19 17h2v2h-2z', 'M15 15h4v6h-4z',
-];
 const CLOSE_ICON = ['M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z'];
 const ERROR_TOAST_GAP_MS = 15000;
 
@@ -28,6 +24,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     { id: 'diagnostics', title: 'Diagnostics' },
   ];
   let current = sections[0].id;
+  const hasMenuEntry = features.some((feature) => feature.id === 'menuEntry');
 
   const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
   const launcher = h(
@@ -158,7 +155,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: 'Show the settings button' }),
-            h('div', { class: 'desc', text: "The round button in Facebook's bottom-left corner. Your userscript manager's menu always opens settings too." })),
+            h('div', { class: 'desc', text: "The round button in Facebook's bottom-left corner. Your userscript manager's menu always opens settings too, and so does the row in your account menu while Settings in your account menu is on." })),
           toggle('ui.launcher', 'Show the settings button'))),
       h('div', { class: 'card' },
         h('div', { class: 'row' },
@@ -223,7 +220,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const paused = settings.get('paused') === true;
     power.checked = !paused;
     pauseState.textContent = paused ? 'Paused' : 'On';
-    launcher.hidden = settings.get('ui.launcher') !== true;
+    // Settings in your account menu can stand in for the button, unless it couldn't start.
+    const inMenu = hasMenuEntry && settings.enabled('menuEntry') && settings.get('menuEntry.hideButton') === true && !unavailable.has('menuEntry');
+    launcher.hidden = settings.get('ui.launcher') !== true || inMenu;
   }
 
   // ---- actions ----

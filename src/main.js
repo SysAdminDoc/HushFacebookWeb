@@ -71,6 +71,7 @@ function boot() {
         hider,
         log,
         toast,
+        openSettings: (section) => whenBodyReady(() => panel?.open(section)),
         settings,
         enabled: () => settings.enabled(feature.id),
         option: (key) => settings.get(`${feature.id}.${key}`),

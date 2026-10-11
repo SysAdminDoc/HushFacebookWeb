@@ -12,6 +12,7 @@ import { createLog } from '../src/core/log.js';
 import { createSettings } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import { mountPanel } from '../src/ui/panel.js';
+import menuEntry from '../src/features/menu/menu-entry.js';
 
 const GLOBALS = ['document', 'Node', 'CSS', 'requestAnimationFrame', 'navigator', 'setTimeout'];
 const nodeSetTimeout = globalThis.setTimeout;
@@ -131,6 +132,23 @@ test("a feature's own buttons show on its card while it's on, follow its state a
   settings.set('demo', false);
   await tick();
   assert.equal(button('Hide them again'), undefined, 'no buttons while the switch is off');
+});
+
+test('the corner button hides when Settings in your account menu stands in for it, or when General says so', () => {
+  const { shadow, settings } = setup({ features: [menuEntry] });
+  const launcher = shadow.querySelector('.launcher');
+  assert.equal(launcher.hidden, false, 'shown by default, the menu row is on with its hide option off');
+  settings.set('menuEntry.hideButton', true);
+  assert.equal(launcher.hidden, true);
+  settings.set('menuEntry', false);
+  assert.equal(launcher.hidden, false, 'back while the menu row is off');
+  settings.set('menuEntry', true);
+  settings.set('paused', true);
+  assert.equal(launcher.hidden, false, 'back while the script is paused, since the menu row is gone then');
+  settings.set('paused', false);
+  settings.set('menuEntry.hideButton', false);
+  settings.set('ui.launcher', false);
+  assert.equal(launcher.hidden, true);
 });
 
 test("no page rule can hide the panel, and a long text box stops at its setting's limit", () => {

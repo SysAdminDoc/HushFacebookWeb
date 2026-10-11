@@ -71,7 +71,7 @@ What the status words mean:
 | Use the system font | Tested | Points Facebook's four font variables, and the page's own font, at your system's interface font or at an installed font you name. Code keeps its monospace font. Works in content mode. |
 | Use the phone's emoji | Tested | Called "Use your computer's emoji" on the web. Swaps the picture behind each of Facebook's emoji images for one drawn with your system's emoji font, keeping the image, its size and its alt text, so copying text still gives the emoji. Works in content mode. |
 | Turn off screen transitions | Tested | Every CSS transition and animation finishes at once (a near-zero length, so Facebook's end events still fire), except inside progress bars. Works in content mode. |
-| Hushfacebook in the Menu | Planned | A HushFacebook Web row in Facebook's account menu. |
+| Hushfacebook in the Menu | Tested | Called "Settings in your account menu" on the web. A HushFacebook Web row just above Log out in the menu under your profile picture, copied from Facebook's own row so it matches both themes, and found by the menu's /me/ link rather than its words. Its card can hide the corner button. Works in content mode. |
 | Show View profile on Marketplace sellers | Planned | A link from a seller to their profile. |
 | Share sheet items | Planned | Hide share menu items you never use. |
 | Open Messenger from the top bar | Planned | Opens the full Messages page instead of the small chat popup. |

@@ -55,6 +55,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hide Menu promotions
 * Hide Meta upsells
 * Custom CSS
+* Settings in your account menu
 
 All of them have run on facebook.com in a test browser, though a few haven't had anything to act on yet. The test account hasn't been shown a feed ad or a row of reels, so those switches have only been seen leaving ordinary posts alone. Video ad breaks haven't turned up either, and the feed has only offered reels to download so far, not plain videos. The test account's chats are all end-to-end encrypted, which the read receipt and typing switches can't reach, so they haven't had anything to hold back yet. The script has also been installed in Tampermonkey and in Violentmonkey on Chrome, and in both it runs in the page, takes Marketplace and search ads out, gives Copy link the post's own address, keeps story views to yourself and remembers its settings. The other features haven't been tried in either manager yet.
 
@@ -62,7 +63,7 @@ All of them have run on facebook.com in a test browser, though a few haven't had
 
 ## The settings panel
 
-Click the sliders button in the bottom left corner of Facebook, or pick HushFacebook Web settings from your userscript manager's menu. Changes save as you make them, and every switch has a line under it saying what it does.
+Click the sliders button in the bottom left corner of Facebook, or the HushFacebook Web row in the menu under your profile picture at the top right. Your userscript manager's menu has a HushFacebook Web settings entry too. Changes save as you make them, and every switch has a line under it saying what it does. If you'd rather not have the corner button, turn it off under Menu or General.
 
 <p>
   <img src="assets/screenshots/panel-feed.png" width="49%" alt="The News feed section of the settings panel, with switches for sponsored posts, suggested posts, reel rows, the Stories tray, word filters and seen posts">
@@ -86,7 +87,7 @@ You'll need a userscript manager first:
 
 Then open [hushfacebook-web.user.js](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest/download/hushfacebook-web.user.js) and your manager will offer to install it. It checks for updates on its own.
 
-Open the settings from the round button in Facebook's bottom-left corner or from your userscript manager's menu.
+Open the settings from the round button in Facebook's bottom-left corner, from the menu under your profile picture, or from your userscript manager's menu.
 
 ## Building it yourself
 
