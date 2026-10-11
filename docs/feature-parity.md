@@ -14,7 +14,7 @@ What the status words mean:
 |---|---|---|
 | Hide sponsored posts | Tested | Removes ads from the feed data before Facebook draws it, including the first screen that comes inline with the page. Tested on Marketplace and search ads so far. |
 | View stories anonymously | Tested | Holds back the request that tells Facebook you saw a story. |
-| Sanitize sharing links | Tested | Strips tracking tags from links you open or copy, and Copy link gives the post's own address instead of a facebook.com/share link. |
+| Sanitize sharing links | Tested | Strips tracking tags from links you open or copy. Copy link and Share to WhatsApp give the post's own address instead of a facebook.com/share link, and sharing to Messenger, a group or a friend's profile works as before. |
 | Open links in external browser | Tested | Becomes "Skip Facebook's link redirect": outside links open directly instead of through l.facebook.com. |
 | Tap to play | Tested | Videos only start when you click them. |
 | Turn off HDR brightness | Tested | Caps HDR video and photos at normal brightness in browsers that support it. |
