@@ -14,7 +14,7 @@ const SLIDERS_ICON = [
 const CLOSE_ICON = ['M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z'];
 const ERROR_TOAST_GAP_MS = 15000;
 
-export function mountPanel({ settings, features, log, hider, diagnostics, unavailable, environment }) {
+export function mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment }) {
   const host = h('div', { dataset: { hushfacebookWeb: 'ui' } });
   const shadow = host.attachShadow({ mode: 'closed' });
   const root = h('div', { class: 'root' });
@@ -102,6 +102,23 @@ export function mountPanel({ settings, features, log, hider, diagnostics, unavai
     }
   }
 
+  // Buttons the feature added for itself (ctx.actions).
+  function featureActions(feature) {
+    const list = actions?.list(feature.id) ?? [];
+    if (!list.length) return null;
+    return h('div', { class: 'actions' }, list.map(({ label, run }) => h('button', {
+      class: 'button', type: 'button', text: label,
+      onclick: () => {
+        try {
+          run();
+        } catch (error) {
+          log.error(`${feature.title}: ${label} failed`, error);
+        }
+        render();
+      },
+    })));
+  }
+
   function featureCard(feature) {
     const blocked = unavailable.has(feature.id);
     const on = settings.get(feature.id) === true;
@@ -113,7 +130,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, unavai
           blocked ? h('div', { class: 'note', text: "This one isn't available the way your userscript manager runs the script. Diagnostics explains why." }) : null,
           feature.reload ? h('div', { class: 'note', text: 'Applies after Facebook reloads.' }) : null),
         toggle(feature.id, feature.title, { disabled: blocked })),
-      on && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option))) : null);
+      on && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option))) : null,
+      on ? featureActions(feature) : null);
   }
 
   function sectionView(section) {

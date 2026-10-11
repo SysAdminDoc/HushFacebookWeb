@@ -20,6 +20,12 @@ src/
     dom/hide.js        hides a post with a reason, counts it, and can leave a note that shows it again
     dom/visible-text.js the text a reader actually sees, without zero-width marks or hidden decoys
     dom/label-cache.js short texts remembered as they're added, for labels Facebook removes right away
+    dom/post-checks.js runs a feature's check on each post as it appears and a few times after
+    dom/seen-watch.js  tells when a post has been on screen long enough to count as seen
+    filters/           word filters, and the fields they read from Facebook's data and from the page
+    seen-keys.js       how a post is recognized again, by its photo or video or its first words
+    seen-store.js      the list of seen posts, kept in the manager's storage
+    actions.js         buttons a feature puts on its own card in the panel
     style.js           one style element for every CSS feature that's on
   features/            one file per feature, grouped by settings section
   ui/                  the settings panel (closed shadow root, no innerHTML)
@@ -47,6 +53,8 @@ export default {
 ```
 
 `ctx.diagnostics.add('Row label', () => 'value')` adds a row to Diagnostics and to Copy report. Call `ctx.diagnostics.changed()` when the value moves.
+
+`ctx.actions.add('Button label', run)` puts a button on the feature's card while it's on. The label can be a function when its wording follows the feature's state. `ctx.storage.get(key, fallback)` and `ctx.storage.set(key, value)` keep data beside the settings, under a key of your own.
 
 `ctx.enabled()` tells you whether the feature is on right now. Check it every time your code runs rather than once at setup, so switching it off works without a reload.
 

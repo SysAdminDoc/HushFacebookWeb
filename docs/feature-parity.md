@@ -38,7 +38,7 @@ What the status words mean:
 | Hide Meta upsells | Planned | Meta Verified, Threads cross-posting and other pitches. |
 | Hide Menu promotions | Planned | Promotions in Facebook's left column and Menu. |
 | Hide posts by words | Tested | Hides posts on Home and in your groups feed that mention a word or phrase you list, come from a person, Page or group you name, or link to a site you name. Lines starting with re: are patterns. Separate switches hide every photo, video or link post, and every post on a colored background. Comments don't count. Matching posts come out of Facebook's data before they're drawn. In content mode they're hidden on the page with a note saying which line matched, except colored backgrounds, which only the data shows. |
-| Hide seen posts | Planned | Keeps posts you've already scrolled past out of the feed for a while. |
+| Hide seen posts | Tested | Keeps posts you've already scrolled past on Home and in your groups feed away for 1, 3, 7 or 30 days. A post counts as seen after a second on screen. Facebook's page no longer says which post is which, so a post is recognized by its photo or video, or by its first words. Seen posts come out of Facebook's data before they're drawn, or get hidden on the page in content mode. The switch's card has buttons to show them again in the current tab or forget the list. |
 | Open on a chosen tab | Planned | Opens Facebook on the page you pick. |
 | Marketplace only | Planned | Strips Facebook down to Marketplace. |
 | Default comment order | Planned | Opens comments in the order you choose. |

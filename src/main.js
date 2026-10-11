@@ -2,6 +2,7 @@
 // document-start, before Facebook's first script runs. The settings panel waits for <body>.
 
 import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady, whenRootReady } from './core/env.js';
+import { createActions } from './core/actions.js';
 import { createDiagnostics } from './core/diagnostics.js';
 import { createHider, hideCss } from './core/dom/hide.js';
 import { createPostTracker } from './core/dom/posts.js';
@@ -19,7 +20,8 @@ const DUPLICATE = 'data-hushfacebook-web-duplicate';
 
 function boot() {
   const log = createLog();
-  const settings = createSettings({ storage: createGmStorage(), features, log, version });
+  const storage = createGmStorage();
+  const settings = createSettings({ storage, features, log, version });
   const net = pageAccess === 'page' ? installNetworkHooks({ win: pageWindow, log }) : null;
   const router = createRouter({ win: pageWindow, pageAccess, log });
   const posts = createPostTracker({ doc: document, log });
@@ -28,6 +30,7 @@ function boot() {
     notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote') === true,
   });
   const diagnostics = createDiagnostics();
+  const actions = createActions();
   const unavailable = new Set();
 
   if (!net) {
@@ -46,6 +49,8 @@ function boot() {
         doc: document,
         net,
         diagnostics,
+        actions: actions.for(feature.id),
+        storage,
         router,
         posts,
         hider,
@@ -64,7 +69,7 @@ function boot() {
 
   let panel = null;
   whenBodyReady(() => {
-    panel = mountPanel({ settings, features, log, hider, diagnostics, unavailable, environment: { version, ...managerInfo() } });
+    panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo() } });
     const other = document.documentElement.getAttribute(DUPLICATE);
     if (other) log.warn(`A second copy of HushFacebook Web (v${other}) is installed. Turn one off in your userscript manager.`);
   });

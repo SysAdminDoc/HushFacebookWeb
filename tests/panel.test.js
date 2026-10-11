@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
+import { createActions } from '../src/core/actions.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider } from '../src/core/dom/hide.js';
 import { createLog } from '../src/core/log.js';
@@ -33,7 +34,7 @@ function lendGlobals(win) {
   });
 }
 
-function setup() {
+function setup({ features = [], actions = null } = {}) {
   const win = new Window({ url: 'https://www.facebook.com/' });
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
@@ -47,11 +48,11 @@ function setup() {
   };
   win.document.body.innerHTML = '<div role="main"><div class="feed"><div aria-posinset="1"><div>Post</div></div></div></div>';
   const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
-  const settings = createSettings({ storage: createMemoryStorage(), features: [], log });
+  const settings = createSettings({ storage: createMemoryStorage(), features, log });
   const hider = createHider({ doc: win.document, log });
   const diagnostics = createDiagnostics();
   const panel = mountPanel({
-    settings, features: [], log, hider, diagnostics, unavailable: new Set(),
+    settings, features, log, hider, diagnostics, actions, unavailable: new Set(),
     environment: { version: '0.0.1', manager: 'Tampermonkey', managerVersion: '5.4.1', mode: 'page', pageAccess: 'page' },
   });
   return { win, shadow, panel, settings, hider, diagnostics, copied, post: win.document.querySelector('[aria-posinset]') };
@@ -110,4 +111,24 @@ test('rows a feature adds show in Diagnostics, follow its changes and go in the 
   [...shadow.querySelectorAll('button')].find((button) => button.textContent === 'Copy report').click();
   await tick();
   assert.match(copied[0], /^Ads hidden on the page: header label 2$/m);
+});
+
+test("a feature's own buttons show on its card while it's on, follow its state and run when clicked", async () => {
+  const feature = { id: 'demo', section: 'feed', title: 'Demo', description: 'A demo switch.', default: true, setup() {} };
+  const actions = createActions();
+  let showing = false;
+  actions.for('demo').add(() => (showing ? 'Hide them again' : 'Show them'), () => { showing = !showing; });
+  actions.for('other').add('Not mine', () => {});
+  const { shadow, panel, settings } = setup({ features: [feature], actions });
+  panel.open('feed');
+  const button = (text) => [...shadow.querySelectorAll('button')].find((b) => b.textContent === text);
+  assert.ok(button('Show them'));
+  assert.equal(button('Not mine'), undefined, "another feature's button isn't on this card");
+  button('Show them').click();
+  await tick();
+  assert.equal(showing, true);
+  assert.ok(button('Hide them again'), 'the label follows the state');
+  settings.set('demo', false);
+  await tick();
+  assert.equal(button('Hide them again'), undefined, 'no buttons while the switch is off');
 });

@@ -8,9 +8,12 @@
 //   options     extra settings: [{ key, type: toggle|select|text|number, label, default, choices? }]
 //   css         string, or (get) => string, applied while the feature is on
 //   setup(ctx)  runs once at document-start
-//               ctx = { win, doc, net, router, posts, hider, diagnostics, log, settings, enabled, option }
+//               ctx = { win, doc, net, router, posts, hider, diagnostics, actions, storage, log, settings,
+//                       enabled, option }
 //               net is null in content mode (needsPage features never get that far)
 //               diagnostics.add('Row label', () => 'value') adds a Diagnostics row (src/core/diagnostics.js)
+//               actions.add('Button label', run) puts a button on the feature's card (src/core/actions.js)
+//               storage.get(key, fallback) / storage.set(key, value): GM storage beside the settings
 //               posts.on('post/add' | 'post/update' | 'post/remove' | 'reset', fn) (src/core/dom/posts.js)
 //               hider.hide(post.element, 'Reason', 'detail'), hider.show(element) (src/core/dom/hide.js)
 
@@ -19,6 +22,7 @@ import hideSuggestedPosts from './feed/hide-suggested-posts.js';
 import hideReelsInFeed from './feed/hide-reels-in-feed.js';
 import hideStoriesTray from './feed/hide-stories-tray.js';
 import hidePostsByWords from './feed/filters.js';
+import hideSeenPosts from './feed/hide-seen-posts.js';
 import hideSponsoredReels from './reels/hide-sponsored-reels.js';
 import anonymousStories from './stories/anonymous-stories.js';
 import hideSponsoredSearch from './search/hide-sponsored-search.js';
@@ -30,7 +34,7 @@ import limitHdr from './playback/hdr-brightness.js';
 import followingFeed from './opening/following-feed.js';
 
 export const features = [
-  hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords,
+  hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts,
   hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace,
   sanitizeLinks, directLinks, tapToPlay, limitHdr, followingFeed,
 ];
