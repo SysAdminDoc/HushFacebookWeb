@@ -48,10 +48,15 @@ import accentColor from './appearance/accent.js';
 import systemFont from './appearance/system-font.js';
 import systemEmoji from './appearance/system-emoji.js';
 import noTransitions from './appearance/no-transitions.js';
+import hideTabs from './appearance/hide-tabs.js';
+import hideTabBadges from './appearance/hide-tab-badges.js';
+import hideMenuPromotions from './menu/hide-menu-promotions.js';
+import hideMetaUpsells from './meta/hide-meta-upsells.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
   hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace, hideReadReceipts, hideTyping,
   commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr,
-  forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, followingFeed,
+  forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
+  hideMenuPromotions, hideMetaUpsells, followingFeed,
 ];

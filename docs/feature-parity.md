@@ -35,8 +35,8 @@ What the status words mean:
 | Hide Meta AI in search | Planned | The Meta AI answer and Ask Meta AI prompts in search. The test account hasn't been shown either on the web yet, in search suggestions or results. |
 | Hide Meta AI questions under posts | Planned | The row of Meta AI questions under posts. Not shown to the test account on the web yet. |
 | Hide Meta AI comment summaries | Planned | Meta AI's comment summary. Not shown to the test account on the web yet, even under a post with over a thousand comments. |
-| Hide Meta upsells | Planned | Meta Verified, Threads cross-posting and other pitches. |
-| Hide Menu promotions | Planned | Promotions in Facebook's left column and Menu. |
+| Hide Meta upsells | Tested | Takes Meta's other apps and devices out of the left column and Facebook's menu: Meta AI, Meta Quest, Ray-Ban Meta, WhatsApp, Instagram and Messenger Kids. They're found by their links leaving Facebook, not by name, so it works in any language and in content mode. Meta Verified and Threads pitches haven't shown up on the web yet. |
+| Hide Menu promotions | Tested | Takes Ads Manager, Your Ad Activity and the Create column's Ad out of the left column and Facebook's menu, and Gaming Video and Play games too, each group with its own choice. Found by address. Works in content mode. |
 | Hide posts by words | Tested | Hides posts on Home and in your groups feed that mention a word or phrase you list, come from a person, Page or group you name, or link to a site you name. Lines starting with re: are patterns. Separate switches hide every photo, video or link post, and every post on a colored background. Comments don't count. Matching posts come out of Facebook's data before they're drawn. In content mode they're hidden on the page with a note saying which line matched, except colored backgrounds, which only the data shows. |
 | Hide seen posts | Tested | Keeps posts you've already scrolled past on Home and in your groups feed away for 1, 3, 7 or 30 days. A post counts as seen after a second on screen. Facebook's page no longer says which post is which, so a post is recognized by its photo or video, or by its first words. Seen posts come out of Facebook's data before they're drawn, or get hidden on the page in content mode. The switch's card has buttons to show them again in the current tab or forget the list. |
 | Open on a chosen tab | Planned | Opens Facebook on the page you pick. |
@@ -58,10 +58,10 @@ What the status words mean:
 | Turn off double tap to like | Planned | Stops a double click on a reel or video from liking it. |
 | Clean up Reels | Planned | Hides Follow buttons, comment previews and other clutter on reels. |
 | Hide reel interest prompts | Planned | "Are you interested in this reel?" |
-| Hide the Reels tab | Planned | The Video tab in the top bar. |
-| Hide the Reels tab dot | Planned | The count on the Video tab. |
-| Hide tabs | Planned | Tabs you don't use in the top bar. |
-| Hide tab badges | Planned | Counts on the top bar, and the count in the browser tab's title. |
+| Hide the Reels tab | Written | Part of Hide tabs, where the Video tab is one of the choices and starts on. The test account's top bar only has Home, Friends and Groups, so the Video tab hasn't been seen going yet. |
+| Hide the Reels tab dot | Written | Part of Hide tab badges. |
+| Hide tabs | Tested | Takes the top bar tabs you pick off the page, with Video, Marketplace and Gaming on to start and Friends and Groups as choices, plus the Find friends button. Each tab is found by its address and its whole slot goes, so the others close up. Home always stays. Works in content mode. |
+| Hide tab badges | Written | Takes the count off the front of the browser tab's title as soon as Facebook writes it, which has been seen working. Also hides the red counts on the top bar and the left column, found by being a floating or colored count rather than by class names. The test account hasn't had a count to show yet, so that part hasn't been seen on facebook.com. Works in content mode. |
 | Hide the Feeds header | Planned | The filter row at the top of Feeds. |
 | Clean up Facebook's chat list | Planned | The notes row and promo banners in Chats. |
 | Block promotional notifications | Planned | Hides the kinds of notification you pick. |
