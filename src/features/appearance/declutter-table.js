@@ -9,7 +9,8 @@
 //   Marketplace and Gaming. "Find friends" is a[href="/friends/"] without an aria-label, in a
 //   div of its own beside the Menu, Messenger, Notifications and profile buttons.
 // - Left column: a [role=navigation] outside the top bar; each row is li > div > div > div > a
-//   with an absolute address (https://www.facebook.com/marketplace/). Facebook's other apps and
+//   with an absolute address (https://www.facebook.com/marketplace/, or web.facebook.com when
+//   that's the page's host). Facebook's other apps and
 //   devices go through l.facebook.com/l.php?u=... (Meta AI to www.meta.ai, Meta Quest 3S,
 //   Ray-Ban Meta). "See more" opens the rest in the same list.
 // - Facebook menu (the grid button): [role=dialog] with each row a [role=listitem] holding its
@@ -22,13 +23,16 @@
 // Its links are absolute and carry a query string (a[href$="/marketplace/"] found nothing
 // live), while the top bar's tabs are relative, which keeps the tabs out even where
 // :not([role=banner] *) isn't understood (happy-dom).
-const LEFT = '[role="navigation"]:not([role="banner"] *):has(a[href^="https://www.facebook.com/friends/"]):has(a[href^="https://www.facebook.com/groups/"])';
+// Absolute links carry the host the page is on, and the script runs on both.
+export const HOSTS = ['https://www.facebook.com', 'https://web.facebook.com'];
+const absolute = (path) => HOSTS.map((host) => `a[href^="${host}${path}"]`).join(', ');
+export const LEFT = `[role="navigation"]:not([role="banner"] *):has(${absolute('/friends/')}):has(${absolute('/groups/')})`;
 const MENU = '[role="dialog"]:has(a[href*="/pages/creation/"]):has(a[href*="/events/create/"])';
 
 // A link to one of Facebook's own sections, relative in the top bar and absolute elsewhere,
 // with or without a query string.
 export function section(path) {
-  return [`a[href="${path}"]`, `a[href^="${path}?"]`, `a[href="https://www.facebook.com${path}"]`, `a[href^="https://www.facebook.com${path}?"]`].join(', ');
+  return [`a[href="${path}"]`, `a[href^="${path}?"]`, ...HOSTS.flatMap((host) => [`a[href="${host}${path}"]`, `a[href^="${host}${path}?"]`])].join(', ');
 }
 
 // Links that leave Facebook: through its redirect, or straight out once Skip Facebook's link
@@ -44,7 +48,7 @@ export const TAB_ROWS = [
 ];
 
 export const PROMOTION_ROWS = [
-  { option: 'ads', label: 'Ads Manager, Your Ad Activity and Create an ad', link: [section('/ad_campaign/landing.php'), section('/adsmanager/'), section('/ads/activity/'), 'a[href^="/ads/create_ad/"]', 'a[href^="https://www.facebook.com/ads/create_ad/"]'].join(', ') },
+  { option: 'ads', label: 'Ads Manager, Your Ad Activity and Create an ad', link: [section('/ad_campaign/landing.php'), section('/adsmanager/'), section('/ads/activity/'), 'a[href^="/ads/create_ad/"]', absolute('/ads/create_ad/')].join(', ') },
   { option: 'gaming', label: 'Gaming Video and Play games', link: [section('/gaming/'), section('/gaming/play/')].join(', ') },
 ];
 

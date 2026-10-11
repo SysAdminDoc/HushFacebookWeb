@@ -11,7 +11,7 @@ import hideTabs, { tabsCss } from '../src/features/appearance/hide-tabs.js';
 import hideTabBadges, { BADGE_MARK, badgeBox, cleanTitle, createBadgeHider, markBadges } from '../src/features/appearance/hide-tab-badges.js';
 import hideMenuPromotions, { promotionsCss } from '../src/features/menu/hide-menu-promotions.js';
 import hideMetaUpsells, { UPSELLS_CSS } from '../src/features/meta/hide-meta-upsells.js';
-import { section } from '../src/features/appearance/declutter-table.js';
+import { LEFT, section } from '../src/features/appearance/declutter-table.js';
 
 const windows = [];
 afterEach(async () => {
@@ -129,6 +129,22 @@ test('the left column is told from the top bar by its absolute addresses', () =>
   const win = page();
   const hidden = hiddenBy(win, promotionsCss(settings({ 'hideMenuPromotions.gaming': true })));
   assert.ok(!hidden.includes('tab:Gaming'));
+  // happy-dom ignores a descendant selector inside :not(), so this part is checked as text.
+  // Chrome honors it (live 2026-10-11), which keeps a top bar with absolute links out too.
+  assert.ok(LEFT.startsWith('[role="navigation"]:not([role="banner"] *):has('));
+});
+
+test('on web.facebook.com the absolute links carry that host, and every switch still finds its rows', () => {
+  const win = page(HOME.replaceAll(FB, 'https://web.facebook.com'));
+  const both = settings({ 'hideMenuPromotions.ads': true, 'hideMenuPromotions.gaming': true });
+  assert.deepEqual(hiddenBy(win, promotionsCss(both)), [
+    'left:Ads Manager', 'left:Gaming Video', 'left:Play games',
+    'menu:Ad', 'menu:Ads Manager', 'menu:Play games', 'menu:Your Ad Activity',
+  ]);
+  assert.deepEqual(hiddenBy(win, UPSELLS_CSS), [
+    'left:Messenger Kids', 'left:Meta AI', 'left:Meta Quest 3S', 'left:Ray-Ban Meta',
+    'menu:Instagram', 'menu:Messenger Kids', 'menu:Meta AI', 'menu:WhatsApp',
+  ]);
 });
 
 test('a count drawn as a badge is marked, a name that is a number is not', () => {
