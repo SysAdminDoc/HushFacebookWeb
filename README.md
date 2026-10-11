@@ -30,6 +30,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hide posts by words
 * Hide seen posts
 * Hide AI-detected posts
+* Show full post dates
 * Hide sponsored reels
 * Don't send watch history
 * Hide sponsored search results
