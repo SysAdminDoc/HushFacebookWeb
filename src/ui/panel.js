@@ -15,7 +15,9 @@ const CLOSE_ICON = ['M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.
 const ERROR_TOAST_GAP_MS = 15000;
 
 export function mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment }) {
-  const host = h('div', { dataset: { hushfacebookWeb: 'ui' } });
+  // Inline and important, so no page rule (Custom CSS included, say div:empty) can hide the
+  // panel and with it the only way to undo that rule.
+  const host = h('div', { dataset: { hushfacebookWeb: 'ui' }, style: 'all: initial !important' });
   const shadow = host.attachShadow({ mode: 'closed' });
   const root = h('div', { class: 'root' });
   shadow.append(h('style', { text: panelCss }), root);
@@ -105,6 +107,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         return h('label', null, option.label,
           h('textarea', {
             rows: option.rows ?? 3, class: option.code ? 'code' : undefined, spellcheck: option.code ? 'false' : undefined,
+            // The browser stops a paste at the setting's limit, rather than the save failing
+            // and the text being lost on the next redraw.
+            maxLength: option.maxLength,
             dataset: { key }, onchange: (event) => apply(key, event.target.value),
           }, value));
     }

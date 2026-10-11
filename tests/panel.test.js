@@ -132,3 +132,12 @@ test("a feature's own buttons show on its card while it's on, follow its state a
   await tick();
   assert.equal(button('Hide them again'), undefined, 'no buttons while the switch is off');
 });
+
+test("no page rule can hide the panel, and a long text box stops at its setting's limit", () => {
+  const box = { id: 'demo', section: 'feed', title: 'Demo', description: 'A demo box.', default: true, options: [{ key: 'css', type: 'text', label: 'CSS', default: '', maxLength: 50000, code: true }], setup() {} };
+  const { win, shadow, panel } = setup({ features: [box] });
+  const host = win.document.querySelector('[data-hushfacebook-web="ui"]');
+  assert.equal(host.getAttribute('style'), 'all: initial !important');
+  panel.open('feed');
+  assert.equal(shadow.querySelector('textarea[data-key="demo.css"]').maxLength, 50000);
+});
