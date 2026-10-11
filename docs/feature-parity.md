@@ -99,3 +99,11 @@ What the status words mean:
 | Tab bar at the bottom | Android only | The web layout has no bottom tab bar. |
 | Turn off haptics | Android only | Browsers don't vibrate on Facebook. |
 | Unlock app icons | Android only | Home screen icons. |
+
+## Only on the web
+
+These have no Hushfacebook patch behind them.
+
+| Feature | Status | What it does |
+|---|---|---|
+| Custom CSS | Tested | Your own CSS rules, put last in the script's style so they win over its built-in rules. Text that looks like CSS in Hide posts by words gets a warning pointing here. Works in content mode. |

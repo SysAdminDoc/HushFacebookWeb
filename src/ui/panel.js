@@ -103,7 +103,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
             h('input', { type: 'text', value, maxLength: option.maxLength, spellcheck: 'false', dataset: { key }, onchange: (event) => apply(key, event.target.value.trim()) }));
         }
         return h('label', null, option.label,
-          h('textarea', { rows: 3, dataset: { key }, onchange: (event) => apply(key, event.target.value) }, value));
+          h('textarea', {
+            rows: option.rows ?? 3, class: option.code ? 'code' : undefined, spellcheck: option.code ? 'false' : undefined,
+            dataset: { key }, onchange: (event) => apply(key, event.target.value),
+          }, value));
     }
   }
 

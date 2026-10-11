@@ -13,6 +13,9 @@ import { postFields } from '../../core/filters/page.js';
 import { storyFields } from '../../core/filters/story.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { inScope } from './ad-markers.js';
+import { looksLikeCss } from '../../core/css-text.js';
+
+export const CSS_WARNING = "Those filter lines look like CSS. Hide posts by words matches words in posts, so put CSS in Custom CSS under Appearance instead.";
 
 const KINDS = [
   { key: 'photos', kind: 'photo', label: 'photo posts' },
@@ -63,9 +66,18 @@ export default {
     ...KINDS.map(({ key, label }) => ({ key, type: 'toggle', label: `Hide all ${label}`, default: false })),
   ],
 
-  setup({ net, router, posts, hider, log, settings, diagnostics, enabled, option }) {
+  setup({ net, router, posts, hider, log, toast, settings, diagnostics, enabled, option }) {
     const compile = filterCache();
     const warned = new Set();
+    // CSS pasted here would only ever match posts that quote it. Said once per list.
+    let cssWarnedFor = null;
+    const warnIfCss = () => {
+      const words = option('words') ?? '';
+      if (!enabled() || words === cssWarnedFor || !looksLikeCss(words)) return;
+      cssWarnedFor = words;
+      log?.warn(CSS_WARNING);
+      toast?.(CSS_WARNING, { tone: 'error' });
+    };
     const hits = new Map();
     const route = () => router?.current();
     const changed = () => diagnostics?.changed();
@@ -100,6 +112,8 @@ export default {
         },
       });
     }
+    warnIfCss();
+    settings?.subscribe(warnIfCss);
     diagnostics?.add('Posts hidden by your filters', () => summary(hits));
     diagnostics?.add("Filter lines that aren't valid", () => {
       const { errors } = current();

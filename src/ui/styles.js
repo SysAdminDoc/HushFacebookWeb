@@ -74,6 +74,8 @@ main h3 { margin: 0 0 12px; font-size: 15px; }
 .options select, .options input[type="text"], .options input[type="number"], .options textarea {
   background: var(--mantle); border: 1px solid var(--surface1); border-radius: 8px; padding: 5px 8px;
 }
+.options label:has(> textarea.code) { flex-direction: column; align-items: stretch; gap: 6px; }
+.options textarea.code { font-family: ui-monospace, Consolas, Menlo, monospace; font-size: 12px; line-height: 1.5; resize: vertical; white-space: pre; tab-size: 2; }
 
 .switch { appearance: none; flex: none; width: 40px; height: 22px; margin: 2px 0 0; border-radius: 999px; background: var(--surface1); position: relative; cursor: pointer; transition: background 0.15s ease; }
 .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--text); transition: transform 0.15s ease; }

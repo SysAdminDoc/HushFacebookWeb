@@ -52,6 +52,7 @@ import hideTabs from './appearance/hide-tabs.js';
 import hideTabBadges from './appearance/hide-tab-badges.js';
 import hideMenuPromotions from './menu/hide-menu-promotions.js';
 import hideMetaUpsells from './meta/hide-meta-upsells.js';
+import customCss from './appearance/custom-css.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
@@ -59,4 +60,6 @@ export const features = [
   commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
   hideMenuPromotions, hideMetaUpsells, followingFeed,
+  // Last, so its rules come after every built-in style.
+  customCss,
 ];
