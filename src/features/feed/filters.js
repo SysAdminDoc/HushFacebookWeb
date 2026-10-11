@@ -16,6 +16,17 @@ import { inScope } from './ad-markers.js';
 import { looksLikeCss } from '../../core/css-text.js';
 
 export const CSS_WARNING = "Those filter lines look like CSS. Hide posts by words matches words in posts, so put CSS in Custom CSS under Appearance instead.";
+const CSS_WARNED_KEY = 'hidePostsByWords.cssWarned';
+
+// The lines that are words, without the re: patterns and "# " notes (engine.js).
+export const plainLines = (text) => String(text ?? '').split(/\r?\n/).filter((line) => !/^\s*(?:re:|#(?:\s|$))/i.test(line)).join('\n');
+
+// A short stand-in for a list, so storage remembers which one was warned about without a copy.
+function fingerprint(text) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return `${text.length}:${hash.toString(16)}`;
+}
 
 const KINDS = [
   { key: 'photos', kind: 'photo', label: 'photo posts' },
@@ -66,15 +77,22 @@ export default {
     ...KINDS.map(({ key, label }) => ({ key, type: 'toggle', label: `Hide all ${label}`, default: false })),
   ],
 
-  setup({ net, router, posts, hider, log, toast, settings, diagnostics, enabled, option }) {
+  setup({ net, router, posts, hider, log, toast, storage, settings, diagnostics, enabled, option }) {
     const compile = filterCache();
     const warned = new Set();
-    // CSS pasted here would only ever match posts that quote it. Said once per list.
-    let cssWarnedFor = null;
+    // CSS pasted here would only ever match posts that quote it. Said once per list, and
+    // remembered across page loads. Pattern and note lines are left out of the check, since
+    // "re:not( ?sponsored)" is a fine pattern.
+    let checked = null;
     const warnIfCss = () => {
+      if (!enabled()) return;
       const words = option('words') ?? '';
-      if (!enabled() || words === cssWarnedFor || !looksLikeCss(words)) return;
-      cssWarnedFor = words;
+      if (words === checked) return;
+      checked = words;
+      if (!looksLikeCss(plainLines(words))) return;
+      const print = fingerprint(words);
+      if (storage?.get(CSS_WARNED_KEY, null) === print) return;
+      storage?.set(CSS_WARNED_KEY, print);
       log?.warn(CSS_WARNING);
       toast?.(CSS_WARNING, { tone: 'error' });
     };
