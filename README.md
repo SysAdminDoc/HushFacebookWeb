@@ -31,6 +31,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hide seen posts
 * Hide AI-detected posts
 * Hide sponsored reels
+* Don't send watch history
 * Hide sponsored search results
 * Hide sponsored Marketplace listings
 * View profile on Marketplace sellers

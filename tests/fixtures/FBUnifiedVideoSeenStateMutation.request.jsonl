@@ -1,0 +1,4 @@
+{"method":"POST","path":"/api/graphql/","friendly":"FBUnifiedVideoSeenStateMutation","doc_id":"812868985","variables":"{\"input\":{\"video_ids\":[\"397242102\"],\"actor_id\":\"636128881\",\"client_mutation_id\":\"1\"}}"}
+{"method":"POST","path":"/api/graphql/","friendly":"FBUnifiedVideoSeenStateMutation","doc_id":"812868985","variables":"{\"input\":{\"video_ids\":[\"424305710\"],\"actor_id\":\"636128881\",\"client_mutation_id\":\"2\"}}"}
+{"method":"POST","path":"/api/graphql/","friendly":"FBUnifiedVideoSeenStateMutation","doc_id":"812868985","variables":"{\"input\":{\"video_ids\":[\"148587254\"],\"actor_id\":\"636128881\",\"client_mutation_id\":\"3\"}}"}
+{"method":"POST","path":"/api/graphql/","friendly":"FBUnifiedVideoSeenStateMutation","doc_id":"812868985","variables":"{\"input\":{\"video_ids\":[\"897588206\"],\"actor_id\":\"636128881\",\"client_mutation_id\":\"4\"}}"}

@@ -27,6 +27,7 @@ import hidePostsByWords from './feed/filters.js';
 import hideSeenPosts from './feed/hide-seen-posts.js';
 import hideAiPosts from './feed/hide-ai-posts.js';
 import hideSponsoredReels from './reels/hide-sponsored-reels.js';
+import noWatchHistory from './reels/no-watch-history.js';
 import anonymousStories from './stories/anonymous-stories.js';
 import stopStoryAdvance from './stories/stop-advance.js';
 import hideSponsoredSearch from './search/hide-sponsored-search.js';
@@ -69,7 +70,7 @@ import customCss from './appearance/custom-css.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
-  hideSponsoredReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds,
+  hideSponsoredReels, noWatchHistory, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds,
   commentOrder, showAllReplies, hideCommentStickers, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
   keepSpeed, holdForSpeed, pictureInPicture, keepControls,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,

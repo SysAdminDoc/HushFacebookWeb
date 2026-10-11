@@ -78,7 +78,7 @@ What the status words mean:
 | Keep post dates | Needs research | The web shows relative times. A full date on every post is likely doable. |
 | Turn off auto-translation | Needs research | Showing the original text by default. |
 | Default playback quality | Needs research | Picking a quality in the web player. |
-| Don't send reel watch history | Needs research | Finding the request that reports watched reels. |
+| Don't send reel watch history | Tested | Don't send watch history holds back the one request that tells Facebook you watched a reel, which also goes out for a video played with sound. Over six reels and a long video none of them left the browser, and the reels and the video kept playing. Needs the script running in the page. |
 | Block ad telemetry | Needs research | What blocking Facebook's logging calls breaks. |
 | Hold back analytics uploads | Needs research | Same question for usage reports. |
 | Block background ad prefetch | Needs research | Whether the web app fetches ads ahead of time. |
