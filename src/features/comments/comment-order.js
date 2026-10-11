@@ -9,33 +9,33 @@
 
 import { normalizeText } from '../../core/dom/visible-text.js';
 import { createOrderTitles, DEFAULT_ORDER, ORDER_MARKERS, ORDERS } from './orders.js';
+import { dialogOpen } from './post-dialog.js';
 
 const MENU_WAIT = 2000;
 const STEP = 100;
 const SCAN_DELAY = 300;
 
 export function createOrderDriver({ doc, win = globalThis, titles, wanted, pageKey, log, onDone, menuWait = MENU_WAIT }) {
-  const doneDialogs = new WeakSet();
+  // A dialog is done for the address it showed, so one Facebook reuses for the next post or
+  // photo gets that one put in order too.
+  const doneDialogs = new WeakMap();
   const donePages = new Set();
   let busy = false;
   const sleep = (ms) => new Promise((resolve) => win.setTimeout(resolve, ms));
-
-  const isOrderButton = (button) => ORDERS.some((order) => normalizeText(button.textContent) === titles.title(order));
+  const here = () => doc.location?.href ?? '';
 
   // The comment section a button belongs to, or null when it's out of reach (the feed).
   function sectionOf(button) {
     const dialog = button.closest('[role="dialog"]');
-    if (dialog) return doneDialogs.has(dialog) ? null : { dialog };
-    // A post opened from its link shows in a dialog over Home (seen live 2026-10-11), and the
-    // feed's copy of it behind the dialog has comments of its own. Those are the feed's.
-    const shown = [...doc.querySelectorAll('[role="dialog"] [role="button"]')].some(isOrderButton);
+    if (dialog) return doneDialogs.get(dialog) === here() ? null : { dialog };
     const page = pageKey();
-    return page && !shown && !donePages.has(page) ? { page } : null;
+    return page && !dialogOpen(doc) && !donePages.has(page) ? { page } : null;
   }
 
-  async function menuAfter() {
+  // The menu this click opened: one that wasn't there before it.
+  async function menuAfter(before) {
     for (let waited = 0; waited <= menuWait; waited += STEP) {
-      const menu = [...doc.querySelectorAll('[role="menu"]')].find((m) => m.querySelector('[role="menuitem"]'));
+      const menu = [...doc.querySelectorAll('[role="menu"]')].find((m) => !before.has(m) && m.querySelector('[role="menuitem"]'));
       if (menu) return menu;
       await sleep(STEP);
     }
@@ -44,11 +44,12 @@ export function createOrderDriver({ doc, win = globalThis, titles, wanted, pageK
 
   async function drive(button, section, order) {
     busy = true;
-    if (section.dialog) doneDialogs.add(section.dialog);
+    if (section.dialog) doneDialogs.set(section.dialog, here());
     else donePages.add(section.page);
     try {
+      const before = new Set(doc.querySelectorAll('[role="menu"]'));
       button.click();
-      const menu = await menuAfter();
+      const menu = await menuAfter(before);
       const items = menu ? [...menu.querySelectorAll('[role="menuitem"]')] : [];
       const title = titles.title(order);
       const item = items.find((entry) => normalizeText(entry.textContent).startsWith(title))

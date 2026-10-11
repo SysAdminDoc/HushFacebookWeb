@@ -145,22 +145,67 @@ test("a post opened from its link over Home is done in its dialog, and the feed'
   assert.deepEqual(onPost.warnings, []);
 });
 
-test("a menu that doesn't open, or has no such order, is closed again and noted", async () => {
-  const win = page('<div role="dialog"><div role="button">Most relevant</div></div><div role="dialog"><div role="button">Most relevant</div></div>');
-  const doc = win.document;
-  const [first, second] = doc.querySelectorAll('[role="button"]');
+test("a menu that doesn't open is noted, and one without the order is closed again", async () => {
+  const quietPage = page('<div role="dialog"><div role="button">Most relevant</div></div>');
+  const quietButton = quietPage.document.querySelector('[role="button"]');
   let clicks = 0;
-  first.addEventListener('click', () => clicks++);
-  const quiet = driver(doc, { menuWait: 150 });
+  quietButton.addEventListener('click', () => clicks++);
+  const quiet = driver(quietPage.document, { menuWait: 150 });
   assert.equal(await quiet.drive.scan(), false);
   assert.equal(clicks, 1, "nothing to close when the menu didn't open");
   assert.equal(quiet.done.length, 0);
   assert.match(quiet.warnings[0], /Newest/);
-  const picked = orderMenu(doc, second, [['Most relevant', ''], ['Newest', '']]);
+
+  const shortPage = page('<div role="dialog"><div role="button">Most relevant</div></div>');
+  const doc = shortPage.document;
+  const button = doc.querySelector('[role="button"]');
+  let opened = 0;
+  button.addEventListener('click', () => opened++);
+  const picked = orderMenu(doc, button, [['Most relevant', ''], ['Newest', '']]);
   const short = driver(doc, { order: 'all', menuWait: 150 });
   assert.equal(await short.drive.scan(), false);
   assert.deepEqual(picked, []);
+  assert.equal(opened, 2, 'opened, then clicked again to close');
   assert.equal(doc.querySelector('[role="menu"]'), null, 'the menu was closed again');
+  assert.match(short.warnings[0], /All comments/);
+});
+
+test("another menu already open is never mistaken for the order menu", async () => {
+  const win = page(`<div role="menu"><div role="menuitem">Edit</div><div role="menuitem">Hide</div><div role="menuitem">Report</div></div>
+    <div role="dialog"><div role="button">Most relevant</div></div>`);
+  const doc = win.document;
+  const rows = [...doc.querySelectorAll('[role="menuitem"]')];
+  let wrong = 0;
+  for (const row of rows) row.addEventListener('click', () => wrong++);
+  const quiet = driver(doc, { order: 'all', menuWait: 150 });
+  assert.equal(await quiet.drive.scan(), false);
+  assert.equal(wrong, 0);
+  assert.equal(quiet.warnings.length, 1);
+});
+
+test("while a post's dialog is still drawing, the copy behind it is left alone", async () => {
+  // Only the dialog's Close button is there yet; the order button behind belongs to the feed.
+  const win = page('<div role="feed"><div role="button">Most relevant</div></div><div role="dialog"><div role="button" aria-label="Close"></div></div>');
+  const doc = win.document;
+  const behind = doc.querySelector('[role="feed"] [role="button"]');
+  let clicks = 0;
+  behind.addEventListener('click', () => clicks++);
+  assert.equal(await driver(doc, { page: 'https://www.facebook.com/Page/posts/pfbid0abc' }).drive.scan(), null);
+  assert.equal(clicks, 0);
+});
+
+test('a dialog Facebook reuses for the next post gets that post put in order too', async () => {
+  const win = page('<div role="dialog"><div role="button">Most relevant</div></div>', 'https://www.facebook.com/photo/?fbid=1');
+  const doc = win.document;
+  const button = doc.querySelector('[role="button"]');
+  const picked = orderMenu(doc, button, ENGLISH);
+  const { drive } = driver(doc);
+  assert.equal(await drive.scan(), true);
+  button.textContent = 'Most relevant';
+  assert.equal(await drive.scan(), null, 'same post, left as it is');
+  win.history.pushState({}, '', '/photo/?fbid=2');
+  assert.equal(await drive.scan(), true, 'next photo in the same dialog');
+  assert.deepEqual(picked, [1, 1]);
 });
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -172,6 +217,7 @@ test('every folded reply is opened, new ones too, and the rounds rest after five
     <div role="feed"><div role="button">View 2 replies</div></div>`);
   const doc = win.document;
   const clicked = [];
+  // Facebook swaps a reply button for the replies once they load.
   for (const button of doc.querySelectorAll('[role="button"]')) {
     button.addEventListener('click', () => {
       clicked.push(button.textContent);
@@ -179,9 +225,13 @@ test('every folded reply is opened, new ones too, and the rounds rest after five
         const more = doc.createElement('div');
         more.setAttribute('role', 'button');
         more.textContent = 'View 2 more replies';
-        more.addEventListener('click', () => clicked.push(more.textContent));
+        more.addEventListener('click', () => {
+          clicked.push(more.textContent);
+          more.remove();
+        });
         button.after(more);
       }
+      if (REPLY_BUTTON.test(button.textContent)) button.remove();
     });
   }
   const expander = createReplyExpander({ doc, win: globalThis, inPage: () => false, enabled: () => true, delay: 5 });
@@ -240,15 +290,57 @@ test('a button Facebook reuses for the next page of replies is clicked again, a 
   await wait(150);
   assert.equal(clicks, 5, 'five pages, then the button is left alone');
   expander.stop();
-  // Text that doesn't change means the click did nothing, so it isn't clicked again.
-  const still = page('<div role="dialog"><div role="button">View 4 replies</div></div>');
-  let stillClicks = 0;
-  still.document.querySelector('[role="button"]').addEventListener('click', () => stillClicks++);
+  // "View more replies" can keep its words while the next page loads: it's tried again a few
+  // rounds later, never in the very next round, and five times at most.
+  const still = page('<div role="dialog"><div role="button">View more replies</div></div>');
+  const times = [];
+  still.document.querySelector('[role="button"]').addEventListener('click', () => times.push(again.state().rounds));
   const again = createReplyExpander({ doc: still.document, win: globalThis, inPage: () => false, enabled: () => true, delay: 5 });
   again.wake();
-  await wait(80);
-  assert.equal(stillClicks, 1);
+  await wait(300);
+  assert.equal(times.length, 5);
+  assert.ok(times.every((round, i) => i === 0 || round - times[i - 1] >= 3), String(times));
   again.stop();
+  // A counted button that keeps its words may be a toggle, so it's never clicked twice.
+  const toggle = page('<div role="dialog"><div role="button">12 Replies</div></div>');
+  let toggles = 0;
+  toggle.document.querySelector('[role="button"]').addEventListener('click', () => toggles++);
+  const once = createReplyExpander({ doc: toggle.document, win: globalThis, inPage: () => false, enabled: () => true, delay: 5 });
+  once.wake();
+  await wait(120);
+  assert.equal(toggles, 1);
+  once.stop();
+});
+
+test('each post gets its own click budget, so later posts still open after a long visit', async () => {
+  const win = page('<div role="dialog" id="a"><div role="button">View 1 reply</div><div role="button">View 2 replies</div><div role="button">View 3 replies</div></div>');
+  const doc = win.document;
+  let clicks = 0;
+  const count = (root) => root.querySelectorAll('[role="button"]').forEach((b) => b.addEventListener('click', () => clicks++));
+  count(doc);
+  const expander = createReplyExpander({ doc, win: globalThis, inPage: () => false, enabled: () => true, delay: 5, maxClicks: 2 });
+  expander.wake();
+  await wait(80);
+  assert.equal(clicks, 2, 'this post hit its budget');
+  doc.getElementById('a').remove();
+  doc.body.insertAdjacentHTML('beforeend', '<div role="dialog"><div role="button">View 4 replies</div><div role="button">View 5 replies</div></div>');
+  count(doc.querySelector('[role="dialog"]'));
+  expander.wake();
+  await wait(80);
+  assert.equal(clicks, 4, 'the next post has a budget of its own');
+  expander.stop();
+});
+
+test("while a post's dialog is still drawing, the replies behind it stay folded", async () => {
+  const win = page('<div role="feed"><div role="button">View 3 replies</div></div><div role="dialog"><div role="button" aria-label="Close"></div></div>');
+  const doc = win.document;
+  let clicks = 0;
+  doc.querySelector('[role="feed"] [role="button"]').addEventListener('click', () => clicks++);
+  const expander = createReplyExpander({ doc, win: globalThis, inPage: () => true, enabled: () => true, delay: 5 });
+  expander.wake();
+  await wait(60);
+  assert.equal(clicks, 0);
+  expander.stop();
 });
 
 test('both switches start off and sit under Comments', () => {
