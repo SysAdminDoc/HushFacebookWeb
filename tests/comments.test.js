@@ -308,6 +308,23 @@ test('a reply button with no count, in any language, is tried again like View mo
   assert.ok(clicks >= 2 && clicks <= 5, `${clicks} clicks`);
 });
 
+// Persian, Arabic and Bengali write the count in their own digits. A counted button opens its
+// thread in one click, and a second would fold it back up.
+test('a reply count in any digits is a count, so the button is clicked once', async () => {
+  const digits = (zero, n) => String(n).replace(/\d/g, (d) => String.fromCodePoint(zero + Number(d)));
+  for (const words of [`${digits(0x6f0, 12)} پاسخ`, `عرض ${digits(0x660, 12)} ردًا`, `${digits(0x9e6, 12)}টি উত্তর দেখুন`]) {
+    const win = page(`<div role="dialog"><div>${arrowButton(words)}</div></div>`);
+    const doc = win.document;
+    let clicks = 0;
+    doc.querySelector('[role="button"]').addEventListener('click', () => clicks++);
+    const expander = createReplyExpander({ doc, win: globalThis, inPage: () => false, enabled: () => true, delay: 5, idleLimit: 20 });
+    expander.wake();
+    await wait(150);
+    expander.stop();
+    assert.equal(clicks, 1, words);
+  }
+});
+
 test('a button Facebook reuses for the next page of replies is clicked again, a few times at most', async () => {
   const win = page('<div role="dialog"><div role="button">View 9 replies</div></div>');
   const doc = win.document;

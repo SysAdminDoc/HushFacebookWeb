@@ -24,8 +24,9 @@ export const REPLY_ICON = 'M6.94 10.354';
 const PER_ROUND = 3;
 const PER_BUTTON = 5;
 const RETRY_ROUNDS = 3;
-// "View more replies" carries no count in any language, unlike "View 3 replies".
-const morePages = (text) => !/\d/.test(text);
+// "View more replies" carries no count in any language, unlike "View 3 replies". Counts can come
+// in a language's own digits (Persian, Arabic, Bengali), so any digit counts.
+const morePages = (text) => !/\p{Nd}/u.test(text);
 
 export function isReplyButton(button, text) {
   if (REPLY_BUTTON.test(text)) return true;
