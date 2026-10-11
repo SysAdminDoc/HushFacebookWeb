@@ -8,24 +8,27 @@
 // Show") drawn by the mark's ::before, which still gets a box, and a click on that line
 // brings the post back for the rest of the visit. Nothing is ever inserted into Facebook's
 // markup. A live scroll past 100 posts with every other one hidden kept paging.
+//
+// Blocks between posts that aren't posts (a row of reels) are hidden the same way, so the
+// rules apply to whatever holds a mark. Only hide() ever sets one.
 
 import { postIdOf } from './posts.js';
 
 export const MARK = 'data-hfw-hide';
 export const NOTE = 'data-hfw-note';
-const POST = ':is([aria-posinset], [role="article"])';
+const HOLDER = `:has(> [${MARK}])`;
 // ::before doesn't draw on these, so they can't carry the note. SVG tag names keep their
 // case in an HTML page.
 const REPLACED = new Set(['IMG', 'VIDEO', 'IFRAME', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'OBJECT', 'EMBED', 'svg', 'STYLE', 'SCRIPT', 'TEMPLATE', 'LINK', 'META']);
 
 export function hideCss({ notes }) {
-  if (!notes) return `${POST}:has(> [${MARK}]) { display: none !important; }`;
+  if (!notes) return `${HOLDER} { display: none !important; }`;
   return [
-    `${POST}:has(> [${MARK}]) > :not([${MARK}]) { display: none !important; }`,
-    `${POST} > [${MARK}] > * { display: none !important; }`,
+    `${HOLDER} > :not([${MARK}]) { display: none !important; }`,
+    `[${MARK}] > * { display: none !important; }`,
     // Loose text right inside the mark has no element to hide, so it shrinks to nothing.
-    `${POST} > [${MARK}] { font-size: 0 !important; }`,
-    `${POST} > [${MARK}]::before { content: attr(${NOTE}); display: block; padding: 10px 16px; font: 13px/1.4 system-ui, sans-serif; color: var(--secondary-text, #65676b); cursor: pointer; }`,
+    `[${MARK}] { font-size: 0 !important; }`,
+    `[${MARK}]::before { content: attr(${NOTE}); display: block; padding: 10px 16px; font: 13px/1.4 system-ui, sans-serif; color: var(--secondary-text, #65676b); cursor: pointer; }`,
   ].join('\n');
 }
 
@@ -38,6 +41,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   const countedIds = new Set();
   const countedElements = new WeakSet();
   const revealed = new WeakSet();
+  // Marks this hider set, so a click on anything else carrying the attribute passes through.
+  const marks = new WeakSet();
   const listeners = new Set();
   let watching = false;
 
@@ -88,9 +93,9 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
 
   function onClick(event) {
     const marker = event.target;
-    if (!marker?.hasAttribute?.(MARK) || !notesShown()) return;
+    if (!marker?.hasAttribute?.(MARK) || !marks.has(marker) || !notesShown()) return;
     const post = marker.parentElement;
-    if (!post?.matches(POST)) return;
+    if (!post) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     revealed.add(post);
@@ -110,6 +115,7 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       const label = detail ? `${reason}: ${detail}` : reason;
       marker.setAttribute(MARK, reason);
       marker.setAttribute(NOTE, `Hidden: ${label}. Show`);
+      marks.add(marker);
       if (count(element, reason)) notify();
       return true;
     },

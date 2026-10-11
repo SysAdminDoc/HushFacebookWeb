@@ -98,7 +98,7 @@ test('with notes the rules hide everything in the post except the note line', ()
   const marker = first.firstElementChild;
   assert.deepEqual([...win.document.querySelectorAll(siblings)], [first.querySelector('.footer')]);
   assert.deepEqual([...win.document.querySelectorAll(contents)], [...marker.children]);
-  assert.match(css, new RegExp(`> \\[${MARK}\\]::before \\{ content: attr\\(${NOTE}\\)`));
+  assert.match(css, new RegExp(`\\[${MARK}\\]::before \\{ content: attr\\(${NOTE}\\)`));
 });
 
 test('counts go up once per post, per reason, and tell subscribers', () => {
@@ -166,7 +166,21 @@ test('ordinary clicks inside posts pass through untouched', () => {
   assert.equal(hider.isHidden(hidden), true);
 });
 
-test('a marked node outside a post is not treated as a note', () => {
+test('a block between posts that is not a post hides and shows its note the same way', () => {
+  const win = page(feed(post(1), '<div class="row"><div class="shelf"><a href="/reel/1">r</a><a href="/reel/2">r</a></div></div>', post(2)));
+  const row = win.document.querySelector('.row');
+  const hider = createHider({ doc: win.document });
+  assert.equal(hider.hide(row, 'Reels'), true);
+  const [hidden] = selectorsOf(hideCss({ notes: false }));
+  assert.deepEqual([...win.document.querySelectorAll(hidden)], [row], 'only the marked block, no post');
+  const shelf = row.querySelector('.shelf');
+  const event = new win.MouseEvent('click', { bubbles: true, cancelable: true });
+  shelf.dispatchEvent(event);
+  assert.equal(event.defaultPrevented, true, 'a click on its note line brings it back');
+  assert.equal(shelf.hasAttribute(MARK), false);
+});
+
+test('a mark this hider did not set is not treated as a note', () => {
   const win = page(`<div><span ${MARK}="Sponsored">x</span></div>`);
   createHider({ doc: win.document });
   const span = win.document.querySelector('span');
@@ -342,6 +356,6 @@ test('an svg, style or template first child is refused too, since no note can dr
 
 test('note mode hides loose text inside the mark too', () => {
   const css = hideCss({ notes: true });
-  assert.ok(css.includes(`> [${MARK}] { font-size: 0 !important; }`));
+  assert.ok(css.includes(`[${MARK}] { font-size: 0 !important; }`));
   assert.ok(!hideCss({ notes: false }).includes('font-size'));
 });
