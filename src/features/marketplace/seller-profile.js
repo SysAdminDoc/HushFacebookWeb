@@ -48,8 +48,8 @@ export function isListing(href) {
 export const profileUrl = (id) => `/profile.php?id=${id}`;
 
 // Each seller's name link: the first profile link whose text is the label on another link to the
-// same seller, their picture. The picture link itself never counts, even when it carries the name
-// as hidden text too.
+// same seller, their picture. A link with a label of its own is a picture and never counts, even
+// when it carries the name as hidden text too (live, the name link has no label).
 export function nameLinks(root, base) {
   const byId = new Map();
   for (const link of root.querySelectorAll(PROFILE_LINKS)) {
@@ -62,6 +62,7 @@ export function nameLinks(root, base) {
   for (const [id, links] of byId) {
     const labels = links.map((link) => normalizeText(link.getAttribute('aria-label') ?? ''));
     const name = links.find((link, index) => {
+      if (labels[index]) return false;
       const text = normalizeText(link.textContent);
       return text && labels.some((label, other) => other !== index && label === text);
     });

@@ -132,6 +132,18 @@ test('a picture link that also carries the name as text gets no link of its own'
   assert.equal(added(doc)[0].previousElementSibling.getAttribute('aria-label'), null, 'after the name, not the picture');
 });
 
+test('two picture links that both carry the name as text never stand in for the name', () => {
+  const picture = (id) => `<div><a aria-label="Pat Example" href="/marketplace/profile/${id}/?__tn__=%3C" role="link"><span class="hidden">Pat Example</span><svg aria-hidden="true"></svg></a></div>`;
+  const id = '100000000000001';
+  const win = page(`<div role="dialog">${picture(id)}${picture(id)}</div>`);
+  const doc = win.document;
+  assert.deepEqual(nameLinks(doc, LISTING), []);
+  // With the real name link there too, that's the one.
+  doc.querySelector('[role="dialog"]').insertAdjacentHTML('beforeend', `<a href="/marketplace/profile/${id}/" role="link"><span>Pat Example</span></a>`);
+  const [found] = nameLinks(doc, LISTING);
+  assert.equal(found.link.getAttribute('aria-label'), null);
+});
+
 test('a page that keeps taking the link away gets it back only so many times', () => {
   const win = page();
   const doc = win.document;
