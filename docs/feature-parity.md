@@ -65,12 +65,12 @@ What the status words mean:
 | Hide the Feeds header | Planned | The filter row at the top of Feeds. |
 | Clean up Facebook's chat list | Planned | The notes row and promo banners in Chats. |
 | Block promotional notifications | Planned | Hides the kinds of notification you pick. |
-| Force dark mode | Planned | Keeps Facebook's dark mode on. |
-| AMOLED black theme | Planned | A pure black version of Facebook's dark mode. |
-| Accent color | Planned | Your own color in place of Facebook's blue. |
-| Use the system font | Planned | Your own font in place of Facebook's. |
-| Use the phone's emoji | Planned | Your system's emoji in place of Facebook's emoji images. |
-| Turn off screen transitions | Planned | Turns off Facebook's page animations. |
+| Force dark mode | Tested | Swaps the theme class Facebook puts on the page to its dark one and keeps it there, the same way Facebook switches itself. Switching it off brings back Facebook's own choice. Works in content mode. |
+| AMOLED black theme | Tested | Sets dark mode's page, card, top bar and side column colors to pure black, and bubbles, text boxes and menus to near black. Dark mode only, so it goes with Facebook's dark mode or Force dark mode. Works in content mode. |
+| Accent color | Tested | Seven colors or your own #RRGGBB for the accent, buttons, links, focus rings, switches and highlights, with Facebook's lighter and darker steps worked out for light and dark mode. Blue icons are tinted to the exact color by SVG filters in place of Facebook's filter chains. The logo, the Like reaction and the unseen story ring keep Facebook's colors. Works in content mode. |
+| Use the system font | Tested | Points Facebook's four font variables, and the page's own font, at your system's interface font or at an installed font you name. Code keeps its monospace font. Works in content mode. |
+| Use the phone's emoji | Tested | Called "Use your computer's emoji" on the web. Swaps the picture behind each of Facebook's emoji images for one drawn with your system's emoji font, keeping the image, its size and its alt text, so copying text still gives the emoji. Works in content mode. |
+| Turn off screen transitions | Tested | Every CSS transition and animation finishes at once (a near-zero length, so Facebook's end events still fire), except inside progress bars. Works in content mode. |
 | Hushfacebook in the Menu | Planned | A HushFacebook Web row in Facebook's account menu. |
 | Show View profile on Marketplace sellers | Planned | A link from a seller to their profile. |
 | Share sheet items | Planned | Hide share menu items you never use. |

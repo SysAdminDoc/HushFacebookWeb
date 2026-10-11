@@ -42,9 +42,16 @@ import downloadPhotos from './downloads/download-photos.js';
 import downloadVideos from './downloads/download-videos.js';
 import downloadReels from './downloads/download-reels.js';
 import downloadStories from './downloads/download-stories.js';
+import forceDarkMode from './appearance/force-dark.js';
+import amoledTheme from './appearance/amoled.js';
+import accentColor from './appearance/accent.js';
+import systemFont from './appearance/system-font.js';
+import systemEmoji from './appearance/system-emoji.js';
+import noTransitions from './appearance/no-transitions.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
   hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace, hideReadReceipts, hideTyping,
-  commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, followingFeed,
+  commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr,
+  forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, followingFeed,
 ];

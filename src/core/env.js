@@ -49,7 +49,7 @@ export function whenRootReady(fn, doc = globalThis.document) {
 }
 
 // Runs fn once the document has a body, or right away when it already does.
-export function whenBodyReady(fn) {
-  if (document.body) return fn();
-  document.addEventListener('DOMContentLoaded', () => fn(), { once: true });
+export function whenBodyReady(fn, doc = globalThis.document) {
+  if (doc.body) return fn();
+  doc.addEventListener('DOMContentLoaded', () => fn(), { once: true });
 }

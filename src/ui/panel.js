@@ -97,6 +97,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         return h('label', null, option.label,
           h('input', { type: 'number', value: String(value), min: option.min, max: option.max, dataset: { key }, onchange: (event) => apply(key, Number(event.target.value)) }));
       default:
+        // A short value, like a font name or a color, gets one line.
+        if (option.lines === 1) {
+          return h('label', null, option.label,
+            h('input', { type: 'text', value, maxLength: option.maxLength, spellcheck: 'false', dataset: { key }, onchange: (event) => apply(key, event.target.value.trim()) }));
+        }
         return h('label', null, option.label,
           h('textarea', { rows: 3, dataset: { key }, onchange: (event) => apply(key, event.target.value) }, value));
     }
