@@ -104,7 +104,8 @@ export function closeMenu(doc, row) {
   dialog.dispatchEvent(new Keyboard('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true, cancelable: true }));
 }
 
-export function createMenuEntry({ doc, enabled, openSettings, log, setTimer = setTimeout }) {
+// onFail: called once when the row can't be made, so the corner button comes back.
+export function createMenuEntry({ doc, enabled, openSettings, log, onFail, setTimer = setTimeout }) {
   let added = 0;
   let failed = false;
   let opener = null;
@@ -129,6 +130,7 @@ export function createMenuEntry({ doc, enabled, openSettings, log, setTimer = se
     if (result === 'no-row' && !failed) {
       failed = true;
       log?.warn("Settings in your account menu: Facebook's account menu has no row to copy, so the HushFacebook Web row isn't there.");
+      onFail?.();
     }
     watch(list.closest('[role="dialog"]'));
   }
@@ -187,9 +189,9 @@ export default {
     { key: 'hideButton', type: 'toggle', label: 'Hide the round settings button in the corner', default: false },
   ],
 
-  setup({ doc, settings, enabled, log, diagnostics, openSettings }) {
+  setup({ doc, settings, enabled, log, diagnostics, openSettings, markUnavailable }) {
     if (!doc) return;
-    const entry = createMenuEntry({ doc, enabled, openSettings: () => openSettings?.(), log });
+    const entry = createMenuEntry({ doc, enabled, openSettings: () => openSettings?.(), log, onFail: () => markUnavailable?.() });
     whenBodyReady(() => entry.apply(), doc);
     settings?.subscribe(() => entry.apply());
     diagnostics?.add('Account menu row', () => {

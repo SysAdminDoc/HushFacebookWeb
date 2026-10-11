@@ -64,12 +64,13 @@ function openMenu(doc, html = ACCOUNT_MENU) {
 }
 
 function entryFor(doc, { on = true } = {}) {
-  const state = { on, opened: 0, timers: [], warnings: [] };
+  const state = { on, opened: 0, timers: [], warnings: [], failures: 0 };
   const entry = createMenuEntry({
     doc,
     enabled: () => state.on,
     openSettings: () => { state.opened += 1; },
     log: { warn: (message) => state.warnings.push(message) },
+    onFail: () => { state.failures += 1; },
     setTimer: (fn) => state.timers.push(fn),
   });
   state.flush = () => { for (const fn of state.timers.splice(0)) fn(); };
@@ -232,6 +233,7 @@ test('a menu with no row to copy is reported once, in the log and Diagnostics', 
   assert.equal(state.warnings.length, 1);
   assert.match(state.warnings[0], /no row to copy/);
   assert.deepEqual(entry.state(), { added: 0, failed: true });
+  assert.equal(state.failures, 1, 'the corner button is told to come back, once');
 });
 
 test('the feature is in the Menu section, on by default, with the corner button left alone', () => {

@@ -72,6 +72,11 @@ function boot() {
         log,
         toast,
         openSettings: (section) => whenBodyReady(() => panel?.open(section)),
+        // A feature that stops working after setup says so, the same as one that couldn't start.
+        markUnavailable: () => {
+          unavailable.add(feature.id);
+          panel?.refresh();
+        },
         settings,
         enabled: () => settings.enabled(feature.id),
         option: (key) => settings.get(`${feature.id}.${key}`),

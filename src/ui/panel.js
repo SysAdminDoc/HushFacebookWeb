@@ -220,7 +220,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const paused = settings.get('paused') === true;
     power.checked = !paused;
     pauseState.textContent = paused ? 'Paused' : 'On';
-    // Settings in your account menu can stand in for the button, unless it couldn't start.
+    // Settings in your account menu can stand in for the button, unless it couldn't start or
+    // stopped working.
     const inMenu = hasMenuEntry && settings.enabled('menuEntry') && settings.get('menuEntry.hideButton') === true && !unavailable.has('menuEntry');
     launcher.hidden = settings.get('ui.launcher') !== true || inMenu;
   }
@@ -319,5 +320,5 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   if (earlier) announceError(earlier);
 
   refreshChrome();
-  return { open, close, toast };
+  return { open, close, toast, refresh: refreshChrome };
 }

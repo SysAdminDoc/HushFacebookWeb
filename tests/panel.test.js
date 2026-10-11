@@ -35,7 +35,7 @@ function lendGlobals(win) {
   });
 }
 
-function setup({ features = [], actions = null } = {}) {
+function setup({ features = [], actions = null, unavailable = new Set() } = {}) {
   const win = new Window({ url: 'https://www.facebook.com/' });
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
@@ -53,10 +53,10 @@ function setup({ features = [], actions = null } = {}) {
   const hider = createHider({ doc: win.document, log });
   const diagnostics = createDiagnostics();
   const panel = mountPanel({
-    settings, features, log, hider, diagnostics, actions, unavailable: new Set(),
+    settings, features, log, hider, diagnostics, actions, unavailable,
     environment: { version: '0.0.1', manager: 'Tampermonkey', managerVersion: '5.4.1', mode: 'page', pageAccess: 'page' },
   });
-  return { win, shadow, panel, settings, hider, diagnostics, copied, post: win.document.querySelector('[aria-posinset]') };
+  return { win, shadow, panel, settings, hider, diagnostics, copied, unavailable, post: win.document.querySelector('[aria-posinset]') };
 }
 
 const tick = () => new Promise((resolve) => nodeSetTimeout(resolve, 5));
@@ -149,6 +149,16 @@ test('the corner button hides when Settings in your account menu stands in for i
   settings.set('menuEntry.hideButton', false);
   settings.set('ui.launcher', false);
   assert.equal(launcher.hidden, true);
+});
+
+test('the corner button comes back when the menu row stops working', () => {
+  const { shadow, settings, panel, unavailable } = setup({ features: [menuEntry] });
+  const launcher = shadow.querySelector('.launcher');
+  settings.set('menuEntry.hideButton', true);
+  assert.equal(launcher.hidden, true);
+  unavailable.add('menuEntry');
+  panel.refresh();
+  assert.equal(launcher.hidden, false);
 });
 
 test("no page rule can hide the panel, and a long text box stops at its setting's limit", () => {
