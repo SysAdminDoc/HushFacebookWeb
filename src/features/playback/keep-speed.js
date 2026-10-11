@@ -38,11 +38,20 @@ export function createSpeedKeeper({ doc, win, storage, enabled, now = () => Date
   }
 
   // A live broadcast plays at the speed it's sent.
-  const skip = (video) => !isVideo(video) || !enabled() || inStories() || video[HOLDING] || video.duration === Number.POSITIVE_INFINITY;
+  const isLive = (video) => video.duration === Number.POSITIVE_INFINITY;
+  const skip = (video) => !isVideo(video) || !enabled() || inStories() || video[HOLDING] || isLive(video);
 
   function onStart(event) {
-    if (skip(event.target)) return;
-    give(event.target);
+    const video = event.target;
+    // Played before its length was known, then found to be live: the speed the script gave it
+    // comes off again.
+    if (isVideo(video) && isLive(video) && ours.has(video)) {
+      if (video.playbackRate === ours.get(video)) video.playbackRate = 1;
+      ours.delete(video);
+      return;
+    }
+    if (skip(video)) return;
+    give(video);
   }
 
   function onRate(event) {
@@ -74,6 +83,7 @@ export function createSpeedKeeper({ doc, win, storage, enabled, now = () => Date
       // Media events don't bubble, but they do pass the document on their way in.
       doc.addEventListener('play', onStart, true);
       doc.addEventListener('loadedmetadata', onStart, true);
+      doc.addEventListener('durationchange', onStart, true);
       doc.addEventListener('ratechange', onRate, true);
     },
     kept,

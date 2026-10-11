@@ -55,6 +55,12 @@ function fakeVideo(win, { time = 5, duration = 40, paused = false, parent } = {}
     start() { video.dispatchEvent(new win.Event('play')); },
     at(seconds) { clock = seconds; },
     pause() { still = true; },
+    // The length arriving after play, as when Facebook plays a video before its metadata loads.
+    meta(seconds) {
+      duration = seconds;
+      video.dispatchEvent(new win.Event('durationchange'));
+      video.dispatchEvent(new win.Event('loadedmetadata'));
+    },
   };
 }
 
@@ -157,6 +163,31 @@ test('a live broadcast keeps the speed it is sent at', () => {
   input();
   live.video.playbackRate = 1.25;
   assert.equal(storage.get(SPEED_KEY), 1.5, 'not a pick either');
+});
+
+test('a broadcast played before its length is known goes back to normal speed when it turns out live', () => {
+  const storage = createMemoryStorage({ [SPEED_KEY]: 1.5 });
+  const win = page(`${FB}/watch/live/?v=1234567890`);
+  const { input } = speedKeeper(win, storage);
+  const live = fakeVideo(win, { duration: Number.NaN });
+  live.start();
+  assert.equal(live.video.playbackRate, 1.5, 'nothing says it is live yet');
+  live.meta(Number.POSITIVE_INFINITY);
+  assert.equal(live.video.playbackRate, 1);
+  input();
+  live.video.playbackRate = 1.25;
+  assert.equal(storage.get(SPEED_KEY), 1.5);
+  // A video that turns out to have a length keeps the speed.
+  const clip = fakeVideo(win, { duration: Number.NaN });
+  clip.start();
+  clip.meta(40);
+  assert.equal(clip.video.playbackRate, 1.5);
+  // A live broadcast you sped up by hand is left as you set it.
+  const other = fakeVideo(win, { duration: Number.POSITIVE_INFINITY });
+  other.start();
+  other.video.playbackRate = 2;
+  other.meta(Number.POSITIVE_INFINITY);
+  assert.equal(other.video.playbackRate, 2);
 });
 
 test('the feature shows the kept speed and can go back to normal', () => {
@@ -335,6 +366,14 @@ test('a video about as long as the volume scale goes takes the slider that follo
   const lost = page(undefined, player(80).replace('aria-valuenow="31"', 'aria-valuenow="70"'));
   const other = fakeVideo(lost, { time: 31.4, duration: 100.3, parent: lost.document.querySelector('.slot') });
   assert.equal(positionSlider(other.video), null);
+  // A muted video just starting: the volume slider at 0 and the position at 0 both follow it,
+  // so neither is taken until the position moves on.
+  const start = page(undefined, player(0).replace('aria-valuenow="31"', 'aria-valuenow="0"'));
+  const muted = fakeVideo(start, { time: 0.4, duration: 100.3, parent: start.document.querySelector('.slot') });
+  assert.equal(positionSlider(muted.video), null);
+  start.document.querySelector('[aria-label="Change Position"]').setAttribute('aria-valuenow', '5');
+  muted.at(5.2);
+  assert.equal(positionSlider(muted.video).getAttribute('aria-label'), 'Change Position');
 });
 
 test('the faded controls are kept on screen, and only them', () => {

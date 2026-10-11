@@ -17,7 +17,9 @@ const TRACKS = 2; // seconds between a slider's value and the video's time for i
 
 // The position slider that belongs to a video: inside the nearest box around the video that has
 // one, with the video's length as its largest value. A video about 100 seconds long can match a
-// volume slider too, and then only a slider whose value follows the video's time counts.
+// volume slider too, and then only a slider whose value follows the video's time counts. In the
+// first seconds of a muted video a volume at 0 follows it as well, so none is taken until only
+// one does.
 export function positionSlider(video) {
   const length = Math.round(video.duration);
   if (!Number.isFinite(length) || length <= 0) return null;
@@ -27,7 +29,8 @@ export function positionSlider(video) {
     if (!sliders.length) continue;
     const fits = sliders.filter((slider) => Math.abs(Number(slider.getAttribute('aria-valuemax')) - length) <= 1);
     if (fits.length <= 1) return fits[0] ?? null;
-    return fits.find((slider) => Math.abs(Number(slider.getAttribute('aria-valuenow') ?? Number.NaN) - video.currentTime) <= TRACKS) ?? null;
+    const tracking = fits.filter((slider) => Math.abs(Number(slider.getAttribute('aria-valuenow') ?? Number.NaN) - video.currentTime) <= TRACKS);
+    return tracking.length === 1 ? tracking[0] : null;
   }
   return null;
 }
