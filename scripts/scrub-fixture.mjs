@@ -72,14 +72,15 @@ if (flag('html')) {
 } else if (flag('request')) {
   const friendly = option('friendly');
   lines = raw
-    .split(/\r?\n/)
+    .split(/\r*\n/)
     .filter(Boolean)
     .map((line) => JSON.parse(line))
     .filter((record) => record.friendly === friendly)
     .map(({ method, path, friendly: name, doc_id, variables }) => JSON.stringify(scrubValue({ method, path, friendly: name, doc_id, variables })));
 } else {
-  // Captures written on Windows end lines with CRLF; fixtures are LF only.
-  const all = raw.split(/\r?\n/).filter((line) => line !== '');
+  // Captures written on Windows end lines with CRLF, or CR CR LF when Python's text mode
+  // wrote lines that already ended in CRLF. Fixtures are LF only.
+  const all = raw.split(/\r*\n/).filter((line) => line !== '');
   const picked = option('lines') === undefined ? all : list(option('lines')).map((i) => all[i]);
   lines = picked.map((line) => scrubLine(line, { trims }));
 }
