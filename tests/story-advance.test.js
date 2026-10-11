@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
-import stopStoryAdvance, { END_MARGIN, createStoryHold, inStoryViewer } from '../src/features/stories/stop-advance.js';
+import stopStoryAdvance, { END_MARGIN, asksToPlay, createStoryHold, inStoryViewer } from '../src/features/stories/stop-advance.js';
 
 const STORY = 'https://www.facebook.com/stories/100000000000001/UzpfSVNDOjE1NzUzNTE3ODcyMTk0NDg=/';
 const windows = [];
@@ -60,8 +60,22 @@ function hold(win, { on = () => true, mode = () => 'hold', viewer = () => inStor
   return keeper;
 }
 
-// The viewer clicking, as a real click would reach the window first.
-const press = (win) => win.dispatchEvent(new win.Event('pointerdown'));
+// The viewer clicking the card's Play button (on its icon, as a real click lands), or another
+// element when one is given.
+function press(win, target) {
+  const doc = win.document;
+  let button = doc.querySelector('[data-test-play]');
+  if (!button) {
+    button = doc.createElement('div');
+    button.setAttribute('role', 'button');
+    button.setAttribute('aria-label', 'Play');
+    button.setAttribute('data-test-play', '');
+    button.innerHTML = '<svg viewBox="0 0 16 16"><path d="M4 2v12l10-6z"></path></svg>';
+    doc.body.append(button);
+  }
+  (target ?? button.querySelector('path')).dispatchEvent(new win.Event('pointerdown', { bubbles: true }));
+}
+const key = (win, name, target = win.document.body) => target.dispatchEvent(new win.KeyboardEvent('keydown', { key: name, bubbles: true }));
 
 test('a video story is paused just before it ends, once', () => {
   const win = page();
@@ -120,6 +134,52 @@ test("Facebook playing a held story by itself doesn't let it go, a click does", 
   card.video.play();
   card.at(18.3);
   assert.equal(card.video.paused, false);
+});
+
+// Facebook pauses a story while you write a reply or have a menu open, and plays it again when
+// you leave, with your click just before that play.
+test("leaving the reply box or a menu doesn't let a held story go, the Play button and Space do", () => {
+  const win = page();
+  const doc = win.document;
+  hold(win);
+  const card = storyVideo(win);
+  card.at(18.1);
+  assert.equal(card.video.paused, true);
+  const reply = doc.createElement('div');
+  reply.innerHTML = '<div role="textbox" contenteditable="true"><p>hi</p></div><div role="menu"><div role="menuitem"><span>Mute</span></div></div><div class="outside"></div>';
+  doc.body.append(reply);
+  for (const target of [reply.querySelector('p'), reply.querySelector('span'), reply.querySelector('.outside')]) {
+    press(win, target);
+    card.video.play();
+    card.at(18.2);
+    assert.equal(card.video.paused, true, `held after a click on ${target.tagName}`);
+  }
+  key(win, ' ', reply.querySelector('p'));
+  card.video.play();
+  card.at(18.2);
+  assert.equal(card.video.paused, true, 'a space typed in the reply');
+  key(win, 'Escape');
+  card.video.play();
+  card.at(18.2);
+  assert.equal(card.video.paused, true, 'closing a menu with Escape');
+  key(win, ' ');
+  card.video.play();
+  card.at(18.3);
+  assert.equal(card.video.paused, false, 'Space on the story plays it');
+});
+
+test('a play key or button click followed by another click no longer counts', () => {
+  const win = page();
+  hold(win);
+  const card = storyVideo(win);
+  card.at(18.1);
+  press(win);
+  press(win, win.document.body);
+  card.video.play();
+  card.at(18.2);
+  assert.equal(card.video.paused, true);
+  assert.equal(asksToPlay({ type: 'keydown', key: 'k', target: win.document.body }), true);
+  assert.equal(asksToPlay({ type: 'pointerdown', target: null }), false);
 });
 
 test('a story paused by hand right at its end goes on with one Play', () => {

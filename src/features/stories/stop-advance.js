@@ -7,9 +7,10 @@
 // on by themselves.
 //
 // Playing a held card again lets it finish and move on, and the Next arrow works as always. A
-// play only counts as that when it comes right after a click or a key press, so Facebook
-// starting the video again by itself doesn't let the card go. It only touches the video
-// element, so it works in content mode too.
+// play only counts as that when it comes right after a click on a button or a play key, so
+// Facebook starting the video again by itself doesn't let the card go, and neither does it
+// starting the video when you leave the reply box or a menu. It only touches the video element,
+// so it works in content mode too.
 
 export const END_MARGIN = 0.5; // seconds before the end
 const SHORTEST = 1; // seconds; anything shorter is left alone
@@ -17,6 +18,24 @@ export const INPUT_WINDOW = 1500; // ms after a click or key press that a play c
 
 const isVideo = (node) => node?.tagName === 'VIDEO';
 const sameCard = (video, mark) => mark && mark.src === video.currentSrc && mark.duration === video.duration;
+
+// Typing a reply, or picking from a menu, isn't asking the story to play.
+const WRITING = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+const MENU = '[role="menu"], [role="menuitem"], [role="menuitemradio"], [role="listbox"], [role="option"]';
+const PLAY_KEYS = new Set([' ', 'k', 'K', 'Enter']);
+
+// A click on a button (Play, or the card's own controls) or a play key, outside a text field
+// and a menu. Clicking into the reply box, or away from it, doesn't count.
+export function asksToPlay(event) {
+  const start = event.composedPath?.()[0] ?? event.target;
+  const element = typeof start?.closest === 'function' ? start : start?.parentElement ?? null;
+  if (event.type === 'keydown') {
+    if (!PLAY_KEYS.has(event.key)) return false;
+    return !element?.closest?.(WRITING) && !element?.closest?.(MENU);
+  }
+  if (!element || element.closest(WRITING) || element.closest(MENU)) return false;
+  return Boolean(element.closest('button, [role="button"]'));
+}
 
 export function createStoryHold({ doc, win = doc.defaultView, enabled, mode, inViewer, onChange, trusted = (event) => event.isTrusted, now = () => Date.now() }) {
   const held = new WeakMap(); // video -> the card it was held on
@@ -48,7 +67,8 @@ export function createStoryHold({ doc, win = doc.defaultView, enabled, mode, inV
   }
 
   // A play on a card the script held is the viewer's choice to go on, and so is a play right at
-  // the end of a card they paused there by hand, when a click or key press came just before it.
+  // the end of a card they paused there by hand, when a button click or play key came just
+  // before it.
   // A play anywhere else (a card starting, or the same card seen again later) means the end
   // gets held again.
   function onPlay(event) {
@@ -63,8 +83,10 @@ export function createStoryHold({ doc, win = doc.defaultView, enabled, mode, inV
     }
   }
 
+  // Any other click or key ends the window, so a play after it isn't counted.
   const onInput = (event) => {
-    if (trusted(event)) lastInput = now();
+    if (!trusted(event)) return;
+    lastInput = asksToPlay(event) ? now() : Number.NEGATIVE_INFINITY;
   };
   const listen = { capture: true, passive: true };
 
