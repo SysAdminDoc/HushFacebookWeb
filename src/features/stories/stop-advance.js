@@ -42,12 +42,19 @@ export function createStoryHold({ doc, enabled, mode, inViewer, onChange }) {
     onChange?.();
   }
 
-  // A play on a card the script held is the viewer's choice to go on.
+  // A play on a card the script held is the viewer's choice to go on, and so is a play right at
+  // the end of a card they paused there by hand. A play anywhere else (a card starting, or the
+  // same card seen again later) means the end gets held again.
   function onPlay(event) {
     const video = event.target;
-    if (!isVideo(video) || !sameCard(video, held.get(video))) return;
-    held.delete(video);
-    released.set(video, cardOf(video));
+    if (!isVideo(video)) return;
+    const atEnd = Number.isFinite(video.duration) && video.currentTime >= video.duration - END_MARGIN;
+    if (sameCard(video, held.get(video)) || atEnd) {
+      held.delete(video);
+      released.set(video, cardOf(video));
+    } else {
+      released.delete(video);
+    }
   }
 
   return {

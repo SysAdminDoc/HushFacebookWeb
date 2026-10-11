@@ -102,6 +102,34 @@ test("Facebook's own play at the start of a card doesn't count as going on", () 
   assert.equal(card.video.paused, true);
 });
 
+test('a story paused by hand right at its end goes on with one Play', () => {
+  const win = page();
+  const keeper = hold(win);
+  const card = storyVideo(win);
+  card.at(17.9);
+  card.video.pause();
+  card.at(18.1);
+  card.video.play();
+  card.at(18.3);
+  assert.equal(card.video.paused, false);
+  assert.equal(keeper.state().holds, 0);
+});
+
+test('the same card seen again from the start is held again', () => {
+  const win = page();
+  const keeper = hold(win);
+  const card = storyVideo(win);
+  card.at(18.1);
+  card.video.play();
+  card.at(18.4);
+  // Back to that card later, on the same element.
+  card.nextCard('blob:https://www.facebook.com/card-1', 18.5);
+  card.video.play();
+  card.at(18.2);
+  assert.equal(card.video.paused, true);
+  assert.equal(keeper.state().holds, 2);
+});
+
 test('Play it again sends the story back to the start instead', () => {
   const win = page();
   const keeper = hold(win, { mode: () => 'replay' });
