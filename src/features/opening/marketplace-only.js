@@ -15,13 +15,33 @@ import { claimHomeRedirect } from './start.js';
 
 export const MARKETPLACE = '/marketplace/';
 const MARKETPLACE_LINKS = ['[role="banner"] a[href="/marketplace/"]', ...HOSTS.map((host) => `[role="navigation"] a[href^="${host}/marketplace/"]`)].join(', ');
+// Set on <html> once the script stops sending Home away (see mayRedirect).
+export const LOOP_MARK = 'data-hfw-marketplace-loop';
+const GUARD_KEY = 'hfw:marketplaceOnlyRedirects';
+const GUARD_MS = 15000;
+const MAX_REDIRECTS = 4;
 
 const OTHER_TABS = ['a[href="/"]', ...TAB_ROWS.filter((row) => row.option !== 'marketplace').map((row) => row.link)].join(', ');
 // The feed stays out of sight for the moment it takes to leave Home.
 export const MARKETPLACE_ONLY_CSS = [
   hide([place.tab(OTHER_TABS), FIND_FRIENDS].join(',\n')),
-  'html[data-hfw-route="home"] [role="main"] { visibility: hidden !important; }',
+  `html[data-hfw-route="home"]:not([${LOOP_MARK}]) [role="main"] { visibility: hidden !important; }`,
 ].join('\n');
+
+// False once this tab has been sent to Marketplace several times in a few seconds, which means
+// Marketplace keeps sending it back to Home (an account Marketplace isn't open to) and going
+// again would loop. Without session storage there's no count to keep, so it always goes.
+export function mayRedirect(win, now = Date.now()) {
+  try {
+    const [start, count] = (win.sessionStorage.getItem(GUARD_KEY) ?? '').split(':').map(Number);
+    const fresh = !(now - start < GUARD_MS);
+    const next = fresh ? 1 : count + 1;
+    win.sessionStorage.setItem(GUARD_KEY, `${fresh ? now : start}:${next}`);
+    return next <= MAX_REDIRECTS;
+  } catch {
+    return true;
+  }
+}
 
 const isHome = (href) => {
   try {
@@ -48,16 +68,28 @@ export default {
   default: false,
   css: MARKETPLACE_ONLY_CSS,
 
-  setup({ win, router, enabled }) {
-    if (enabled() && isHome(win.location.href) && claimHomeRedirect(win, 'marketplaceOnly')) {
-      win.location.replace(MARKETPLACE);
-    }
+  setup({ win, router, enabled, log }) {
+    const leaveHome = () => {
+      if (mayRedirect(win)) {
+        win.location.replace(MARKETPLACE);
+        return;
+      }
+      const root = win.document?.documentElement;
+      if (!root || root.hasAttribute(LOOP_MARK)) return;
+      root.setAttribute(LOOP_MARK, '');
+      log?.warn('Marketplace only stopped sending Home to Marketplace, because Marketplace keeps sending this tab back. It may not be open to this account.');
+    };
 
-    // Before Following feed's own Home click handler, which it keeps from running.
+    if (enabled() && isHome(win.location.href) && claimHomeRedirect(win, 'marketplaceOnly')) leaveHome();
+
+    // Before Following feed's own Home click handler, which it keeps from running. A link meant
+    // for a new tab or window opens there, and that page's own load goes to Marketplace.
     win.addEventListener('click', (event) => {
       if (!enabled() || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
       const anchor = event.composedPath().find((node) => node?.tagName === 'A' && node.hasAttribute?.('href'));
       if (!anchor || !isHome(anchor.href)) return;
+      const target = anchor.getAttribute('target');
+      if ((target && target !== '_self') || anchor.hasAttribute('download')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       goToMarketplace(win);
@@ -66,7 +98,7 @@ export default {
     // Facebook moving to Home by itself, or Back to a Home page. Replaced, so Back doesn't land
     // on Home again and bounce.
     router?.subscribe((route) => {
-      if (enabled() && route.type === 'home') win.location.replace(MARKETPLACE);
+      if (enabled() && route.type === 'home') leaveHome();
     });
   },
 };

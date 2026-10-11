@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
 import followingFeed from '../src/features/opening/following-feed.js';
-import marketplaceOnly, { MARKETPLACE_ONLY_CSS } from '../src/features/opening/marketplace-only.js';
+import marketplaceOnly, { LOOP_MARK, MARKETPLACE_ONLY_CSS, mayRedirect } from '../src/features/opening/marketplace-only.js';
 import openOnTab, { TABS, startPath } from '../src/features/opening/open-on-tab.js';
 import { claimHomeRedirect, homeRedirectClaim, isPlainHome, isVisitStart } from '../src/features/opening/start.js';
 
@@ -177,7 +177,42 @@ test('the top bar keeps the logo and Marketplace, and the other tabs and Find fr
   const selectors = rule.slice(0, rule.lastIndexOf(' { display: none !important; }'));
   const hidden = [...win.document.querySelectorAll(selectors)].map((el) => el.dataset.row).sort();
   assert.deepEqual(hidden, ['find-friends', 'tab:Friends', 'tab:Gaming', 'tab:Groups', 'tab:Home', 'tab:Video']);
-  assert.match(MARKETPLACE_ONLY_CSS, /html\[data-hfw-route="home"\] \[role="main"\] \{ visibility: hidden !important; \}/);
+  assert.match(MARKETPLACE_ONLY_CSS, /html\[data-hfw-route="home"\]:not\(\[data-hfw-marketplace-loop\]\) \[role="main"\] \{ visibility: hidden !important; \}/);
+});
+
+test('Marketplace only stops sending Home away when Marketplace keeps sending the tab back', () => {
+  const store = new Map([['hfw:started', '1']]);
+  const warnings = [];
+  const loads = [];
+  for (let i = 0; i < 6; i++) {
+    const happy = new Window({ url: `${FB}/` });
+    windows.push(happy);
+    const win = { ...fakeWin('/', { store }), document: happy.document };
+    marketplaceOnly.setup({ win, router: null, enabled: () => true, log: { warn: (message) => warnings.push(message) } });
+    loads.push([win.sent.length, happy.document.documentElement.hasAttribute(LOOP_MARK)]);
+  }
+  assert.deepEqual(loads, [[1, false], [1, false], [1, false], [1, false], [0, true], [0, true]]);
+  assert.equal(warnings.length, 2, 'once per page');
+  // The count starts over after a quiet spell.
+  assert.equal(mayRedirect({ sessionStorage: fakeWin('/', { store }).sessionStorage }, Date.now() + 20000), true);
+});
+
+test('Marketplace only stops following Facebook back to Home in a loop, and warns once', () => {
+  const happy = new Window({ url: `${FB}/marketplace/` });
+  windows.push(happy);
+  const win = { ...fakeWin('/marketplace/'), document: happy.document };
+  const router = { listeners: [], subscribe(fn) { this.listeners.push(fn); } };
+  const warnings = [];
+  marketplaceOnly.setup({ win, router, enabled: () => true, log: { warn: (message) => warnings.push(message) } });
+  for (let i = 0; i < 7; i++) router.listeners[0]({ type: 'home' });
+  assert.equal(win.sent.length, 4);
+  assert.equal(warnings.length, 1);
+  assert.ok(happy.document.documentElement.hasAttribute(LOOP_MARK), 'the feed shows instead of a blank page');
+});
+
+test('without session storage, Marketplace only always goes', () => {
+  const win = fakeWin('/', { storage: false });
+  for (let i = 0; i < 6; i++) assert.equal(mayRedirect(win), true);
 });
 
 test('a click on the logo or Home goes to Marketplace in the page, or by address without a Marketplace link', () => {
@@ -218,6 +253,16 @@ test('a click on the logo or Home goes to Marketplace in the page, or by address
   reached.length = 0;
   click(doc.querySelector('[aria-label="Home"]'), { ctrlKey: true });
   assert.deepEqual(reached, [{ label: 'Home', prevented: false }]);
+  // So does a link made to open in a new tab.
+  reached.length = 0;
+  const newTab = doc.createElement('a');
+  newTab.setAttribute('href', '/');
+  newTab.setAttribute('target', '_blank');
+  newTab.dataset.row = 'new-tab';
+  doc.body.append(newTab);
+  click(newTab);
+  assert.deepEqual(reached, [{ label: 'new-tab', prevented: false }]);
+  assert.deepEqual(sent, []);
   // Without a Marketplace link to click, the address does it.
   const bare = page('<div role="banner"><a aria-label="Facebook" href="/">f</a></div>');
   bare.click(bare.doc.querySelector('a'));
