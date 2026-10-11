@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
 import followingFeed from '../src/features/opening/following-feed.js';
-import marketplaceOnly, { LOOP_MARK, MARKETPLACE_ONLY_CSS, mayRedirect } from '../src/features/opening/marketplace-only.js';
+import marketplaceOnly, { BOUNCE_MS, LOOP_MARK, MARKETPLACE_ONLY_CSS, STOP_MS, mayRedirect } from '../src/features/opening/marketplace-only.js';
 import openOnTab, { TABS, startPath } from '../src/features/opening/open-on-tab.js';
 import { claimHomeRedirect, homeRedirectClaim, isPlainHome, isVisitStart } from '../src/features/opening/start.js';
 
@@ -27,8 +27,8 @@ function fakeWin(path, { store = new Map(), navigation = 'navigate', storage = t
     store,
     location: { href: `${FB}${path}`, replace: (to) => sent.push(['replace', to]), assign: (to) => sent.push(['assign', to]) },
     sessionStorage: storage
-      ? { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, String(value)) }
-      : { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } },
+      ? { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, String(value)), removeItem: (key) => store.delete(key) }
+      : { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); } },
     performance: { getEntriesByType: () => [{ type: navigation }] },
     addEventListener() {},
   };
@@ -193,8 +193,66 @@ test('Marketplace only stops sending Home away when Marketplace keeps sending th
   }
   assert.deepEqual(loads, [[1, false], [1, false], [1, false], [1, false], [0, true], [0, true]]);
   assert.equal(warnings.length, 2, 'once per page');
-  // The count starts over after a quiet spell.
-  assert.equal(mayRedirect({ sessionStorage: fakeWin('/', { store }).sessionStorage }, Date.now() + 20000), true);
+  // It tries again once the pause is over.
+  const later = { sessionStorage: fakeWin('/', { store }).sessionStorage };
+  assert.equal(mayRedirect(later, Date.now() + STOP_MS - 1000), false);
+  assert.equal(mayRedirect(later, Date.now() + STOP_MS + 1000), true);
+});
+
+test('a slow loop still stops, and a Home visit long after the last send starts the count over', () => {
+  const win = fakeWin('/');
+  const start = 1_000_000;
+  // Marketplace taking 20 seconds to send the tab back each time.
+  const rounds = Array.from({ length: 7 }, (_, i) => mayRedirect(win, start + i * 20000));
+  assert.deepEqual(rounds, [true, true, true, true, false, false, false]);
+  const fresh = fakeWin('/');
+  const spaced = Array.from({ length: 7 }, (_, i) => mayRedirect(fresh, start + i * (BOUNCE_MS + 1000)));
+  assert.deepEqual(spaced, [true, true, true, true, true, true, true]);
+});
+
+test('input made by a script does not hide a loop, and leaving Home takes the mark away', () => {
+  const happy = new Window({ url: `${FB}/marketplace/` });
+  windows.push(happy);
+  const listeners = {};
+  const win = {
+    ...fakeWin('/marketplace/'),
+    document: happy.document,
+    addEventListener: (type, fn) => (listeners[type] ??= []).push(fn),
+  };
+  const router = { listeners: [], subscribe(fn) { this.listeners.push(fn); } };
+  marketplaceOnly.setup({ win, router, enabled: () => true, log: { warn() {} } });
+  for (let i = 0; i < 4; i++) router.listeners[0]({ type: 'home' });
+  assert.equal(win.sent.length, 4);
+  // Script-made input doesn't count, a person's does.
+  for (const fn of listeners.pointerdown) fn({ isTrusted: false });
+  router.listeners[0]({ type: 'home' });
+  assert.equal(win.sent.length, 4, 'the fifth bounce in a row stops it');
+  assert.ok(happy.document.documentElement.hasAttribute(LOOP_MARK));
+  // Leaving Home takes the mark away, so the feed hides again on the next Home.
+  router.listeners[0]({ type: 'marketplace' });
+  assert.equal(happy.document.documentElement.hasAttribute(LOOP_MARK), false);
+});
+
+test('a person using the page starts the bounce count over', () => {
+  const store = new Map();
+  const listenersOn = (win) => {
+    const listeners = {};
+    win.addEventListener = (type, fn) => (listeners[type] ??= []).push(fn);
+    return listeners;
+  };
+  let sends = 0;
+  for (let i = 0; i < 8; i++) {
+    // A Marketplace page where the person clicks, then Home again.
+    const page = { ...fakeWin('/marketplace/', { store }), document: new Window({ url: `${FB}/marketplace/` }).document };
+    windows.push(page.document.defaultView);
+    const listeners = listenersOn(page);
+    const router = { listeners: [], subscribe(fn) { this.listeners.push(fn); } };
+    marketplaceOnly.setup({ win: page, router, enabled: () => true, log: { warn() {} } });
+    for (const fn of listeners.keydown) fn({ isTrusted: true });
+    router.listeners[0]({ type: 'home' });
+    sends += page.sent.length;
+  }
+  assert.equal(sends, 8);
 });
 
 test('Marketplace only stops following Facebook back to Home in a loop, and warns once', () => {
