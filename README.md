@@ -38,6 +38,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Default comment order
 * Show every reply
 * View stories anonymously
+* Stop stories moving on
 * Sanitize sharing links
 * Skip Facebook's link redirect
 * Download any photo, video, reel or story

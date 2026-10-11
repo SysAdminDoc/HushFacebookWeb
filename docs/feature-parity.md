@@ -49,7 +49,7 @@ What the status words mean:
 | Download any story | Tested | A Download button on the story you're watching, named after whose story it is. A video story saved live. Photo stories pass the tests on a captured story but haven't been tried live, and stories with music haven't turned up yet. Page mode only. |
 | Hide read receipts | Written | Takes the task that marks a chat read out of what Facebook's chat connection sends, and the rest of that request goes as it was. Live, the script saw every message the chat connection sent and chat kept working with the switch on, but the test account's chats are all end-to-end encrypted, which this can't reach, so it hasn't had a receipt to hold back yet. Page mode only. |
 | Hide typing indicator | Written | Sends "not typing" where Facebook would say you're typing, on the same connection. Like read receipts, it doesn't reach end-to-end encrypted chats and hasn't been seen at work live yet. Page mode only. |
-| Stop Story auto-advance | Planned | Keeps each story up until you move on. |
+| Stop Story auto-advance | Tested | Called "Stop stories moving on" on the web. The viewer's progress follows the story's video, so the script pauses a video story just before it ends and the card stays until you click the arrow. Pausing and playing it again lets it finish and move on. Its card can play the story again instead. Photo stories run on a timer the page doesn't show, so they still move on. Works in content mode. |
 | Keep the reel speed | Planned | Remembers the speed you picked. |
 | Hold a reel for 2x | Planned | Hold the mouse on a reel to play it at double speed. |
 | Resume long videos | Planned | Picks long videos up where you left off. |
