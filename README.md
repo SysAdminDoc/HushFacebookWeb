@@ -36,6 +36,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * View profile on Marketplace sellers
 * Hide read receipts
 * Hide typing indicator
+* Hide kinds of notifications
 * Default comment order
 * Show every reply
 * View stories anonymously

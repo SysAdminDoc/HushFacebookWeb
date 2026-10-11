@@ -34,6 +34,7 @@ import hideSponsoredMarketplace from './marketplace/hide-sponsored-marketplace.j
 import sellerProfileLink from './marketplace/seller-profile.js';
 import hideReadReceipts from './chats/hide-read-receipts.js';
 import hideTyping from './chats/hide-typing.js';
+import hideNotificationKinds from './notifications/hide-kinds.js';
 import commentOrder from './comments/comment-order.js';
 import showAllReplies from './comments/show-all-replies.js';
 import sanitizeLinks from './links/sanitize-links.js';
@@ -67,7 +68,7 @@ import customCss from './appearance/custom-css.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
-  hideSponsoredReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping,
+  hideSponsoredReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds,
   commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
   keepSpeed, holdForSpeed, pictureInPicture, keepControls,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
