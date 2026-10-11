@@ -1,7 +1,7 @@
 // Hide kinds of notifications against the Notifications page as drawn live on 2026-10-11
-// (captures/2026-10-11-run8 notif-anatomy, names and ids made up): New, Today and Earlier
-// titles, and rows whose link carries the kind as notif_t, with a Notification Actions button
-// beside it.
+// (captures/2026-10-11-run8 notif-anatomy and run12 notif-hide, names and ids made up): New,
+// Today and Earlier titles, and list item rows whose link carries the kind as notif_t, with a
+// Notification Actions button beside it.
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -16,12 +16,12 @@ afterEach(async () => {
 });
 
 const row = (id, kind, path = '/groups/example/') => `
-  <div class="row" data-kind="${kind}"><div><div>
+  <div class="row" role="listitem" data-kind="${kind}"><div><div>
     <a role="link" tabindex="0" href="${FB}${path}?notif_id=${id}&amp;notif_t=${kind}&amp;ref=notif"><span>Someone did something</span></a>
   </div><div><div role="button" aria-label="Notification Actions"></div></div></div></div>`;
 
 const PAGE = `
-<div role="main"><div>
+<div role="main"><div role="list">
   <h1>Notifications</h1>
   <div class="bucket"><h2>New</h2>${row(11, 'friend', '/friends/requests/')}</div>
   <div class="bucket"><h2>Today</h2>${row(12, 'feedback_reaction_generic')}${row(13, 'birthday_reminder')}</div>
@@ -86,6 +86,22 @@ test("a row is the notification's own box, never its titled section or the list"
   }
   // A section holding just one notification still stops at the row, below the New title.
   assert.equal(rowOf(doc.querySelector('[data-kind="friend"] a')).querySelector('h2'), null);
+});
+
+test('a notification link pasted into a post or a comment is left alone', () => {
+  const pasted = (kind) => `<a href="${FB}/?notif_id=9&amp;notif_t=${kind}">a link someone pasted</a>`;
+  const win = page(`
+    <div role="feed">
+      <div aria-posinset="1" data-kind="post"><div role="listitem" data-kind="post-item">${pasted('pymk_email')}</div>
+        <div role="list"><div role="listitem" data-kind="comment-item"><div role="article" data-kind="comment">${pasted('birthday_reminder')}</div></div></div>
+      </div>
+    </div>
+    <div role="main"><div role="list"><div role="listitem" data-kind="reply"><div role="article">${pasted('onthisday')}</div></div></div></div>
+    <div role="list">${row(31, 'pymk_email')}</div>`);
+  const doc = win.document;
+  for (const link of doc.querySelectorAll('[role="feed"] a, [data-kind="reply"] a')) assert.equal(rowOf(link), null, link.closest('[data-kind]').dataset.kind);
+  createKindMarker({ doc, enabled: () => true, custom: () => new Set(), setTimer: (fn) => fn() }).sync();
+  assert.deepEqual(hiddenBy(doc, hideKindsCss(picked())), ['pymk_email'], 'only the real notification row');
 });
 
 test('the groups on by default hide birthdays, memories, suggestions and Pages to follow', () => {

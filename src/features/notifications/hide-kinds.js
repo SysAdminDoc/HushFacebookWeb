@@ -12,9 +12,11 @@
 
 const LINKS = 'a[href*="notif_t="]';
 export const KIND_MARK = 'data-hfw-notif-kind';
-const STOP = '[role="dialog"], [role="main"], [role="grid"], [role="list"], [role="feed"], [role="navigation"], [role="banner"], [role="complementary"]';
+// Each notification is a list item, on the page and under the bell alike (live 2026-10-11).
+const ROW = '[role="listitem"]';
+// A notification link pasted into a post or a comment is left alone, wherever it shows.
+const POST = '[role="article"], [aria-posinset], [role="feed"]';
 const HEADING = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
-const MAX_LEVELS = 10;
 const DELAY = 150;
 const MAX_SEEN = 40;
 
@@ -61,17 +63,13 @@ const notifKey = (link) => {
 
 const notifCount = (node) => new Set([...node.querySelectorAll(LINKS)].map(notifKey)).size;
 
-// A notification's row: the largest box around its link that holds no other notification, no
-// heading (the New, Today and Earlier titles) and isn't the list itself.
+// A notification's row: the list item around its link, as long as it holds no other
+// notification and no heading (the New, Today and Earlier titles), and isn't part of a post or
+// a comment. Null when there's no such row.
 export function rowOf(link) {
-  let node = link;
-  for (let level = 0; level < MAX_LEVELS; level++) {
-    const parent = node.parentElement;
-    if (!parent || parent.matches(STOP) || parent.tagName === 'BODY') break;
-    if (parent.querySelector(HEADING) || notifCount(parent) > 1) break;
-    node = parent;
-  }
-  return node;
+  const row = link.closest(ROW);
+  if (!row || link.closest(POST) || row.querySelector(HEADING) || notifCount(row) > 1) return null;
+  return row;
 }
 
 export function hideKindsCss(get) {
@@ -101,8 +99,10 @@ export function createKindMarker({ doc, enabled, custom, setTimer = (fn, ms) => 
       done.set(link, stamp);
       const type = notifType(href);
       if (!type) continue;
+      const row = rowOf(link);
+      if (!row) continue;
       if (seen.size < MAX_SEEN) seen.add(type);
-      rowOf(link).setAttribute(KIND_MARK, groupOf(type, list));
+      row.setAttribute(KIND_MARK, groupOf(type, list));
     }
   }
 
