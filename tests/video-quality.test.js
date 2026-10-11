@@ -133,6 +133,54 @@ test("a list for a video whose manifest wasn't seen yet is held back, and comes 
   assert.deepEqual(listOf(again).map((entry) => entry.representations.length), [4, 3], 'both, trimmed, once both manifests were seen');
 });
 
+// A small manifest with copies in the order given, ids r<label>.
+const mpd = (labels, { before = '' } = {}) => `<?xml version="1.0"?><MPD><Period>${before}<AdaptationSet contentType="video">${labels
+  .map((label) => `<Representation id="r${label}" mimeType="video/mp4" FBQualityLabel="${label}p"><BaseURL>https://cdn.example.invalid/${label}.mp4</BaseURL></Representation>`)
+  .join('')}</AdaptationSet><AdaptationSet contentType="audio"><Representation id="ra" mimeType="audio/mp4"/></AdaptationSet></Period></MPD>`;
+const labelsIn = (xml) => [...xml.matchAll(/FBQualityLabel="(\d+)p"/g)].map((m) => Number(m[1]));
+const entry = (ids) => ({ video_id: '1', initial_representation_ids: [], representations: ids.map((id) => ({ representation_id: id, mime_type: id === 'ra' ? 'audio/mp4' : 'video/mp4' })) });
+
+test("a copy in the list that the manifest never named goes too, and a list left with no kept copy waits", async () => {
+  const [first] = await prefetchLines();
+  listOf(first)[0].representations.push({ representation_id: '999999999v', mime_type: 'video/mp4' });
+  capAnswer(first, '360', createCopyBook());
+  assert.deepEqual(copiesOf(first, 0), manifestCopies(first), 'the stray copy is gone');
+  // The best choice keeps 1080p, and this list doesn't have it.
+  const [again] = await prefetchLines();
+  const list = listOf(again)[0];
+  list.representations = list.representations.filter((copy) => copy.representation_id !== '353597569v');
+  assert.deepEqual(capAnswer(again, 'highest', createCopyBook()), { videos: 1, changed: true });
+  assert.deepEqual(listOf(again), [], 'no list with sound only');
+});
+
+test('a full book starts over between sets, never halfway through one', async () => {
+  const book = createCopyBook();
+  book.makeRoom(0);
+  for (let i = 0; i < 4996; i++) book.keep(`old${i}`);
+  const [first] = await prefetchLines();
+  capAnswer(first, 'highest', book);
+  assert.deepEqual(copiesOf(first, 0), ['353597569v', '367598183a'], 'every drop from the manifest still applies');
+  assert.equal(book.kept('old1'), false, 'the old copies went first');
+});
+
+test('a dropped copy is swapped for the best one kept, in whatever order the manifest lists them', () => {
+  const book = createCopyBook();
+  const capped = capManifest(mpd([1080, 720, 480, 360]), '480', book);
+  assert.deepEqual(labelsIn(capped), [480, 360]);
+  assert.equal(book.instead('r720'), 'r480');
+  assert.equal(book.instead('r1080'), 'r480');
+  assert.equal(book.instead('ra'), null, 'sound is never in the book');
+  const picks = { dash_prefetch_experimental: ['r1080', 'ra'], all_video_dash_prefetch_representations: [{ ...entry(['r1080', 'r720', 'r480', 'r360', 'ra']), initial_representation_ids: ['r1080', 'ra'] }] };
+  assert.deepEqual(capAnswer(picks, '480', book), { videos: 0, changed: true });
+  assert.deepEqual(picks.dash_prefetch_experimental, ['r480', 'ra']);
+  assert.deepEqual(picks.all_video_dash_prefetch_representations[0].initial_representation_ids, ['r480', 'ra']);
+});
+
+test('an empty set that closes itself leaves the next set to be capped', () => {
+  const xml = mpd([360, 720, 1080], { before: '<AdaptationSet contentType="text" mimeType="text/vtt"/>' });
+  assert.deepEqual(labelsIn(capManifest(xml, 'highest')), [1080]);
+});
+
 test('a list whose manifest kept every copy is left as it came', async () => {
   const [first] = await prefetchLines();
   const before = structuredClone(first);

@@ -29,7 +29,8 @@ export const CHOICES = [
 export const MARKERS = ['"manifest_xml"', '"dash_manifest"', '"all_video_dash_prefetch_representations"', '"dash_prefetch_experimental"'];
 const MAX_REMEMBERED = 5000;
 
-const SET = /<AdaptationSet\b[^>]*>[\s\S]*?<\/AdaptationSet>/g;
+// An empty set can close itself, and must not run on into the next one.
+const SET = /<AdaptationSet\b[^>]*?(?:\/>|>[\s\S]*?<\/AdaptationSet>)/g;
 const REPRESENTATION = /<Representation\b[^>]*?(?:\/>|>[\s\S]*?<\/Representation>)/g;
 const isVideoSet = (set) => /^<AdaptationSet\b[^>]*\bcontentType="video"/.test(set) || /^<AdaptationSet\b[^>]*\bmimeType="video\//.test(set)
   || (!/^<AdaptationSet\b[^>]*\bcontentType=/.test(set) && /<Representation\b[^>]*\bmimeType="video\//.test(set));
@@ -64,27 +65,27 @@ const copyId = (representation) => representation.match(/^<Representation\b[^>]*
 // What the manifests did with each video copy, by representation id: kept, or dropped with the
 // kept copy to fetch instead (the best one left in its set). One book lasts the whole page,
 // since a video's prefetch list repeats on every streamed line after its manifest (captured
-// feed answer, 2026-10-10).
+// feed answer, 2026-10-10). Representation ids are Facebook's own long numbers, the same in the
+// manifest and the list, so they don't repeat across videos. When the book is full it starts
+// over, only ever between sets, and lists for videos it forgot wait for their manifests again.
 export function createCopyBook() {
   const kept = new Set();
   const instead = new Map();
-  const roomFor = () => {
-    if (kept.size + instead.size < MAX_REMEMBERED) return;
-    kept.clear();
-    instead.clear();
-  };
   return {
     instead: (id) => instead.get(id) ?? null,
-    known: (id) => kept.has(id) || instead.has(id),
+    kept: (id) => kept.has(id),
+    makeRoom(count) {
+      if (kept.size + instead.size + count <= MAX_REMEMBERED) return;
+      kept.clear();
+      instead.clear();
+    },
     keep(id) {
-      if (!id || kept.has(id)) return;
-      roomFor();
+      if (!id) return;
       kept.add(id);
       instead.delete(id);
     },
     replace(id, best) {
       if (!id || !best) return;
-      roomFor();
       instead.set(id, best);
       kept.delete(id);
     },
@@ -98,12 +99,18 @@ export function capManifest(xml, choice, book = createCopyBook()) {
   return xml.replace(SET, (set) => {
     if (!isVideoSet(set)) return set;
     const copies = set.match(REPRESENTATION) ?? [];
-    const keep = copies.length < 2 ? copies.map(() => true) : keepQualities(copies.map(qualityOf), choice);
-    const kept = copies.filter((_, i) => keep[i]);
-    const best = copyId(kept[kept.length - 1] ?? '');
+    if (!copies.length) return set;
+    const qualities = copies.map(qualityOf);
+    const keep = copies.length < 2 ? [true] : keepQualities(qualities, choice);
+    // The best copy left, wherever the manifest lists it.
+    let best = null;
+    copies.forEach((copy, i) => {
+      if (keep[i] && (best === null || (qualities[i] ?? -1) >= (qualities[best] ?? -1))) best = i;
+    });
+    book.makeRoom(copies.length);
     copies.forEach((copy, i) => {
       if (keep[i]) book.keep(copyId(copy));
-      else book.replace(copyId(copy), best);
+      else book.replace(copyId(copy), copyId(copies[best]));
     });
     if (keep.every(Boolean)) return set;
     let index = 0;
@@ -113,23 +120,27 @@ export function capManifest(xml, choice, book = createCopyBook()) {
 
 const isVideoCopy = (copy) => /^video\//.test(copy?.mime_type ?? '');
 
-// Whether a newer player's list of one video's copies can be judged yet: its manifest has been
-// seen. Their width and height can't do it (most copies of a 1080p video say 720x1280).
-export function prefetchKnown(entry, book) {
-  const video = (entry?.representations ?? []).filter(isVideoCopy);
-  return !video.length || video.some((copy) => book.known(copy.representation_id));
-}
-
-// That list without the copies its manifest dropped. True when it changed.
+// A newer player's list of one video's copies, with only the video copies its manifest kept.
+// Their width and height can't judge them (most copies of a 1080p video say 720x1280), so a
+// copy the manifest never named goes too. Null when the list has video copies but none the
+// manifest kept: its manifest hasn't come yet, or the book forgot it, and the list waits.
 export function capPrefetch(entry, book) {
-  if (!Array.isArray(entry?.representations)) return false;
-  const dropped = (id) => book.instead(id) !== null;
-  const before = entry.representations.length;
-  entry.representations = entry.representations.filter((copy) => !dropped(copy?.representation_id));
+  const copies = entry?.representations;
+  if (!Array.isArray(copies) || !copies.some(isVideoCopy)) return { entry, changed: false };
+  const keeps = (copy) => !isVideoCopy(copy) || book.kept(copy?.representation_id);
+  if (!copies.some((copy) => isVideoCopy(copy) && keeps(copy))) return null;
+  const left = copies.filter(keeps);
+  let changed = left.length !== copies.length;
+  if (changed) entry.representations = left;
   if (Array.isArray(entry.initial_representation_ids)) {
-    entry.initial_representation_ids = entry.initial_representation_ids.map((id) => book.instead(id) ?? id);
+    const ids = new Set(left.map((copy) => copy?.representation_id));
+    const initial = [...new Set(entry.initial_representation_ids.map((id) => book.instead(id) ?? id))].filter((id) => ids.has(id));
+    if (initial.length !== entry.initial_representation_ids.length || initial.some((id, i) => id !== entry.initial_representation_ids[i])) {
+      entry.initial_representation_ids = initial;
+      changed = true;
+    }
   }
-  return entry.representations.length !== before;
+  return { entry, changed };
 }
 
 // Every manifest in an answer capped in place, then the prefetch lists and picks that go with
@@ -155,12 +166,13 @@ export function capAnswer(data, choice, book = createCopyBook()) {
   walk(data, (value) => {
     const list = value.all_video_dash_prefetch_representations;
     if (Array.isArray(list)) {
-      const ready = list.filter((entry) => prefetchKnown(entry, book));
+      const results = list.map((entry) => capPrefetch(entry, book));
+      const ready = results.filter(Boolean).map((result) => result.entry);
       if (ready.length !== list.length) {
         value.all_video_dash_prefetch_representations = ready;
         changed = true;
       }
-      for (const entry of ready) if (capPrefetch(entry, book)) changed = true;
+      if (results.some((result) => result?.changed)) changed = true;
     }
     const picks = value.dash_prefetch_experimental;
     if (Array.isArray(picks) && picks.some((id) => book.instead(id) !== null)) {
