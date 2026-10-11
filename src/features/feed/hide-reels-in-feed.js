@@ -17,6 +17,8 @@ const reelIdOf = (href) => href?.match(/\/reels?\/(\d+)/)?.[1] ?? null;
 
 // The feed row a reel link sits in, when that row is a reel row. null for a reel inside a post.
 export function reelRowOf(link) {
+  // A reel linked from a post (its text, an attachment, a comment) belongs to that post.
+  if (link.closest(CANDIDATE_SELECTOR)) return null;
   for (let row = link; row?.parentElement; row = row.parentElement) {
     if (row.matches(CANDIDATE_SELECTOR) || row.matches(NOT_A_ROW)) return null;
     const list = row.parentElement;

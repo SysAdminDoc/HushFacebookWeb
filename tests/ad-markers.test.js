@@ -262,3 +262,13 @@ test("a friend sharing a suggested Page's post is not a suggestion", () => {
   assert.equal(adMarkerFor(share), null);
   assert.equal(adMarkerFor(titled('page-post', followTitle))?.id, 'follow_button', 'the same post on its own is one');
 });
+
+test('a Follow or Join button outside the title is not a suggestion', () => {
+  const plainTitle = { __typename: 'CometFeedStoryTitleWithActorStrategy', story: { comet_sections: {} } };
+  const elsewhere = (button) => edge2026('friend', {}, { comet_sections: {
+    context_layout: { story: { comet_sections: { title: plainTitle } } },
+    content: { story: { comet_sections: { attached_story_layout: { story: { button } } } } },
+  } });
+  assert.equal(adMarkerFor(elsewhere(followTitle.story.comet_sections.follow_button)), null);
+  assert.equal(adMarkerFor(elsewhere(joinTitle.if_viewer_can_join_group.join_action)), null);
+});

@@ -68,6 +68,9 @@ const MAX_LABEL = 24;
 const MAX_SOURCE = 400;
 
 const ownerOf = (element) => element.closest(CANDIDATE_SELECTOR);
+// A title or the author's name is never a label, even one that reads "Ad" (a Page can be
+// called that).
+const namesSomeone = (element) => Boolean(element?.closest(NOT_A_LABEL) || element?.querySelector?.(NOT_A_LABEL));
 const within = (element, post, selector) => {
   const found = element.closest(selector);
   return Boolean(found && post.contains(found));
@@ -97,13 +100,13 @@ function headerTest(post) {
 const styleOf = (element) => element.ownerDocument.defaultView.getComputedStyle(element);
 
 // One glyph per leaf span, with where it's drawn and its flex order.
-export function glyphRecords(container, { layout }) {
+export function glyphRecords(container, { layout, accept = null }) {
   const box = layout ? container.getBoundingClientRect() : null;
   const records = [];
   for (const leaf of [...container.querySelectorAll('span, div')].slice(0, 180)) {
     if (leaf.children.length) continue;
     const text = ownText(leaf);
-    if (!text || text.length > 3 || isHidden(leaf, container)) continue;
+    if (!text || text.length > 3 || isHidden(leaf, container) || (accept && !accept(leaf))) continue;
     const style = styleOf(leaf);
     if (style.position === 'absolute' || style.position === 'fixed') continue;
     const order = Number.parseFloat(style.order);
@@ -122,10 +125,13 @@ export function glyphRecords(container, { layout }) {
 }
 
 // The strings the glyphs can spell: each drawn row left to right, each row by flex order,
-// and all of them by flex order.
+// and all of them by flex order. Flex order only counts when it actually reorders something:
+// Chrome reports 0 for every flex child, and joining a whole header row in page order would
+// read any short words in it as one.
 export function glyphStrings(records) {
   const strings = new Set();
   const joined = (list, key) => normalizeText(list.slice().sort((a, b) => a[key] - b[key]).map((r) => r.text).join(''));
+  const reorders = (list) => list.length >= 2 && new Set(list.map((r) => r.order)).size >= 2;
   const rows = [];
   for (const record of records.filter((r) => Number.isFinite(r.left) && Number.isFinite(r.top))) {
     let row = rows.find((candidate) => Math.abs(candidate.top - record.top) <= 3);
@@ -135,10 +141,10 @@ export function glyphStrings(records) {
   for (const row of rows) {
     strings.add(joined(row.records, 'left'));
     const ordered = row.records.filter((r) => r.order !== null);
-    if (ordered.length >= 2) strings.add(joined(ordered, 'order'));
+    if (reorders(ordered)) strings.add(joined(ordered, 'order'));
   }
   const ordered = records.filter((r) => r.order !== null);
-  if (ordered.length >= 2) strings.add(joined(ordered, 'order'));
+  if (reorders(ordered)) strings.add(joined(ordered, 'order'));
   return [...strings].filter(Boolean);
 }
 
@@ -150,7 +156,8 @@ function isScrambled(element) {
 }
 
 function decodeGlyphs(container, layout) {
-  return glyphStrings(glyphRecords(container, { layout })).map(adLabel).find(Boolean) ?? null;
+  const accept = (leaf) => !leaf.closest(NOT_A_LABEL);
+  return glyphStrings(glyphRecords(container, { layout, accept })).map(adLabel).find(Boolean) ?? null;
 }
 
 function readsAsLabel(element) {
@@ -212,6 +219,7 @@ export function readAdSignals(post, { labelCache } = {}) {
     if (!inHeader(element)) continue;
     for (const id of normalizeText(element.getAttribute('aria-labelledby')).split(' ')) {
       const target = id && doc.getElementById(id);
+      if (namesSomeone(target)) continue;
       const label = target
         ? readsAsLabel(target) ?? (isScrambled(target) ? decodeGlyphs(target, layout) : null)
         : adLabel(labelCache?.get(id));
@@ -226,7 +234,9 @@ export function readAdSignals(post, { labelCache } = {}) {
       const ref = use.getAttribute('href') ?? use.getAttribute('xlink:href') ?? '';
       if (!ref.startsWith('#')) continue;
       const target = doc.getElementById(ref.slice(1));
-      if (target) values.push(target.textContent, target.nextElementSibling?.textContent);
+      if (target) {
+        for (const source of [target, target.nextElementSibling]) if (source && !namesSomeone(source)) values.push(source.textContent);
+      }
       else values.push(labelCache?.get(ref.slice(1)));
     }
     const label = values.map(adLabel).find(Boolean);
@@ -234,7 +244,7 @@ export function readAdSignals(post, { labelCache } = {}) {
   }
 
   for (const element of [...post.querySelectorAll('span, div')].slice(0, 260)) {
-    if (!inHeader(element) || !isScrambled(element) || isHidden(element, post)) continue;
+    if (!inHeader(element) || within(element, post, NOT_A_LABEL) || !isScrambled(element) || isHidden(element, post)) continue;
     const label = decodeGlyphs(element, layout);
     if (label) return found('glyph order', label);
   }

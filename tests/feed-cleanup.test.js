@@ -124,6 +124,14 @@ test('a row of reels between posts is a reel row, a reel inside a post is not', 
   assert.deepEqual(rows, [shelves[0], shelves[0], shelves[0], null, null, null, null]);
 });
 
+test('reels linked from a post with a comment under it are part of the post', () => {
+  const text = '<div data-ad-rendering-role="story_message"><a href="/reel/41/">one</a> and <a href="/reel/42/">two</a></div>';
+  const comment = '<div class="comments"><div role="article" aria-label="Comment by Sam"><a href="/sam">Sam</a> nice</div></div>';
+  const html = `<div class="row"><div aria-posinset="1"><h4><a href="/p1">Friend</a></h4><div>${text}${comment}</div></div></div>${post(2)}`;
+  const win = page(html);
+  assert.deepEqual([...win.document.querySelectorAll('a[href*="/reel/"]')].map(reelRowOf), [null, null]);
+});
+
 test('the Stories tray, the right column and the sidebar are never reel rows', () => {
   const html = `<div class="column">
     <div class="tray"><div role="region" data-focus-target="stories_tray"><a href="/reel/1/">r</a><a href="/reel/2/">r</a></div></div>

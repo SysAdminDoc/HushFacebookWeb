@@ -54,12 +54,17 @@ export function installNetworkHooks({ win, log }) {
   const blockingRule = (ctx) => active(requestRules, ctx)[0];
   // Taken before patchJsonParse wraps it. See transformDocumentLine.
   const parse = win.JSON?.parse ?? JSON.parse;
-  const lineTransformer = (rules, ctx) => (line) => transformDocumentLine(line, rules, ctx, onError, parse);
+  const handled = createHandledLines();
+  const lineTransformer = (rules, ctx) => (line) => {
+    const out = transformDocumentLine(line, rules, ctx, onError, parse);
+    if (out !== null && rulesFor(out, responseRules).length) handled.add(out);
+    return out;
+  };
 
   patchFetch(win, { blockingRule, active, responseRules, lineTransformer, log });
   patchXhr(win, { blockingRule, active, responseRules, lineTransformer });
   patchBeacon(win, { blockingRule });
-  patchJsonParse(win, { active, responseRules, onError });
+  patchJsonParse(win, { active, responseRules, onError, handled });
 
   const api = {
     // rule: { id, enabled(), match(ctx), fakeResponse?(ctx) }
@@ -217,13 +222,15 @@ function fakeXhrSuccess(win, xhr, ctx, text) {
 
 // Facebook calls JSON.parse constantly, so the marker check (a substring search) runs
 // before anything else and most calls return untouched.
-function patchJsonParse(win, { active, responseRules, onError }) {
+function patchJsonParse(win, { active, responseRules, onError, handled }) {
   const json = win.JSON;
   const parse = json?.parse;
   if (typeof parse !== 'function') return;
   json.parse = function (text) {
     const result = parse.apply(this, arguments);
     if (typeof text !== 'string' || result === null || typeof result !== 'object') return result;
+    // A line of a fetch or XHR answer already went through the rules, judged by its query.
+    if (handled?.has(text)) return result;
     const candidates = rulesFor(text, responseRules);
     if (!candidates.length) return result;
     for (const rule of active(candidates, INLINE_JSON)) {
@@ -234,6 +241,22 @@ function patchJsonParse(win, { active, responseRules, onError }) {
       }
     }
     return result;
+  };
+}
+
+// The last lines of fetch and XHR answers that the rules looked at (only ones carrying a
+// rule's marker). Facebook parses GraphQL answers with JSON.parse, and without this the
+// JSON.parse pass would judge them a second time as inline page data, by the page you're on
+// instead of by the query they answer.
+export function createHandledLines(limit = 64) {
+  const lines = new Set();
+  return {
+    add(line) {
+      lines.delete(line);
+      lines.add(line);
+      if (lines.size > limit) lines.delete(lines.values().next().value);
+    },
+    has: (line) => lines.has(line),
   };
 }
 

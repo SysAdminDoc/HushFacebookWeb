@@ -47,6 +47,11 @@ test('the composer block is the one right before the Stories block, never the to
   // Until the feed has a post, there's no column to go by, so nothing is taken.
   assert.equal(composerBlock(page(TOP('<div class="feed"></div>')).document), null);
   assert.equal(composerBlock(page('<div role="banner"></div><div><div role="region" data-focus-target="stories_tray"></div></div>').document), null);
+  // No main around the tray, and a post-like element elsewhere: the block before is the top bar.
+  const bare = page(`<div class="app"><div role="banner"><div role="button">Menu</div></div>
+    <div><div role="region" data-focus-target="stories_tray"></div></div>
+    <div class="layer"><div role="listbox"><div aria-posinset="1">option</div></div></div></div>`);
+  assert.equal(composerBlock(bare.document), null);
 });
 
 test('the marked composer and the English label are hidden, only on Home', () => {

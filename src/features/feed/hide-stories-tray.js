@@ -39,7 +39,8 @@ export function composerBlock(doc) {
     if (column === doc.body || column.matches('[role="main"]')) return null;
     if (!column.querySelector(POSTS)) continue;
     const before = block.previousElementSibling;
-    if (!before || before.querySelector(`${TRAY}, ${POSTS}, [role="banner"], [role="navigation"]`)) return null;
+    if (!before || before.matches('[role="banner"], [role="navigation"]')) return null;
+    if (before.querySelector(`${TRAY}, ${POSTS}, [role="banner"], [role="navigation"]`)) return null;
     return before.querySelector('[role="button"]') ? before : null;
   }
   return null;

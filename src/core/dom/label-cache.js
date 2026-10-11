@@ -42,6 +42,7 @@ export function createLabelCache({ doc = globalThis.document, max = 500 } = {}) 
         for (const entry of records) for (const node of entry.addedNodes) capture(node);
       });
       const begin = () => {
+        if (!observer) return; // stopped before the page had a body
         observer.observe(doc.body, { childList: true, subtree: true });
         capture(doc.body);
       };

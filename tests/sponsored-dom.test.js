@@ -11,7 +11,7 @@ import { createLabelCache } from '../src/core/dom/label-cache.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
 import { isHidden, normalizeText } from '../src/core/dom/visible-text.js';
 import hideSponsoredPosts from '../src/features/feed/hide-sponsored-posts.js';
-import { adLabel, isAdsAboutLink, readAdSignals, watchSponsoredPosts } from '../src/features/feed/sponsored-dom.js';
+import { adLabel, glyphStrings, isAdsAboutLink, readAdSignals, watchSponsoredPosts } from '../src/features/feed/sponsored-dom.js';
 
 const windows = [];
 afterEach(async () => {
@@ -146,6 +146,25 @@ test('glyph order: shuffled letters are put back in flex order, skipping hidden 
     <span style="order:1">A</span><span style="order:5" aria-hidden="true">q</span></span>`;
   assert.deepEqual(read(page(post({ byline: byline.replace('<span style="order:4">r</span>', '') }))), { signal: 'glyph order', label: 'Ad', corroborated: false });
   assert.equal(read(page(post({ byline }))), null, '"Adr" is not a label');
+});
+
+test('a Page named "Ad" is not an ad, in a flex header row or as the target of a label', () => {
+  // Chrome reports order 0 for every flex child, so the row's short words were joined.
+  const row = `<div aria-posinset="1"><div class="header" style="display:flex">
+    <h4 style="order:0"><span data-ad-rendering-role="profile_name"><a href="/ad"><span style="order:0">Ad</span></a></span></h4>
+    <span style="order:0">·</span><span style="order:0">Follow</span></div>
+    <div data-ad-rendering-role="story_message">Hi</div></div>`;
+  assert.equal(read(page(row)), null, 'flex row');
+  const pointing = (byline) => `<div aria-posinset="1"><div class="header"><h4 id="t1"><a href="/ad">Ad</a></h4>
+    <div class="byline">${byline}</div></div><div data-ad-rendering-role="story_message">Hi</div></div>`;
+  assert.equal(read(page(pointing('<div aria-labelledby="t1"></div>'))), null, 'labelledby');
+  assert.equal(read(page(pointing('<svg><use href="#t1"></use></svg>'))), null, 'svg use');
+});
+
+test('glyph order: flex order only counts when it reorders something', () => {
+  const glyph = (text, order) => ({ text, order, left: Number.NaN, top: Number.NaN });
+  assert.deepEqual(glyphStrings([glyph('A', 0), glyph('d', 0)]), []);
+  assert.deepEqual(glyphStrings([glyph('d', 2), glyph('A', 1)]), ['Ad']);
 });
 
 test('glyph order: a scrambled timestamp stays organic', () => {

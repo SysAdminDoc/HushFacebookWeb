@@ -49,6 +49,14 @@ export function storyHas(node, typename) {
 
 export const hasSponsoredLabel = (node) => storyHas(node, LABEL_TYPENAME);
 
+// The Follow and Join buttons that mark a suggestion sit in the story's title, next to the
+// author's name. Elsewhere in a story (a shared post's layout, a group you're in) they mean
+// something else. When Facebook moves the title, the whole story is searched instead.
+export function titleHas(node, typename) {
+  const title = node?.comet_sections?.context_layout?.story?.comet_sections?.title;
+  return isObject(title) ? storyHas(title, typename) : storyHas(node, typename);
+}
+
 // Home and the groups feed, where Facebook mixes in what you don't follow. Search results,
 // a Page's own timeline and a group you're browsing carry the same Follow and Join buttons,
 // so the suggestion rows stay off there.
@@ -141,7 +149,7 @@ export const AD_MARKERS = [
     seen: '2026-10-11: 36 of 137 captured Home stories, always in the title section, drawn as "Name · Follow"',
     text: [`"${FOLLOW_TYPENAME}"`],
     scope: FEEDS,
-    match: (edge, node) => isObject(node) && 'cursor' in edge && storyHas(node, FOLLOW_TYPENAME),
+    match: (edge, node) => isObject(node) && 'cursor' in edge && titleHas(node, FOLLOW_TYPENAME),
     action: 'drop-node',
   },
   {
@@ -151,7 +159,7 @@ export const AD_MARKERS = [
     seen: '2026-10-11: 17 of 137 captured Home stories, always in the title section, drawn as "Group · Join"',
     text: [`"${JOIN_TYPENAME}"`],
     scope: FEEDS,
-    match: (edge, node) => isObject(node) && 'cursor' in edge && storyHas(node, JOIN_TYPENAME),
+    match: (edge, node) => isObject(node) && 'cursor' in edge && titleHas(node, JOIN_TYPENAME),
     action: 'drop-node',
   },
 ];

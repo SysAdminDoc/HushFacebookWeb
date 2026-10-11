@@ -140,8 +140,9 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
       emit('post/update', post);
       return;
     }
-    // A comment link was all there was, and the post's own link turned up.
-    if (post.idSource === 'comment_id' && source !== 'comment_id') {
+    // A comment link was all there was, and the post's own link turned up beside it. When
+    // the comment link is gone too, Facebook reused the element for another story.
+    if (post.idSource === 'comment_id' && source !== 'comment_id' && hrefs.some((href) => href.includes(post.id))) {
       post.id = id;
       post.idSource = source;
       emit('post/update', post);

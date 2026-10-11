@@ -123,6 +123,29 @@ test('inline JSON is pruned through JSON.parse, and only when a marker is presen
   assert.equal(win.JSON.parse('7'), 7);
 });
 
+test('a GraphQL line Facebook parses again with JSON.parse is judged by its query, not as page data', async () => {
+  const line = '{"node":{"__typename":"Story","id":"s1"}}';
+  const { win } = fakeWindow({ chunks: [line] });
+  const net = installNetworkHooks({ win, log: quietLog() });
+  const seen = [];
+  net.transformResponses({
+    id: 'scoped', enabled: () => true, markers: ['"Story"'], match: () => true,
+    // Stands in for a rule scoped to Home: it can't tell a query's answer from page data by route.
+    transform: (doc, ctx) => {
+      seen.push(ctx.transport);
+      if (ctx.transport !== 'json-parse') return false;
+      delete doc.node;
+      return true;
+    },
+  });
+  const text = await (await win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('ProfileCometTimelineFeedRefetchQuery') })).text();
+  assert.equal(text, line);
+  assert.deepEqual(win.JSON.parse(text), { node: { __typename: 'Story', id: 's1' } });
+  assert.deepEqual(seen, ['fetch']);
+  assert.deepEqual(win.JSON.parse('{"node":{"__typename":"Story","id":"inline"}}'), {}, 'page data still goes through');
+  assert.deepEqual(seen, ['fetch', 'json-parse']);
+});
+
 test('blocked beacons report success without sending', () => {
   const { win, beacons } = fakeWindow();
   const net = installNetworkHooks({ win, log: quietLog() });

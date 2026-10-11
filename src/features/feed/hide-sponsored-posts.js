@@ -42,8 +42,9 @@ export default {
     }
     if (!posts || !hider) return;
 
+    // The cache watches the whole page, so it only runs while the switch is on.
     const labelCache = createLabelCache({ doc });
-    labelCache.start();
+    if (enabled()) labelCache.start();
     const watcher = watchSponsoredPosts({
       posts,
       hider,
@@ -73,8 +74,13 @@ export default {
     settings.subscribe(() => {
       if (enabled() === on) return;
       on = enabled();
-      if (on) watcher.recheckAll();
-      else hider.showAll('Sponsored');
+      if (on) {
+        labelCache.start();
+        watcher.recheckAll();
+      } else {
+        labelCache.stop();
+        hider.showAll('Sponsored');
+      }
     });
 
     diagnostics?.add('Ads taken out of the data', () => (net ? summary(data) : "Off: the script can't reach the page's data"));

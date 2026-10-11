@@ -126,6 +126,17 @@ test('a post named only by a comment link takes its own id once it shows up', as
   tracker.stop();
 });
 
+test('an element known by a comment link and reused for another story is a new post', async () => {
+  const win = page(feed('<div aria-posinset="1"><a href="/x?comment_id=77">a comment</a><div>Text</div></div>'));
+  const tracker = createPostTracker({ doc: win.document });
+  const events = [];
+  for (const type of ['post/add', 'post/update', 'post/remove']) tracker.on(type, (p) => events.push([type, p.id]));
+  win.document.querySelector('[aria-posinset] a').outerHTML = '<a href="/y/posts/pfbid0Other">3h</a>';
+  await tick();
+  assert.deepEqual(events, [['post/add', '77'], ['post/remove', '77'], ['post/add', 'pfbid0Other']]);
+  tracker.stop();
+});
+
 test('the tracker reports posts as they arrive and leave, and resets when all are gone', async () => {
   const win = page(feed(post(1)));
   const tracker = createPostTracker({ doc: win.document });
