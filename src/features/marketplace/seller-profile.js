@@ -47,8 +47,9 @@ export function isListing(href) {
 
 export const profileUrl = (id) => `/profile.php?id=${id}`;
 
-// Each seller's name link: a profile link whose text is the label on a picture link to the same
-// seller.
+// Each seller's name link: the first profile link whose text is the label on another link to the
+// same seller, their picture. The picture link itself never counts, even when it carries the name
+// as hidden text too.
 export function nameLinks(root, base) {
   const byId = new Map();
   for (const link of root.querySelectorAll(PROFILE_LINKS)) {
@@ -59,11 +60,12 @@ export function nameLinks(root, base) {
   }
   const found = [];
   for (const [id, links] of byId) {
-    const labels = new Set(links.map((link) => normalizeText(link.getAttribute('aria-label') ?? '')).filter(Boolean));
-    for (const link of links) {
+    const labels = links.map((link) => normalizeText(link.getAttribute('aria-label') ?? ''));
+    const name = links.find((link, index) => {
       const text = normalizeText(link.textContent);
-      if (text && labels.has(text)) found.push({ id, link });
-    }
+      return text && labels.some((label, other) => other !== index && label === text);
+    });
+    if (name) found.push({ id, link: name });
   }
   return found;
 }
@@ -88,20 +90,40 @@ export function addProfileLink(doc, { id, link }) {
   return true;
 }
 
+// Times one listing's seller gets the link put back before the script leaves it, in case the page
+// keeps taking it away.
+export const MAX_ADDS = 20;
+
 export function createSellerLinks({ doc, enabled, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
   let added = 0;
   let timer = null;
+  let shown = false; // a View profile link is on the page
+  let listing = '';
+  let addsFor = new Map(); // seller id -> links added on this listing
+
+  const href = () => doc.location?.href ?? '';
+  const wanted = () => enabled() && isListing(href());
 
   function sync() {
     timer = null;
-    const href = doc.location?.href ?? '';
-    if (!enabled() || !isListing(href)) {
+    if (!wanted()) {
       for (const link of doc.querySelectorAll(`a[${MARK}]`)) link.remove();
+      shown = false;
       return;
     }
-    for (const found of nameLinks(doc, href)) {
-      if (addProfileLink(doc, found)) added++;
+    if (href() !== listing) {
+      listing = href();
+      addsFor = new Map();
     }
+    for (const found of nameLinks(doc, listing)) {
+      const adds = addsFor.get(found.id) ?? 0;
+      if (adds >= MAX_ADDS) continue;
+      if (addProfileLink(doc, found)) {
+        added++;
+        addsFor.set(found.id, adds + 1);
+      }
+    }
+    shown = Boolean(doc.querySelector(`a[${MARK}]`));
   }
 
   const schedule = () => {
@@ -111,7 +133,10 @@ export function createSellerLinks({ doc, enabled, setTimer = (fn, ms) => setTime
   return {
     start() {
       const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
-      new Observer(schedule).observe(doc.body, { childList: true, subtree: true });
+      // Off listings, page changes cost a look at the address and nothing more.
+      new Observer(() => {
+        if (shown || wanted()) schedule();
+      }).observe(doc.body, { childList: true, subtree: true });
       sync();
     },
     sync,

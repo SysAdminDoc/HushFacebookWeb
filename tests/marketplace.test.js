@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
-import sellerProfileLink, { LABEL, MARK, addProfileLink, createSellerLinks, isListing, nameLinks, sellerId } from '../src/features/marketplace/seller-profile.js';
+import sellerProfileLink, { LABEL, MARK, MAX_ADDS, addProfileLink, createSellerLinks, isListing, nameLinks, sellerId } from '../src/features/marketplace/seller-profile.js';
 
 const FB = 'https://www.facebook.com';
 const LISTING = `${FB}/marketplace/item/1234567890123/`;
@@ -121,6 +121,47 @@ test('the link comes back after Facebook draws the seller box again', async () =
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(added(doc).length, 1);
   assert.equal(links.added(), 2);
+});
+
+test('a picture link that also carries the name as text gets no link of its own', () => {
+  const win = page(sellerBox().replace('<svg aria-hidden="true">', '<span class="hidden">Pat Example</span><svg aria-hidden="true">'));
+  const doc = win.document;
+  const links = createSellerLinks({ doc, enabled: () => true, setTimer: (fn) => fn() });
+  links.sync();
+  assert.equal(added(doc).length, 1);
+  assert.equal(added(doc)[0].previousElementSibling.getAttribute('aria-label'), null, 'after the name, not the picture');
+});
+
+test('a page that keeps taking the link away gets it back only so many times', () => {
+  const win = page();
+  const doc = win.document;
+  const links = createSellerLinks({ doc, enabled: () => true, setTimer: (fn) => fn() });
+  for (let i = 0; i < MAX_ADDS + 10; i++) {
+    links.sync();
+    for (const link of added(doc)) link.remove();
+  }
+  assert.equal(links.added(), MAX_ADDS);
+  // A new listing starts its own count.
+  win.happyDOM.setURL(`${FB}/marketplace/item/2234567890123/`);
+  links.sync();
+  assert.equal(added(doc).length, 1);
+});
+
+test('off a listing, page changes schedule no work', async () => {
+  const win = page('<div id="feed"></div>', `${FB}/marketplace/`);
+  const doc = win.document;
+  let scheduled = 0;
+  const links = createSellerLinks({ doc, enabled: () => true, setTimer: (fn) => { scheduled++; return win.setTimeout(fn, 0); } });
+  links.start();
+  for (let i = 0; i < 5; i++) doc.getElementById('feed').append(doc.createElement('div'));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(scheduled, 0);
+  win.happyDOM.setURL(LISTING);
+  doc.body.insertAdjacentHTML('beforeend', sellerBox());
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // One for the seller box, one for the script's own link, which changes nothing and stops there.
+  assert.equal(scheduled, 2);
+  assert.equal(added(doc).length, 1);
 });
 
 test('the feature registers a diagnostics row and styles only its own link', () => {
