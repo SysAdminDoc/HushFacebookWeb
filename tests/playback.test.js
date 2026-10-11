@@ -61,6 +61,11 @@ function fakeVideo(win, { time = 5, duration = 40, paused = false, parent } = {}
       video.dispatchEvent(new win.Event('durationchange'));
       video.dispatchEvent(new win.Event('loadedmetadata'));
     },
+    // Only the length changing, as a live stream's can while it plays.
+    length(seconds) {
+      duration = seconds;
+      video.dispatchEvent(new win.Event('durationchange'));
+    },
   };
 }
 
@@ -188,6 +193,28 @@ test('a broadcast played before its length is known goes back to normal speed wh
   other.video.playbackRate = 2;
   other.meta(Number.POSITIVE_INFINITY);
   assert.equal(other.video.playbackRate, 2);
+});
+
+test("a broadcast whose length flickers stays at normal speed, and a new length doesn't restart the fight", () => {
+  const storage = createMemoryStorage({ [SPEED_KEY]: 1.5 });
+  const win = page(`${FB}/watch/live/?v=1234567890`);
+  const { later } = speedKeeper(win, storage);
+  const live = fakeVideo(win, { duration: Number.NaN });
+  live.start();
+  live.length(Number.POSITIVE_INFINITY);
+  assert.equal(live.video.playbackRate, 1);
+  live.length(3600);
+  live.start();
+  assert.equal(live.video.playbackRate, 1, 'still the live broadcast');
+  // An ordinary video Facebook keeps setting back: given up after three tries, and a length
+  // change after that doesn't start it again.
+  const card = fakeVideo(win, { duration: 40 });
+  card.start();
+  later(5000);
+  for (let i = 0; i < 4; i++) card.video.playbackRate = 1;
+  assert.equal(card.video.playbackRate, 1);
+  card.length(41);
+  assert.equal(card.video.playbackRate, 1);
 });
 
 test('the feature shows the kept speed and can go back to normal', () => {
@@ -374,6 +401,10 @@ test('a video about as long as the volume scale goes takes the slider that follo
   start.document.querySelector('[aria-label="Change Position"]').setAttribute('aria-valuenow', '5');
   muted.at(5.2);
   assert.equal(positionSlider(muted.video).getAttribute('aria-label'), 'Change Position');
+  // A thin progress bar beside the scrubber: both follow the video, and either will do.
+  const twin = page(undefined, player(80).replace('<div class="volume">', '<div class="thin"><div role="slider" aria-label="Progress" aria-valuemax="100" aria-valuenow="31"></div></div><div class="volume">'));
+  const both = fakeVideo(twin, { time: 31.4, duration: 100.3, parent: twin.document.querySelector('.slot') });
+  assert.equal(positionSlider(both.video).getAttribute('aria-label'), 'Progress');
 });
 
 test('the faded controls are kept on screen, and only them', () => {

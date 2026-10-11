@@ -37,21 +37,26 @@ export function createSpeedKeeper({ doc, win, storage, enabled, now = () => Date
     video.playbackRate = rate;
   }
 
-  // A live broadcast plays at the speed it's sent.
-  const isLive = (video) => video.duration === Number.POSITIVE_INFINITY;
+  // A live broadcast plays at the speed it's sent, and stays that way even if its length later
+  // reads as a number for a moment.
+  const wasLive = new WeakMap(); // video -> the source it was live on
+  const isLive = (video) => video.duration === Number.POSITIVE_INFINITY || (wasLive.has(video) && wasLive.get(video) === video.currentSrc);
   const skip = (video) => !isVideo(video) || !enabled() || inStories() || video[HOLDING] || isLive(video);
 
   function onStart(event) {
+    if (skip(event.target)) return;
+    give(event.target);
+  }
+
+  // Played before its length was known, then found to be live: the speed the script gave it
+  // comes off again. Only that: a new length is no reason to give a speed again.
+  function onLength(event) {
     const video = event.target;
-    // Played before its length was known, then found to be live: the speed the script gave it
-    // comes off again.
-    if (isVideo(video) && isLive(video) && ours.has(video)) {
-      if (video.playbackRate === ours.get(video)) video.playbackRate = 1;
-      ours.delete(video);
-      return;
-    }
-    if (skip(video)) return;
-    give(video);
+    if (!isVideo(video) || video.duration !== Number.POSITIVE_INFINITY) return;
+    wasLive.set(video, video.currentSrc);
+    if (!ours.has(video)) return;
+    if (video.playbackRate === ours.get(video)) video.playbackRate = 1;
+    ours.delete(video);
   }
 
   function onRate(event) {
@@ -82,8 +87,9 @@ export function createSpeedKeeper({ doc, win, storage, enabled, now = () => Date
       win.addEventListener('keydown', onInput, listen);
       // Media events don't bubble, but they do pass the document on their way in.
       doc.addEventListener('play', onStart, true);
+      doc.addEventListener('loadedmetadata', onLength, true);
       doc.addEventListener('loadedmetadata', onStart, true);
-      doc.addEventListener('durationchange', onStart, true);
+      doc.addEventListener('durationchange', onLength, true);
       doc.addEventListener('ratechange', onRate, true);
     },
     kept,
