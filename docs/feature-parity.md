@@ -81,12 +81,12 @@ What the status words mean:
 | Don't send reel watch history | Tested | Don't send watch history holds back the one request that tells Facebook you watched a reel, which also goes out for a video played with sound. Over six reels and a long video none of them left the browser, and the reels and the video kept playing. Needs the script running in the page. |
 | Block ad telemetry | Needs research | What blocking Facebook's logging calls breaks. |
 | Hold back analytics uploads | Needs research | Same question for usage reports. |
-| Block background ad prefetch | Needs research | Whether the web app fetches ads ahead of time. |
+| Block background ad prefetch | Android only | The web has no ad fetch running in the background. Across every captured run, the only ad answer outside the feeds is the one for a video's ad breaks, asked for as you open each video, which Hide sponsored reels already empties. Feed, search and Marketplace ads come inside the answers the other ad switches clean. |
 | Block background-return feed refresh | Needs research | Whether the web feed resets when you come back to the tab. |
 | Block Instant Games ads | Needs research | Games run in their own frame on the web. |
 | Tag suggestions only after @ | Needs research | How the web composer offers tags. |
 | Send chat photos and videos at original quality | Needs research | How the web chat shrinks uploads. |
-| Hide the Get Messenger card | Needs research | Whether the web shows this card at all. |
+| Hide the Get Messenger card | Written | Called "Hide Facebook's own cards and tips" on the web. Facebook sends its own cards as quick promotions, in lists the Messenger chat list banner, the Messenger menu and the story viewer each ask for, and the script empties those lists before the page reads them. Live, the story viewer's tip was held back and the Messenger menu and stories worked as usual. The test account hasn't been offered a Get Messenger card on the web yet, so that one hasn't been seen go. Needs the script running in the page. |
 | Allow screenshots | Android only | Browsers don't block screenshots. |
 | Block screenshot detection | Android only | Websites can't see screenshots. |
 | Disable Audience Network | Android only | It's about ads inside other phone apps. |

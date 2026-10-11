@@ -68,6 +68,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hide tab badges
 * Hide Menu promotions
 * Hide Meta upsells
+* Hide Facebook's own cards and tips
 * Custom CSS
 * Settings in your account menu
 

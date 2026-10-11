@@ -68,6 +68,7 @@ import hideTabBadges from './appearance/hide-tab-badges.js';
 import hideMenuPromotions from './menu/hide-menu-promotions.js';
 import menuEntry from './menu/menu-entry.js';
 import hideMetaUpsells from './meta/hide-meta-upsells.js';
+import hidePromotions from './meta/hide-promotions.js';
 import customCss from './appearance/custom-css.js';
 
 export const features = [
@@ -76,7 +77,7 @@ export const features = [
   commentOrder, showAllReplies, hideCommentStickers, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
   keepSpeed, holdForSpeed, pictureInPicture, keepControls, videoQuality,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
-  menuEntry, hideMenuPromotions, hideMetaUpsells,
+  menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions,
   // In this order: the first to claim a Home load redirects it (opening/start.js).
   marketplaceOnly, openOnTab, followingFeed,
   // Last, so its rules come after every built-in style.
