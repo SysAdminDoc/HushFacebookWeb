@@ -1,4 +1,4 @@
-// Every ad marker Hide sponsored posts acts on, one row each.
+// Every marker the feed cleanup switches act on (ads, and posts Facebook suggests), one row each.
 //
 //   id       a short name for tests and Diagnostics
 //   feature  the switch that turns it on (one per surface, as on Android)
@@ -8,7 +8,10 @@
 //            A line carrying none of them is never parsed for this rule.
 //   kind     edge (default): match gets (edge, node) for objects with a node key, node may be
 //            null. object: match gets any object.
-//   match    whether this value is an ad
+//   match    whether this value is one to remove
+//   scope    optional: which answers the row may touch. Without one, every GraphQL answer and
+//            inline page blob. queries: GraphQL friendly names. routes: page types (route.js)
+//            for inline page data, which has no name.
 //   action   what happens to a match:
 //              drop-node   the edge keeps its cursor and every other key, so paging still works,
 //                          and loses node and rendering_strategy, which is what Facebook draws
@@ -27,20 +30,32 @@ import { walk, SKIP } from '../../core/json-walk.js';
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const LABEL_TYPENAME = 'CometStorySponsoredLabelStrategy';
+const FOLLOW_TYPENAME = 'CometFeedStoryFollowButtonStrategy';
+const JOIN_TYPENAME = 'GroupJoinForumAction';
 
-// Looks for the ad label inside one story. Nested edges and a shared post's attached story
+// Looks for a typename inside one story. Nested edges and a shared post's attached story
 // speak for themselves, so a friend's share of an ad or a group page holding an ad doesn't
 // count as an ad.
-export function hasSponsoredLabel(node) {
+export function storyHas(node, typename) {
   let found = false;
   walk(node, (value) => {
     if (found || value === node.attached_story) return SKIP;
     if (value !== node && 'node' in value && 'cursor' in value) return SKIP;
-    if (value.__typename === LABEL_TYPENAME) found = true;
+    if (value.__typename === typename) found = true;
     return undefined;
   });
   return found;
 }
+
+export const hasSponsoredLabel = (node) => storyHas(node, LABEL_TYPENAME);
+
+// Home and the groups feed, where Facebook mixes in what you don't follow. Search results,
+// a Page's own timeline and a group you're browsing carry the same Follow and Join buttons,
+// so the suggestion rows stay off there.
+export const FEEDS = {
+  queries: /^(?:CometNewsFeedPaginationQuery|GroupsCometCrossGroupFeedPaginationQuery)$/,
+  routes: (route) => route?.type === 'home' || /^\/groups\/feed\/?$/.test(route?.path ?? ''),
+};
 
 export const AD_MARKERS = [
   {
@@ -119,6 +134,26 @@ export const AD_MARKERS = [
     action: 'empty-list',
     empty: { instream_video_ad_breaks: [], post_roll_ad_break: null },
   },
+  {
+    id: 'follow_button',
+    feature: 'hideSuggestedPosts',
+    surface: "news feed and groups feed (Pages and people you don't follow)",
+    seen: '2026-10-11: 36 of 137 captured Home stories, always in the title section, drawn as "Name · Follow"',
+    text: [`"${FOLLOW_TYPENAME}"`],
+    scope: FEEDS,
+    match: (edge, node) => isObject(node) && 'cursor' in edge && storyHas(node, FOLLOW_TYPENAME),
+    action: 'drop-node',
+  },
+  {
+    id: 'group_join',
+    feature: 'hideSuggestedPosts',
+    surface: "news feed and groups feed (groups you aren't in)",
+    seen: '2026-10-11: 17 of 137 captured Home stories, always in the title section, drawn as "Group · Join"',
+    text: [`"${JOIN_TYPENAME}"`],
+    scope: FEEDS,
+    match: (edge, node) => isObject(node) && 'cursor' in edge && storyHas(node, JOIN_TYPENAME),
+    action: 'drop-node',
+  },
 ];
 
 const DROPPED_BY = { 'drop-node': ['node', 'rendering_strategy'] };
@@ -141,17 +176,26 @@ export function adMarkerFor(value, rows = AD_MARKERS) {
   return rows.find((row) => ((row.kind ?? 'edge') === 'edge' ? edge && row.match(value, value.node) : row.match(value))) ?? null;
 }
 
-// The network rule for one switch: its rows, on every GraphQL answer and inline page blob.
-// onPrune gets the ids of the rows that fired.
-export function adRule(feature, enabled, onPrune) {
+// Whether a row may touch this answer. route() is the page the inline data arrived on.
+export function inScope(row, ctx, route) {
+  if (!row.scope) return true;
+  if (ctx?.transport === 'json-parse') return Boolean(route && row.scope.routes(route()));
+  return row.scope.queries.test(ctx?.friendlyName ?? '');
+}
+
+// The network rule for one switch: its rows, on every GraphQL answer and inline page blob
+// their scope allows. onPrune gets the ids of the rows that fired.
+export function adRule(feature, enabled, onPrune, { route } = {}) {
   const { rows, text } = markersFor(feature);
   return {
     id: feature,
     enabled,
     markers: text,
     match: (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql'),
-    transform(doc) {
-      const fired = pruneAds(doc, rows);
+    transform(doc, ctx) {
+      const active = rows.filter((row) => inScope(row, ctx, route));
+      if (!active.length) return false;
+      const fired = pruneAds(doc, active);
       if (fired.length) onPrune?.(fired);
       return fired.length > 0;
     },

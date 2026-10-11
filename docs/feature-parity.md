@@ -25,9 +25,9 @@ What the status words mean:
 | Hide sponsored stories | Planned | Ad cards in the story viewer. |
 | Hide sponsored search results | Tested | Takes the ad results out of search before Facebook draws them. |
 | Hide sponsored Marketplace listings | Tested | Takes ad cards out of the Marketplace feed before Facebook draws them, and the listings around them stay put. |
-| Hide suggested and promoted posts | Planned | Suggested for you, People you may know, suggested groups and Pages. |
+| Hide suggested and promoted posts | Tested | Takes posts from Pages, people and groups you don't follow out of Home and your groups feed before Facebook draws them. Any that get drawn anyway, or every one in content mode, are hidden by the Follow or Join button after the author's name (English for now). Search, a Page's own posts and groups you browse are left alone. People you may know rows are next. |
 | Hide suggested stories | Planned | Stories from people and Pages you don't follow. |
-| Hide Reels in the feed | Planned | Reel rows between posts. |
+| Hide Reels in the feed | Written | Hides rows of reels between posts on Home, told apart by their links rather than their heading, so any language works. A reel a friend posts stays. The test account hasn't been shown a reel row yet. |
 | Hide Stories tray | Tested | Takes the Stories row off the top of Home, and the "What's on your mind?" box too unless you keep it. The posts move up into the space. Both are found without reading any English, so it works in other languages and in content mode. |
 | Hide post prompts | Planned | "Are you interested in this post?" strips and follow suggestions on posts. |
 | Hide affiliate product links | Planned | Shopping cards on reels, posts and comments. |

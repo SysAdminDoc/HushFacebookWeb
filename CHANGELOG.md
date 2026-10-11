@@ -10,6 +10,9 @@
 * Hide sponsored posts has a second layer. If an ad still gets drawn, the script reads the post's header the way you see it and hides the post when it says Sponsored or Ad. It sees through the ways Facebook disguises that label, like letters that are shuffled and put back in place by the layout with hidden decoys mixed in, or a label that points at text Facebook deletes a moment later. A post with only a Shop now style button isn't hidden, since group posts and shares carry those too. This layer works even when your manager runs the script as a content script, so Hide sponsored posts no longer switches off there. English labels only for now. Diagnostics shows how many ads each layer caught.
 * Facebook Feed Filter's MIT license notice is in THIRD_PARTY_NOTICES.txt and at the end of the built script, since the page-side ad check follows its approach.
 * New Hide Stories tray switch. It takes the Stories row off the top of Home, along with the "What's on your mind?" box unless you turn that part off, and the first post moves up into the space. It's off by default.
+* New Hide suggested posts switch, on by default. Posts from Pages, people and groups you don't follow come out of Home and your groups feed before Facebook draws them, and any that slip through, or all of them in content mode, are hidden by the Follow or Join button next to the name. Search results, a Page's own posts and groups you're browsing aren't touched.
+* New Hide reel rows in the feed switch for the rows of reels Facebook puts between posts. Reels your friends post stay. It's off by default.
+* Hidden posts and rows can now be any block in the feed, not only posts.
 * Facebook's home.php address counts as Home now, so Home-only features work there too.
 * Releases now come with a SHA256SUMS.txt, so you can check that the script you downloaded is the one that was built.
 

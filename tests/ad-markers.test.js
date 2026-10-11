@@ -5,7 +5,8 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, hasSponsoredLabel, markersFor, pruneAds } from '../src/features/feed/ad-markers.js';
+import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, hasSponsoredLabel, inScope, markersFor, pruneAds } from '../src/features/feed/ad-markers.js';
+import { parseRoute } from '../src/core/route.js';
 import { features } from '../src/features/index.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
 
@@ -43,6 +44,11 @@ const labelOnly = () => {
   return edge;
 };
 
+// The title section of a story, where the Follow and Join buttons live (2026-10-11 capture).
+const titled = (id, title) => edge2026(id, {}, { comet_sections: { context_layout: { story: { comet_sections: { title } } } } });
+const followTitle = { __typename: 'CometFeedStoryTitleWithActorStrategy', story: { comet_sections: { follow_button: { __typename: 'CometFeedStoryFollowButtonStrategy' } } } };
+const joinTitle = { __typename: 'CometFeedStoryCommunityAttributionTitleStrategy', if_viewer_can_join_group: { join_action: { __typename: 'GroupJoinForumAction' } } };
+
 // One edge per row, caught by that row before any other.
 const SAMPLES = {
   category: () => ({ category: 'SPONSORED', node: { __typename: 'Story', id: 'ad' }, cursor: 'c' }),
@@ -54,6 +60,8 @@ const SAMPLES = {
   SEARCH_ADS: () => ({ cursor: 's', node: { __typename: 'SearchRenderable', role: 'SEARCH_ADS' }, rendering_strategy: { __typename: 'SearchResultsAdRenderingStrategy' } }),
   // The shape is the live empty answer (tests/fixtures/useInstreamAdsHaloFetcherQuery.jsonl) with one break in it.
   instream_video_ad_breaks: () => ({ instream_video_ad_breaks: [{ id: 'break-1', start_time_ms: 30000 }], post_roll_ad_break: { id: 'post-roll' } }),
+  follow_button: () => titled('suggested', followTitle),
+  group_join: () => titled('suggested', joinTitle),
 };
 
 test('every row says where it was seen, what lets it past the prefilter and what it does', () => {
@@ -219,4 +227,38 @@ test('markers: a 2026 ad line is picked up, an organic line with null ad fields 
 test('the network rule prunes a GraphQL line end to end', () => {
   const out = JSON.parse(transformDocumentLine(JSON.stringify(feed()), [rule]));
   assert.deepEqual(out.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null), ['organic-1', null, 'organic-2', null]);
+});
+
+test('suggested posts go only on Home and the groups feed, never in search or on a Page', () => {
+  const answer = () => ({ data: { viewer: { news_feed: { edges: [edge2026('friend'), SAMPLES.follow_button(), SAMPLES.group_join()] } } } });
+  const fired = [];
+  const route = { current: parseRoute('https://www.facebook.com/') };
+  const suggested = adRule('hideSuggestedPosts', () => true, (ids) => fired.push(...ids), { route: () => route.current });
+  const kept = (doc) => doc.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null);
+  const run = (ctx) => {
+    const doc = answer();
+    suggested.transform(doc, ctx);
+    return kept(doc);
+  };
+  const query = (friendlyName) => ({ transport: 'xhr', path: '/api/graphql/', friendlyName });
+  assert.deepEqual(run(query('CometNewsFeedPaginationQuery')), ['friend', null, null]);
+  assert.deepEqual(run(query('GroupsCometCrossGroupFeedPaginationQuery')), ['friend', null, null]);
+  for (const name of ['SearchCometResultsPaginatedResultsQuery', 'ProfileCometTimelineFeedRefetchQuery', 'GroupsCometFeedRegularStoriesPaginationQuery', '']) {
+    assert.deepEqual(run(query(name)), ['friend', 'suggested', 'suggested'], name || 'no name');
+  }
+  const inline = { transport: 'json-parse', path: '', friendlyName: '' };
+  assert.deepEqual(run(inline), ['friend', null, null], 'inline data on Home');
+  for (const [href, expected] of [['/groups/feed/', null], ['/groups/123/', 'suggested'], ['/search/top/?q=x', 'suggested'], ['/somepage', 'suggested'], ['/home.php', null]]) {
+    route.current = parseRoute(`https://www.facebook.com${href}`);
+    assert.equal(run(inline)[1], expected, href);
+  }
+  assert.deepEqual(fired.slice(0, 2), ['follow_button', 'group_join']);
+  assert.equal(inScope({ scope: FEEDS }, inline, null), false, 'no router, no inline pruning');
+  assert.equal(inScope({}, query('anything'), null), true, 'a row without a scope runs everywhere');
+});
+
+test("a friend sharing a suggested Page's post is not a suggestion", () => {
+  const share = edge2026('share', {}, { attached_story: titled('page-post', followTitle).node });
+  assert.equal(adMarkerFor(share), null);
+  assert.equal(adMarkerFor(titled('page-post', followTitle))?.id, 'follow_button', 'the same post on its own is one');
 });

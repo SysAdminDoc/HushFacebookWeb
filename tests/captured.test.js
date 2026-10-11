@@ -4,12 +4,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
-import { AD_MARKER_TEXT, pruneAds } from '../src/features/feed/ad-markers.js';
+import { AD_MARKERS, adRule, pruneAds as pruneRows } from '../src/features/feed/ad-markers.js';
+import { parseRoute } from '../src/core/route.js';
 import { SEEN_MUTATIONS } from '../src/features/stories/anonymous-stories.js';
 import { describeRequest, installNetworkHooks } from '../src/core/net/hooks.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
 
-const rule = { id: 'hideSponsoredPosts', enabled: () => true, markers: AD_MARKER_TEXT, match: () => true, transform: (doc) => pruneAds(doc).length > 0 };
+// The ad rows only. Suggested posts have their own test below, since the organic feed capture
+// holds one.
+const AD_ROWS = AD_MARKERS.filter((row) => row.feature.startsWith('hideSponsored'));
+const AD_ROW_TEXT = [...new Set(AD_ROWS.flatMap((row) => row.text))];
+const pruneAds = (doc) => pruneRows(doc, AD_ROWS);
+const rule = { id: 'hideSponsoredPosts', enabled: () => true, markers: AD_ROW_TEXT, match: () => true, transform: (doc) => pruneAds(doc).length > 0 };
 // The quotes matter: a cursor's logging JSON counts a LATE_DEPENDENT_SEARCH_ADS role, which is not an ad.
 const AD_TEXT = /MarketplaceFeedAdStory|"SEARCH_ADS"|CometStorySponsoredLabelStrategy|"th_dat_spo":\{|"sponsored_data":\{/;
 
@@ -132,4 +138,26 @@ test('the story seen request is the one View stories anonymously holds back', as
     assert.deepEqual(Object.keys(variables.input), ['bucket_id', 'story_id', 'actor_id', 'client_mutation_id']);
     assert.equal(variables.scale, 1);
   }
+});
+
+test('the suggested post in the captured Home page goes, the rest of the page stays', async () => {
+  const lines = await fixtureLines('CometNewsFeedPaginationQuery.jsonl');
+  const fired = [];
+  const suggested = adRule('hideSuggestedPosts', () => true, (ids) => fired.push(...ids), { route: () => parseRoute('https://www.facebook.com/') });
+  const ctx = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+  let pruned = 0;
+  for (const line of lines) {
+    const out = transformDocumentLine(line, [suggested], ctx);
+    if (out === line) continue;
+    pruned++;
+    const before = parseLine(line).data.viewer.news_feed.edges;
+    const after = parseLine(out).data.viewer.news_feed.edges;
+    assert.equal(after.length, before.length, 'the edge stays, with its cursor');
+    assert.deepEqual(after.map((edge) => edge.cursor), before.map((edge) => edge.cursor));
+    assert.ok(after.every((edge) => !('node' in edge)));
+  }
+  assert.equal(pruned, 1);
+  assert.deepEqual(fired, ['follow_button']);
+  const search = { ...ctx, friendlyName: 'SearchCometResultsPaginatedResultsQuery' };
+  for (const line of lines) assert.equal(transformDocumentLine(line, [suggested], search), line, 'not outside the feeds');
 });
