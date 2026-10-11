@@ -11,6 +11,7 @@ import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
 import { accountFromCookie, createSettings } from './core/settings.js';
 import { createGmStorage } from './core/storage.js';
+import { createDailyTasks, localMirror, scheduleStorageCheck } from './core/tasks.js';
 import { mountFeatureStyles } from './core/style.js';
 import { features } from './features/index.js';
 import { mountPanel } from './ui/panel.js';
@@ -89,6 +90,11 @@ function boot() {
   }
 
   mountFeatureStyles({ features, settings, log, base: [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') === true }) }] });
+
+  // Daily jobs wait until the page has settled.
+  const tasks = createDailyTasks({ storage, log });
+  scheduleStorageCheck({ tasks, storage, mirror: localMirror(globalThis), log, toast, diagnostics });
+  setTimeout(() => tasks.runDue(), 8000);
 
   whenBodyReady(() => {
     panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo() } });
