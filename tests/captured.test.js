@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fixtureLines, parseLine } from './fixtures.test.js';
+import { fixtureLines, parseLine } from './helpers/fixtures.js';
 import { SPONSORED_MARKERS, pruneSponsoredEdges } from '../src/features/feed/sponsored.js';
 import { SEEN_MUTATIONS } from '../src/features/stories/anonymous-stories.js';
 import { describeRequest, installNetworkHooks } from '../src/core/net/hooks.js';

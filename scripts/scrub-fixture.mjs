@@ -13,8 +13,28 @@
 // request fixture keeps the fields of each matching network.jsonl record that a request
 // rule can see: method, path, friendly name, doc_id and variables.
 
-import { readFile, writeFile } from 'node:fs/promises';
-import { extractDataSjs, findLeftovers, scrubLine, scrubValue } from './lib/scrub.mjs';
+import { randomBytes } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { extractDataSjs, findLeftovers, scrubLine, scrubValue, setScrubKey } from './lib/scrub.mjs';
+
+// Stand-ins are keyed with a secret that stays beside the raw captures, so a committed
+// fixture can't be checked against a guessed id or name. HFW_SCRUB_KEY overrides the file.
+// Keep one key for every fixture, or ids won't line up between fixtures.
+const KEY_FILE = new URL('../captures/.scrub-key', import.meta.url);
+async function loadKey() {
+  if (process.env.HFW_SCRUB_KEY) return process.env.HFW_SCRUB_KEY;
+  try {
+    return (await readFile(KEY_FILE, 'utf8')).trim();
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    const key = randomBytes(32).toString('hex');
+    await mkdir(new URL('./', KEY_FILE), { recursive: true });
+    await writeFile(KEY_FILE, `${key}\n`, { flag: 'wx' });
+    console.error('Made a new scrub key in captures/.scrub-key. Keep it out of git.');
+    return key;
+  }
+}
+setScrubKey(await loadKey());
 
 const args = process.argv.slice(2);
 const VALUE_OPTIONS = new Set(['--out', '--lines', '--trim', '--match', '--index', '--friendly']);

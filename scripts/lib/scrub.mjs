@@ -1,13 +1,22 @@
 // Scrubs captured Facebook JSON so it can be committed as a test fixture. Structure, field
 // names, typenames and enum values stay; anything that could point at a person goes: ids,
-// names, post text, tokens, cursors, hashes, CDN and profile URLs. Every stand-in is a keyed
-// hash of the original, so the same id maps to the same stand-in everywhere in a fixture and
-// references between documents still line up. Stand-ins never contain ten digits in a row,
-// which is what the fixture test looks for.
+// names, post text, places, tokens, cursors, hashes, CDN and profile URLs. Every stand-in is
+// an HMAC of the original under a secret key, so the same id maps to the same stand-in
+// everywhere in a fixture and references between documents still line up, but nobody without
+// the key can check a guessed id or name against a committed fixture. The key lives next to
+// the raw captures (captures/.scrub-key, never committed). Stand-ins never contain ten digits
+// in a row, which is what the fixture test looks for.
 
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 
-const SALT = 'hushfacebook-web-fixture';
+let secretKey = null;
+
+// Must be called before anything is scrubbed. Use a long random key and keep it private.
+export function setScrubKey(key) {
+  if (typeof key !== 'string' || key.length < 16) throw new Error('The scrub key must be a string of at least 16 characters');
+  secretKey = key;
+}
+
 const GUARD = 'for (;;);';
 
 // Keys whose values are prose or a person's details. Scrubbed whatever they contain.
@@ -15,7 +24,12 @@ const TEXT_KEYS = new Set([
   'text', 'title', 'message', 'headline', 'description', 'caption', 'accessibility_caption', 'alt_text', 'body',
   'subtitle', 'summary', 'snippet', 'footer_body', 'seo_title', 'link_title', 'link_description', 'comment',
   'username', 'vanity', 'email', 'phone', 'address', 'bio', 'about', 'placeholder', 'link_display',
+  // Places, which give away where the capturing account is.
+  'city', 'state', 'region', 'county', 'zip', 'zipcode', 'zip_code', 'postal_code', 'street', 'street_address',
+  'neighborhood', 'locality', 'location', 'location_name', 'hometown', 'current_city',
 ]);
+// Coordinates are zeroed, whether they come as numbers or as strings.
+const GEO_KEYS = new Set(['latitude', 'longitude', 'lat', 'lng', 'lon', 'long']);
 // Keys whose values are tokens however short they look.
 const TOKEN_KEYS = new Set(['fbclid', 'h', 'oh', 'oe', 'eid', 'ccb', '_nc_ohc', '_nc_sid', '_nc_cat', '__tn__', 'access_token', 'token', 'fb_dtsg', 'jazoest', 'lsd', 'client_token', 'cursor', 'end_cursor', 'start_cursor', 'enc', 'nonce', 'hsi']);
 // *name keys hold people and Pages, except the ones Facebook uses for code identifiers.
@@ -44,17 +58,26 @@ const VOCAB = [
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const PFBID = /pfbid0[A-Za-z0-9]+/g;
 const LONG_HEX = /\b[0-9a-f]{32,}\b/gi;
-const LONG_DIGITS = /\d{10,}/g;
+// Six digits or more inside a string can be an id ("a.<digits>" is a photo album).
+const LONG_DIGITS = /\d{6,}/g;
 const HAS_LONG_DIGITS = /\d{10,}/;
 const EMBEDDED_URL = /https?:\/\/[^\s"'<>\\]+/g;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const DOMAIN = /^(?=.{4,253}$)([a-z0-9-]+\.)+[a-z]{2,}$/i;
 const WORDY = /^[A-Za-z_][A-Za-z_$.:-]{0,119}$/;
 const SHORT_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_$.:-]{0,47}$/;
-const LOWERCASE_IDENTIFIER = /^[a-z][a-z0-9_-]*$/;
+// A code identifier under a *name key has a separator or a digit ("comet_home", "v2").
+const CODE_IDENTIFIER = /^[a-z][a-z0-9]*[_.\-0-9][a-z0-9_.-]*$/;
+// Ad labels carry their letters' CSS as [{ name: 'order', val: '3' }], which must survive.
+const CSS_PROPERTIES = new Set(['display', 'order', 'color', 'flex', 'position', 'width', 'height', 'opacity', 'margin', 'padding', 'visibility', 'transform', 'top', 'left', 'right', 'bottom', 'font', 'content', 'overflow']);
+// A letter outside ASCII: text in another script is always someone's words.
+const NON_ASCII_LETTER = /(?!\p{ASCII})\p{L}/u;
 const TOKEN = /^[A-Za-z0-9_\-+/=@.:~%]{12,}$/;
 
-const digest = (kind, value) => createHash('sha256').update(`${SALT}\0${kind}\0${value}`).digest();
+function digest(kind, value) {
+  if (!secretKey) throw new Error('Call setScrubKey() before scrubbing');
+  return createHmac('sha256', secretKey).update(`${kind}\0${value}`).digest();
+}
 
 // At most nine digits: long enough to look like an id, short enough never to read as one.
 export function fakeDigits(value, length = 9) {
@@ -124,7 +147,7 @@ function scrubSubstrings(value) {
     .replace(UUID, (match) => fakeUuid(match))
     .replace(PFBID, (match) => fakeDigits(match))
     .replace(LONG_HEX, (match) => fakeHex(match, match.length))
-    .replace(LONG_DIGITS, (match) => fakeDigits(match));
+    .replace(LONG_DIGITS, (match) => fakeDigits(match, Math.min(9, match.length)));
 }
 
 function scrubSegment(segment) {
@@ -203,8 +226,10 @@ export function scrubString(value, key) {
   if (/^\/[^\s]*$/.test(value) && value.length > 1) return scrubPath(value);
 
   if (EMAIL.test(value)) return `${fakeSlug(value).slice(1)}@example.invalid`;
+  if (GEO_KEYS.has(key)) return '0';
   if (isTextKey(key)) return fakeWords(value);
-  if (isNameKey(key) && !LOWERCASE_IDENTIFIER.test(value)) return fakeWords(value);
+  if (isNameKey(key) && !CODE_IDENTIFIER.test(value) && !(key === 'name' && CSS_PROPERTIES.has(value))) return fakeWords(value);
+  if (NON_ASCII_LETTER.test(value)) return fakeWords(value);
 
   // An id, hash, uuid or URL inside a string: replace it and keep the grammar around it
   // ("browse_rl:<uuid>", "a.<album id>", a DASH manifest). Prose with one inside still
@@ -229,8 +254,9 @@ export function scrubString(value, key) {
 
 // Big integers are ids. Long decimals (ranking scores) are rounded until they stop looking
 // like one.
-export function scrubNumber(value) {
+export function scrubNumber(value, key) {
   if (!Number.isFinite(value)) return value;
+  if (GEO_KEYS.has(key)) return 0;
   if (Math.abs(value) >= 1e9) return Number(fakeDigits(String(value))) * (value < 0 ? -1 : 1);
   let out = value;
   for (let precision = 9; precision >= 1 && HAS_LONG_DIGITS.test(String(out)); precision--) out = Number(value.toPrecision(precision));
@@ -243,7 +269,7 @@ export function scrubKey(key) {
 
 export function scrubValue(value, key) {
   if (typeof value === 'string') return scrubString(value, key);
-  if (typeof value === 'number') return scrubNumber(value);
+  if (typeof value === 'number') return scrubNumber(value, key);
   if (Array.isArray(value)) return value.map((item) => scrubValue(item, key));
   if (value !== null && typeof value === 'object') {
     const out = {};
@@ -303,6 +329,7 @@ export const LEFTOVER_PATTERNS = [
   { name: 'pfbid permalink token', re: /pfbid/ },
   { name: 'ten or more digits in a row', re: /\d{10,}/ },
   { name: 'email address', re: /[A-Za-z0-9._%+-]+@(?!example\.invalid)[A-Za-z0-9-]+\.[A-Za-z]{2,}/ },
+  { name: 'letters outside ASCII (text in another script)', re: /(?!\p{ASCII})\p{L}/u },
 ];
 
 export function findLeftovers(text) {

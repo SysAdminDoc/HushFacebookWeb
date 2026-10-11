@@ -3,7 +3,7 @@
 ## Unreleased
 
 * Checked in Violentmonkey on Chrome as well as Tampermonkey. The script starts in the page, takes Marketplace and search ads out before Facebook sees them, gives Copy link the post's own address and keeps a story view to yourself, the same as in Tampermonkey.
-* The tests now run against scrubbed copies of what Facebook really sends: a feed page, the home page's inline feed data, a Marketplace page with an ad card, a search page with an ad, and the request that marks a story as seen. A new script turns a raw capture into one of these fixtures with every id, name, piece of text, token and link replaced, and a test checks that nothing personal is left in them.
+* The tests now run against scrubbed copies of what Facebook really sends: a feed page, the home page's inline feed data, a Marketplace page with an ad card, a search page with an ad, and the request that marks a story as seen. A new script turns a raw capture into one of these fixtures, replacing ids, names, places, text, tokens and links with stand-ins keyed by a private key, and a test checks every fixture for leftover ids, tokens, places and addresses.
 * Groundwork for hiding posts on the page itself, for the features that can't catch a post in Facebook's data. It never marks the feed's own rows, which is what stalls scrolling in other blockers. Diagnostics counts hidden posts by reason. There's also a new General setting that leaves a one-line "Hidden: Sponsored. Show" note where a post was, and clicking it brings the post back.
 * Releases now come with a SHA256SUMS.txt, so you can check that the script you downloaded is the one that was built.
 
