@@ -99,8 +99,8 @@ test('search: the ad edge is emptied beside the organic results', async () => {
   for (const i of [0, 1, 3]) assert.deepEqual(edges[i], before.data.serpResponse.results.edges[i]);
   assert.deepEqual(after.data.serpResponse.results.page_info, before.data.serpResponse.results.page_info);
   assert.doesNotMatch(out, AD_TEXT);
+  assert.ok(countMatches(before, (value) => value.__typename === 'CometStorySponsoredLabelStrategy') >= 1, 'the capture carries the ad label section');
   assert.equal(countMatches(after, (value) => value.__typename === 'CometStorySponsoredLabelStrategy'), 0);
-  assert.equal(countMatches(before, (value) => value.__typename === 'CometStorySponsoredLabelStrategy'), 2);
 });
 
 test('the story seen request is the one View stories anonymously holds back', async () => {

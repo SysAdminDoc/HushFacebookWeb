@@ -52,13 +52,14 @@ if (flag('html')) {
 } else if (flag('request')) {
   const friendly = option('friendly');
   lines = raw
-    .split('\n')
+    .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => JSON.parse(line))
     .filter((record) => record.friendly === friendly)
     .map(({ method, path, friendly: name, doc_id, variables }) => JSON.stringify(scrubValue({ method, path, friendly: name, doc_id, variables })));
 } else {
-  const all = raw.split('\n').filter((line) => line.replace(/\r$/, '') !== '');
+  // Captures written on Windows end lines with CRLF; fixtures are LF only.
+  const all = raw.split(/\r?\n/).filter((line) => line !== '');
   const picked = option('lines') === undefined ? all : list(option('lines')).map((i) => all[i]);
   lines = picked.map((line) => scrubLine(line, { trims }));
 }
