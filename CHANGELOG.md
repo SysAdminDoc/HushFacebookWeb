@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* The tests now run against scrubbed copies of what Facebook really sends: a feed page, the home page's inline feed data, a Marketplace page with an ad card, a search page with an ad, and the request that marks a story as seen. A new script turns a raw capture into one of these fixtures with every id, name, piece of text, token and link replaced, and a test checks that nothing personal is left in them.
+
 ## v0.0.1 (2026-10-10)
 
 * The groundwork. Settings live in your userscript manager and get their own panel, which can back them up and show diagnostics. Underneath, a data layer cleans Facebook's feed as it loads and can hold back single requests.

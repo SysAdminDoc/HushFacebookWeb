@@ -1,0 +1,2 @@
+{"method":"POST","path":"/api/graphql/","friendly":"storiesUpdateSeenStateMutation","doc_id":"822216352","variables":"{\"input\":{\"bucket_id\":\"479541654\",\"story_id\":\"i1mT6HlkMYbm3DUUoygu5K7TB94sFt6=\",\"actor_id\":\"636128881\",\"client_mutation_id\":\"1\"},\"scale\":1}"}
+{"method":"POST","path":"/api/graphql/","friendly":"storiesUpdateSeenStateMutation","doc_id":"822216352","variables":"{\"input\":{\"bucket_id\":\"479541654\",\"story_id\":\"A5_ylYoD9ueSAMq24KZBYsbx1ulq0l==\",\"actor_id\":\"636128881\",\"client_mutation_id\":\"2\"},\"scale\":1}"}

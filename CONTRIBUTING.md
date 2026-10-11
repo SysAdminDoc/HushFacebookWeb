@@ -51,7 +51,17 @@ Titles, descriptions, toasts and docs should read like a person wrote them. Keep
 
 ## Fixtures
 
-Fixtures in `tests/` are synthetic for now. If you capture a real Facebook response to test against, scrub it first: no names, profile IDs, photo URLs, tokens or anything else that points at a person. Keep raw captures in `captures/`, which git ignores.
+`tests/fixtures/` holds scrubbed captures of what facebook.com sent on 2026-10-10: a feed page (`CometNewsFeedPaginationQuery`), the home page's inline feed blobs, a Marketplace page with an ad card, a search page with an ad, and the story seen request. `tests/captured.test.js` runs the shipped rules against them. Raw captures stay in `captures/`, which git ignores, because they carry account data.
+
+To add one, run the scrubber over the raw file:
+
+```
+node scripts/scrub-fixture.mjs captures/<run>/bodies/<body>.txt --out tests/fixtures/<Name>.jsonl --lines 0,6,22
+node scripts/scrub-fixture.mjs captures/<run>/pages/<page>.txt --html --match <text> --index 2 --out tests/fixtures/<name>.jsonl
+node scripts/scrub-fixture.mjs captures/<run>/network.jsonl --request --friendly <name> --out tests/fixtures/<name>.request.jsonl
+```
+
+It keeps field names, typenames, enum values and the shape of the document. Ids, names, post text, tokens, cursors, hashes and media or profile URLs become stand-ins hashed from the originals, so the same id maps to the same stand-in everywhere in a fixture. `--lines` picks streamed chunks out of a body and `--trim path=0,1` shortens an array, which keeps a fixture small. The scrubber refuses to write a file that still carries a long id, a CDN host, a `pfbid` token or an email, and `tests/fixtures.test.js` checks every fixture for the same things on each run. Read a new fixture yourself before committing it all the same.
 
 ## Checks
 
