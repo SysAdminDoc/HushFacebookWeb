@@ -1,11 +1,13 @@
 // Wraps fetch, XMLHttpRequest and sendBeacon in Facebook's window so features can drop
-// requests (read receipts, story seen, telemetry) and prune responses (ads, suggestions).
+// requests (story seen, telemetry) and prune responses (ads, suggestions). The chat socket's
+// send is wrapped too (websocket.js), for read receipts and typing.
 // JSON.parse is wrapped too: the first screen of the feed arrives inline in the HTML as
 // <script type="application/json" data-sjs> blocks, never through fetch or XHR.
 //
 // A failing rule is logged once and skipped. Facebook always gets a response.
 
 import { createLineStream, friendlyNameOf, rulesFor, transformDocumentLine } from './payload.js';
+import { patchWebSocket } from './websocket.js';
 
 const INSTALLED = Symbol.for('hushfacebook-web.net');
 const INLINE_JSON = Object.freeze({ transport: 'json-parse', method: '', url: '', host: '', path: '', friendlyName: '' });
@@ -66,8 +68,12 @@ export function installNetworkHooks({ win, log }) {
   patchXhr(win, { blockingRule, active, responseRules, lineTransformer });
   patchBeacon(win, { blockingRule });
   patchJsonParse(win, { active, responseRules, onError, handled });
+  const sockets = patchWebSocket(win, { log });
 
   const api = {
+    // The chat socket: see websocket.js. chatStats counts what it sent and couldn't read.
+    editChatRequests: sockets.editChatRequests,
+    chatStats: sockets.stats,
     // rule: { id, enabled(), match(ctx), fakeResponse?(ctx) }
     blockRequests(rule) {
       requestRules.push(rule);

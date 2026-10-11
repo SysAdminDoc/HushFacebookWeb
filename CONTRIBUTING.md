@@ -15,6 +15,8 @@ src/
     diagnostics.js     extra Diagnostics rows a feature can add, also in Copy report
     net/hooks.js       fetch, XHR, sendBeacon and JSON.parse hooks
     net/payload.js     Facebook's multi-document responses, line by line
+    net/websocket.js   the chat socket's send, for features that edit chat requests
+    net/lightspeed.js  the chat socket's frames and requests, read and written back exactly
     url.js             link-shim unwrapping and tracking tag removal
     dom/posts.js       finds posts on the page and reports them to features (post/add, post/remove)
     dom/hide.js        hides a post with a reason, counts it, and can leave a note that shows it again

@@ -29,6 +29,8 @@ import hideSponsoredReels from './reels/hide-sponsored-reels.js';
 import anonymousStories from './stories/anonymous-stories.js';
 import hideSponsoredSearch from './search/hide-sponsored-search.js';
 import hideSponsoredMarketplace from './marketplace/hide-sponsored-marketplace.js';
+import hideReadReceipts from './chats/hide-read-receipts.js';
+import hideTyping from './chats/hide-typing.js';
 import sanitizeLinks from './links/sanitize-links.js';
 import directLinks from './links/direct-links.js';
 import tapToPlay from './playback/tap-to-play.js';
@@ -41,6 +43,6 @@ import downloadStories from './downloads/download-stories.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
-  hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace,
+  hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace, hideReadReceipts, hideTyping,
   sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, followingFeed,
 ];

@@ -47,8 +47,8 @@ What the status words mean:
 | Download any video | Written | A Download button on feed and Watch videos that saves the file Facebook's data lists, HD unless you pick smaller files. A video Facebook only streams in small pieces gets a message saying so. The test account's feed and Watch have only offered reels so far, so a plain video hasn't been saved live yet. Page mode only. |
 | Download any reel | Tested | A Download button on reels in the feed and in the reels viewer, saving the HD file when there is one. Page mode only. |
 | Download any story | Tested | A Download button on the story you're watching, named after whose story it is. A video story saved live. Photo stories pass the tests on a captured story but haven't been tried live, and stories with music haven't turned up yet. Page mode only. |
-| Hide read receipts | Planned | Facebook's web chats send read receipts over a live connection, which the script can filter. End-to-end encrypted chats can't be changed. |
-| Hide typing indicator | Planned | Same connection as read receipts. |
+| Hide read receipts | Written | Takes the task that marks a chat read out of what Facebook's chat connection sends, and the rest of that request goes as it was. Live, the script saw every message the chat connection sent and chat kept working with the switch on, but the test account's chats are all end-to-end encrypted, which this can't reach, so it hasn't had a receipt to hold back yet. Page mode only. |
+| Hide typing indicator | Written | Sends "not typing" where Facebook would say you're typing, on the same connection. Like read receipts, it doesn't reach end-to-end encrypted chats and hasn't been seen at work live yet. Page mode only. |
 | Stop Story auto-advance | Planned | Keeps each story up until you move on. |
 | Keep the reel speed | Planned | Remembers the speed you picked. |
 | Hold a reel for 2x | Planned | Hold the mouse on a reel to play it at double speed. |
