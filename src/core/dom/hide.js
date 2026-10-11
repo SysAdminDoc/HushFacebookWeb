@@ -2,32 +2,46 @@
 //
 // Attributes written on the feed's direct children have been measured to stall infinite
 // scroll (the MIT fb-sponsored-ad-post-blocker), so the mark goes one level inside the post,
-// on its first child, and a :has() rule hides the post from there. With "Leave a note" on,
-// the post shrinks to one line ("Hidden: Sponsored. Show") drawn from the mark's own
-// attributes, and a click on that line brings the post back for the rest of the visit.
-// Nothing is ever inserted into Facebook's markup.
+// on its first child, and a :has() rule hides the post from there. On facebook.com that
+// child is a display:contents wrapper holding the whole post (live 2026-10-11), so it has no
+// box of its own. With "Leave a note" on, the post shrinks to one line ("Hidden: Sponsored.
+// Show") drawn by the mark's ::before, which still gets a box, and a click on that line
+// brings the post back for the rest of the visit. Nothing is ever inserted into Facebook's
+// markup. A live scroll past 100 posts with every other one hidden kept paging.
+
+import { postIdOf } from './posts.js';
 
 export const MARK = 'data-hfw-hide';
 export const NOTE = 'data-hfw-note';
 const POST = ':is([aria-posinset], [role="article"])';
+// ::before doesn't draw on these, so they can't carry the note.
+const REPLACED = new Set(['IMG', 'VIDEO', 'IFRAME', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'OBJECT', 'EMBED']);
 
 export function hideCss({ notes }) {
   if (!notes) return `${POST}:has(> [${MARK}]) { display: none !important; }`;
   return [
     `${POST}:has(> [${MARK}]) > :not([${MARK}]) { display: none !important; }`,
     `${POST} > [${MARK}] > * { display: none !important; }`,
+    // Loose text right inside the mark has no element to hide, so it shrinks to nothing.
+    `${POST} > [${MARK}] { font-size: 0 !important; }`,
     `${POST} > [${MARK}]::before { content: attr(${NOTE}); display: block; padding: 10px 16px; font: 13px/1.4 system-ui, sans-serif; color: var(--secondary-text, #65676b); cursor: pointer; }`,
   ].join('\n');
 }
 
-export function createHider({ doc = globalThis.document, posts, log } = {}) {
+// notesShown: whether the note line is on screen (not paused, "Leave a note" on). Clicks on
+// a mark are only taken while it is, so a paused script never swallows one.
+export function createHider({ doc = globalThis.document, posts, log, notesShown = () => true } = {}) {
   const counts = new Map();
-  const counted = new WeakMap(); // post element -> reason it was counted under
+  // A post counts once, under the first reason it was hidden for. By id, so a post Facebook
+  // draws again counts once, and by element, for posts whose id isn't known yet.
+  const countedIds = new Set();
+  const countedElements = new WeakSet();
   const revealed = new WeakSet();
   const listeners = new Set();
   let watching = false;
 
-  const markerOf = (element) => element.firstElementChild;
+  // The mark normally sits on the first child, but Facebook may put something in front of it.
+  const markOf = (element) => [...element.children].find((child) => child.hasAttribute(MARK)) ?? null;
 
   function notify() {
     for (const listener of listeners) {
@@ -40,27 +54,40 @@ export function createHider({ doc = globalThis.document, posts, log } = {}) {
   }
 
   function clear(element) {
-    const marker = markerOf(element);
-    if (!marker?.hasAttribute(MARK)) return;
-    marker.removeAttribute(MARK);
-    marker.removeAttribute(NOTE);
+    for (const child of element.children) {
+      if (!child.hasAttribute(MARK)) continue;
+      child.removeAttribute(MARK);
+      child.removeAttribute(NOTE);
+    }
+  }
+
+  // Counts a post the first time it's hidden. Returns whether it was new.
+  function count(element, reason) {
+    const id = postIdOf(element).id;
+    const seen = countedElements.has(element) || (id !== null && countedIds.has(id));
+    countedElements.add(element);
+    if (id !== null) countedIds.add(id);
+    if (seen) return false;
+    counts.set(reason, (counts.get(reason) ?? 0) + 1);
+    return true;
   }
 
   // A recycled element holds a different story, so what was hidden or shown in it before
-  // no longer applies.
+  // no longer applies. Until the new story's link fills in, the tracker can't tell it was
+  // recycled, so the old mark can stay up for that moment.
   function watchRecycling() {
     if (watching || !posts) return;
     watching = true;
     posts.on('post/remove', ({ element }) => {
       revealed.delete(element);
-      counted.delete(element);
+      countedElements.delete(element);
       if (element.isConnected) clear(element);
     });
   }
 
   function onClick(event) {
     const marker = event.target;
-    if (!marker?.hasAttribute?.(MARK)) return;
+    if (!marker?.hasAttribute?.(MARK) || !notesShown()) return;
     const post = marker.parentElement;
     if (!post?.matches(POST)) return;
     event.preventDefault();
@@ -76,17 +103,13 @@ export function createHider({ doc = globalThis.document, posts, log } = {}) {
     // Returns false when the post can't be marked or the person chose to see it.
     hide(element, reason, detail) {
       if (revealed.has(element)) return false;
-      const marker = markerOf(element);
-      if (!marker) return false;
+      const marker = markOf(element) ?? element.firstElementChild;
+      if (!marker || REPLACED.has(marker.tagName)) return false;
       watchRecycling();
       const label = detail ? `${reason}: ${detail}` : reason;
       marker.setAttribute(MARK, reason);
       marker.setAttribute(NOTE, `Hidden: ${label}. Show`);
-      if (!counted.has(element)) {
-        counted.set(element, reason);
-        counts.set(reason, (counts.get(reason) ?? 0) + 1);
-        notify();
-      }
+      if (count(element, reason)) notify();
       return true;
     },
     show(element) {
@@ -98,7 +121,7 @@ export function createHider({ doc = globalThis.document, posts, log } = {}) {
         if (marker.getAttribute(MARK) === reason && marker.parentElement) clear(marker.parentElement);
       }
     },
-    isHidden: (element) => markerOf(element)?.hasAttribute(MARK) === true,
+    isHidden: (element) => markOf(element) !== null,
     // Posts hidden since the page loaded, per reason.
     counts: () => Object.fromEntries(counts),
     subscribe(listener) {

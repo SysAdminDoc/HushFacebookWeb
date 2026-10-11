@@ -22,7 +22,10 @@ function boot() {
   const net = pageAccess === 'page' ? installNetworkHooks({ win: pageWindow, log }) : null;
   const router = createRouter({ win: pageWindow, pageAccess, log });
   const posts = createPostTracker({ doc: document, log });
-  const hider = createHider({ doc: document, posts, log });
+  const hider = createHider({
+    doc: document, posts, log,
+    notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote') === true,
+  });
   const unavailable = new Set();
 
   if (!net) {

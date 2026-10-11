@@ -203,6 +203,8 @@ test('a recycled post forgets that it was shown and is cleared', () => {
   element.firstElementChild.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
   assert.equal(hider.hide(element, 'Sponsored'), false);
 
+  // The tracker reports a recycle when the element starts showing a different story.
+  element.querySelector('a[href*="/posts/"]').setAttribute('href', '/someone/posts/pfbid0Post9');
   posts.removed(element);
   assert.equal(hider.hide(element, 'Sponsored'), true);
   assert.deepEqual(hider.counts(), { Sponsored: 2 });
@@ -255,4 +257,82 @@ test('a base style that throws is logged and the rest still render', () => {
   ];
   assert.equal(renderFeatureCss([], settings, { error: (message) => errors.push(message) }, base), '/* fine */\n.x{}');
   assert.deepEqual(errors, ["The broken styles couldn't be built"]);
+});
+
+test('the mark is still found after Facebook puts something in front of it', () => {
+  const win = page(feed(post(1)));
+  const element = win.document.querySelector('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  hider.hide(element, 'Sponsored');
+  const marker = element.firstElementChild;
+  element.prepend(win.document.createElement('header'));
+  assert.equal(hider.isHidden(element), true);
+  hider.hide(element, 'Sponsored');
+  assert.equal(element.querySelectorAll(`[${MARK}]`).length, 1, 'hiding again never adds a second note');
+  marker.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert.equal(hider.isHidden(element), false);
+  assert.equal(element.querySelectorAll(`[${MARK}], [${NOTE}]`).length, 0);
+});
+
+test('show and showAll find a mark that moved', () => {
+  const win = page(feed(post(1), post(2)));
+  const [a, b] = win.document.querySelectorAll('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  hider.hide(a, 'Sponsored');
+  hider.hide(b, 'Sponsored');
+  a.prepend(win.document.createElement('header'));
+  b.prepend(win.document.createElement('header'));
+  hider.show(a);
+  assert.equal(a.querySelectorAll(`[${MARK}], [${NOTE}]`).length, 0);
+  hider.showAll('Sponsored');
+  assert.equal(b.querySelectorAll(`[${MARK}], [${NOTE}]`).length, 0);
+});
+
+test('while the note isn\'t on screen, clicks on a mark go to Facebook', () => {
+  const win = page(feed(post(1)));
+  const element = win.document.querySelector('[aria-posinset]');
+  let shown = false;
+  const hider = createHider({ doc: win.document, notesShown: () => shown });
+  hider.hide(element, 'Sponsored');
+  let reached = 0;
+  element.firstElementChild.addEventListener('click', () => reached++);
+  const event = new win.MouseEvent('click', { bubbles: true, cancelable: true });
+  element.firstElementChild.dispatchEvent(event);
+  assert.equal(reached, 1);
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(hider.isHidden(element), true);
+  shown = true;
+  element.firstElementChild.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert.equal(hider.isHidden(element), false);
+});
+
+test('a post drawn again, or whose id turns up late, counts once', () => {
+  const win = page(feed(post(1), '<div aria-posinset="2"><div><a href="#">2h</a><div>Lazy</div></div></div>'));
+  const [first, lazy] = win.document.querySelectorAll('[aria-posinset]');
+  const posts = fakePosts();
+  const hider = createHider({ doc: win.document, posts });
+  hider.hide(first, 'Sponsored');
+  const list = first.parentElement;
+  first.remove();
+  posts.removed(first);
+  list.prepend(first);
+  hider.hide(first, 'Sponsored');
+  hider.hide(lazy, 'Sponsored');
+  lazy.querySelector('a').setAttribute('href', '/someone/posts/pfbid0Late');
+  hider.hide(lazy, 'Sponsored');
+  assert.deepEqual(hider.counts(), { Sponsored: 2 });
+});
+
+test('a post whose first child is an image or video is left alone', () => {
+  const win = page(feed('<div aria-posinset="1"><img src="x.png" alt=""><a href="/a/posts/1">1h</a></div>'));
+  const element = win.document.querySelector('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  assert.equal(hider.hide(element, 'Sponsored'), false);
+  assert.equal(win.document.querySelectorAll(`[${MARK}]`).length, 0);
+});
+
+test('note mode hides loose text inside the mark too', () => {
+  const css = hideCss({ notes: true });
+  assert.ok(css.includes(`> [${MARK}] { font-size: 0 !important; }`));
+  assert.ok(!hideCss({ notes: false }).includes('font-size'));
 });
