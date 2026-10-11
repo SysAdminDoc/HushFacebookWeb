@@ -72,7 +72,7 @@ What the status words mean:
 | Use the phone's emoji | Tested | Called "Use your computer's emoji" on the web. Swaps the picture behind each of Facebook's emoji images for one drawn with your system's emoji font, keeping the image, its size and its alt text, so copying text still gives the emoji. Works in content mode. |
 | Turn off screen transitions | Tested | Every CSS transition and animation finishes at once (a near-zero length, so Facebook's end events still fire), except inside progress bars. Works in content mode. |
 | Hushfacebook in the Menu | Tested | Called "Settings in your account menu" on the web. A HushFacebook Web row just above Log out in the menu under your profile picture, copied from Facebook's own row so it matches both themes, and found by the menu's /me/ link rather than its words. Its card can hide the corner button. Works in content mode. |
-| Show View profile on Marketplace sellers | Planned | A link from a seller to their profile. |
+| Show View profile on Marketplace sellers | Tested | A View profile link after the seller's name on a listing, opened on its own page or over Marketplace. The seller's Marketplace profile address carries their Facebook id, so the link goes to that profile. The name link is the one whose words match the seller picture's label, which skips Seller details and works in any language. Works in content mode. |
 | Share sheet items | Planned | Hide share menu items you never use. |
 | Open Messenger from the top bar | Planned | Opens the full Messages page instead of the small chat popup. |
 | Keep post dates | Needs research | The web shows relative times. A full date on every post is likely doable. |

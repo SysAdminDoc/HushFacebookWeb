@@ -33,6 +33,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hide sponsored reels
 * Hide sponsored search results
 * Hide sponsored Marketplace listings
+* View profile on Marketplace sellers
 * Hide read receipts
 * Hide typing indicator
 * Default comment order
