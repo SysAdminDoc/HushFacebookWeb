@@ -10,6 +10,7 @@ test('parseRoute names the kind of page', () => {
   const cases = [
     ['/', 'home', false],
     ['/?sk=h_chr', 'home', false],
+    ['/home.php', 'home', false],
     ['/marketplace/item/1/', 'marketplace', false],
     ['/watch/?v=1', 'watch', false],
     ['/reel/123', 'reel', false],

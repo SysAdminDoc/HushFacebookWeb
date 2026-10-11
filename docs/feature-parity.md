@@ -28,7 +28,7 @@ What the status words mean:
 | Hide suggested and promoted posts | Planned | Suggested for you, People you may know, suggested groups and Pages. |
 | Hide suggested stories | Planned | Stories from people and Pages you don't follow. |
 | Hide Reels in the feed | Planned | Reel rows between posts. |
-| Hide Stories tray | Planned | The stories row and the "What's on your mind?" box at the top of Home. |
+| Hide Stories tray | Tested | Takes the Stories row off the top of Home, and the "What's on your mind?" box too unless you keep it. The posts move up into the space. Both are found without reading any English, so it works in other languages and in content mode. |
 | Hide post prompts | Planned | "Are you interested in this post?" strips and follow suggestions on posts. |
 | Hide affiliate product links | Planned | Shopping cards on reels, posts and comments. |
 | Hide AI-detected posts | Planned | Posts marked as made with AI, Meta AI characters and Meta AI cards. |

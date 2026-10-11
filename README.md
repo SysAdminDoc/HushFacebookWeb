@@ -22,6 +22,7 @@ This is the very start. Version 0.0.1 is the first release.
 It has the groundwork in place, meaning the settings panel and the layer that reads Facebook's data as it loads, plus these features:
 
 * Hide sponsored posts
+* Hide Stories tray
 * Hide sponsored reels
 * Hide sponsored search results
 * Hide sponsored Marketplace listings

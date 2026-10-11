@@ -7,6 +7,7 @@ import { whenRootReady } from './env.js';
 
 const ROUTE_TYPES = {
   '': 'home',
+  'home.php': 'home',
   marketplace: 'marketplace',
   groups: 'groups',
   watch: 'watch',

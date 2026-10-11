@@ -9,6 +9,8 @@
 * Checked the rest of the share sheet with Sanitize sharing links on. Share to WhatsApp gets the post's own address too, and sharing through Messenger, to a group or to a friend's profile works the same as without the script.
 * Hide sponsored posts has a second layer. If an ad still gets drawn, the script reads the post's header the way you see it and hides the post when it says Sponsored or Ad. It sees through the ways Facebook disguises that label, like letters that are shuffled and put back in place by the layout with hidden decoys mixed in, or a label that points at text Facebook deletes a moment later. A post with only a Shop now style button isn't hidden, since group posts and shares carry those too. This layer works even when your manager runs the script as a content script, so Hide sponsored posts no longer switches off there. English labels only for now. Diagnostics shows how many ads each layer caught.
 * Facebook Feed Filter's MIT license notice is in THIRD_PARTY_NOTICES.txt and at the end of the built script, since the page-side ad check follows its approach.
+* New Hide Stories tray switch. It takes the Stories row off the top of Home, along with the "What's on your mind?" box unless you turn that part off, and the first post moves up into the space. It's off by default.
+* Facebook's home.php address counts as Home now, so Home-only features work there too.
 * Releases now come with a SHA256SUMS.txt, so you can check that the script you downloaded is the one that was built.
 
 ## v0.0.1 (2026-10-10)

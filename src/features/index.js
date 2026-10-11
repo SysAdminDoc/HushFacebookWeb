@@ -15,6 +15,7 @@
 //               hider.hide(post.element, 'Reason', 'detail'), hider.show(element) (src/core/dom/hide.js)
 
 import hideSponsoredPosts from './feed/hide-sponsored-posts.js';
+import hideStoriesTray from './feed/hide-stories-tray.js';
 import hideSponsoredReels from './reels/hide-sponsored-reels.js';
 import anonymousStories from './stories/anonymous-stories.js';
 import hideSponsoredSearch from './search/hide-sponsored-search.js';
@@ -26,6 +27,7 @@ import limitHdr from './playback/hdr-brightness.js';
 import followingFeed from './opening/following-feed.js';
 
 export const features = [
-  hideSponsoredPosts, hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace,
+  hideSponsoredPosts, hideStoriesTray,
+  hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace,
   sanitizeLinks, directLinks, tapToPlay, limitHdr, followingFeed,
 ];
