@@ -70,6 +70,12 @@ const SAMPLES = {
   SEARCH_ADS: () => ({ cursor: 's', node: { __typename: 'SearchRenderable', role: 'SEARCH_ADS' }, rendering_strategy: { __typename: 'SearchResultsAdRenderingStrategy' } }),
   // The shape is the live empty answer (tests/fixtures/useInstreamAdsHaloFetcherQuery.jsonl) with one break in it.
   instream_video_ad_breaks: () => ({ instream_video_ad_breaks: [{ id: 'break-1', start_time_ms: 30000 }], post_roll_ad_break: { id: 'post-roll' } }),
+  // The schedule a video part carries (tests/fixtures/video-ad-breaks.jsonl).
+  instream_video_ad_breaks_comet: () => ({
+    id: 'v1',
+    instream_extra_config: { instream_halo_delay_time_seconds: 16 },
+    instream_video_ad_breaks_comet: { mid_rolls: [{ index: 0, instream_placement: 'MID_ROLL', time_offset_in_ms: 60000 }], pre_roll: null },
+  }),
   follow_button: () => titled('suggested', followTitle),
   group_join: () => titled('suggested', joinTitle),
   genai_label: () => labeled('ai'),
@@ -116,6 +122,34 @@ test('in-stream ad breaks are emptied to what Facebook sends when there are none
   assert.equal(onlyPostRoll.scrubber.post_roll_ad_break, null);
   const none = { scrubber: { instream_video_ad_breaks: [], post_roll_ad_break: null } };
   assert.deepEqual(pruneAds(none), []);
+  // Half the pair isn't the answer's shape, so it's left alone.
+  const half = { scrubber: { instream_video_ad_breaks: [{ id: 'break-1' }] } };
+  assert.deepEqual(pruneAds(half), []);
+  assert.equal(half.scrubber.instream_video_ad_breaks.length, 1);
+});
+
+test('the ads fetched for a break are only emptied in the answer that fetches them', () => {
+  const reels = adRule('hideSponsoredReels', () => true);
+  const line = JSON.stringify({ data: { scrubber: SAMPLES.instream_video_ad_breaks() } });
+  const ctx = (friendlyName) => ({ transport: 'xhr', path: '/api/graphql/', friendlyName });
+  const own = JSON.parse(transformDocumentLine(line, [reels], ctx('useInstreamAdsHaloFetcherQuery')));
+  assert.deepEqual(own.data.scrubber, { instream_video_ad_breaks: [], post_roll_ad_break: null });
+  assert.equal(transformDocumentLine(line, [reels], ctx('FBUnifiedVideoContainerQuery')), line, 'another answer with the same keys is left alone');
+  assert.equal(transformDocumentLine(line, [reels], { transport: 'json-parse', friendlyName: '' }), line, 'never in inline page data');
+});
+
+test('a video ad break schedule is set to what Facebook sends for a video without breaks', () => {
+  const reels = adRule('hideSponsoredReels', () => true);
+  const doc = { label: 'x', path: ['viewer', 'news_feed', 'edges', 2, 'node'], data: SAMPLES.instream_video_ad_breaks_comet() };
+  const line = JSON.stringify(doc);
+  for (const ctx of [{ transport: 'json-parse', friendlyName: '' }, { transport: 'fetch', path: '/api/graphql/', friendlyName: 'FBUnifiedVideoContainerQuery' }]) {
+    const out = JSON.parse(transformDocumentLine(line, [reels], ctx));
+    assert.deepEqual(out.data, { id: 'v1', instream_extra_config: { instream_halo_delay_time_seconds: 16 }, instream_video_ad_breaks_comet: null }, ctx.transport);
+    assert.deepEqual(out.path, doc.path);
+  }
+  // A schedule with neither part is some other object of the same name, and stays.
+  const other = { instream_video_ad_breaks_comet: { __dr: 'InstreamVideoAdBreaksPlayerImpl_adBreaks$normalization.graphql' } };
+  assert.deepEqual(pruneAds(structuredClone(other)), []);
 });
 
 test('every row has a sample, and its line gets past the prefilter and is pruned by that row', () => {

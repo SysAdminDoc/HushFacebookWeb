@@ -124,6 +124,26 @@ test('a video with no in-stream ads: the live answer is left alone and never par
   assert.deepEqual(parseLine(out), doc);
 });
 
+test('a feed video with mid-roll breaks loses its schedule, and one without is never parsed', async () => {
+  const [filledLine, emptyLine] = await fixtureLines('video-ad-breaks.jsonl');
+  const reels = adRule('hideSponsoredReels', () => true);
+  const ctx = { transport: 'fetch', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+  const before = parseLine(filledLine);
+  assert.deepEqual(before.data.instream_video_ad_breaks_comet.mid_rolls.map((roll) => roll.instream_placement), ['MID_ROLL', 'MID_ROLL']);
+  const after = parseLine(transformDocumentLine(filledLine, [reels], ctx));
+  assert.equal(after.data.instream_video_ad_breaks_comet, null);
+  // Everything else in the chunk is as it was: the id, the halo config, the path and the prefetch list.
+  assert.deepEqual({ ...after.data, instream_video_ad_breaks_comet: 'x' }, { ...before.data, instream_video_ad_breaks_comet: 'x' });
+  assert.deepEqual(after.path, before.path);
+  assert.deepEqual(after.extensions, before.extensions);
+  // It now has the shape of the video Facebook sent without breaks.
+  const empty = parseLine(emptyLine);
+  assert.equal(empty.data.instream_video_ad_breaks_comet, null);
+  assert.deepEqual(Object.keys(after.data), Object.keys(empty.data));
+  assert.equal(rulesFor(emptyLine, [reels]).length, 0);
+  assert.equal(transformDocumentLine(emptyLine, [reels], ctx), emptyLine);
+});
+
 test('the story seen request is the one View stories anonymously holds back', async () => {
   const lines = await fixtureLines('storiesUpdateSeenStateMutation.request.jsonl');
   assert.equal(lines.length, 2);

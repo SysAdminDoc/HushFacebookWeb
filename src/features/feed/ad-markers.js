@@ -75,6 +75,12 @@ export const FEEDS_AND_SEARCH = {
   routes: (route) => FEEDS.routes(route) || route?.type === 'search',
 };
 
+// The answer that fetches the ads for a video's breaks. It has never come inline with a page.
+export const INSTREAM_ADS = {
+  queries: /^useInstreamAdsHaloFetcherQuery$/,
+  routes: () => false,
+};
+
 // Facebook's AI label, a section of the story's header (live 2026-10-11, all 5 labeled
 // stories on Home, the groups feed and search): {__typename: GENAI_TYPENAME,
 // was_detected_as_ai_generated: true, was_self_disclosed_as_ai_generated: false,
@@ -168,14 +174,29 @@ export const AD_MARKERS = [
     action: 'drop-node',
   },
   {
+    id: 'instream_video_ad_breaks_comet',
+    feature: 'hideSponsoredReels',
+    surface: 'videos and reels in the feed, search, Marketplace and video pages (the ad break schedule)',
+    seen: '2026-10-10: each video part comes as {id, instream_extra_config, instream_video_ad_breaks_comet}, in feed pages, video containers, Marketplace, search and inline page data; filled with MID_ROLL breaks (60 s, 120 s) on longer videos and null on the rest',
+    text: ['"instream_video_ad_breaks_comet":{'],
+    kind: 'object',
+    match: (value) => {
+      const schedule = value.instream_video_ad_breaks_comet;
+      return isObject(schedule) && ('mid_rolls' in schedule || 'pre_roll' in schedule);
+    },
+    action: 'empty-list',
+    empty: { instream_video_ad_breaks_comet: null },
+  },
+  {
     id: 'instream_video_ad_breaks',
     feature: 'hideSponsoredReels',
-    surface: 'videos and reels (in-stream ad breaks)',
-    seen: '2026-10-11: useInstreamAdsHaloFetcherQuery sent {scrubber: {instream_video_ad_breaks: [], post_roll_ad_break: null}} for all 31 videos and reels the test account opened; a filled answer not seen yet',
+    surface: 'videos and reels (the ads fetched for a break)',
+    seen: '2026-10-11: useInstreamAdsHaloFetcherQuery sent {scrubber: {instream_video_ad_breaks: [], post_roll_ad_break: null}} for all 31 videos and reels the test account opened; a filled answer not seen yet. Both keys only ever came in that answer',
     text: ['"instream_video_ad_breaks":[{', '"post_roll_ad_break":{'],
+    scope: INSTREAM_ADS,
     kind: 'object',
-    match: (value) => (Array.isArray(value.instream_video_ad_breaks) && value.instream_video_ad_breaks.length > 0)
-      || isObject(value.post_roll_ad_break),
+    match: (value) => 'instream_video_ad_breaks' in value && 'post_roll_ad_break' in value
+      && ((Array.isArray(value.instream_video_ad_breaks) && value.instream_video_ad_breaks.length > 0) || isObject(value.post_roll_ad_break)),
     action: 'empty-list',
     empty: { instream_video_ad_breaks: [], post_roll_ad_break: null },
   },

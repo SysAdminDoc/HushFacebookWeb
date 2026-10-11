@@ -9,7 +9,12 @@ export default {
   default: true,
   needsPage: true,
 
-  setup({ net, enabled }) {
-    net.transformResponses(adRule('hideSponsoredReels', enabled));
+  setup({ net, enabled, diagnostics }) {
+    let breaks = 0;
+    net.transformResponses(adRule('hideSponsoredReels', enabled, (ids) => {
+      breaks += ids.length;
+      diagnostics?.changed();
+    }));
+    diagnostics?.add('Videos cleared of ad breaks', () => String(breaks));
   },
 };
