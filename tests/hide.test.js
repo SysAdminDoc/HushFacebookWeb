@@ -205,6 +205,26 @@ test('show and showAll bring posts back by element and by reason', () => {
   assert.equal(hider.hide(a, 'Sponsored'), true, 'show() is not a reveal by the person');
 });
 
+test('a post hidden for two reasons stays hidden until both are taken off', () => {
+  const win = page(feed(post(1)));
+  const element = win.document.querySelector('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  const mark = () => element.querySelector(`[${MARK}]`);
+  hider.hide(element, 'Filter', 'cats');
+  hider.hide(element, 'Seen');
+  assert.equal(mark().getAttribute(MARK), 'Filter Seen');
+  assert.equal(mark().getAttribute(NOTE), 'Hidden: Filter: cats. Show', 'the note names the first reason');
+  hider.showAll('Filter');
+  assert.equal(hider.isHidden(element), true, 'still seen');
+  assert.equal(mark().getAttribute(NOTE), 'Hidden: Seen. Show');
+  hider.hide(element, 'Filter', 'dogs');
+  hider.showAll('Seen');
+  assert.equal(mark().getAttribute(NOTE), 'Hidden: Filter: dogs. Show');
+  hider.showAll('Filter');
+  assert.equal(hider.isHidden(element), false);
+  assert.deepEqual(hider.counts(), { Filter: 1 }, 'counted once, under the first reason');
+});
+
 test('a recycled post forgets that it was shown and is cleared', () => {
   const win = page(feed(post(1)));
   const element = win.document.querySelector('[aria-posinset]');

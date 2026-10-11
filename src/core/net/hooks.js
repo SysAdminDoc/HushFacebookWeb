@@ -57,7 +57,8 @@ export function installNetworkHooks({ win, log }) {
   const handled = createHandledLines();
   const lineTransformer = (rules, ctx) => (line) => {
     const out = transformDocumentLine(line, rules, ctx, onError, parse);
-    if (out !== null && rulesFor(out, responseRules).length) handled.add(out);
+    const ran = rulesFor(line, rules);
+    if (out !== null && ran.length) handled.add(out, ran);
     return out;
   };
 
@@ -229,10 +230,12 @@ function patchJsonParse(win, { active, responseRules, onError, handled }) {
   json.parse = function (text) {
     const result = parse.apply(this, arguments);
     if (typeof text !== 'string' || result === null || typeof result !== 'object') return result;
-    // A line of a fetch or XHR answer already went through the rules, judged by its query.
-    if (handled?.has(text)) return result;
-    const candidates = rulesFor(text, responseRules);
+    let candidates = rulesFor(text, responseRules);
     if (!candidates.length) return result;
+    // A line of a fetch or XHR answer already went through the rules that were on for it,
+    // judged by its query.
+    const done = handled?.get(text);
+    if (done) candidates = candidates.filter((rule) => !done.has(rule));
     for (const rule of active(candidates, INLINE_JSON)) {
       try {
         rule.transform(result, INLINE_JSON);
@@ -244,19 +247,42 @@ function patchJsonParse(win, { active, responseRules, onError, handled }) {
   };
 }
 
-// The last lines of fetch and XHR answers that the rules looked at (only ones carrying a
-// rule's marker). Facebook parses GraphQL answers with JSON.parse, and without this the
-// JSON.parse pass would judge them a second time as inline page data, by the page you're on
-// instead of by the query they answer.
+// The last lines of fetch and XHR answers that rules looked at, with the rules that did.
+// Facebook parses GraphQL answers with JSON.parse, and without this the JSON.parse pass would
+// judge them a second time as inline page data, by the page you're on instead of by the
+// query they answer. A rule that was off for the request still gets its turn there.
+//
+// Feed lines can run to megabytes, so each is remembered by a short stand-in: its length, its
+// two ends and characters sampled along it. Facebook strips the for (;;); guard and may
+// leave whitespace around a line before it parses it, so neither counts.
+const GUARD = 'for (;;);';
+const SAMPLES = 64;
+const ENDS = 160;
+
+export function lineKey(line) {
+  let text = line.trim();
+  if (text.startsWith(GUARD)) text = text.slice(GUARD.length).trimStart();
+  const n = text.length;
+  if (n <= 2 * ENDS + SAMPLES) return text;
+  let sample = '';
+  for (let i = 1; i < SAMPLES; i++) sample += text[Math.floor((i * n) / SAMPLES)];
+  return `${n}:${text.slice(0, ENDS)}${sample}${text.slice(-ENDS)}`;
+}
+
 export function createHandledLines(limit = 64) {
-  const lines = new Set();
+  const lines = new Map(); // key -> Set of rules
   return {
-    add(line) {
-      lines.delete(line);
-      lines.add(line);
-      if (lines.size > limit) lines.delete(lines.values().next().value);
+    add(line, rules = []) {
+      const key = lineKey(line);
+      const done = lines.get(key) ?? new Set();
+      for (const rule of rules) done.add(rule);
+      lines.delete(key);
+      lines.set(key, done);
+      if (lines.size > limit) lines.delete(lines.keys().next().value);
     },
-    has: (line) => lines.has(line),
+    // The rules that already looked at this line, or undefined.
+    get: (line) => lines.get(lineKey(line)),
+    has: (line) => lines.has(lineKey(line)),
   };
 }
 

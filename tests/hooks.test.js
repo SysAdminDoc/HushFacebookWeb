@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DROP } from '../src/core/net/payload.js';
-import { installNetworkHooks } from '../src/core/net/hooks.js';
+import { createHandledLines, installNetworkHooks, lineKey } from '../src/core/net/hooks.js';
 
 function fakeWindow({ chunks = ['{}'], status = 200 } = {}) {
   const calls = [];
@@ -144,6 +144,35 @@ test('a GraphQL line Facebook parses again with JSON.parse is judged by its quer
   assert.deepEqual(seen, ['fetch']);
   assert.deepEqual(win.JSON.parse('{"node":{"__typename":"Story","id":"inline"}}'), {}, 'page data still goes through');
   assert.deepEqual(seen, ['fetch', 'json-parse']);
+});
+
+test('a line is remembered by a short key that ignores the guard and whitespace around it', () => {
+  const big = `{"data":{"node":{"__typename":"Story","text":"${'x'.repeat(5000)}"}}}`;
+  const handled = createHandledLines(2);
+  handled.add(`for (;;);${big}\r`);
+  assert.equal(handled.has(big), true);
+  assert.equal(handled.has(big.replace('Story', 'Stori')), false, 'a different line of the same length');
+  assert.ok(lineKey(big).length < 600, 'a long line is not kept whole');
+  handled.add('{"a":1}');
+  handled.add('{"b":2}');
+  assert.equal(handled.has(big), false, 'only the newest lines are kept');
+});
+
+test('a line answered while a rule was off still gets the JSON.parse pass', async () => {
+  const line = '{"node":{"__typename":"Story","id":"s1"}}';
+  const { win } = fakeWindow({ chunks: [line] });
+  const net = installNetworkHooks({ win, log: quietLog() });
+  let on = false;
+  const seen = [];
+  net.transformResponses({ id: 'other', enabled: () => true, markers: ['"node"'], match: () => true, transform: () => false });
+  net.transformResponses({
+    id: 'late', enabled: () => on, markers: ['"Story"'], match: () => true,
+    transform: (doc, ctx) => seen.push(ctx.transport),
+  });
+  const text = await (await win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('Q') })).text();
+  on = true;
+  win.JSON.parse(text);
+  assert.deepEqual(seen, ['json-parse'], 'the rule that was off at fetch time still sees the line');
 });
 
 test('blocked beacons report success without sending', () => {

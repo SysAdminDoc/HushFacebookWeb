@@ -8,11 +8,11 @@ import { createActions } from '../src/core/actions.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
-import { halfShown, watchSeen } from '../src/core/dom/seen-watch.js';
+import { halfShown, THRESHOLDS, watchSeen } from '../src/core/dom/seen-watch.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
 import { parseRoute } from '../src/core/route.js';
 import { mediaIdOf, pageKeys, storyKeys, textKey } from '../src/core/seen-keys.js';
-import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
+import { CLEARED_KEY, createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import hideSeenPosts, { pruneSeen, SHOW_KEY } from '../src/features/feed/hide-seen-posts.js';
 
@@ -26,8 +26,11 @@ afterEach(async () => {
 function sharedStorage(initial = {}) {
   const storage = createMemoryStorage(initial);
   const listeners = new Map();
-  storage.onChange = (key, fn) => listeners.set(key, fn);
-  storage.remote = (key, value) => listeners.get(key)?.(value);
+  storage.onChange = (key, fn) => {
+    if (!listeners.has(key)) listeners.set(key, []);
+    listeners.get(key).push(fn);
+  };
+  storage.remote = (key, value) => listeners.get(key)?.forEach((fn) => fn(value));
   return storage;
 }
 
@@ -75,6 +78,29 @@ test('the store drops old and surplus entries, skips junk, and merges other tabs
   storage.remote(SEEN_KEY, { newer: now - 5000, other: now - 10 });
   assert.deepEqual([...store.since(0)].sort(), ['newer', 'other']);
   assert.deepEqual([...store.since(now - 6000)].sort(), ['newer', 'other'], 'the earlier time wins');
+  assert.deepEqual([...store.since(0, now - 2000)], ['newer'], 'until leaves out later ones');
+});
+
+test('forgetting the list holds against another tab that still has the old one', () => {
+  let clock = 10 * DAY;
+  const storage = sharedStorage();
+  const options = { storage, now: () => clock, schedule: () => {}, cancel: () => {}, every: null };
+  const here = createSeenStore(options);
+  const there = createSeenStore(options);
+  here.add(['t:old']);
+  there.add(['t:old', 't:other']);
+  clock += 1000;
+  here.clear();
+  // The other tab writes its old list before it hears about the clear.
+  const stale = { 't:old': clock - 1000, 't:other': clock - 1000 };
+  here.add('t:new');
+  storage.remote(SEEN_KEY, stale);
+  assert.deepEqual([...here.since(0)], ['t:new'], 'the old copy is not merged back');
+  storage.remote(CLEARED_KEY, storage.get(CLEARED_KEY));
+  assert.equal(there.size(), 0, 'the other tab forgets too');
+  storage.set(SEEN_KEY, { ...stale, 't:new': clock });
+  const reloaded = createSeenStore(options);
+  assert.deepEqual([...reloaded.since(0)], ['t:new'], 'and a new tab skips what came before the clear');
 });
 
 test('a text key ignores case, spacing, punctuation and emoji, and short texts get none', () => {
@@ -133,6 +159,37 @@ test('the page and the data name a post the same way, without its comments or te
   assert.ok(storyKeys(story).includes('m:99887766'));
   assert.ok(storyKeys(story).includes(textKey(`${TEXT} a reel`)));
   assert.ok(!storyKeys(story).includes('m:11112222'), 'a comment photo is not the post');
+});
+
+test('the data keys a post by the text the page shows first, so a share with words of its own is new', () => {
+  const words = 'My friend wrote these words above the post they shared';
+  const shared = { message: { text: TEXT } };
+  const share = (message) => ({ __typename: 'Story', comet_sections: { content: { story: { ...(message ? { message: { text: message } } : {}), attached_story: shared } } } });
+  assert.deepEqual(storyKeys(share(words)), [textKey(words)]);
+  assert.deepEqual(storyKeys(share(null)), [textKey(TEXT)], 'a bare share shows the shared words first');
+
+  const title = 'A link title that is long enough to count as a key';
+  const link = (message) => ({
+    __typename: 'Story',
+    comet_sections: { content: { story: {
+      ...(message ? { comet_sections: { message: { story: { message: { text: message } } } } } : {}),
+      attachments: [{ styles: { attachment: { title_with_entities: { text: title } } } }],
+    } } },
+  });
+  assert.deepEqual(storyKeys(link(null)), [textKey(title)], 'without words, the link title');
+  assert.deepEqual(storyKeys(link(words)), [textKey(words)], 'with words, never the title');
+});
+
+test('only photos and videos a post carries count, not a profile picture beside it', () => {
+  const story = {
+    __typename: 'Story',
+    actors: [{ name: 'Pat', profile_picture: { __typename: 'Photo', id: '77778888' } }],
+    comet_sections: { content: { story: {
+      attachments: [{ styles: { attachment: { all_subattachments: { nodes: [{ media: { __typename: 'Photo', id: '55556666' } }] } } } }],
+      attached_story: { attachments: [{ media: { __typename: 'Video', id: '44445555' } }] },
+    } } },
+  };
+  assert.deepEqual(storyKeys(story).sort(), ['m:44445555', 'm:55556666']);
 });
 
 // A stand-in IntersectionObserver the tests drive by hand.
@@ -217,6 +274,30 @@ test('a post counts as seen after a second on screen, when it leaves or the page
   assert.deepEqual(seen, ['a', 'd', 'b']);
 });
 
+test('a post up to 25 screens tall still gets a callback while half the screen shows it', () => {
+  for (let tall = 1; tall <= 25; tall += 0.25) {
+    // The observer calls back when the share of the post showing crosses a threshold. The
+    // most that can show is one screen, 1/tall of the post.
+    const hit = THRESHOLDS.some((t) => t > 0 && t <= 1 / tall && t * tall >= 0.5);
+    assert.ok(hit, `${tall} screens`);
+  }
+});
+
+test('what a post was is read when it starts showing, in case Facebook reuses its element', () => {
+  const clock = { now: 0 };
+  const win = fakeWin(clock);
+  const element = { story: 'first' };
+  const posts = fakePosts([element]);
+  const seen = [];
+  watchSeen({ posts, win, active: () => true, snapshot: (post) => post.element.story, onSeen: (post, taken) => seen.push(taken) });
+  const io = FakeObserver.last;
+  io.show(element, 300);
+  element.story = 'second';
+  clock.now = 2000;
+  io.show(element, 0);
+  assert.deepEqual(seen, ['first']);
+});
+
 function setupFeature(win, { storage = sharedStorage(), days = 7, net = null, href, clock = { now: Date.now() } } = {}) {
   const doc = win.document;
   win.IntersectionObserver = FakeObserver;
@@ -262,6 +343,33 @@ test('posts seen on an earlier visit are hidden, within the days picked, and one
   const again = setupFeature(longer, { storage, clock: { now }, days: 30 });
   assert.equal(note(again.doc, 3), 'Hidden: Seen. Show', 'thirty days covers it');
   again.posts.stop();
+});
+
+test('changing the days leaves the posts seen during this visit on the page', () => {
+  const now = 50 * DAY;
+  const storage = sharedStorage({ [SEEN_KEY]: { [keyOf(1)]: now - 2 * DAY } });
+  const win = page(post(1) + post(2));
+  const clock = { now };
+  const values = { days: 7 };
+  const subscribers = [];
+  win.IntersectionObserver = FakeObserver;
+  const posts = createPostTracker({ doc: win.document });
+  hideSeenPosts.setup({
+    win, router: { current: () => parseRoute(win.location.href) }, posts, hider: createHider({ doc: win.document, posts }), storage,
+    log: { warn() {}, error() {}, info() {} }, settings: { subscribe: (fn) => subscribers.push(fn) },
+    enabled: () => true, option: (key) => values[key], now: () => clock.now,
+  });
+  const io = FakeObserver.last;
+  const two = win.document.querySelector('[aria-posinset="2"]');
+  io.show(two, 300);
+  clock.now += 1500;
+  io.show(two, 0);
+  assert.equal(note(win.document, 2), null);
+  values.days = 30;
+  subscribers.forEach((fn) => fn());
+  assert.equal(note(win.document, 1), 'Hidden: Seen. Show', 'the earlier one is hidden again');
+  assert.equal(note(win.document, 2), null, 'the one just read stays');
+  posts.stop();
 });
 
 test('Show seen posts lets them back for the tab, and Forget all seen posts empties the list', () => {

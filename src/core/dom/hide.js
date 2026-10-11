@@ -11,6 +11,10 @@
 //
 // Blocks between posts that aren't posts (a row of reels) are hidden the same way, so the
 // rules apply to whatever holds a mark. Only hide() ever sets one.
+//
+// A post can be hidden for more than one reason at once (a word filter and Hide seen posts).
+// The mark lists them all, space-separated, and the note names the first. Showing one
+// reason's posts again leaves a post hidden while any other reason still holds.
 
 import { postIdOf } from './posts.js';
 
@@ -43,6 +47,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   const revealed = new WeakSet();
   // Marks this hider set, so a click on anything else carrying the attribute passes through.
   const marks = new WeakSet();
+  // mark -> Map(reason -> its note text), in the order the reasons came.
+  const labels = new WeakMap();
   const listeners = new Set();
   let watching = false;
 
@@ -64,7 +70,23 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       if (!child.hasAttribute(MARK)) continue;
       child.removeAttribute(MARK);
       child.removeAttribute(NOTE);
+      labels.delete(child);
     }
+  }
+
+  function write(marker, reasons) {
+    marker.setAttribute(MARK, [...reasons.keys()].join(' '));
+    marker.setAttribute(NOTE, `Hidden: ${reasons.values().next().value}. Show`);
+  }
+
+  // The reasons on a mark. One this hider didn't write still lists them in the attribute.
+  function reasonsOf(marker) {
+    let reasons = labels.get(marker);
+    if (!reasons) {
+      reasons = new Map((marker.getAttribute(MARK) ?? '').split(/\s+/).filter(Boolean).map((reason) => [reason, reason]));
+      labels.set(marker, reasons);
+    }
+    return reasons;
   }
 
   // Counts a post the first time it's hidden. Returns whether it was new.
@@ -112,9 +134,10 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       const marker = markOf(element) ?? element.firstElementChild;
       if (!marker || REPLACED.has(marker.tagName)) return false;
       watchRecycling();
-      const label = detail ? `${reason}: ${detail}` : reason;
-      marker.setAttribute(MARK, reason);
-      marker.setAttribute(NOTE, `Hidden: ${label}. Show`);
+      const reasons = marker.hasAttribute(MARK) ? reasonsOf(marker) : new Map();
+      reasons.set(reason, detail ? `${reason}: ${detail}` : reason);
+      labels.set(marker, reasons);
+      write(marker, reasons);
       marks.add(marker);
       if (count(element, reason)) notify();
       return true;
@@ -122,10 +145,14 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     show(element) {
       clear(element);
     },
-    // Brings back every post hidden for one reason, for a feature that was just switched off.
+    // Takes one reason off every post, for a feature that was just switched off. A post still
+    // hidden for another reason stays hidden, under that one.
     showAll(reason) {
       for (const marker of doc.querySelectorAll(`[${MARK}]`)) {
-        if (marker.getAttribute(MARK) === reason && marker.parentElement) clear(marker.parentElement);
+        const reasons = reasonsOf(marker);
+        if (!reasons.delete(reason)) continue;
+        if (reasons.size) write(marker, reasons);
+        else if (marker.parentElement) clear(marker.parentElement);
       }
     },
     isHidden: (element) => markOf(element) !== null,

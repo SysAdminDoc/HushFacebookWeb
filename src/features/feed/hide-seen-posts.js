@@ -78,10 +78,13 @@ export default {
     const days = () => (DAYS.includes(Number(option('days'))) ? Number(option('days')) : 7);
     let showing = flag.get();
     // What counts as seen right now: posts seen before this visit, or before you last came
-    // back to Home from somewhere else, within the days you picked.
+    // back to Home from somewhere else, within the days you picked. Changing the days keeps
+    // that same moment, so the posts you're reading now don't vanish.
     let before = new Set();
-    const refresh = () => {
-      before = store.since(now() - days() * DAY);
+    let until = now();
+    const refresh = (moment = now()) => {
+      until = moment;
+      before = store.since(now() - days() * DAY, until);
     };
     refresh();
     const isSeen = (key) => before.has(key);
@@ -121,8 +124,10 @@ export default {
         win,
         active: () => enabled() && FILTERED.routes(route()),
         now,
-        onSeen(post) {
-          if (store.add(pageKeys(post.element))) changed();
+        // Read when the post starts showing, in case Facebook puts another story in its place.
+        snapshot: (post) => pageKeys(post.element),
+        onSeen(post, keys) {
+          if (store.add(keys?.length ? keys : pageKeys(post.element))) changed();
         },
       });
       // After seen-watch's own pagehide listener, so the posts it counts get written.
@@ -181,7 +186,7 @@ export default {
       const next = state();
       if (next === last) return;
       last = next;
-      refresh();
+      refresh(until);
       hider?.showAll('Seen');
       if (hiding()) watcher?.recheckAll();
     });

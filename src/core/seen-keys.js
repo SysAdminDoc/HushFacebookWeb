@@ -80,22 +80,42 @@ export function pageKeys(post) {
   return [...keys];
 }
 
-// Keys for a feed story in Facebook's data: every photo and video in it, and each of its
-// texts, since the page shows the post text first or, without one, a link's title.
+const textOf = (holder) => (typeof holder?.text === 'string' && holder.text ? holder.text : null);
+// A story's own words, which Facebook repeats in its message and message_container sections.
+const messageOf = (story) => textOf(story?.message)
+  ?? textOf(story?.comet_sections?.message?.story?.message)
+  ?? textOf(story?.comet_sections?.message_container?.story?.message);
+
+// The one text the page keys a post by (live 2026-10-11, 174 stories): the post's own words,
+// under comet_sections.content.story, or for a share without any, the shared post's words
+// (its attached_story), which the page then shows first. A post with neither shows the first
+// title or description of what it links to. Keying only this one text keeps a friend's share
+// of a post you've seen, with their own words on top, from counting as seen.
+function storyText(node) {
+  const content = node?.comet_sections?.content?.story ?? node;
+  const own = messageOf(content) ?? messageOf(node);
+  if (own) return own;
+  const shared = messageOf(content?.attached_story) ?? messageOf(node?.attached_story);
+  if (shared) return shared;
+  return storyFields({ attachments: content?.attachments ?? node?.attachments }).text[0] ?? null;
+}
+
+// Keys for a feed story in Facebook's data: the photos and videos it carries (all of them sit
+// under an attachments list, the shared post's included), and the text the page shows first.
 export function storyKeys(node) {
   const keys = new Set();
-  (function visit(value, depth) {
+  (function visit(value, depth, attached) {
     if (!value || typeof value !== 'object' || depth > 40) return;
     if (Array.isArray(value)) {
-      for (const item of value) visit(item, depth + 1);
+      for (const item of value) visit(item, depth + 1, attached);
       return;
     }
-    if (MEDIA_TYPES.has(value.__typename) && typeof value.id === 'string' && /^\d{6,}$/.test(value.id)) keys.add(`m:${value.id}`);
-    for (const [key, child] of Object.entries(value)) if (!SKIP_KEYS.has(key)) visit(child, depth + 1);
-  })(node, 0);
-  for (const text of storyFields(node).text.slice(0, 4)) {
-    const key = textKey(text);
-    if (key) keys.add(key);
-  }
+    if (attached && MEDIA_TYPES.has(value.__typename) && typeof value.id === 'string' && /^\d{6,}$/.test(value.id)) keys.add(`m:${value.id}`);
+    for (const [key, child] of Object.entries(value)) {
+      if (!SKIP_KEYS.has(key)) visit(child, depth + 1, attached || key === 'attachments');
+    }
+  })(node, 0, false);
+  const key = textKey(storyText(node));
+  if (key) keys.add(key);
   return [...keys];
 }
