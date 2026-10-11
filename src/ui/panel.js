@@ -36,9 +36,10 @@ export function mountPanel({ settings, features, log, unavailable, environment }
   const nav = h('nav', { 'aria-label': 'Settings sections' });
   const main = h('main');
   const pauseState = h('span', { class: 'chip' });
-  const pause = h('input', {
-    class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'Pause HushFacebook Web',
-    onchange: (event) => apply('paused', event.target.checked),
+  // Checked means running, so the switch agrees with the "On" chip beside it.
+  const power = h('input', {
+    class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'HushFacebook Web on',
+    onchange: (event) => apply('paused', !event.target.checked),
   });
   const closeButton = h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Close settings', onclick: () => close() }, icon(CLOSE_ICON));
   const dialog = h(
@@ -48,7 +49,7 @@ export function mountPanel({ settings, features, log, unavailable, environment }
       h('h2', { id: 'hfw-title', text: 'HushFacebook Web' }),
       h('span', { class: 'chip', text: `v${environment.version}` }),
       h('span', { class: 'spacer' }),
-      pauseState, pause, closeButton),
+      pauseState, power, closeButton),
     h('div', { class: 'body' }, nav, main),
   );
   const overlay = h('div', { class: 'overlay', hidden: true, onclick: (event) => event.target === overlay && close() }, dialog);
@@ -174,7 +175,7 @@ export function mountPanel({ settings, features, log, unavailable, environment }
 
   function refreshChrome() {
     const paused = settings.get('paused') === true;
-    pause.checked = paused;
+    power.checked = !paused;
     pauseState.textContent = paused ? 'Paused' : 'On';
     launcher.hidden = settings.get('ui.launcher') !== true;
   }
