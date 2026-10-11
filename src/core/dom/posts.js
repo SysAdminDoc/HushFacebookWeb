@@ -15,17 +15,26 @@
 // The observer starts with the first subscriber, so the page pays nothing until a feature
 // needs posts.
 
-export const CANDIDATE_SELECTOR = '[aria-posinset], [role="article"]';
+// Feed posts are plain div[aria-posinset]. aria-posinset on something with another role
+// (a list option, a carousel item) is a widget, not a post.
+export const CANDIDATE_SELECTOR = '[aria-posinset]:not([role]), [role="article"]';
 
-// Which links say which post this is, best first. A link that carries comment_id points at
-// a comment, so it only counts on the last rung.
+// Which links say which post this is, best first. Comment parameters are dropped before
+// matching, since a link to a comment still names its post; comment_id itself only counts
+// on the last rung.
 const ID_RUNGS = [
   { source: 'permalink', re: /\/(?:posts|permalink)\/(pfbid0[A-Za-z0-9]+|\d+)/ },
   { source: 'pfbid', re: /(pfbid0[A-Za-z0-9]+)/ },
   { source: 'story_fbid', re: /[?&]story_fbid=(pfbid0[A-Za-z0-9]+|\d+)/ },
 ];
 const COMMENT_ID = /[?&](?:reply_comment_id|comment_id)=(\d+)/;
+const COMMENT_PARAMS = /([?&])(?:reply_comment_id|comment_id)=\d+(&|$)/g;
 const COMMENT_LABEL = /^(?:comment|reply) by /i;
+// Only facebook.com's own links say which post this is. A link out ("blog.example/posts/2024")
+// or through l.facebook.com never does.
+const FACEBOOK_LINK = /^(?:\/(?!\/)|\?|https?:\/\/(?:(?:www|web|m|mbasic)\.)?facebook\.com(?:\/|$))/i;
+// Links inside the post's text point at other things, so they never name the post.
+const MESSAGE_REGION = '[data-ad-rendering-role="story_message"], [data-ad-preview="message"]';
 
 const ownerOf = (node) => node.closest(CANDIDATE_SELECTOR);
 
@@ -35,22 +44,33 @@ export function ownLinks(element) {
 }
 
 export function postIdFromHrefs(hrefs) {
-  const postLinks = hrefs.filter((href) => !COMMENT_ID.test(href));
+  const links = hrefs.filter((href) => FACEBOOK_LINK.test(href));
+  const withoutComments = links.map((href) => href.replace(COMMENT_PARAMS, (match, lead, tail) => (tail ? lead : '')));
   for (const { source, re } of ID_RUNGS) {
-    for (const href of postLinks) {
+    for (const href of withoutComments) {
       const found = href.match(re);
       if (found) return { id: found[1], source };
     }
   }
-  for (const href of hrefs) {
+  for (const href of links) {
     const found = href.match(COMMENT_ID);
     if (found) return { id: found[1], source: 'comment_id' };
   }
   return { id: null, source: null };
 }
 
+// The hrefs that can name this post: its own links, minus the ones in its text.
+function idHrefs(element) {
+  return ownLinks(element)
+    .filter((a) => {
+      const region = a.closest(MESSAGE_REGION);
+      return !region || !element.contains(region);
+    })
+    .map((a) => a.getAttribute('href'));
+}
+
 export function postIdOf(element) {
-  return postIdFromHrefs(ownLinks(element).map((a) => a.getAttribute('href')));
+  return postIdFromHrefs(idHrefs(element));
 }
 
 function isComment(element) {
@@ -73,7 +93,7 @@ export function classifyCandidate(element) {
 }
 
 export function createPostTracker({ doc = globalThis.document, log } = {}) {
-  const processed = new WeakSet();
+  let processed = new WeakSet();
   const live = new Map(); // element -> post record, so removals can be reported
   const listeners = { 'post/add': new Set(), 'post/update': new Set(), 'post/remove': new Set(), reset: new Set() };
   let observer = null;
@@ -100,7 +120,7 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
   // and it reuses a post's element for a different story when it recycles the feed.
   function recheck(element) {
     const post = live.get(element);
-    const hrefs = ownLinks(element).map((a) => a.getAttribute('href'));
+    const hrefs = idHrefs(element);
     const { id, source } = postIdFromHrefs(hrefs);
     if (id === post.id || id === null) return;
     if (post.id === null) {
@@ -116,6 +136,13 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
   }
 
   function add(element, kind) {
+    // A post drawn first and wrapped by another one afterwards is part of the outer post now.
+    for (const inner of element.querySelectorAll(CANDIDATE_SELECTOR)) {
+      const nested = live.get(inner);
+      if (!nested) continue;
+      remove(inner, nested);
+      processed.add(inner);
+    }
     const { id, source } = postIdOf(element);
     const post = { element, kind, id, idSource: source };
     processed.add(element);
@@ -132,13 +159,18 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
     if (verdict.ok) add(element, verdict.kind);
   }
 
-  function scan(root) {
+  // Adds the candidates a changed node can affect: the post it sits in and any inside it.
+  function collect(root, found) {
     if (root.nodeType !== 1) root = root.parentElement;
-    if (!root) return;
-    const found = new Set();
+    if (!root?.isConnected) return;
     const owner = ownerOf(root);
     if (owner) found.add(owner);
     for (const element of root.querySelectorAll(CANDIDATE_SELECTOR)) found.add(element);
+  }
+
+  function scan(root) {
+    const found = new Set();
+    collect(root, found);
     for (const element of found) consider(element);
   }
 
@@ -148,16 +180,17 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
     if (!live.size) emit('reset', undefined);
   }
 
+  // Each post is looked at once per batch, however many of its nodes changed.
   function onMutations(records) {
-    const roots = new Set();
     let removals = false;
+    const found = new Set();
     for (const record of records) {
       if (record.removedNodes.length) removals = true;
-      if (record.addedNodes.length) for (const node of record.addedNodes) roots.add(node);
-      else if (record.type === 'attributes') roots.add(record.target);
+      if (record.addedNodes.length) for (const node of record.addedNodes) collect(node, found);
+      else if (record.type === 'attributes') collect(record.target, found);
     }
     if (removals) sweepRemovals();
-    for (const root of roots) if (root.isConnected) scan(root);
+    for (const element of found) if (element.isConnected) consider(element);
   }
 
   function start() {
@@ -171,7 +204,8 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
       }
     });
     const begin = () => {
-      observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] });
+      // href: timestamp links fill in late. aria-posinset and role: a node can become a post.
+      observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'aria-posinset', 'role'] });
       scan(doc.body);
     };
     if (doc.body) begin();
@@ -189,9 +223,12 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
       return () => listeners[type].delete(listener);
     },
     current: () => [...live.values()],
+    // Stops watching and forgets every post. A later on() starts over and reports them again.
     stop() {
       observer?.disconnect();
       observer = null;
+      live.clear();
+      processed = new WeakSet();
     },
   };
 }

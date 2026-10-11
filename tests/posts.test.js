@@ -95,8 +95,11 @@ test('the id ladder: permalink, then pfbid anywhere, then story_fbid, then a com
   assert.deepEqual(postIdFromHrefs(['/photo/?fbid=1&set=pcb.2', '/watch/?ref=pfbid0Abc']), { id: 'pfbid0Abc', source: 'pfbid' });
   assert.deepEqual(postIdFromHrefs(['/permalink.php?story_fbid=pfbid0Zz9&id=4']), { id: 'pfbid0Zz9', source: 'pfbid' });
   assert.deepEqual(postIdFromHrefs(['/story.php?story_fbid=12345&id=4']), { id: '12345', source: 'story_fbid' });
-  assert.deepEqual(postIdFromHrefs(['/a/posts/111?comment_id=999']), { id: '999', source: 'comment_id' });
-  assert.deepEqual(postIdFromHrefs(['/a/posts/111?comment_id=999', '/a/posts/222']), { id: '222', source: 'permalink' });
+  // A link to a comment still names the post the comment is on.
+  assert.deepEqual(postIdFromHrefs(['/a/posts/111?comment_id=999']), { id: '111', source: 'permalink' });
+  assert.deepEqual(postIdFromHrefs(['/x?comment_id=5&story_fbid=777']), { id: '777', source: 'story_fbid' });
+  assert.deepEqual(postIdFromHrefs(['/x?story_fbid=777&comment_id=5']), { id: '777', source: 'story_fbid' });
+  assert.deepEqual(postIdFromHrefs(['/x/?comment_id=999']), { id: '999', source: 'comment_id' });
   assert.deepEqual(postIdFromHrefs(['/someone', '#']), { id: null, source: null });
 });
 
@@ -220,5 +223,90 @@ test('a listener that throws is logged and the others still run', async () => {
   tracker.on('post/add', (p) => seen.push(p.id));
   assert.deepEqual(seen, ['pfbid0Post1']);
   assert.equal(errors.length, 1);
+  tracker.stop();
+});
+
+test('only facebook.com links outside the post text name the post', async () => {
+  assert.deepEqual(postIdFromHrefs(['https://blog.example.com/posts/2024', 'https://l.facebook.com/l.php?u=x%2Fposts%2F9']), { id: null, source: null });
+  assert.deepEqual(postIdFromHrefs(['https://www.facebook.com/a/posts/55', '//evil.example/posts/1']), { id: '55', source: 'permalink' });
+  const win = page(feed(`<div aria-posinset="1"><h4><a href="/someone">Someone</a></h4><a href="#">2h</a>
+    <div data-ad-rendering-role="story_message">See <a href="/other/posts/999">this</a></div></div>`));
+  const tracker = createPostTracker({ doc: win.document });
+  const events = [];
+  tracker.on('post/add', (p) => events.push(['add', p.id]));
+  tracker.on('post/update', (p) => events.push(['update', p.id]));
+  assert.deepEqual(events, [['add', null]], 'a link in the text is not this post');
+  win.document.querySelector('a[href="#"]').setAttribute('href', '/someone/posts/pfbid0Real');
+  await tick();
+  assert.deepEqual(events, [['add', null], ['update', 'pfbid0Real']]);
+  tracker.stop();
+});
+
+test('a node that becomes a post after it was drawn is found', async () => {
+  const win = page(feed('<div class="later"><a href="/a/posts/7">1h</a>Text</div>'));
+  const tracker = createPostTracker({ doc: win.document });
+  const added = [];
+  tracker.on('post/add', (p) => added.push(p.id));
+  assert.deepEqual(added, []);
+  win.document.querySelector('.later').setAttribute('aria-posinset', '1');
+  await tick();
+  assert.deepEqual(added, ['7']);
+  tracker.stop();
+});
+
+test('a post wrapped by another post afterwards becomes part of it', async () => {
+  const win = page(feed('<div class="slot"><div role="article"><a href="/b/posts/222">3d</a>Shared</div></div>'));
+  const tracker = createPostTracker({ doc: win.document });
+  const events = [];
+  tracker.on('post/add', (p) => events.push(['add', p.id]));
+  tracker.on('post/remove', (p) => events.push(['remove', p.id]));
+  const slot = win.document.querySelector('.slot');
+  const outer = win.document.createElement('div');
+  outer.setAttribute('aria-posinset', '1');
+  outer.innerHTML = '<a href="/a/posts/111">1h</a>';
+  slot.replaceWith(outer);
+  outer.append(slot);
+  await tick();
+  assert.deepEqual(events, [['add', '222'], ['remove', '222'], ['add', '111']]);
+  assert.deepEqual(tracker.current().map((p) => p.id), ['111']);
+  tracker.stop();
+});
+
+test('aria-posinset on a widget with its own role is not a post', async () => {
+  const win = page(feed('<div role="listbox"><div role="option" aria-posinset="1"><a href="/a/posts/5">x</a>Option</div></div>'));
+  const tracker = createPostTracker({ doc: win.document });
+  const added = [];
+  tracker.on('post/add', (p) => added.push(p.id));
+  assert.deepEqual(added, []);
+  tracker.stop();
+});
+
+test('after stop, a new subscriber hears about the posts on the page again', async () => {
+  const win = page(feed(post(1), post(2)));
+  const tracker = createPostTracker({ doc: win.document });
+  tracker.on('post/add', () => {});
+  tracker.stop();
+  assert.equal(tracker.current().length, 0);
+  const added = [];
+  tracker.on('post/add', (p) => added.push(p.id));
+  assert.deepEqual(added, ['pfbid0Post1', 'pfbid0Post2']);
+  tracker.stop();
+});
+
+test('many nodes added to one post in a batch check that post once', async () => {
+  const win = page(feed(post(1)));
+  const tracker = createPostTracker({ doc: win.document });
+  tracker.on('post/add', () => {});
+  const element = win.document.querySelector('[aria-posinset]');
+  const query = element.querySelectorAll;
+  let linkQueries = 0;
+  element.querySelectorAll = function (selector) {
+    if (selector === 'a[href]') linkQueries++;
+    return query.call(this, selector);
+  };
+  const box = element.querySelector('[data-ad-rendering-role="story_message"]');
+  for (let i = 0; i < 300; i++) box.append(win.document.createElement('span'));
+  await tick();
+  assert.ok(linkQueries <= 1, `the post's links were read ${linkQueries} times`);
   tracker.stop();
 });
