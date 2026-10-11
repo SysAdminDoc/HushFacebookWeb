@@ -32,6 +32,10 @@ function boot() {
   const diagnostics = createDiagnostics();
   const actions = createActions();
   const unavailable = new Set();
+  // Toasts wait for the panel, which mounts once there's a body.
+  let panel = null;
+  const waiting = [];
+  const toast = (message, options) => (panel ? panel.toast(message, options) : waiting.push([message, options]));
 
   if (!net) {
     log.warn('Your userscript manager is running HushFacebook Web as a content script, so features that need the page are off. Diagnostics has the details.');
@@ -55,6 +59,7 @@ function boot() {
         posts,
         hider,
         log,
+        toast,
         settings,
         enabled: () => settings.enabled(feature.id),
         option: (key) => settings.get(`${feature.id}.${key}`),
@@ -67,9 +72,9 @@ function boot() {
 
   mountFeatureStyles({ features, settings, log, base: [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') === true }) }] });
 
-  let panel = null;
   whenBodyReady(() => {
     panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo() } });
+    for (const [message, options] of waiting.splice(0)) panel.toast(message, options);
     const other = document.documentElement.getAttribute(DUPLICATE);
     if (other) log.warn(`A second copy of HushFacebook Web (v${other}) is installed. Turn one off in your userscript manager.`);
   });

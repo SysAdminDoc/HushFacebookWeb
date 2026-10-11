@@ -43,10 +43,10 @@ What the status words mean:
 | Marketplace only | Planned | Strips Facebook down to Marketplace. |
 | Default comment order | Planned | Opens comments in the order you choose. |
 | Comment sheet options | Planned | Show every reply, hide the GIF and sticker buttons, hide Related groups. |
-| Download any photo | Planned | Save the largest copy of any photo. |
-| Download any video | Planned | Download button for feed and Watch videos. |
-| Download any reel | Planned | Download button for reels. |
-| Download any story | Planned | Save stories, including ones with music. |
+| Download any photo | Tested | A Download button shows on photos in posts and in the photo viewer when you point at one. It saves the largest copy Facebook sent, named after whoever posted it, with the file type the server really sends. In content mode it saves the copy on screen. |
+| Download any video | Written | A Download button on feed and Watch videos that saves the file Facebook's data lists, HD unless you pick smaller files. A video Facebook only streams in small pieces gets a message saying so. The test account's feed and Watch have only offered reels so far, so a plain video hasn't been saved live yet. Page mode only. |
+| Download any reel | Tested | A Download button on reels in the feed and in the reels viewer, saving the HD file when there is one. Page mode only. |
+| Download any story | Tested | A Download button on the story you're watching, named after whose story it is. A video story saved live. Photo stories pass the tests on a captured story but haven't been tried live, and stories with music haven't turned up yet. Page mode only. |
 | Hide read receipts | Planned | Facebook's web chats send read receipts over a live connection, which the script can filter. End-to-end encrypted chats can't be changed. |
 | Hide typing indicator | Planned | Same connection as read receipts. |
 | Stop Story auto-advance | Planned | Keeps each story up until you move on. |

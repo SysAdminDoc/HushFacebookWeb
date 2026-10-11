@@ -23,6 +23,14 @@ export function managerInfo() {
   };
 }
 
+// The manager's download and request functions, where it grants them.
+export function gmApi() {
+  return {
+    download: typeof GM_download === 'function' ? GM_download : null,
+    request: typeof GM_xmlhttpRequest === 'function' ? GM_xmlhttpRequest : null,
+  };
+}
+
 export function registerMenuCommand(label, handler) {
   if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand(label, handler);
 }

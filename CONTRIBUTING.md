@@ -25,6 +25,8 @@ src/
     filters/           word filters, and the fields they read from Facebook's data and from the page
     seen-keys.js       how a post is recognized again, by its photo or video or its first words
     seen-store.js      the list of seen posts, kept in the manager's storage
+    media-index.js     the photos and videos in Facebook's data, by id, with the files to save
+    download.js        saves a file through the manager, or fetches it and hands it to a link
     actions.js         buttons a feature puts on its own card in the panel
     style.js           one style element for every CSS feature that's on
   features/            one file per feature, grouped by settings section
@@ -55,6 +57,8 @@ export default {
 `ctx.diagnostics.add('Row label', () => 'value')` adds a row to Diagnostics and to Copy report. Call `ctx.diagnostics.changed()` when the value moves.
 
 `ctx.actions.add('Button label', run)` puts a button on the feature's card while it's on. The label can be a function when its wording follows the feature's state. `ctx.storage.get(key, fallback)` and `ctx.storage.set(key, value)` keep data beside the settings, under a key of your own.
+
+`ctx.toast('Message', { tone: 'error' })` shows a short note at the bottom of the page, for something the person just did.
 
 `ctx.enabled()` tells you whether the feature is on right now. Check it every time your code runs rather than once at setup, so switching it off works without a reload.
 

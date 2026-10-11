@@ -34,11 +34,12 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * View stories anonymously
 * Sanitize sharing links
 * Skip Facebook's link redirect
+* Download any photo, video, reel or story
 * Following feed on Home
 * Tap to play
 * Turn off HDR brightness
 
-All of them have run on facebook.com in a test browser. The test account hasn't been shown a feed ad or a video ad break yet, though, so those two switches have only been seen leaving ordinary posts and videos alone. The script has also been installed in Tampermonkey and in Violentmonkey on Chrome, and in both it runs in the page, takes Marketplace and search ads out, gives Copy link the post's own address, keeps story views to yourself and remembers its settings. The other features haven't been tried in either manager yet.
+All of them have run on facebook.com in a test browser, though a few haven't had anything to act on yet. The test account hasn't been shown a feed ad or a row of reels, so those switches have only been seen leaving ordinary posts alone. Video ad breaks haven't turned up either, and the feed has only offered reels to download so far, not plain videos. The script has also been installed in Tampermonkey and in Violentmonkey on Chrome, and in both it runs in the page, takes Marketplace and search ads out, gives Copy link the post's own address, keeps story views to yourself and remembers its settings. The other features haven't been tried in either manager yet.
 
 [docs/feature-parity.md](docs/feature-parity.md) goes through every Hushfacebook patch and says what the web version will do with it.
 

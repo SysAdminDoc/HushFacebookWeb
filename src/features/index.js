@@ -8,12 +8,13 @@
 //   options     extra settings: [{ key, type: toggle|select|text|number, label, default, choices? }]
 //   css         string, or (get) => string, applied while the feature is on
 //   setup(ctx)  runs once at document-start
-//               ctx = { win, doc, net, router, posts, hider, diagnostics, actions, storage, log, settings,
+//               ctx = { win, doc, net, router, posts, hider, diagnostics, actions, storage, log, toast, settings,
 //                       enabled, option }
 //               net is null in content mode (needsPage features never get that far)
 //               diagnostics.add('Row label', () => 'value') adds a Diagnostics row (src/core/diagnostics.js)
 //               actions.add('Button label', run) puts a button on the feature's card (src/core/actions.js)
 //               storage.get(key, fallback) / storage.set(key, value): GM storage beside the settings
+//               toast('Message', { tone: 'error' }): a short note at the bottom of the page
 //               posts.on('post/add' | 'post/update' | 'post/remove' | 'reset', fn) (src/core/dom/posts.js)
 //               hider.hide(post.element, 'Reason', 'detail'), hider.show(element) (src/core/dom/hide.js)
 
@@ -33,9 +34,13 @@ import directLinks from './links/direct-links.js';
 import tapToPlay from './playback/tap-to-play.js';
 import limitHdr from './playback/hdr-brightness.js';
 import followingFeed from './opening/following-feed.js';
+import downloadPhotos from './downloads/download-photos.js';
+import downloadVideos from './downloads/download-videos.js';
+import downloadReels from './downloads/download-reels.js';
+import downloadStories from './downloads/download-stories.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
   hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace,
-  sanitizeLinks, directLinks, tapToPlay, limitHdr, followingFeed,
+  sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, followingFeed,
 ];
