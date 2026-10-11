@@ -42,6 +42,8 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Skip Facebook's link redirect
 * Download any photo, video, reel or story
 * Following feed on Home
+* Open on a chosen tab
+* Marketplace only
 * Tap to play
 * Turn off HDR brightness
 * Force dark mode

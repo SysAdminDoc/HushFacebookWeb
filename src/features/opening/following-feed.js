@@ -5,19 +5,15 @@
 // Confidence: ?sk=h_chr and the filter= values were documented working in 2025-02. They
 // need a check on today's Facebook.
 
-import { parseRoute } from '../../core/route.js';
+import { claimHomeRedirect, isPlainHome } from './start.js';
+
+export { isPlainHome };
 
 const GUARD_KEY = 'hfw:followingFeedRedirect';
 const GUARD_MS = 15000;
 
 export function followingFeedUrl(filter) {
   return `/?filter=${encodeURIComponent(filter)}&sk=h_chr`;
-}
-
-// True for a plain Home URL: path "/" and no query, on www or web.facebook.com.
-export function isPlainHome(href) {
-  const url = new URL(href);
-  return /^(www|web)\.facebook\.com$/.test(url.hostname) && parseRoute(href).type === 'home' && url.search === '';
 }
 
 export default {
@@ -47,7 +43,8 @@ export default {
     const target = () => followingFeedUrl(option('filter'));
 
     // A guard in sessionStorage stops a redirect loop if Facebook ever sends us back to "/".
-    if (enabled() && isPlainHome(win.location.href)) {
+    // Marketplace only and Open on a chosen tab come first when they send this load elsewhere.
+    if (enabled() && isPlainHome(win.location.href) && claimHomeRedirect(win, 'followingFeed')) {
       let recent;
       try {
         recent = Date.now() - Number(win.sessionStorage.getItem(GUARD_KEY) ?? 0) < GUARD_MS;

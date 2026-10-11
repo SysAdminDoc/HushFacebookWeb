@@ -38,6 +38,8 @@ import sanitizeLinks from './links/sanitize-links.js';
 import directLinks from './links/direct-links.js';
 import tapToPlay from './playback/tap-to-play.js';
 import limitHdr from './playback/hdr-brightness.js';
+import marketplaceOnly from './opening/marketplace-only.js';
+import openOnTab from './opening/open-on-tab.js';
 import followingFeed from './opening/following-feed.js';
 import downloadPhotos from './downloads/download-photos.js';
 import downloadVideos from './downloads/download-videos.js';
@@ -61,7 +63,9 @@ export const features = [
   hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace, hideReadReceipts, hideTyping,
   commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
-  menuEntry, hideMenuPromotions, hideMetaUpsells, followingFeed,
+  menuEntry, hideMenuPromotions, hideMetaUpsells,
+  // In this order: the first to claim a Home load redirects it (opening/start.js).
+  marketplaceOnly, openOnTab, followingFeed,
   // Last, so its rules come after every built-in style.
   customCss,
 ];
