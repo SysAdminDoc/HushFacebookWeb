@@ -28,7 +28,6 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now() }) 
   const layers = new WeakSet();
   let layerCount = 0;
   let gaveUp = false;
-  let lights = null;
 
   // Records a swap; true when there have been too many lately.
   const tooMany = (list, max) => {
@@ -43,10 +42,28 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now() }) 
     log?.warn("Force dark mode stopped: something on the page keeps switching Facebook back to light");
   };
 
-  function apply() {
+  // The light layers among what changed: elements that got the class, and new elements with it
+  // on them or inside them. Reading only those keeps each change cheap on a large page.
+  function changedLights(records) {
+    const found = new Set();
+    for (const record of records) {
+      if (record.type === 'attributes') {
+        if (record.target.classList?.contains(LIGHT)) found.add(record.target);
+        continue;
+      }
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.classList.contains(LIGHT)) found.add(node);
+        for (const inner of node.getElementsByClassName(LIGHT)) found.add(inner);
+      }
+    }
+    return found;
+  }
+
+  // records: what the observer saw, or nothing to look over the whole page.
+  function apply(records) {
     const root = doc.documentElement;
     if (!root) return;
-    lights ??= doc.getElementsByClassName(LIGHT);
     const want = enabled() && !gaveUp;
     if (want) {
       if (root.classList.contains(LIGHT)) {
@@ -54,13 +71,18 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now() }) 
         root.classList.replace(LIGHT, DARK);
         swapped = true;
       }
-      // A live list, so most calls only read its length.
-      if (!lights.length) return undefined;
-      for (const layer of [...lights]) {
-        if (tooMany(layerSwaps, MAX_LAYER_SWAPS)) return giveUp();
+      const lights = records ? changedLights(records) : [...doc.getElementsByClassName(LIGHT)];
+      for (const layer of lights) {
+        if (layer === root || !layer.classList.contains(LIGHT)) continue;
+        // Only a layer turned light again after the script darkened it counts toward giving up,
+        // so a page with many layers isn't mistaken for a fight.
+        if (layers.has(layer)) {
+          if (tooMany(layerSwaps, MAX_LAYER_SWAPS)) return giveUp();
+        } else {
+          layerCount += 1;
+          layers.add(layer);
+        }
         layer.classList.replace(LIGHT, DARK);
-        if (!layers.has(layer)) layerCount += 1;
-        layers.add(layer);
       }
       return undefined;
     }
@@ -81,7 +103,7 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now() }) 
 
   function start() {
     const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
-    observer = new Observer(apply);
+    observer = new Observer((records) => apply(records));
     // New layers come in as nodes, and a layer can get its class back later.
     observer.observe(doc.documentElement, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true });
     apply();
@@ -89,7 +111,7 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now() }) 
 
   return {
     start: () => whenRootReady(start, doc),
-    apply,
+    apply: () => apply(),
     state: () => ({ swapped, gaveUp, layers: layerCount }),
     stop: () => observer?.disconnect(),
   };

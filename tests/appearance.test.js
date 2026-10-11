@@ -131,6 +131,21 @@ test('force dark mode stops swapping layers that keep coming back light', () => 
   assert.equal(warnings.length, 1);
 });
 
+test('force dark mode darkens a page full of layers without mistaking it for a fight', async () => {
+  const many = Array.from({ length: 300 }, (_, i) => `<div class="${LIGHT}" id="l${i}"></div>`).join('');
+  const win = page(many);
+  const doc = win.document;
+  const keeper = createDarkKeeper({ doc, enabled: () => true, log: { warn: () => assert.fail('gave up') } });
+  keeper.start();
+  assert.equal(doc.getElementsByClassName(LIGHT).length, 0);
+  // Layers that arrive later, nested inside new content, are found from the change itself.
+  doc.body.insertAdjacentHTML('beforeend', `<div><section>${many.replace(/id="l/g, 'id="m')}</section></div>`);
+  await tick();
+  assert.equal(doc.getElementsByClassName(LIGHT).length, 0);
+  assert.deepEqual(keeper.state(), { swapped: true, gaveUp: false, layers: 600 });
+  keeper.stop();
+});
+
 test('force dark mode follows the switch through settings', () => {
   const win = page();
   let on = true;
