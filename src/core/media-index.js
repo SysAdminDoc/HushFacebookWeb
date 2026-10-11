@@ -97,7 +97,8 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
     } else if (id && value.__typename === 'Photo') {
       const file = photoFile(value);
       const old = items.get(id);
-      if (file && !(old?.kind === 'photo' && old.width * old.height >= file.width * file.height)) {
+      // A video's still never replaces the video itself.
+      if (file && old?.kind !== 'video' && !(old?.kind === 'photo' && old.width * old.height >= file.width * file.height)) {
         put(items, id, { kind: 'photo', id, ...file });
       }
     }

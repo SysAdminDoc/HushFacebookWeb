@@ -4,11 +4,14 @@
 //
 // Facebook lays clear boxes over its photos and videos, so the pointer is rarely on the media
 // itself. What's under it comes from elementsFromPoint, which lists every layer at that spot,
-// and failing that from the videos inside the boxes there.
+// and failing that from the videos inside the boxes there. A layer above the media only counts
+// as one of those boxes when it sits close to the media in the page. Dialogs, menus and chat
+// windows are mounted on their own, far from it, and media under them gets no button.
 
 const MIN_SIZE = 160;
 const HIDE_AFTER = 450;
 const LOOK_UP = 6;
+const OWN_LAYER = 12;
 
 const CSS = `
 :host { all: initial; }
@@ -29,12 +32,25 @@ svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width:
 const big = (rect) => rect.width >= MIN_SIZE && rect.height >= MIN_SIZE;
 const inside = (rect, x, y) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 
+// Whether an element drawn above the media is part of it, like Facebook's clear boxes.
+function ownLayer(media, element) {
+  let node = media.parentElement;
+  for (let level = 0; node && level < OWN_LAYER; level++, node = node.parentElement) {
+    if (node.contains(element)) return true;
+  }
+  return false;
+}
+
 // The photo or video at a point, the button itself ('button'), or null.
 export function mediaAt(doc, host, x, y) {
   const stack = typeof doc.elementsFromPoint === 'function' ? doc.elementsFromPoint(x, y) : [];
+  const above = [];
   for (const element of stack) {
     if (element === host) return 'button';
-    if ((element.tagName === 'VIDEO' || element.tagName === 'IMG') && big(element.getBoundingClientRect())) return element;
+    if ((element.tagName === 'VIDEO' || element.tagName === 'IMG') && big(element.getBoundingClientRect())) {
+      return above.every((layer) => ownLayer(element, layer)) ? element : null;
+    }
+    above.push(element);
   }
   let node = stack[0] ?? null;
   for (let level = 0; node && level < LOOK_UP; level++, node = node.parentElement) {
@@ -112,7 +128,11 @@ export function createDownloadButton({ doc, win, find, run, active, log }) {
 
   function check() {
     frame = 0;
-    if (!point || !active()) return;
+    if (!point) return;
+    if (!active()) {
+      hide();
+      return;
+    }
     mount();
     const target = mediaAt(doc, host, point.x, point.y);
     if (target === 'button') {
@@ -143,10 +163,27 @@ export function createDownloadButton({ doc, win, find, run, active, log }) {
     place();
   }
 
+  // Looked up again at the click: the story viewer may have moved on, or a switch gone off,
+  // while the pointer rested on the button.
+  function fresh() {
+    if (!current?.isConnected || !active()) return null;
+    try {
+      return find(current);
+    } catch (error) {
+      log?.error("Couldn't work out what to download", error);
+      return null;
+    }
+  }
+
   async function onClick(event) {
     event.preventDefault();
     event.stopPropagation();
-    if (!found || busy) return;
+    if (busy) return;
+    found = fresh();
+    if (!found) {
+      hide();
+      return;
+    }
     busy = true;
     button.setAttribute('aria-busy', 'true');
     label('Saving');
@@ -178,6 +215,9 @@ export function createDownloadButton({ doc, win, find, run, active, log }) {
     state: () => ({ shown: Boolean(button && !button.hidden), text: button?.textContent ?? '', top: button?.style.top, right: button?.style.right }),
     click: () => button?.click(),
     stop() {
+      if (frame) win.cancelAnimationFrame(frame);
+      frame = 0;
+      clearTimeout(hideTimer);
       doc.removeEventListener('pointermove', onMove, { capture: true });
       win.removeEventListener('scroll', onScroll, { capture: true });
       host?.remove();

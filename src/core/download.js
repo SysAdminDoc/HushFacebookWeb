@@ -6,14 +6,17 @@
 // through GM_xmlhttpRequest when the manager has it, since Facebook's servers don't let the
 // page itself read their files, and through fetch otherwise.
 
-const TIMEOUT = 120000;
+// A long HD video on a slow connection takes minutes, and the limit covers the whole transfer.
+const TIMEOUT = 600000;
 const RESERVED = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*']);
 
-// Control characters, zero-width marks and direction overrides, which can hide a name's
-// real ending.
+// Control characters, zero-width marks, soft hyphens, direction marks and overrides (which can
+// hide a name's real ending), and the tag characters inside flag emoji, which Chrome's
+// downloads refuse.
 function invisible(code) {
-  return code < 0x20 || code === 0x7f || (code >= 0x200b && code <= 0x200f)
-    || (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069) || code === 0xfeff;
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0xad || code === 0x61c || code === 0x180e
+    || (code >= 0x200b && code <= 0x200f) || (code >= 0x202a && code <= 0x202e) || (code >= 0x2060 && code <= 0x206f)
+    || code === 0xfeff || (code >= 0xfff9 && code <= 0xfffb) || (code >= 0xe0000 && code <= 0xe007f);
 }
 
 // "Pat Example video 1234 HD.mp4". Characters Windows or macOS won't take become spaces.
@@ -21,7 +24,8 @@ export function fileName(parts, extension) {
   const joined = parts.filter(Boolean).join(' ').normalize('NFC');
   let clean = '';
   for (const char of joined) clean += RESERVED.has(char) || invisible(char.codePointAt(0)) ? ' ' : char;
-  const base = clean.replace(/\s+/g, ' ').trim();
+  // A leading dot or tilde would make a hidden or backup file.
+  const base = clean.replace(/\s+/g, ' ').trim().replace(/^[.~ ]+/, '');
   const cut = [...base].slice(0, 100).join('').trim().replace(/[. ]+$/, '');
   return `${cut || 'Facebook'}.${extension}`;
 }
@@ -44,7 +48,9 @@ function viaManager(download, url, name) {
     download({
       url, name, saveAs: false, timeout: TIMEOUT,
       onload: () => resolve(),
-      onerror: (error) => reject(new Error(error?.error || error?.details || 'the manager could not save it')),
+      onerror: (error) => reject(Object.assign(new Error(error?.error || error?.details || 'the manager could not save it'), {
+        cancelled: /cancel/i.test(`${error?.error} ${error?.details}`),
+      })),
       ontimeout: () => reject(new Error('it took too long')),
     });
   });
@@ -77,8 +83,9 @@ export async function saveFile({ url, name, api = {}, doc = globalThis.document,
     try {
       await viaManager(api.download, url, name);
       return 'manager';
-    } catch {
-      // Fetch it instead.
+    } catch (error) {
+      // Cancelled in the browser means no. Anything else, fetch it instead.
+      if (error.cancelled) throw new Error('you cancelled it');
     }
   }
   const blob = await fetchBlob(url, { request: api.request, win });

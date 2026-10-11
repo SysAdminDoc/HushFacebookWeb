@@ -106,8 +106,9 @@ export function findMedia(element, { href, index }) {
     return { feature, kind: 'video', id, item: asKind(index?.get(id), 'video'), author: authorOf(element), fallback: null };
   }
 
+  // On a photo's own page the address names the photo, but not a picture inside a comment.
   const link = element.closest('a[href]');
-  const target = linkTarget(link?.getAttribute('href')) ?? (page?.kind === 'photo' ? page : null);
+  const target = linkTarget(link?.getAttribute('href')) ?? (page?.kind === 'photo' && !element.closest(POST) ? page : null);
   if (target?.kind !== 'photo') return null;
   return { feature: 'downloadPhotos', kind: 'photo', id: target.id, item: asKind(index?.get(target.id), 'photo'), author: authorOf(element), fallback };
 }

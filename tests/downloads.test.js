@@ -73,6 +73,9 @@ test('the index keeps the best of what it sees and forgets the oldest past its l
   assert.equal(index.get('100'), null, 'the oldest went');
   assert.equal(index.size(), 2);
   assert.equal(index.get(null), null);
+  index.scan({ v: video('400') });
+  index.scan({ p: photo('400') });
+  assert.equal(index.get('400').kind, 'video', 'a photo under the same id never replaces a video');
 });
 
 test('the captured Home and Marketplace answers fill the index', async () => {
@@ -169,8 +172,10 @@ test('a photo is found by its photo link, and pictures that are not post photos 
   assert.equal(findMedia(q('img.loose'), { href: win.location.href, index }), null);
   // Without the page's data (content mode) the copy on screen is saved.
   assert.equal(planSave(findMedia(q('img.p'), { href: win.location.href, index: null })).url, 'https://cdn.example.invalid/shown.jpg');
-  const viewer = page('<img src="https://cdn.example.invalid/large.jpg">', 'https://www.facebook.com/photo/?fbid=9999999&set=a.1');
+  const viewer = page('<img src="https://cdn.example.invalid/large.jpg">'
+    + '<div role="article"><h3><a href="/bob">Bob</a></h3><img class="gif" src="https://cdn.example.invalid/gif.gif"></div>', 'https://www.facebook.com/photo/?fbid=9999999&set=a.1');
   assert.equal(findMedia(viewer.document.querySelector('img'), { href: viewer.location.href, index }).id, '9999999');
+  assert.equal(findMedia(viewer.document.querySelector('img.gif'), { href: viewer.location.href, index }), null, "a GIF in a comment isn't the viewer's photo");
 });
 
 test('the saved file is HD unless smaller files are picked, and a stream-only video says so', () => {
@@ -197,6 +202,11 @@ test('file names lose characters a file system or a reader could trip on', () =>
   assert.equal(extensionOf('https://scontent.example.invalid/v/t39-6/1_n.jpg?stp=c0.32.864.864a_dst-png', 'jpg'), 'png');
   assert.equal(extensionOf('https://scontent.example.invalid/v/t39-6/1_n.jpg?stp=dst-jpegr_tt6', 'jpg'), 'jpg', 'an HDR JPEG is still a JPEG');
   assert.equal(extensionOf('https://scontent.example.invalid/v/t39-6/1_n.png?stp=mx1080x1080', 'jpg'), 'png', 'only a size, so the address decides');
+  // Direction marks, soft hyphens, word joiners and the tag characters inside flag emoji.
+  const hidden = [0x61c, 0xad, 0x2060, 0x2063, 0x180e, 0xe0067, 0xe007f].map((c) => String.fromCodePoint(c)).join('');
+  assert.equal(fileName([`Pat${hidden}Example`, 'photo', '1'], 'jpg'), 'Pat Example photo 1.jpg');
+  assert.equal(fileName(['.hidden', 'photo'], 'jpg'), 'hidden photo.jpg', 'no hidden file');
+  assert.equal(fileName(['~ . Pat'], 'jpg'), 'Pat.jpg');
 });
 
 function fakeDoc() {
@@ -228,6 +238,13 @@ test("the manager's download is tried first, and a fetched copy is saved when it
   const viaFetch = fakeDoc();
   assert.equal(await saveFile({ url: 'https://v.example.invalid/a.mp4', name: 'd.mp4', api: {}, doc: viaFetch, win }), 'link');
   assert.deepEqual(viaFetch.clicks, ['d.mp4']);
+
+  // Cancelled in the browser: no second try behind the person's back.
+  const cancelled = {
+    download: (options) => options.onerror({ error: 'not_succeeded', details: 'USER_CANCELED' }),
+    request: () => assert.fail('fetched a second time'),
+  };
+  await assert.rejects(saveFile({ url: 'https://v.example.invalid/a.mp4', name: 'e.mp4', api: cancelled, doc: fakeDoc() }), /^Error: you cancelled it$/);
 });
 
 // Lays out an element for the button: happy-dom has no layout.
@@ -250,6 +267,70 @@ test('the button finds the video under the clear box Facebook lays over it', () 
   assert.ok(mediaAt(doc, null, 700, 100) === null, 'not when the point is outside it');
   doc.elementsFromPoint = () => [small];
   assert.ok(mediaAt(doc, null, 710, 510) === null, 'a small picture is no media');
+});
+
+test('media under a dialog, menu or chat window opened over it gets no button', () => {
+  // A feed video sits deep in the page. Dialogs are mounted on their own, near the top.
+  const deep = '<div>'.repeat(14) + '<div class="wrap"><video></video><div class="cover"></div></div>' + '</div>'.repeat(14);
+  const win = page(`<div id="feed">${deep}</div><div role="dialog"><div class="sheet"></div></div>`);
+  const doc = win.document;
+  const [videoEl, cover, sheet] = ['video', '.cover', '.sheet'].map((s) => doc.querySelector(s));
+  box(videoEl, [0, 0, 600, 400]);
+  doc.elementsFromPoint = () => [cover, videoEl];
+  assert.ok(mediaAt(doc, null, 100, 100) === videoEl, 'its own clear box is fine');
+  doc.elementsFromPoint = () => [sheet, videoEl];
+  assert.ok(mediaAt(doc, null, 100, 100) === null, 'a dialog over it is not');
+  doc.elementsFromPoint = () => [sheet, cover, videoEl];
+  assert.ok(mediaAt(doc, null, 100, 100) === null);
+});
+
+test('a click saves what is under the button right then, and turning every switch off takes the button away', async () => {
+  const win = page('<video></video>');
+  const doc = win.document;
+  const videoEl = doc.querySelector('video');
+  box(videoEl, [100, 50, 600, 400]);
+  let card = 'card1';
+  let on = true;
+  let under = () => [videoEl];
+  doc.elementsFromPoint = () => under();
+  const saved = [];
+  const button = createDownloadButton({
+    doc, win, active: () => on,
+    find: () => (on ? { what: card } : null),
+    run: async (found) => saved.push(found.what),
+  });
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 200, clientY: 100 }));
+  await frame();
+  assert.equal(button.state().shown, true);
+  // The pointer rests on the button while the story viewer moves on to the next card.
+  const host = doc.querySelector('[data-hushfacebook-web="download"]');
+  under = () => [host, videoEl];
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 650, clientY: 62 }));
+  await frame();
+  card = 'card2';
+  button.click();
+  await frame();
+  assert.deepEqual(saved, ['card2']);
+  on = false;
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 651, clientY: 62 }));
+  await frame();
+  assert.equal(button.state().shown, false, 'gone as soon as the pointer moves');
+  button.click();
+  await frame();
+  assert.deepEqual(saved, ['card2'], 'and a click on it saves nothing');
+  button.stop();
+});
+
+test('a stopped button stays gone even with a move already waiting', async () => {
+  const win = page('<video></video>');
+  const doc = win.document;
+  box(doc.querySelector('video'), [0, 0, 600, 400]);
+  doc.elementsFromPoint = () => [doc.querySelector('video')];
+  const button = createDownloadButton({ doc, win, active: () => true, find: () => ({}), run: async () => {} });
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 10, clientY: 10 }));
+  button.stop();
+  await frame();
+  assert.equal(doc.querySelectorAll('[data-hushfacebook-web="download"]').length, 0);
 });
 
 test('the button shows over media a switch covers, and a click saves it', async () => {
