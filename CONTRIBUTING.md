@@ -74,3 +74,17 @@ npm run build
 ```
 
 Then install `dist/hushfacebook-web.user.js` in Violentmonkey or Tampermonkey and try the feature on facebook.com. Note what you checked in the pull request.
+
+## Releasing
+
+Releases go out in stages, and each stage refuses to run until the ones before it have passed for the same version and commit:
+
+```
+npm run release -- --stage preflight
+npm run release -- --stage build
+npm run release -- --stage notes
+npm run release -- --stage live
+npm run release -- --stage publish
+```
+
+Preflight wants a clean `main`, a version that isn't tagged yet and a `## vX.Y.Z` section in CHANGELOG.md, then runs the checks and tests. Build starts from an empty `dist/` and writes `SHA256SUMS.txt` beside the script. Notes copies the whole CHANGELOG section into `dist/release-notes.txt`. Live is optional and only runs on the maintainer's PC, since it drives a signed-in browser. Publish needs `main` pushed, makes the GitHub release with the script, the `.meta.js` and the sums, then downloads the script back and compares it with the build. Add `--dry-run` to publish to see the command first. A new commit, or a changed file in `dist/`, sends you back to the stage that made it.

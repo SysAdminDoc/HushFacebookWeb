@@ -17,6 +17,7 @@
     "build": "node scripts/build.mjs",
     "check": "node scripts/check-versions.mjs && eslint .",
     "lint": "eslint .",
+    "release": "node scripts/release.mjs",
     "test": "node --test --test-timeout=30000 \"tests/**/*.test.js\""
   },
   "devDependencies": {

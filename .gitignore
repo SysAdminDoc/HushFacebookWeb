@@ -2,6 +2,7 @@
 node_modules/
 dist/
 coverage/
+.release/
 *.log
 
 # Working notes and planning, kept local
