@@ -27,6 +27,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hide Stories tray
 * Hide posts by words
 * Hide seen posts
+* Hide AI-detected posts
 * Hide sponsored reels
 * Hide sponsored search results
 * Hide sponsored Marketplace listings

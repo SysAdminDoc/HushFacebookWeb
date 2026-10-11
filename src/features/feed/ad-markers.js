@@ -1,4 +1,5 @@
-// Every marker the feed cleanup switches act on (ads, and posts Facebook suggests), one row each.
+// Every marker the feed cleanup switches act on (ads, posts Facebook suggests, and posts it
+// labels as made with AI), one row each.
 //
 //   id       a short name for tests and Diagnostics
 //   feature  the switch that turns it on (one per surface, as on Android)
@@ -33,19 +34,21 @@ const LABEL_TYPENAME = 'CometStorySponsoredLabelStrategy';
 const FOLLOW_TYPENAME = 'CometFeedStoryFollowButtonStrategy';
 const JOIN_TYPENAME = 'GroupJoinForumAction';
 
-// Looks for a typename inside one story. Nested edges and a shared post's attached story
-// speak for themselves, so a friend's share of an ad or a group page holding an ad doesn't
-// count as an ad.
-export function storyHas(node, typename) {
+// Looks for a value inside one story. Nested edges and a shared post's attached story speak
+// for themselves, so a friend's share of an ad or a group page holding an ad doesn't count
+// as an ad.
+export function storyMatches(node, test) {
   let found = false;
   walk(node, (value) => {
     if (found || value === node.attached_story) return SKIP;
     if (value !== node && 'node' in value && 'cursor' in value) return SKIP;
-    if (value.__typename === typename) found = true;
+    if (test(value)) found = true;
     return undefined;
   });
   return found;
 }
+
+export const storyHas = (node, typename) => storyMatches(node, (value) => value.__typename === typename);
 
 export const hasSponsoredLabel = (node) => storyHas(node, LABEL_TYPENAME);
 
@@ -64,6 +67,40 @@ export const FEEDS = {
   queries: /^(?:CometNewsFeedPaginationQuery|GroupsCometCrossGroupFeedPaginationQuery)$/,
   routes: (route) => route?.type === 'home' || /^\/groups\/feed\/?$/.test(route?.path ?? ''),
 };
+
+// The feeds plus search results: everywhere posts come from all over. A post opened from its
+// link, a profile and a group you're browsing aren't included.
+export const FEEDS_AND_SEARCH = {
+  queries: /^(?:CometNewsFeedPaginationQuery|GroupsCometCrossGroupFeedPaginationQuery|SearchCometResultsPaginatedResultsQuery)$/,
+  routes: (route) => FEEDS.routes(route) || route?.type === 'search',
+};
+
+// Facebook's AI label, a section of the story's header (live 2026-10-11, all 5 labeled
+// stories on Home, the groups feed and search): {__typename: GENAI_TYPENAME,
+// was_detected_as_ai_generated: true, was_self_disclosed_as_ai_generated: false,
+// ai_generated_detected_info: {gen_ai_transparency_type: 'PROVENANCE_DETECTED_CREATED'}}.
+// It only counts when it says the post was made with AI, either way.
+const GENAI_TYPENAME = 'CometFeedStoryGenAIContentTransparencyStrategy';
+const isAiLabel = (value) => isObject(value) && value.__typename === GENAI_TYPENAME
+  && (value.was_detected_as_ai_generated === true
+    || value.was_self_disclosed_as_ai_generated === true
+    || Boolean(value.ai_generated_detected_info?.gen_ai_transparency_type));
+
+// A story carrying the label in its header, or a share of one. When Facebook moves the
+// header, the whole story is searched instead.
+export function hasAiLabel(story) {
+  if (!isObject(story)) return false;
+  const metadata = story.comet_sections?.context_layout?.story?.comet_sections?.metadata;
+  const own = Array.isArray(metadata) ? metadata.some(isAiLabel) : storyMatches(story, isAiLabel);
+  if (own) return true;
+  const shared = story.comet_sections?.content?.story?.attached_story ?? story.attached_story;
+  return shared !== story && isObject(shared) && hasAiLabel(shared);
+}
+
+// The story an edge draws: its node in a feed, or the story behind a search result.
+const storyOf = (edge, node) => (isObject(node) && node.__typename === 'Story'
+  ? node
+  : edge.rendering_strategy?.view_model?.click_model?.story ?? edge.rendering_strategy?.view_model?.story ?? null);
 
 export const AD_MARKERS = [
   {
@@ -160,6 +197,16 @@ export const AD_MARKERS = [
     text: [`"${JOIN_TYPENAME}"`],
     scope: FEEDS,
     match: (edge, node) => isObject(node) && 'cursor' in edge && titleHas(node, JOIN_TYPENAME),
+    action: 'drop-node',
+  },
+  {
+    id: 'genai_label',
+    feature: 'hideAiPosts',
+    surface: 'news feed, groups feed and search results (posts labeled as made with AI)',
+    seen: '2026-10-11: 5 labeled stories, 1 on Home, 1 in the groups feed and 3 in search results, all detected rather than disclosed',
+    text: [`"${GENAI_TYPENAME}"`],
+    scope: FEEDS_AND_SEARCH,
+    match: (edge, node) => 'cursor' in edge && hasAiLabel(storyOf(edge, node)),
     action: 'drop-node',
   },
 ];

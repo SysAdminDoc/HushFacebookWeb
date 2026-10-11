@@ -31,10 +31,10 @@ What the status words mean:
 | Hide Stories tray | Tested | Takes the Stories row off the top of Home, and the "What's on your mind?" box too unless you keep it. The posts move up into the space. Both are found without reading any English, so it works in other languages and in content mode. |
 | Hide post prompts | Planned | "Are you interested in this post?" strips and follow suggestions on posts. |
 | Hide affiliate product links | Planned | Shopping cards on reels, posts and comments. |
-| Hide AI-detected posts | Planned | Posts marked as made with AI, Meta AI characters and Meta AI cards. |
-| Hide Meta AI in search | Planned | The Meta AI answer and Ask Meta AI prompts in search. |
-| Hide Meta AI questions under posts | Planned | The row of Meta AI questions under posts. |
-| Hide Meta AI comment summaries | Planned | Meta AI's comment summary. |
+| Hide AI-detected posts | Tested | Posts Facebook labels as made with AI, and shares of them, come out of Home, the groups feed and search results before they're drawn, going by the AI info label in Facebook's data. A post opened from its link and profiles are left alone. Page mode only. Meta AI characters and Meta AI cards haven't turned up on the web yet. |
+| Hide Meta AI in search | Planned | The Meta AI answer and Ask Meta AI prompts in search. The test account hasn't been shown either on the web yet, in search suggestions or results. |
+| Hide Meta AI questions under posts | Planned | The row of Meta AI questions under posts. Not shown to the test account on the web yet. |
+| Hide Meta AI comment summaries | Planned | Meta AI's comment summary. Not shown to the test account on the web yet, even under a post with over a thousand comments. |
 | Hide Meta upsells | Planned | Meta Verified, Threads cross-posting and other pitches. |
 | Hide Menu promotions | Planned | Promotions in Facebook's left column and Menu. |
 | Hide posts by words | Tested | Hides posts on Home and in your groups feed that mention a word or phrase you list, come from a person, Page or group you name, or link to a site you name. Lines starting with re: are patterns. Separate switches hide every photo, video or link post, and every post on a colored background. Comments don't count. Matching posts come out of Facebook's data before they're drawn. In content mode they're hidden on the page with a note saying which line matched, except colored backgrounds, which only the data shows. |

@@ -23,6 +23,7 @@ import hideReelsInFeed from './feed/hide-reels-in-feed.js';
 import hideStoriesTray from './feed/hide-stories-tray.js';
 import hidePostsByWords from './feed/filters.js';
 import hideSeenPosts from './feed/hide-seen-posts.js';
+import hideAiPosts from './feed/hide-ai-posts.js';
 import hideSponsoredReels from './reels/hide-sponsored-reels.js';
 import anonymousStories from './stories/anonymous-stories.js';
 import hideSponsoredSearch from './search/hide-sponsored-search.js';
@@ -34,7 +35,7 @@ import limitHdr from './playback/hdr-brightness.js';
 import followingFeed from './opening/following-feed.js';
 
 export const features = [
-  hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts,
+  hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
   hideSponsoredReels, anonymousStories, hideSponsoredSearch, hideSponsoredMarketplace,
   sanitizeLinks, directLinks, tapToPlay, limitHdr, followingFeed,
 ];

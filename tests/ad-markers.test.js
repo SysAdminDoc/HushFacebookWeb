@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, hasSponsoredLabel, inScope, markersFor, pruneAds } from '../src/features/feed/ad-markers.js';
+import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, hasAiLabel, hasSponsoredLabel, inScope, markersFor, pruneAds } from '../src/features/feed/ad-markers.js';
 import { parseRoute } from '../src/core/route.js';
 import { features } from '../src/features/index.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
@@ -49,6 +49,16 @@ const titled = (id, title) => edge2026(id, {}, { comet_sections: { context_layou
 const followTitle = { __typename: 'CometFeedStoryTitleWithActorStrategy', story: { comet_sections: { follow_button: { __typename: 'CometFeedStoryFollowButtonStrategy' } } } };
 const joinTitle = { __typename: 'CometFeedStoryCommunityAttributionTitleStrategy', if_viewer_can_join_group: { join_action: { __typename: 'GroupJoinForumAction' } } };
 
+// The AI label section as captured on 2026-10-11, in the story's header metadata.
+const aiLabel = (detected = true, disclosed = false) => ({
+  __typename: 'CometFeedStoryGenAIContentTransparencyStrategy',
+  is_prod_eligible: true,
+  was_detected_as_ai_generated: detected,
+  was_self_disclosed_as_ai_generated: disclosed,
+  ai_generated_detected_info: detected ? { gen_ai_transparency_type: 'PROVENANCE_DETECTED_CREATED' } : null,
+});
+const labeled = (id, label = aiLabel()) => edge2026(id, {}, { comet_sections: { context_layout: { story: { comet_sections: { metadata: [{ __typename: 'CometFeedStoryMinimizedTimestampStrategy' }, label] } } } } });
+
 // One edge per row, caught by that row before any other.
 const SAMPLES = {
   category: () => ({ category: 'SPONSORED', node: { __typename: 'Story', id: 'ad' }, cursor: 'c' }),
@@ -62,6 +72,7 @@ const SAMPLES = {
   instream_video_ad_breaks: () => ({ instream_video_ad_breaks: [{ id: 'break-1', start_time_ms: 30000 }], post_roll_ad_break: { id: 'post-roll' } }),
   follow_button: () => titled('suggested', followTitle),
   group_join: () => titled('suggested', joinTitle),
+  genai_label: () => labeled('ai'),
 };
 
 test('every row says where it was seen, what lets it past the prefilter and what it does', () => {
@@ -271,4 +282,44 @@ test('a Follow or Join button outside the title is not a suggestion', () => {
   } });
   assert.equal(adMarkerFor(elsewhere(followTitle.story.comet_sections.follow_button)), null);
   assert.equal(adMarkerFor(elsewhere(joinTitle.if_viewer_can_join_group.join_action)), null);
+});
+
+test('a post labeled as made with AI goes, whether Facebook detected it or the author said so', () => {
+  assert.equal(adMarkerFor(labeled('ai'))?.id, 'genai_label');
+  assert.equal(adMarkerFor(labeled('ai', aiLabel(false, true)))?.id, 'genai_label', 'disclosed by the author');
+  assert.equal(adMarkerFor(labeled('plain', aiLabel(false, false))), null, 'a label section that says no');
+  assert.equal(hasAiLabel(null), false);
+
+  const share = edge2026('share', {}, { comet_sections: { content: { story: { attached_story: labeled('original').node } } } });
+  assert.equal(adMarkerFor(share)?.id, 'genai_label', 'a share of a labeled post');
+
+  // A search result keeps its story behind the result, as in the 2026-10-11 capture.
+  const result = { cursor: 'r', node: { __typename: 'SearchRenderable', role: 'TOP_PUBLIC_POSTS' }, rendering_strategy: { view_model: { click_model: { story: labeled('found').node } } } };
+  assert.equal(adMarkerFor(result)?.id, 'genai_label');
+  const organic = { cursor: 'o', node: { __typename: 'SearchRenderable', role: 'TOP_PUBLIC_POSTS' }, rendering_strategy: { view_model: { click_model: { story: edge2026('fine').node } } } };
+  assert.equal(adMarkerFor(organic), null);
+});
+
+test('AI-labeled posts go from the feeds and search, never from a post opened by its link or a profile', () => {
+  const route = { current: parseRoute('https://www.facebook.com/') };
+  const fired = [];
+  const rule = adRule('hideAiPosts', () => true, (ids) => fired.push(...ids), { route: () => route.current });
+  const run = (ctx) => {
+    const doc = { data: { edges: [edge2026('fine'), labeled('ai')] } };
+    rule.transform(doc, ctx);
+    return doc.data.edges.map((edge) => edge.node?.id ?? null);
+  };
+  const query = (friendlyName) => ({ transport: 'xhr', path: '/api/graphql/', friendlyName });
+  for (const name of ['CometNewsFeedPaginationQuery', 'GroupsCometCrossGroupFeedPaginationQuery', 'SearchCometResultsPaginatedResultsQuery']) {
+    assert.deepEqual(run(query(name)), ['fine', null], name);
+  }
+  for (const name of ['ProfileCometTimelineFeedRefetchQuery', 'GroupsCometFeedRegularStoriesPaginationQuery', 'CometSinglePostDialogContentQuery', '']) {
+    assert.deepEqual(run(query(name)), ['fine', 'ai'], name || 'no name');
+  }
+  const inline = { transport: 'json-parse', path: '', friendlyName: '' };
+  for (const [href, expected] of [['/', null], ['/groups/feed/', null], ['/search/top/?q=x', null], ['/someone/posts/pfbid0P1', 'ai'], ['/groups/123/posts/456/', 'ai'], ['/someone', 'ai']]) {
+    route.current = parseRoute(`https://www.facebook.com${href}`);
+    assert.equal(run(inline)[1], expected, href);
+  }
+  assert.ok(fired.length > 0 && fired.every((id) => id === 'genai_label'));
 });

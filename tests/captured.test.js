@@ -161,3 +161,22 @@ test('the suggested post in the captured Home page goes, the rest of the page st
   const search = { ...ctx, friendlyName: 'SearchCometResultsPaginatedResultsQuery' };
   for (const line of lines) assert.equal(transformDocumentLine(line, [suggested], search), line, 'not outside the feeds');
 });
+
+test('the AI-labeled story in a captured Home page goes, and the story next to it stays', async () => {
+  const lines = await fixtureLines('CometNewsFeedPaginationQuery-ai-label.jsonl');
+  assert.equal(lines.length, 2);
+  const fired = [];
+  const ai = adRule('hideAiPosts', () => true, (ids) => fired.push(...ids), { route: () => parseRoute('https://www.facebook.com/') });
+  const ctx = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+  const [plain, labeled] = lines;
+  assert.equal(rulesFor(plain, [ai]).length, 0, 'a line without the label is never parsed');
+  assert.equal(transformDocumentLine(plain, [ai], ctx), plain);
+  const before = parseLine(labeled);
+  const after = parseLine(transformDocumentLine(labeled, [ai], ctx));
+  assert.ok(before.data.node, 'the capture streams one story per line');
+  assert.deepEqual(Object.keys(after.data).sort(), Object.keys(before.data).filter((key) => key !== 'node' && key !== 'rendering_strategy').sort());
+  assert.equal(after.data.cursor, before.data.cursor, 'paging still works');
+  assert.deepEqual(fired, ['genai_label']);
+  const profile = { ...ctx, friendlyName: 'ProfileCometTimelineFeedRefetchQuery' };
+  assert.equal(transformDocumentLine(labeled, [ai], profile), labeled, 'not on a profile');
+});
