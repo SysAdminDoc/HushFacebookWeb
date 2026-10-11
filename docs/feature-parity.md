@@ -77,7 +77,7 @@ What the status words mean:
 | Open Messenger from the top bar | Planned | Opens the full Messages page instead of the small chat popup. |
 | Keep post dates | Needs research | The web shows relative times. A full date on every post is likely doable. |
 | Turn off auto-translation | Needs research | Showing the original text by default. |
-| Default playback quality | Needs research | Picking a quality in the web player. |
+| Default playback quality | Tested | Called "Default video quality" on the web. Facebook's player streams each video from a list of copies labeled 240p up to 1080p or more, and picks one for your connection. The script trims that list before the player reads it, down to the best copy or to nothing over the cap you pick, and trims the copies Facebook fetches ahead of time the same way. A video with nothing under the cap keeps its smallest copy. Live under a 360p cap, every video on a Page's video page fetched only its 360p copy, and so did each reel unless it had nothing that small. One reel in ten also fetched a 540p copy its list didn't name. The best choice played 1080p throughout. The labels are quality steps, so a 360p copy can still be 1280 by 720 at a lower bitrate. Needs the script running in the page. |
 | Don't send reel watch history | Tested | Don't send watch history holds back the one request that tells Facebook you watched a reel, which also goes out for a video played with sound. Over six reels and a long video none of them left the browser, and the reels and the video kept playing. Needs the script running in the page. |
 | Block ad telemetry | Needs research | What blocking Facebook's logging calls breaks. |
 | Hold back analytics uploads | Needs research | Same question for usage reports. |

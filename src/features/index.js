@@ -48,6 +48,7 @@ import keepSpeed from './playback/keep-speed.js';
 import holdForSpeed from './playback/hold-for-speed.js';
 import pictureInPicture from './playback/picture-in-picture.js';
 import keepControls from './playback/keep-controls.js';
+import videoQuality from './playback/video-quality.js';
 import marketplaceOnly from './opening/marketplace-only.js';
 import openOnTab from './opening/open-on-tab.js';
 import followingFeed from './opening/following-feed.js';
@@ -72,7 +73,7 @@ export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
   hideSponsoredReels, noWatchHistory, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds,
   commentOrder, showAllReplies, hideCommentStickers, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
-  keepSpeed, holdForSpeed, pictureInPicture, keepControls,
+  keepSpeed, holdForSpeed, pictureInPicture, keepControls, videoQuality,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
   menuEntry, hideMenuPromotions, hideMetaUpsells,
   // In this order: the first to claim a Home load redirects it (opening/start.js).

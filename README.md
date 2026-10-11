@@ -56,6 +56,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hold a reel for 2x
 * Picture-in-picture button
 * Keep video controls on screen
+* Default video quality
 * Force dark mode
 * AMOLED black theme
 * Accent color
