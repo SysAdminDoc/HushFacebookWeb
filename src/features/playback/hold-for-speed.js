@@ -8,7 +8,9 @@ import { HOLDING } from './keep-speed.js';
 
 export const HOLD_MS = 350;
 export const FAST = 2;
-const CONTROLS = 'a, button, input, [role="button"], [role="slider"], [role="link"], [role="menu"], [role="dialog"]';
+// Facebook's controls, and the script's own buttons and panel. The page's root carries the same
+// attribute as a running flag, so it's left out.
+const CONTROLS = 'a, button, input, [role="button"], [role="slider"], [role="link"], [role="menu"], [role="dialog"], [data-hushfacebook-web]:not(html)';
 const CLICK_GRACE = 600; // ms after letting go when the ending click arrives
 
 export const inReels = (doc) => /^\/reels?\//.test(doc.location?.pathname ?? '');
@@ -39,7 +41,9 @@ export function createHold({ doc, win, enabled, trusted = (event) => event.isTru
     holds++;
   }
 
-  function release() {
+  // Letting go of the mouse ends a hold with a click, which is kept from Facebook. A hold that
+  // ends because the window lost focus or the press was taken over has no click to keep.
+  function release(letGo) {
     if (pending) {
       clearTimer(pending.timer);
       pending = null;
@@ -49,14 +53,14 @@ export function createHold({ doc, win, enabled, trusted = (event) => event.isTru
     held = null;
     video.playbackRate = rate;
     delete video[HOLDING];
-    swallowUntil = now() + CLICK_GRACE;
+    swallowUntil = letGo ? now() + CLICK_GRACE : null;
   }
 
   function onDown(event) {
     if (!trusted(event) || event.button !== 0 || !enabled() || !inReels(doc)) return;
     const video = reelAt(doc, event.target, event.clientX, event.clientY);
     if (!video) return;
-    release();
+    release(false);
     pending = { video, timer: setTimer(begin, HOLD_MS) };
   }
 
@@ -70,9 +74,9 @@ export function createHold({ doc, win, enabled, trusted = (event) => event.isTru
   return {
     start() {
       win.addEventListener('pointerdown', onDown, { capture: true, passive: true });
-      win.addEventListener('pointerup', release, { capture: true, passive: true });
-      win.addEventListener('pointercancel', release, { capture: true, passive: true });
-      win.addEventListener('blur', release);
+      win.addEventListener('pointerup', () => release(true), { capture: true, passive: true });
+      win.addEventListener('pointercancel', () => release(false), { capture: true, passive: true });
+      win.addEventListener('blur', () => release(false));
       win.addEventListener('click', onClick, { capture: true });
     },
     state: () => ({ holding: Boolean(held), holds }),

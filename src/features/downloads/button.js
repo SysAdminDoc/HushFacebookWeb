@@ -32,6 +32,9 @@ button[aria-busy="true"] { cursor: progress; opacity: 0.8; }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 `;
 
+// Set on each floating button's box, so the Download and Pop out buttons see through each other.
+const FLOATING = 'data-hfw-floating';
+
 const big = (rect) => rect.width >= MIN_SIZE && rect.height >= MIN_SIZE;
 const inside = (rect, x, y) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 
@@ -54,6 +57,7 @@ export function mediaAt(doc, host, x, y, { through = false } = {}) {
       if (through) continue;
       return 'button';
     }
+    if (element.hasAttribute?.(FLOATING)) continue;
     if ((element.tagName === 'VIDEO' || element.tagName === 'IMG') && big(element.getBoundingClientRect())) {
       return above.every((layer) => ownLayer(element, layer)) ? element : null;
     }
@@ -91,6 +95,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     if (host?.isConnected) return;
     host = doc.createElement('div');
     host.setAttribute('data-hushfacebook-web', name);
+    host.setAttribute(FLOATING, '');
     shadow = host.attachShadow({ mode: 'closed' });
     const style = doc.createElement('style');
     style.textContent = CSS;
@@ -242,6 +247,10 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     // For tests: the button's text and whether it shows.
     state: () => ({ shown: Boolean(button && !button.hidden), text: button?.textContent ?? '', top: button?.style.top, right: button?.style.right }),
     click: () => button?.click(),
+    // The words may have changed for the media it's on, like Pop out after its window closed.
+    refresh() {
+      if (current && button && !busy()) showState();
+    },
     stop() {
       if (frame) win.cancelAnimationFrame(frame);
       frame = 0;

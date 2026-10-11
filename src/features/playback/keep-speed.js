@@ -5,8 +5,9 @@
 //
 // A speed counts as your pick when it changes while a video is already playing, right after you
 // clicked or pressed a key. A change with no input behind it is Facebook setting its own speed
-// back, and the kept speed goes on again, a few times at most per video. Stories keep their own
-// pace, and so does a reel while it's held for 2x. Works in content mode.
+// back, and the kept speed goes on again, a few times at most per video. Stories and live
+// broadcasts keep their own pace, and so does a reel while it's held for 2x. Works in content
+// mode.
 
 export const SPEED_KEY = 'keepSpeed.rate';
 // Set on a video while Hold a reel for 2x speeds it up, so that change isn't kept.
@@ -36,7 +37,8 @@ export function createSpeedKeeper({ doc, win, storage, enabled, now = () => Date
     video.playbackRate = rate;
   }
 
-  const skip = (video) => !isVideo(video) || !enabled() || inStories() || video[HOLDING];
+  // A live broadcast plays at the speed it's sent.
+  const skip = (video) => !isVideo(video) || !enabled() || inStories() || video[HOLDING] || video.duration === Number.POSITIVE_INFINITY;
 
   function onStart(event) {
     if (skip(event.target)) return;

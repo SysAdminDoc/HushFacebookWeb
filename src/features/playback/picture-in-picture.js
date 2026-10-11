@@ -10,7 +10,7 @@ import { createDownloadButton } from '../downloads/button.js';
 const POP_OUT_ICON = 'M4 5h16v14H4zM12 12h6v5h-6z';
 
 export function createPopOut({ doc, win, enabled, log, onPopOut }) {
-  return createDownloadButton({
+  const button = createDownloadButton({
     doc, win, log,
     name: 'picture-in-picture',
     row: 1,
@@ -29,6 +29,10 @@ export function createPopOut({ doc, win, enabled, log, onPopOut }) {
       onPopOut?.();
     },
   });
+  // The small window can be closed from its own X, so the words follow it.
+  doc.addEventListener('enterpictureinpicture', () => button.refresh(), true);
+  doc.addEventListener('leavepictureinpicture', () => button.refresh(), true);
+  return button;
 }
 
 export default {

@@ -13,8 +13,11 @@ export const KEEP_CONTROLS_CSS = `[${KEEP}] { opacity: 1 !important; visibility:
 
 const isVideo = (node) => node?.tagName === 'VIDEO';
 
+const TRACKS = 2; // seconds between a slider's value and the video's time for it to follow the video
+
 // The position slider that belongs to a video: inside the nearest box around the video that has
-// one, with the video's length as its largest value.
+// one, with the video's length as its largest value. A video about 100 seconds long can match a
+// volume slider too, and then only a slider whose value follows the video's time counts.
 export function positionSlider(video) {
   const length = Math.round(video.duration);
   if (!Number.isFinite(length) || length <= 0) return null;
@@ -22,7 +25,9 @@ export function positionSlider(video) {
   for (let level = 0; node && level < MAX_LEVELS; level++, node = node.parentElement) {
     const sliders = [...node.querySelectorAll('[role="slider"]')];
     if (!sliders.length) continue;
-    return sliders.find((slider) => Math.abs(Number(slider.getAttribute('aria-valuemax')) - length) <= 1) ?? null;
+    const fits = sliders.filter((slider) => Math.abs(Number(slider.getAttribute('aria-valuemax')) - length) <= 1);
+    if (fits.length <= 1) return fits[0] ?? null;
+    return fits.find((slider) => Math.abs(Number(slider.getAttribute('aria-valuenow') ?? Number.NaN) - video.currentTime) <= TRACKS) ?? null;
   }
   return null;
 }

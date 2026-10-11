@@ -12,6 +12,7 @@ import keepSpeed, { HOLDING, SPEED_KEY, createSpeedKeeper, speedLabel } from '..
 import holdForSpeed, { FAST, HOLD_MS, createHold, reelAt } from '../src/features/playback/hold-for-speed.js';
 import keepControls, { KEEP, KEEP_CONTROLS_CSS, createControlsKeeper, positionSlider } from '../src/features/playback/keep-controls.js';
 import pictureInPicture, { createPopOut } from '../src/features/playback/picture-in-picture.js';
+import { createDownloadButton, mediaAt } from '../src/features/downloads/button.js';
 
 const FB = 'https://www.facebook.com';
 const windows = [];
@@ -146,6 +147,18 @@ test('stories, a reel held for 2x, odd speeds and the switch off are left alone'
   assert.equal(off.video.playbackRate, 1);
 });
 
+test('a live broadcast keeps the speed it is sent at', () => {
+  const storage = createMemoryStorage({ [SPEED_KEY]: 1.5 });
+  const win = page(`${FB}/watch/live/?v=1234567890`);
+  const { input } = speedKeeper(win, storage);
+  const live = fakeVideo(win, { duration: Number.POSITIVE_INFINITY });
+  live.start();
+  assert.equal(live.video.playbackRate, 1);
+  input();
+  live.video.playbackRate = 1.25;
+  assert.equal(storage.get(SPEED_KEY), 1.5, 'not a pick either');
+});
+
 test('the feature shows the kept speed and can go back to normal', () => {
   const storage = createMemoryStorage({ [SPEED_KEY]: 1.25 });
   const win = page();
@@ -246,6 +259,42 @@ test("a press on a reel's buttons, a paused reel, other pages and the switch off
   assert.equal(holdForSpeed.section, 'reels');
 });
 
+test("a long press on the script's own buttons is a click on them, and the running flag on the page's root doesn't get in the way", () => {
+  const win = page(`${FB}/reel/1234567890`, '<div class="reel"></div>');
+  const doc = win.document;
+  // The flag main.js puts on <html> while the script runs.
+  doc.documentElement.setAttribute('data-hushfacebook-web', '0.0.1');
+  const reel = fakeVideo(win, { parent: doc.querySelector('.reel') });
+  const { press, lift, wait, timers } = holder(win);
+  press(reel.video);
+  wait();
+  assert.equal(reel.video.playbackRate, FAST, 'the reel itself still holds');
+  lift(reel.video);
+
+  // The Download or Pop out button floats over the reel, in a box of its own on the page.
+  const host = doc.createElement('div');
+  host.setAttribute('data-hushfacebook-web', 'download');
+  doc.body.append(host);
+  press(host);
+  assert.equal(timers.length, 0, 'no hold starts');
+  const click = lift(host);
+  assert.equal(click.defaultPrevented, false, 'and the click reaches the button');
+});
+
+test('a hold cut short by the window losing focus keeps no click', () => {
+  const win = page(`${FB}/reel/1234567890`);
+  const reel = fakeVideo(win);
+  const { hold, press, wait } = holder(win);
+  press(reel.video);
+  wait();
+  assert.equal(hold.state().holding, true);
+  win.dispatchEvent(new win.Event('blur'));
+  assert.equal(reel.video.playbackRate, 1, 'the hold ends');
+  const click = new win.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+  reel.video.dispatchEvent(click);
+  assert.equal(click.defaultPrevented, false, 'the next click is an ordinary one');
+});
+
 // ---- Keep video controls on screen ----
 
 // A Watch player: the video, its controls layer that fades, and the volume pop-up.
@@ -270,6 +319,22 @@ test("a video's position slider is the one whose largest value is the video's le
   assert.equal(positionSlider(video).getAttribute('aria-label'), 'Change Position');
   const other = fakeVideo(win, { duration: 300 });
   assert.equal(positionSlider(other.video), null, 'a video without a player around it');
+});
+
+test('a video about as long as the volume scale goes takes the slider that follows its time', () => {
+  const player = (volumeNow) => `
+<div class="player">
+  <div class="frame"><div class="slot"></div></div>
+  <div class="volume"><div role="slider" aria-label="Change volume" aria-valuemax="100" aria-valuenow="${volumeNow}"></div></div>
+  <div class="track"><div role="slider" aria-label="Change Position" aria-valuemax="100" aria-valuenow="31"></div></div>
+</div>`;
+  const win = page(undefined, player(80));
+  const { video } = fakeVideo(win, { time: 31.4, duration: 100.3, parent: win.document.querySelector('.slot') });
+  assert.equal(positionSlider(video).getAttribute('aria-label'), 'Change Position');
+  // Neither follows the video: better no slider than the wrong one.
+  const lost = page(undefined, player(80).replace('aria-valuenow="31"', 'aria-valuenow="70"'));
+  const other = fakeVideo(lost, { time: 31.4, duration: 100.3, parent: lost.document.querySelector('.slot') });
+  assert.equal(positionSlider(other.video), null);
 });
 
 test('the faded controls are kept on screen, and only them', () => {
@@ -339,7 +404,35 @@ test('the Pop out button asks for picture-in-picture, and offers the way back on
   await frame();
   assert.equal(inPicture, null);
   assert.equal(popped, 1);
+  // Out again, then closed from the small window's own X.
+  button.click();
+  await frame();
+  assert.equal(button.state().text, 'Back to the page');
+  inPicture = null;
+  video.dispatchEvent(new win.Event('leavepictureinpicture', { bubbles: true }));
+  assert.equal(button.state().text, 'Pop out');
   button.stop();
+});
+
+test('the Download and Pop out buttons over one video see through each other', async () => {
+  // Facebook's video sits many boxes deep, far from the buttons on the page's body.
+  const win = page(`${FB}/watch/?v=1234567890`, `${'<div>'.repeat(14)}<div class="wrap"></div>${'</div>'.repeat(14)}`);
+  const doc = win.document;
+  const { video } = fakeVideo(win, { parent: doc.querySelector('.wrap') });
+  const download = createDownloadButton({ doc, win, find: () => ({ video }), run: async () => {}, active: () => true });
+  const popOut = createPopOut({ doc, win, enabled: () => true });
+  doc.elementsFromPoint = () => [video];
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 200, clientY: 100 }));
+  await frame();
+  const [downloadHost, popOutHost] = ['download', 'picture-in-picture'].map((name) => doc.querySelector(`[data-hushfacebook-web="${name}"]`));
+  assert.ok(downloadHost && popOutHost);
+  // The pointer moves onto the Download button: Pop out still knows the video under it, and
+  // the Download button knows it's on itself.
+  doc.elementsFromPoint = () => [downloadHost, video];
+  assert.equal(mediaAt(doc, popOutHost, 550, 60), video);
+  assert.equal(mediaAt(doc, downloadHost, 550, 60), 'button');
+  download.stop();
+  popOut.stop();
 });
 
 test('photos get no Pop out button, and without picture-in-picture the switch is unavailable', async () => {

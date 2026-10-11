@@ -3,6 +3,10 @@
 // taken from the video's link in its post or from the address on its own page, the same way the
 // Download button knows a video (downloads/find.js). Only videos at least as long as the chosen
 // length count, and reels and stories are left alone. Works in content mode.
+//
+// A spot is only kept for a video that has played with sound, so a feed video playing muted
+// on its own while you scroll past doesn't leave one behind. Going back to the first half
+// minute of a video you were watching forgets its spot, since you started it over.
 
 import { nearestVideoLink, pageTarget } from '../downloads/find.js';
 
@@ -60,7 +64,7 @@ export function createResumer({ doc, storage, enabled, minSeconds, href = () => 
     const id = videoId(video, href());
     let found = tracked.get(video);
     if (!found || found.id !== id) {
-      found = { id, resumed: false, saved: Number.NEGATIVE_INFINITY, done: false };
+      found = { id, resumed: false, heard: false, saved: Number.NEGATIVE_INFINITY, done: false, cleared: false };
       tracked.set(video, found);
     }
     return found;
@@ -68,6 +72,7 @@ export function createResumer({ doc, storage, enabled, minSeconds, href = () => 
 
   const long = (video) => Number.isFinite(video.duration) && video.duration >= minSeconds();
   const watching = (event) => isVideo(event.target) && enabled() && long(event.target);
+  const audible = (video) => !video.muted && video.volume > 0;
 
   function onPlaying(event) {
     if (!watching(event)) return;
@@ -78,7 +83,8 @@ export function createResumer({ doc, storage, enabled, minSeconds, href = () => 
     const spot = kept()[found.id];
     if (!spot || Math.abs(spot.d - video.duration) > SAME_LENGTH) return;
     if (spot.t < START_AFTER || spot.t > video.duration - DONE_WITHIN || video.currentTime >= spot.t) return;
-    video.currentTime = Math.max(0, spot.t - STEP_BACK);
+    // Never back into the first half minute, which would read as starting over.
+    video.currentTime = Math.max(START_AFTER, spot.t - STEP_BACK);
     resumes++;
     onResume?.(spot.t);
   }
@@ -86,6 +92,10 @@ export function createResumer({ doc, storage, enabled, minSeconds, href = () => 
   function remember(video, force) {
     const found = entry(video);
     if (!found.id || !found.resumed) return;
+    if (!found.heard) {
+      if (!audible(video)) return;
+      found.heard = true;
+    }
     const at = video.currentTime;
     if (at > video.duration - DONE_WITHIN) {
       if (!found.done) write(found.id, null);
@@ -93,7 +103,14 @@ export function createResumer({ doc, storage, enabled, minSeconds, href = () => 
       return;
     }
     found.done = false;
-    if (at < START_AFTER || (!force && Math.abs(at - found.saved) < SAVE_EVERY)) return;
+    if (at < START_AFTER) {
+      if (!found.cleared) write(found.id, null);
+      found.cleared = true;
+      found.saved = Number.NEGATIVE_INFINITY;
+      return;
+    }
+    found.cleared = false;
+    if (!force && Math.abs(at - found.saved) < SAVE_EVERY) return;
     found.saved = at;
     write(found.id, at, video.duration);
   }

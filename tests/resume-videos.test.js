@@ -110,6 +110,60 @@ test('saves come every few seconds of playback, and nothing is kept for the firs
   assert.equal(storage.get(POSITIONS_KEY)['2234567890'].t, 66);
 });
 
+test('a feed video playing muted on its own keeps no spot until it plays with sound', () => {
+  const storage = createMemoryStorage({ [POSITIONS_KEY]: { 3234567890: { t: 600, d: 1800, at: 1 } } });
+  const win = page(`${FB}/`, POST('2234567890'));
+  resumer(win, storage);
+  const muted = longVideo(win, win.document.querySelector('.player'));
+  muted.video.muted = true;
+  muted.play();
+  muted.at(100);
+  muted.at(140);
+  muted.pause();
+  assert.equal(storage.get(POSITIONS_KEY)['2234567890'], undefined, 'nothing kept while muted');
+  muted.video.muted = false;
+  muted.at(150);
+  assert.equal(storage.get(POSITIONS_KEY)['2234567890'].t, 150, 'kept once it has sound');
+  // Muting again later doesn't stop the saves, it's still being watched.
+  muted.video.muted = true;
+  muted.at(160);
+  assert.equal(storage.get(POSITIONS_KEY)['2234567890'].t, 160);
+
+  // A muted preview of a video with a spot still picks it up, but scrolling past it at the
+  // start doesn't forget it.
+  const other = page(`${FB}/`, POST('3234567890'));
+  resumer(other, storage);
+  const preview = longVideo(other, other.document.querySelector('.player'));
+  preview.video.muted = true;
+  preview.play();
+  assert.equal(preview.video.currentTime, 600 - STEP_BACK);
+  preview.at(5);
+  preview.pause();
+  assert.equal(storage.get(POSITIONS_KEY)['3234567890'].t, 600);
+});
+
+test('starting a video over forgets its old spot, and the step back never lands in the first half minute', () => {
+  const storage = createMemoryStorage({ [POSITIONS_KEY]: { 2234567890: { t: 600, d: 1800, at: 1 }, 4234567890: { t: START_AFTER + 1, d: 1800, at: 2 } } });
+  const win = page(`${FB}/watch/?v=2234567890`);
+  resumer(win, storage);
+  const video = longVideo(win);
+  video.play();
+  assert.equal(video.video.currentTime, 600 - STEP_BACK);
+  video.at(10);
+  assert.equal(storage.get(POSITIONS_KEY)['2234567890'], undefined, 'back at the start, the old spot is gone');
+  video.at(45);
+  assert.equal(storage.get(POSITIONS_KEY)['2234567890'].t, 45, 'and a new one is kept from there');
+
+  const early = page(`${FB}/watch/?v=4234567890`);
+  resumer(early, storage);
+  const short = longVideo(early);
+  short.play();
+  assert.equal(short.video.currentTime, START_AFTER);
+  short.at(START_AFTER + 0.5);
+  short.pause();
+  assert.equal(storage.get(POSITIONS_KEY)['4234567890'].t, START_AFTER);
+});
+
 test('a video watched to the end is forgotten, so it starts at the beginning next time', () => {
   const storage = createMemoryStorage({ [POSITIONS_KEY]: { 2234567890: { t: 900, d: 1800, at: 1 } } });
   const win = page(`${FB}/watch/?v=2234567890`);
