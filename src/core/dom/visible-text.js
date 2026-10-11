@@ -6,7 +6,12 @@
 // content.js hiddenByAncestors). MIT, Copyright (c) 2026 Facebook Feed Filter Companion
 // contributors; the notice is in THIRD_PARTY_NOTICES.txt.
 
-const INVISIBLE = /[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+// Characters that draw nothing. Since 2026-10-11 Facebook puts a combining grapheme joiner
+// (U+034F) after every letter of the ad label ("A\u034Fd\u034F"), so it's in here with the other
+// default-ignorable fillers: Hangul fillers, Khmer inherent vowels, Mongolian variation
+// selectors and variation selectors. The combining ones sit outside the character class,
+// where they can't read as joined to the character before them.
+const INVISIBLE = /[\u061C\u115F\u1160\u200B-\u200F\u202A-\u202E\u2060-\u2069\u3164\uFEFF\uFFA0]|\u034F|\u17B4|\u17B5|[\u180B-\u180F]|[\uFE00-\uFE0F]/g;
 
 export function normalizeText(value) {
   return String(value ?? '')

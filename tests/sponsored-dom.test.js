@@ -148,6 +148,24 @@ test('glyph order: shuffled letters are put back in flex order, skipping hidden 
   assert.equal(read(page(post({ byline }))), null, '"Adr" is not a label');
 });
 
+test('glyph order: the 2026-10-11 search ad label, two letters with a joiner each among 58 placed decoys', () => {
+  // Shape seen live on search ads: one flex row of 60 one-letter spans, each letter followed by
+  // U+034F. 58 are position:absolute decoys; "A" (order 12) and "d" (order 20) are drawn.
+  const CGJ = String.fromCodePoint(0x34f);
+  const pool = 'oespr oStndt77c51818i4l2haf9u0a3g1c87f'.replace(/ /g, '');
+  const decoys = [...pool, ...'mfafuhgc3'].slice(0, 58)
+    .map((letter, i) => `<span style="position:absolute;order:${(i * 7) % 61 + 21}">${letter}${CGJ}</span>`);
+  decoys.splice(9, 0, `<span style="position:relative;order:20">d${CGJ}</span>`);
+  decoys.splice(31, 0, `<span style="position:relative;order:12">A${CGJ}</span>`);
+  const byline = `<span style="display:flex;position:relative">${decoys.join('')}</span><span aria-hidden="true"> · </span>`;
+  assert.equal(adLabel(`A${CGJ}d${CGJ}`), 'ad');
+  assert.deepEqual(read(page(post({ byline, extra: CTA }))), { signal: 'glyph order', label: 'Ad', corroborated: true });
+  // The same row with the two drawn letters spelling something else has no label: the ad
+  // button alone is only reported.
+  const other = byline.replace(`>A${CGJ}<`, `>O${CGJ}<`);
+  assert.deepEqual(read(page(post({ byline: other, extra: CTA }))), { adButton: true });
+});
+
 test('a Page named "Ad" is not an ad, in a flex header row or as the target of a label', () => {
   // Chrome reports order 0 for every flex child, so the row's short words were joined.
   const row = `<div aria-posinset="1"><div class="header" style="display:flex">
