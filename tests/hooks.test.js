@@ -48,6 +48,13 @@ test('response rules rewrite streamed GraphQL lines, however the body is chunked
   assert.equal(response.headers.get('content-length'), null);
 });
 
+test('a long line split over chunks with no newline still comes through whole', async () => {
+  const { win } = fakeWindow({ chunks: ['{"a":', '1,"b":', '"x"', '}'] });
+  const net = installNetworkHooks({ win, log: quietLog() });
+  net.transformResponses({ id: 'touch', enabled: () => true, match: () => true, transform: () => undefined });
+  assert.equal(await (await win.fetch('/api/graphql/')).text(), '{"a":1,"b":"x"}');
+});
+
 test('requests a rule blocks never leave, and get a fake success', async () => {
   const { win, calls } = fakeWindow();
   const net = installNetworkHooks({ win, log: quietLog() });

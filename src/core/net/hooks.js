@@ -115,12 +115,21 @@ function rewriteFetchResponse(win, response, transformLine) {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
+  // pull() must enqueue or close before it returns: the stream doesn't call it again after a
+  // pull that produced nothing, so a chunk that finishes no line (or only a dropped one)
+  // would stall the body forever. Keep reading until there's output or the source ends.
   const body = new win.ReadableStream({
     async pull(controller) {
-      const { done, value } = await reader.read();
-      const text = done ? stream.push(decoder.decode()) + stream.flush() : stream.push(decoder.decode(value, { stream: true }));
-      if (text) controller.enqueue(encoder.encode(text));
-      if (done) controller.close();
+      for (;;) {
+        const { done, value } = await reader.read();
+        const text = done ? stream.push(decoder.decode()) + stream.flush() : stream.push(decoder.decode(value, { stream: true }));
+        if (text) controller.enqueue(encoder.encode(text));
+        if (done) {
+          controller.close();
+          return;
+        }
+        if (text) return;
+      }
     },
     cancel: (reason) => reader.cancel(reason),
   });
