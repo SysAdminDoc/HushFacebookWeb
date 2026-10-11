@@ -14,8 +14,9 @@ import { postIdOf } from './posts.js';
 export const MARK = 'data-hfw-hide';
 export const NOTE = 'data-hfw-note';
 const POST = ':is([aria-posinset], [role="article"])';
-// ::before doesn't draw on these, so they can't carry the note.
-const REPLACED = new Set(['IMG', 'VIDEO', 'IFRAME', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'OBJECT', 'EMBED']);
+// ::before doesn't draw on these, so they can't carry the note. SVG tag names keep their
+// case in an HTML page.
+const REPLACED = new Set(['IMG', 'VIDEO', 'IFRAME', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'OBJECT', 'EMBED', 'svg', 'STYLE', 'SCRIPT', 'TEMPLATE', 'LINK', 'META']);
 
 export function hideCss({ notes }) {
   if (!notes) return `${POST}:has(> [${MARK}]) { display: none !important; }`;

@@ -28,11 +28,12 @@ const ID_RUNGS = [
   { source: 'story_fbid', re: /[?&]story_fbid=(pfbid0[A-Za-z0-9]+|\d+)/ },
 ];
 const COMMENT_ID = /[?&](?:reply_comment_id|comment_id)=(\d+)/;
-const COMMENT_PARAMS = /([?&])(?:reply_comment_id|comment_id)=\d+(&|$)/g;
+const COMMENT_PARAM = /([?&])(?:reply_comment_id|comment_id)=\d+(&|$)/;
 const COMMENT_LABEL = /^(?:comment|reply) by /i;
 // Only facebook.com's own links say which post this is. A link out ("blog.example/posts/2024")
 // or through l.facebook.com never does.
-const FACEBOOK_LINK = /^(?:\/(?!\/)|\?|https?:\/\/(?:(?:www|web|m|mbasic)\.)?facebook\.com(?:\/|$))/i;
+// Locale hosts (en-gb.facebook.com), an explicit :443 and protocol-relative links count too.
+const FACEBOOK_LINK = /^(?:\/(?!\/)|\?|(?:https?:)?\/\/(?:(?:www|web|m|mbasic|[a-z]{2}-[a-z]{2})\.)?facebook\.com(?::443)?(?:\/|$))/i;
 // Links inside the post's text point at other things, so they never name the post.
 const MESSAGE_REGION = '[data-ad-rendering-role="story_message"], [data-ad-preview="message"]';
 
@@ -43,9 +44,19 @@ export function ownLinks(element) {
   return [...element.querySelectorAll('a[href]')].filter((a) => ownerOf(a) === element);
 }
 
+// One parameter at a time: two in a row share the "&" between them.
+function withoutCommentParams(href) {
+  let previous;
+  do {
+    previous = href;
+    href = href.replace(COMMENT_PARAM, (match, lead, tail) => (tail ? lead : ''));
+  } while (href !== previous);
+  return href;
+}
+
 export function postIdFromHrefs(hrefs) {
   const links = hrefs.filter((href) => FACEBOOK_LINK.test(href));
-  const withoutComments = links.map((href) => href.replace(COMMENT_PARAMS, (match, lead, tail) => (tail ? lead : '')));
+  const withoutComments = links.map(withoutCommentParams);
   for (const { source, re } of ID_RUNGS) {
     for (const href of withoutComments) {
       const found = href.match(re);
@@ -124,6 +135,13 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
     const { id, source } = postIdFromHrefs(hrefs);
     if (id === post.id || id === null) return;
     if (post.id === null) {
+      post.id = id;
+      post.idSource = source;
+      emit('post/update', post);
+      return;
+    }
+    // A comment link was all there was, and the post's own link turned up.
+    if (post.idSource === 'comment_id' && source !== 'comment_id') {
       post.id = id;
       post.idSource = source;
       emit('post/update', post);

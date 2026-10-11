@@ -101,6 +101,29 @@ test('the id ladder: permalink, then pfbid anywhere, then story_fbid, then a com
   assert.deepEqual(postIdFromHrefs(['/x?story_fbid=777&comment_id=5']), { id: '777', source: 'story_fbid' });
   assert.deepEqual(postIdFromHrefs(['/x/?comment_id=999']), { id: '999', source: 'comment_id' });
   assert.deepEqual(postIdFromHrefs(['/someone', '#']), { id: null, source: null });
+  // Two comment parameters in a row both go.
+  assert.deepEqual(postIdFromHrefs(['/x?comment_id=1&reply_comment_id=2&story_fbid=9']), { id: '9', source: 'story_fbid' });
+});
+
+test('locale hosts, :443 and protocol-relative facebook.com links name posts, lookalikes never do', () => {
+  assert.deepEqual(postIdFromHrefs(['https://en-gb.facebook.com/a/posts/11']), { id: '11', source: 'permalink' });
+  assert.deepEqual(postIdFromHrefs(['https://www.facebook.com:443/a/posts/12']), { id: '12', source: 'permalink' });
+  assert.deepEqual(postIdFromHrefs(['//www.facebook.com/a/posts/13']), { id: '13', source: 'permalink' });
+  assert.deepEqual(postIdFromHrefs(['https://facebook.com.evil.example/a/posts/14']), { id: null, source: null });
+  assert.deepEqual(postIdFromHrefs(['https://www.facebook.com:8443/a/posts/15']), { id: null, source: null });
+  assert.deepEqual(postIdFromHrefs(['//blog.example/a/posts/16']), { id: null, source: null });
+});
+
+test('a post named only by a comment link takes its own id once it shows up', async () => {
+  const win = page(feed('<div aria-posinset="1"><a href="/x?comment_id=77">a comment</a><div>Text</div></div>'));
+  const tracker = createPostTracker({ doc: win.document });
+  const events = [];
+  for (const type of ['post/add', 'post/update', 'post/remove']) tracker.on(type, (p) => events.push([type, p.id, p.idSource]));
+  assert.deepEqual(events, [['post/add', '77', 'comment_id']]);
+  win.document.querySelector('[aria-posinset] a').insertAdjacentHTML('afterend', '<a href="/x/posts/pfbid0Real">2h</a>');
+  await tick();
+  assert.deepEqual(events.slice(1), [['post/update', 'pfbid0Real', 'permalink']]);
+  tracker.stop();
 });
 
 test('the tracker reports posts as they arrive and leave, and resets when all are gone', async () => {

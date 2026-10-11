@@ -331,6 +331,15 @@ test('a post whose first child is an image or video is left alone', () => {
   assert.equal(win.document.querySelectorAll(`[${MARK}]`).length, 0);
 });
 
+test('an svg, style or template first child is refused too, since no note can draw there', () => {
+  for (const first of ['<svg><path d="M0 0"></path></svg>', '<style>.x{}</style>', '<template></template>']) {
+    const win = page(feed(`<div aria-posinset="1">${first}<a href="/a/posts/1">1h</a></div>`));
+    const hider = createHider({ doc: win.document });
+    assert.equal(hider.hide(win.document.querySelector('[aria-posinset]'), 'Sponsored'), false, first);
+    assert.equal(win.document.querySelectorAll(`[${MARK}]`).length, 0, first);
+  }
+});
+
 test('note mode hides loose text inside the mark too', () => {
   const css = hideCss({ notes: true });
   assert.ok(css.includes(`> [${MARK}] { font-size: 0 !important; }`));
