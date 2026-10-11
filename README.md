@@ -42,6 +42,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Default comment order
 * Show every reply
 * Hide GIF and sticker buttons
+* Hide that you're writing a comment
 * View stories anonymously
 * Stop stories moving on
 * Sanitize sharing links
