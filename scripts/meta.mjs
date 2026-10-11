@@ -1,7 +1,11 @@
 // Userscript metadata block. The version comes from package.json at build time.
 
+import { readFileSync } from 'node:fs';
+
 const repo = 'https://github.com/SysAdminDoc/HushFacebookWeb';
 export const fileName = 'hushfacebook-web';
+// The icon goes in as a data URI (about 2.6 KB), so the manager never fetches an image.
+const icon = `data:image/png;base64,${readFileSync(new URL('../assets/icons/icon-48.png', import.meta.url)).toString('base64')}`;
 
 export const metadata = [
   ['name', 'HushFacebook Web'],
@@ -9,6 +13,7 @@ export const metadata = [
   ['description', 'Takes ads, suggested posts and Meta AI out of Facebook on the web, and adds download, privacy and playback controls.'],
   ['author', 'SysAdminDoc'],
   ['license', 'MIT'],
+  ['icon', icon],
   ['homepageURL', repo],
   ['supportURL', `${repo}/issues`],
   ['updateURL', `${repo}/releases/latest/download/${fileName}.meta.js`],

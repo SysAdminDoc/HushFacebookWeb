@@ -14,6 +14,16 @@ test('the metadata block is well formed and carries the version', () => {
   assert.match(block, /^\/\/ @version\s+1\.2\.3$/m);
 });
 
+test('the icon is the 48 pixel PNG, carried in the block itself', () => {
+  const block = renderMetaBlock('1.2.3');
+  const icon = block.match(/^\/\/ @icon\s+data:image\/png;base64,([A-Za-z0-9+/=]+)$/m);
+  assert.ok(icon, 'an @icon data URI');
+  const png = Buffer.from(icon[1], 'base64');
+  assert.equal(png.subarray(1, 4).toString('latin1'), 'PNG');
+  // IHDR width and height, then color type 6: RGBA, so the corners stay see-through.
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20), png[25]], [48, 48, 6]);
+});
+
 test('the script starts at document-start and updates from the release assets', () => {
   const block = renderMetaBlock('1.2.3');
   assert.match(block, /^\/\/ @run-at\s+document-start$/m);

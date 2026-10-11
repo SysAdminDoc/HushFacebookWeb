@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>HushFacebook Web</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1A7DF7"/>
+      <stop offset="1" stop-color="#0F66E8"/>
+    </linearGradient>
+    <path id="h" d="M146 112h52a10 10 0 0 1 10 10v94h96v-94a10 10 0 0 1 10-10h52a10 10 0 0 1 10 10v268a10 10 0 0 1-10 10h-52a10 10 0 0 1-10-10v-94h-96v94a10 10 0 0 1-10 10h-52a10 10 0 0 1-10-10V122a10 10 0 0 1 10-10z"/>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#tile)"/>
+  <use href="#h" transform="translate(-14 -14)" fill="#5AA2FF" opacity="0.85"/>
+  <use href="#h" transform="translate(14 14)" fill="#0B2E73"/>
+  <use href="#h" fill="#F7F9FC"/>
+  <rect x="222" y="228" width="68" height="18" rx="9" fill="#1474F2"/>
+  <rect x="222" y="256" width="68" height="18" rx="9" fill="#1474F2"/>
+  <g transform="translate(398 398)">
+    <circle r="74" fill="#0F66E8"/>
+    <circle r="62" fill="#F7F9FC"/>
+    <g fill="none" stroke="#1474F2" stroke-width="8" stroke-linecap="round">
+      <circle r="44"/>
+      <ellipse rx="18" ry="44"/>
+      <path d="M-44 0h88M-38-22h76M-38 22h76"/>
+    </g>
+  </g>
+</svg>

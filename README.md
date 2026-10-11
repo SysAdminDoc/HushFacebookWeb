@@ -1,3 +1,5 @@
+![HushFacebook Web. A quieter Facebook feed.](assets/readme-hero.png)
+
 <p>
   <img src="https://img.shields.io/badge/version-0.0.1-CBA6F7" alt="Version 0.0.1">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
@@ -46,6 +48,15 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 All of them have run on facebook.com in a test browser, though a few haven't had anything to act on yet. The test account hasn't been shown a feed ad or a row of reels, so those switches have only been seen leaving ordinary posts alone. Video ad breaks haven't turned up either, and the feed has only offered reels to download so far, not plain videos. The test account's chats are all end-to-end encrypted, which the read receipt and typing switches can't reach, so they haven't had anything to hold back yet. The script has also been installed in Tampermonkey and in Violentmonkey on Chrome, and in both it runs in the page, takes Marketplace and search ads out, gives Copy link the post's own address, keeps story views to yourself and remembers its settings. The other features haven't been tried in either manager yet.
 
 [docs/feature-parity.md](docs/feature-parity.md) goes through every Hushfacebook patch and says what the web version will do with it.
+
+## The settings panel
+
+Click the sliders button in the bottom left corner of Facebook, or pick HushFacebook Web settings from your userscript manager's menu. Changes save as you make them, and every switch has a line under it saying what it does.
+
+<p>
+  <img src="assets/screenshots/panel-feed.png" width="49%" alt="The News feed section of the settings panel, with switches for sponsored posts, suggested posts, reel rows, the Stories tray, word filters and seen posts">
+  <img src="assets/screenshots/panel-downloads.png" width="49%" alt="The Downloads section of the settings panel, with switches for photos, videos, reels and stories and a video quality choice">
+</p>
 
 ## How it works
 
