@@ -13,7 +13,9 @@ export function rulesFor(text, rules) {
 
 // rules: [{ id, markers?, transform(doc, ctx) }]; a transform returns DROP, true when it
 // changed doc in place, or nothing. Returns the new line, or null to drop it.
-export function transformDocumentLine(line, allRules, ctx, onError) {
+// parse should be the page's original JSON.parse: the hooked one runs the same rules
+// first, and the line would then look unchanged and go out with the ad still in it.
+export function transformDocumentLine(line, allRules, ctx, onError, parse = JSON.parse) {
   const rules = rulesFor(line, allRules);
   if (!rules.length) return line;
   let prefix = '';
@@ -27,7 +29,7 @@ export function transformDocumentLine(line, allRules, ctx, onError) {
 
   let doc;
   try {
-    doc = JSON.parse(body);
+    doc = parse(body);
   } catch {
     return line;
   }

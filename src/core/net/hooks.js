@@ -52,7 +52,9 @@ export function installNetworkHooks({ win, log }) {
     });
 
   const blockingRule = (ctx) => active(requestRules, ctx)[0];
-  const lineTransformer = (rules, ctx) => (line) => transformDocumentLine(line, rules, ctx, onError);
+  // Taken before patchJsonParse wraps it. See transformDocumentLine.
+  const parse = win.JSON?.parse ?? JSON.parse;
+  const lineTransformer = (rules, ctx) => (line) => transformDocumentLine(line, rules, ctx, onError, parse);
 
   patchFetch(win, { blockingRule, active, responseRules, lineTransformer, log });
   patchXhr(win, { blockingRule, active, responseRules, lineTransformer });

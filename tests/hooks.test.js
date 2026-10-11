@@ -55,6 +55,24 @@ test('a long line split over chunks with no newline still comes through whole', 
   assert.equal(await (await win.fetch('/api/graphql/')).text(), '{"a":1,"b":"x"}');
 });
 
+test("a streamed line is rewritten even when the page's JSON.parse is the hooked one", async () => {
+  // In Facebook's page the script shares JSON with the page, so a line parsed through the
+  // hooked JSON.parse would come back already pruned and look unchanged.
+  const { win } = fakeWindow({ chunks: ['{"category":"SPONSORED","ad":1}\n{"n":1}'] });
+  win.JSON = JSON;
+  const parse = JSON.parse;
+  try {
+    const net = installNetworkHooks({ win, log: quietLog() });
+    net.transformResponses({
+      id: 'ads', enabled: () => true, markers: ['"SPONSORED"'], match: () => true,
+      transform: (doc) => ('ad' in doc ? delete doc.ad : undefined),
+    });
+    assert.equal(await (await win.fetch('/api/graphql/')).text(), '{"category":"SPONSORED"}\n{"n":1}');
+  } finally {
+    JSON.parse = parse;
+  }
+});
+
 test('requests a rule blocks never leave, and get a fake success', async () => {
   const { win, calls } = fakeWindow();
   const net = installNetworkHooks({ win, log: quietLog() });
