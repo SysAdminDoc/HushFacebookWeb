@@ -8,7 +8,8 @@
 //   options     extra settings: [{ key, type: toggle|select|text|number, label, default, choices? }]
 //   css         string, or (get) => string, applied while the feature is on
 //   setup(ctx)  runs once at document-start
-//               ctx = { win, net, router, log, settings, enabled, option }
+//               ctx = { win, net, router, posts, log, settings, enabled, option }
+//               posts.on('post/add' | 'post/update' | 'post/remove' | 'reset', fn) (src/core/dom/posts.js)
 
 import hideSponsoredPosts from './feed/hide-sponsored-posts.js';
 import anonymousStories from './stories/anonymous-stories.js';

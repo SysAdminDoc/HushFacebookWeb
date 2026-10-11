@@ -2,6 +2,7 @@
 // document-start, before Facebook's first script runs. The settings panel waits for <body>.
 
 import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady, whenRootReady } from './core/env.js';
+import { createPostTracker } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
 import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
@@ -19,6 +20,7 @@ function boot() {
   const settings = createSettings({ storage: createGmStorage(), features, log, version });
   const net = pageAccess === 'page' ? installNetworkHooks({ win: pageWindow, log }) : null;
   const router = createRouter({ win: pageWindow, pageAccess, log });
+  const posts = createPostTracker({ doc: document, log });
   const unavailable = new Set();
 
   if (!net) {
@@ -36,6 +38,7 @@ function boot() {
         win: pageWindow,
         net,
         router,
+        posts,
         log,
         settings,
         enabled: () => settings.enabled(feature.id),

@@ -15,11 +15,12 @@ src/
     net/hooks.js       fetch, XHR, sendBeacon and JSON.parse hooks
     net/payload.js     Facebook's multi-document responses, line by line
     url.js             link-shim unwrapping and tracking tag removal
+    dom/posts.js       finds posts on the page and reports them to features (post/add, post/remove)
     style.js           one style element for every CSS feature that's on
   features/            one file per feature, grouped by settings section
   ui/                  the settings panel (closed shadow root, no innerHTML)
 scripts/               build, metadata block, version check
-tests/                 node:test suites, no browser needed
+tests/                 node:test suites, no browser needed (happy-dom stands in for the page)
 docs/feature-parity.md every Hushfacebook patch and its web plan
 ```
 
