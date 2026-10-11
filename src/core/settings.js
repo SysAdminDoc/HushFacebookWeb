@@ -24,6 +24,33 @@ export function storageKeyFor(account) {
   return `${STORAGE_KEY}@${hash.toString(36)}`;
 }
 
+// One-time changes to stored settings. Each runs once for each settings key, recorded under a
+// key of its own, so a later change by hand is left alone. An import of an export made before
+// the version in `before` gets the same change.
+export const MIGRATIONS = [
+  {
+    // In v0.0.1 Hide sponsored posts also took the ads out of search and Marketplace. Someone
+    // who had it off keeps those ads now that each place has its own switch.
+    id: 'split-ad-switch',
+    before: '0.0.2',
+    run(raw) {
+      if (raw.hideSponsoredPosts !== false) return;
+      for (const key of ['hideSponsoredSearch', 'hideSponsoredMarketplace']) {
+        if (!Object.hasOwn(raw, key)) raw[key] = false;
+      }
+    },
+  },
+];
+
+export function olderThan(version, before) {
+  const parts = (text) => /^(\d+)\.(\d+)\.(\d+)/.exec(String(text ?? ''))?.slice(1).map(Number);
+  const a = parts(version);
+  const b = parts(before);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+}
+
 const GLOBAL_SETTINGS = [
   { key: 'paused', type: 'toggle', default: false, label: 'Pause HushFacebook Web' },
   { key: 'ui.launcher', type: 'toggle', default: true, label: 'Show the settings button on Facebook' },
@@ -61,11 +88,12 @@ export function isValid(spec, value) {
   }
 }
 
-export function createSettings({ storage, features, log, version = 'dev', account = null }) {
+export function createSettings({ storage, features, log, version = 'dev', account = null, migrations = MIGRATIONS }) {
   const schema = buildSchema(features);
   const listeners = new Set();
   const key = storageKeyFor(account);
-  let values = sanitize(load());
+  const doneKey = `${key}.migrated`;
+  let values = migrate(load());
 
   function load() {
     const own = storage.get(key, undefined);
@@ -74,11 +102,32 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     if (Object.keys(shared).length) {
       try {
         storage.set(key, shared);
+        // The copy has already had whatever the shared settings had.
+        const sharedDone = storage.get(`${STORAGE_KEY}.migrated`, undefined);
+        if (Array.isArray(sharedDone)) storage.set(doneKey, sharedDone);
       } catch (error) {
         log?.error('Could not copy your settings to this account', error);
       }
     }
     return shared;
+  }
+
+  function migrate(raw) {
+    const stored = storage.get(doneKey, []);
+    const done = Array.isArray(stored) ? stored : [];
+    const before = sanitize(raw);
+    const pending = migrations.filter((migration) => !done.includes(migration.id));
+    if (!pending.length) return before;
+    const next = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
+    for (const migration of pending) migration.run(next);
+    const after = sanitize(next);
+    try {
+      if (JSON.stringify(after) !== JSON.stringify(before)) storage.set(key, after);
+      storage.set(doneKey, [...done, ...pending.map((migration) => migration.id)]);
+    } catch (error) {
+      log?.error('Could not save a settings update', error);
+    }
+    return after;
   }
 
   function sanitize(raw) {
@@ -167,9 +216,13 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
         throw new TypeError('That file has no HushFacebook Web settings in it');
       }
+      const changed = { ...incoming };
+      for (const migration of migrations) {
+        if (olderThan(parsed.version, migration.before)) migration.run(changed);
+      }
       const applied = [];
       const skipped = [];
-      for (const [key, value] of Object.entries(incoming)) {
+      for (const [key, value] of Object.entries(changed)) {
         const found = schema.get(key);
         if (!found || !isValid(found, value)) {
           skipped.push(key);
