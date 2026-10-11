@@ -123,11 +123,20 @@ test('Marketplace ad cards go, listings stay', () => {
   assert.deepEqual(doc.data.viewer.marketplace_feed_stories.edges.map((e) => e.node?.id ?? null), ['l1', null]);
 });
 
-test('search ads go, other search modules stay', () => {
-  const result = (role) => ({ cursor: role, logging_unit_id: 'u', rendering_strategy: { __typename: 'SearchResultsAdRenderingStrategy' }, node: { __typename: 'SearchRenderable', role } });
-  const doc = { data: { serpResponse: { results: { edges: [result('FEED_POSTS'), result('SEARCH_ADS'), result('POST_SILVER_TORCH')] } } } };
+test('search ads go with the story beside their node, other search modules stay', () => {
+  // Live shape 2026-10-10: the ad's story sits in rendering_strategy, next to node, not in it.
+  const post = (role) => ({ cursor: role, logging_unit_id: 'u', node: { __typename: 'SearchRenderable', role }, rendering_strategy: { __typename: 'SearchRichPostRenderingStrategy', click_model: {} } });
+  const ad = {
+    cursor: 'ad', logging_unit_id: 'u', node: { __typename: 'SearchRenderable', role: 'SEARCH_ADS' },
+    rendering_strategy: { __typename: 'SearchResultsAdRenderingStrategy', view_model: { story: { th_dat_spo: { x: 1 }, comet_sections: adLabel } } },
+  };
+  const doc = { data: { serpResponse: { results: { edges: [post('FEED_POSTS'), ad, post('POST_SILVER_TORCH')] } } } };
   assert.equal(pruneSponsoredEdges(doc), true);
-  assert.deepEqual(doc.data.serpResponse.results.edges.map((e) => e.node?.role ?? null), ['FEED_POSTS', null, 'POST_SILVER_TORCH']);
+  const edges = doc.data.serpResponse.results.edges;
+  assert.deepEqual(edges.map((e) => e.node?.role ?? null), ['FEED_POSTS', null, 'POST_SILVER_TORCH']);
+  assert.deepEqual(edges[1], { cursor: 'ad', logging_unit_id: 'u' });
+  assert.equal(edges[0].rendering_strategy.__typename, 'SearchRichPostRenderingStrategy');
+  assert.doesNotMatch(JSON.stringify(doc), /th_dat_spo|CometStorySponsoredLabelStrategy/);
 });
 
 test('markers: a 2026 ad line is picked up, an organic line with null ad fields is not', () => {

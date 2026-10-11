@@ -10,12 +10,13 @@
 //   - the node carries a CometStorySponsoredLabelStrategy section (typenames aren't renamed)
 //   - Marketplace: node.__typename "MarketplaceFeedAdStory"
 //   - search results: node.role "SEARCH_ADS"
-// The edge stays and only its node goes, so cursors and paging survive (uBlock Origin's old
-// approach).
+// The edge stays and only what Facebook draws from goes, so cursors and paging survive
+// (uBlock Origin's old approach). That's the node, and on search results also the
+// rendering_strategy beside it, which is where a search ad keeps its story.
 //
 // Seen live: the renamed fields, the label section on a search ad, Marketplace and search
-// ads. Not seen yet: an ad in the main feed (none in 141 stories on the test account), and
-// how each surface renders an edge with no node.
+// ads, and Marketplace pruned in the page with the grid intact (2026-10-10). Not seen yet:
+// an ad in the main feed (none in 141 stories on the test account).
 
 import { SKIP, walk } from '../../core/json-walk.js';
 
@@ -29,6 +30,7 @@ export const SPONSORED_MARKERS = [
 ];
 
 const AD_DATA_FIELDS = ['sponsored_data', 'th_dat_spo'];
+const DRAWN_FIELDS = ['node', 'rendering_strategy'];
 const LABEL_TYPENAME = 'CometStorySponsoredLabelStrategy';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -63,7 +65,7 @@ export function pruneSponsoredEdges(doc) {
   let changed = false;
   walk(doc, (value) => {
     if (!isSponsoredEdge(value)) return undefined;
-    delete value.node;
+    for (const key of DRAWN_FIELDS) delete value[key];
     changed = true;
     return SKIP;
   });
