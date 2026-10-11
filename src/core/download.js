@@ -85,7 +85,7 @@ export async function saveFile({ url, name, api = {}, doc = globalThis.document,
       return 'manager';
     } catch (error) {
       // Cancelled in the browser means no. Anything else, fetch it instead.
-      if (error.cancelled) throw new Error('you cancelled it');
+      if (error.cancelled) throw new Error('you cancelled it', { cause: error });
     }
   }
   const blob = await fetchBlob(url, { request: api.request, win });
