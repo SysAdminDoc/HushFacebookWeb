@@ -19,7 +19,7 @@ HushFacebook Web is a userscript for Facebook in a desktop browser. It's the web
 
 This is the very start. There's no release to install yet.
 
-Version 0.0.1 has the groundwork in place, meaning the settings panel and the layer that reads Facebook's data as it loads, plus the first seven features. None of them has been checked on facebook.com yet, so treat them as work in progress:
+Version 0.0.1 has the groundwork in place, meaning the settings panel and the layer that reads Facebook's data as it loads, plus the first seven features. They've all run on facebook.com in a test browser. They haven't been tried inside Tampermonkey or Violentmonkey yet, so treat them as work in progress:
 
 * Hide sponsored posts
 * View stories anonymously

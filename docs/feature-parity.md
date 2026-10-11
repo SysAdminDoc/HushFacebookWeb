@@ -4,6 +4,7 @@
 
 What the status words mean:
 
+* **Tested**: it ran on facebook.com in a test browser and did its job. It still needs a check inside Tampermonkey and Violentmonkey.
 * **Written**: the code is in the script, but it hasn't been checked on facebook.com yet.
 * **Planned**: there's a clear way to do it on the web and it's on the list.
 * **Needs research**: it probably has a web version, but someone has to look at how Facebook's site handles it first.
@@ -11,14 +12,14 @@ What the status words mean:
 
 | Android patch | Status | On the web |
 |---|---|---|
-| Hide sponsored posts | Written | Removes ads from the feed data before Facebook draws it, including the first screen that comes inline with the page. |
-| View stories anonymously | Written | Holds back the request that tells Facebook you saw a story. |
-| Sanitize sharing links | Written | Strips tracking tags from links when you open or copy them. |
-| Open links in external browser | Written | Becomes "Skip Facebook's link redirect": outside links open directly instead of through l.facebook.com. |
-| Tap to play | Written | Videos only start when you click them. |
-| Turn off HDR brightness | Written | Caps HDR video and photos at normal brightness in browsers that support it. |
-| Hushfacebook settings | Written | The settings panel, opened from the corner button or your userscript manager's menu. |
-| Following feed on Home | Written | Opens Home on Facebook's most recent feed, from everyone you follow or just friends, favorites, groups or Pages. |
+| Hide sponsored posts | Tested | Removes ads from the feed data before Facebook draws it, including the first screen that comes inline with the page. Tested on Marketplace and search ads so far. |
+| View stories anonymously | Tested | Holds back the request that tells Facebook you saw a story. |
+| Sanitize sharing links | Tested | Strips tracking tags from links you open or copy, and Copy link gives the post's own address instead of a facebook.com/share link. |
+| Open links in external browser | Tested | Becomes "Skip Facebook's link redirect": outside links open directly instead of through l.facebook.com. |
+| Tap to play | Tested | Videos only start when you click them. |
+| Turn off HDR brightness | Tested | Caps HDR video and photos at normal brightness in browsers that support it. |
+| Hushfacebook settings | Tested | The settings panel, opened from the corner button or your userscript manager's menu. |
+| Following feed on Home | Tested | Opens Home on Facebook's most recent feed, from everyone you follow or just friends, favorites, groups or Pages. |
 | Hide sponsored profile posts | Planned | Same feed cleanup, applied to profile and Page timelines. |
 | Hide sponsored reels | Planned | Ads between reels and in-video ads. |
 | Hide sponsored stories | Planned | Ad cards in the story viewer. |
