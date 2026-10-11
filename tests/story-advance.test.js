@@ -55,10 +55,13 @@ function storyVideo(win, { duration = 18.5, src = 'blob:https://www.facebook.com
 }
 
 function hold(win, { on = () => true, mode = () => 'hold', viewer = () => inStoryViewer(win.document) } = {}) {
-  const keeper = createStoryHold({ doc: win.document, enabled: on, mode, inViewer: viewer });
+  const keeper = createStoryHold({ doc: win.document, win, enabled: on, mode, inViewer: viewer, trusted: () => true });
   keeper.start();
   return keeper;
 }
+
+// The viewer clicking, as a real click would reach the window first.
+const press = (win) => win.dispatchEvent(new win.Event('pointerdown'));
 
 test('a video story is paused just before it ends, once', () => {
   const win = page();
@@ -80,6 +83,7 @@ test('playing a held story lets it finish, and the next card is held again', () 
   const card = storyVideo(win);
   card.at(18.1);
   assert.equal(card.video.paused, true);
+  press(win);
   card.video.play();
   card.at(18.3);
   assert.equal(card.video.paused, false, 'the viewer chose to go on');
@@ -102,6 +106,22 @@ test("Facebook's own play at the start of a card doesn't count as going on", () 
   assert.equal(card.video.paused, true);
 });
 
+test("Facebook playing a held story by itself doesn't let it go, a click does", () => {
+  const win = page();
+  const keeper = hold(win);
+  const card = storyVideo(win);
+  card.at(18.1);
+  assert.equal(card.video.paused, true);
+  card.video.play();
+  card.at(18.2);
+  assert.equal(card.video.paused, true, 'held again');
+  assert.equal(keeper.state().holds, 1, 'still the one hold');
+  press(win);
+  card.video.play();
+  card.at(18.3);
+  assert.equal(card.video.paused, false);
+});
+
 test('a story paused by hand right at its end goes on with one Play', () => {
   const win = page();
   const keeper = hold(win);
@@ -109,6 +129,7 @@ test('a story paused by hand right at its end goes on with one Play', () => {
   card.at(17.9);
   card.video.pause();
   card.at(18.1);
+  press(win);
   card.video.play();
   card.at(18.3);
   assert.equal(card.video.paused, false);
@@ -120,6 +141,7 @@ test('the same card seen again from the start is held again', () => {
   const keeper = hold(win);
   const card = storyVideo(win);
   card.at(18.1);
+  press(win);
   card.video.play();
   card.at(18.4);
   // Back to that card later, on the same element.

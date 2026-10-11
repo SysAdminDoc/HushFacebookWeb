@@ -6,20 +6,24 @@
 // the start to play again. Photo cards run on a timer the page doesn't show, so they still move
 // on by themselves.
 //
-// Playing a held card again lets it finish and move on, and the Next arrow works as always. It
-// only touches the video element, so it works in content mode too.
+// Playing a held card again lets it finish and move on, and the Next arrow works as always. A
+// play only counts as that when it comes right after a click or a key press, so Facebook
+// starting the video again by itself doesn't let the card go. It only touches the video
+// element, so it works in content mode too.
 
 export const END_MARGIN = 0.5; // seconds before the end
 const SHORTEST = 1; // seconds; anything shorter is left alone
+export const INPUT_WINDOW = 1500; // ms after a click or key press that a play counts as the viewer's
 
 const isVideo = (node) => node?.tagName === 'VIDEO';
 const sameCard = (video, mark) => mark && mark.src === video.currentSrc && mark.duration === video.duration;
 
-export function createStoryHold({ doc, enabled, mode, inViewer, onChange }) {
+export function createStoryHold({ doc, win = doc.defaultView, enabled, mode, inViewer, onChange, trusted = (event) => event.isTrusted, now = () => Date.now() }) {
   const held = new WeakMap(); // video -> the card it was held on
   const released = new WeakMap(); // video -> the card its viewer played again after a hold
   let holds = 0;
   let replays = 0;
+  let lastInput = Number.NEGATIVE_INFINITY;
 
   const cardOf = (video) => ({ src: video.currentSrc, duration: video.duration });
 
@@ -36,36 +40,47 @@ export function createStoryHold({ doc, enabled, mode, inViewer, onChange }) {
       return;
     }
     if (video.paused || sameCard(video, released.get(video))) return;
+    // Held again after Facebook played it by itself: still the one hold.
+    if (!sameCard(video, held.get(video))) holds++;
     held.set(video, cardOf(video));
     video.pause();
-    holds++;
     onChange?.();
   }
 
   // A play on a card the script held is the viewer's choice to go on, and so is a play right at
-  // the end of a card they paused there by hand. A play anywhere else (a card starting, or the
-  // same card seen again later) means the end gets held again.
+  // the end of a card they paused there by hand, when a click or key press came just before it.
+  // A play anywhere else (a card starting, or the same card seen again later) means the end
+  // gets held again.
   function onPlay(event) {
     const video = event.target;
     if (!isVideo(video)) return;
     const atEnd = Number.isFinite(video.duration) && video.currentTime >= video.duration - END_MARGIN;
-    if (sameCard(video, held.get(video)) || atEnd) {
+    const goOn = sameCard(video, held.get(video)) || atEnd;
+    if (!goOn) released.delete(video);
+    else if (now() - lastInput < INPUT_WINDOW) {
       held.delete(video);
       released.set(video, cardOf(video));
-    } else {
-      released.delete(video);
     }
   }
+
+  const onInput = (event) => {
+    if (trusted(event)) lastInput = now();
+  };
+  const listen = { capture: true, passive: true };
 
   return {
     start() {
       // Media events don't bubble, but they do pass the document on their way in.
       doc.addEventListener('timeupdate', onTime, true);
       doc.addEventListener('play', onPlay, true);
+      win?.addEventListener('pointerdown', onInput, listen);
+      win?.addEventListener('keydown', onInput, listen);
     },
     stop() {
       doc.removeEventListener('timeupdate', onTime, true);
       doc.removeEventListener('play', onPlay, true);
+      win?.removeEventListener('pointerdown', onInput, listen);
+      win?.removeEventListener('keydown', onInput, listen);
     },
     state: () => ({ holds, replays }),
   };
@@ -90,9 +105,9 @@ export default {
     },
   ],
 
-  setup({ doc, enabled, option, diagnostics }) {
+  setup({ doc, win, enabled, option, diagnostics }) {
     const hold = createStoryHold({
-      doc, enabled,
+      doc, win: win ?? doc.defaultView, enabled,
       mode: () => option('atEnd'),
       inViewer: () => inStoryViewer(doc),
       onChange: () => diagnostics?.changed(),
