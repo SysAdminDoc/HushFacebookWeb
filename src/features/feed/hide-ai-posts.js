@@ -21,7 +21,7 @@ export default {
       net.transformResponses(adRule('hideAiPosts', enabled, (fired) => {
         dropped += fired.length;
         diagnostics?.changed();
-      }, { route: () => router?.current() }));
+      }, { route: () => router?.current(), diagnostics, reason: 'AI label' }));
     }
     diagnostics?.add('AI-labeled posts taken out of the data', () => (net ? String(dropped) : "Off: the script can't reach the page's data"));
   },

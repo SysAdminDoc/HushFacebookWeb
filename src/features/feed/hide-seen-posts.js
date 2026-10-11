@@ -20,13 +20,19 @@ const DAY = 24 * 60 * 60 * 1000;
 const DAYS = [1, 3, 7, 30];
 export const SHOW_KEY = 'hfw.showSeen';
 
-// Drops every feed story in doc that has a seen key. Returns how many went.
-export function pruneSeen(doc, isSeen) {
+// What a seen key says matched, for the Diagnostics decision list.
+const matchedBy = (key) => (key.startsWith('m:') ? 'same photo or video' : 'same text');
+
+// Drops every feed story in doc that has a seen key. Returns how many went. report(story,
+// key) hears each one, with the key that matched, before it goes.
+export function pruneSeen(doc, isSeen, report) {
   let dropped = 0;
   walk(doc, (value) => {
     if (Array.isArray(value) || !('cursor' in value) || !value.node || typeof value.node !== 'object') return undefined;
     if (value.node.__typename !== 'Story' && !value.node.__isFeedUnit) return undefined;
-    if (!storyKeys(value.node).some(isSeen)) return SKIP;
+    const key = storyKeys(value.node).find(isSeen);
+    if (key === undefined) return SKIP;
+    report?.(value.node, key);
     delete value.node;
     delete value.rendering_strategy;
     dropped++;
@@ -101,7 +107,7 @@ export default {
         match: (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql'),
         transform(doc, ctx) {
           if (!inScope(scope, ctx, route)) return false;
-          const count = pruneSeen(doc, isSeen);
+          const count = pruneSeen(doc, isSeen, (story, key) => diagnostics?.decide({ post: story.post_id ?? story.id, rule: 'Seen', signal: matchedBy(key), layer: 'data' }));
           if (count) {
             dropped += count;
             changed();
@@ -141,8 +147,9 @@ export default {
         check(element) {
           if (!FILTERED.routes(route())) return true;
           // Not seen yet, or not filled in yet: look again on the next retry.
-          if (!pageKeys(element).some(isSeen)) return false;
-          if (hider.hide(element, 'Seen')) {
+          const key = pageKeys(element).find(isSeen);
+          if (key === undefined) return false;
+          if (hider.hide(element, 'Seen', undefined, matchedBy(key))) {
             hidden++;
             changed();
           }

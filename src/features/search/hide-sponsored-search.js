@@ -9,7 +9,7 @@ export default {
   default: true,
   needsPage: true,
 
-  setup({ net, enabled }) {
-    net.transformResponses(adRule('hideSponsoredSearch', enabled));
+  setup({ net, enabled, diagnostics }) {
+    net.transformResponses(adRule('hideSponsoredSearch', enabled, undefined, { diagnostics, reason: 'Sponsored result' }));
   },
 };

@@ -47,13 +47,15 @@ export function filterVerdict({ rules, kinds }, fields) {
 }
 
 // Drops every feed story in doc that the filter hides. Returns the reasons, one per story.
-export function pruneFiltered(doc, filter) {
+// report(story, reason) hears each one before it goes.
+export function pruneFiltered(doc, filter, report) {
   const hits = [];
   walk(doc, (value) => {
     if (Array.isArray(value) || !('cursor' in value) || !value.node || typeof value.node !== 'object') return undefined;
     if (value.node.__typename !== 'Story' && !value.node.__isFeedUnit) return undefined;
     const reason = filterVerdict(filter, storyFields(value.node));
     if (reason === null) return SKIP;
+    report?.(value.node, reason);
     delete value.node;
     delete value.rendering_strategy;
     hits.push(reason);
@@ -123,7 +125,7 @@ export default {
           if (!inScope(scope, ctx, route)) return false;
           const filter = current();
           if (!active(filter)) return false;
-          const reasons = pruneFiltered(doc, filter);
+          const reasons = pruneFiltered(doc, filter, (story, reason) => diagnostics?.decide({ post: story.post_id ?? story.id, rule: 'Filter', signal: reason, layer: 'data' }));
           for (const reason of reasons) tally(hits, reason);
           if (reasons.length) changed();
           return reasons.length > 0;

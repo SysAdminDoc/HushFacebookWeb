@@ -86,6 +86,33 @@ test('the copied report carries the hidden counts', async () => {
   assert.match(copied[0], /^Hidden since the page loaded: Suggested 1$/m);
 });
 
+test('Diagnostics lists why posts were hidden, newest first, and the report carries them oldest first', async () => {
+  const { shadow, panel, diagnostics, copied } = setup();
+  panel.open('diagnostics');
+  const listed = () => {
+    const heading = [...shadow.querySelectorAll('h3')].find((h3) => h3.textContent === 'Why posts were hidden');
+    const box = heading.nextElementSibling.nextElementSibling;
+    return box.classList.contains('log') ? [...box.children].map((line) => line.textContent) : box.textContent;
+  };
+  assert.equal(listed(), 'Nothing hidden yet.');
+  diagnostics.decide({ post: 'UzpfSTEyMw', rule: 'Sponsored', signal: 'th_dat_spo', layer: 'data' });
+  diagnostics.decide({ post: null, rule: 'Filter', signal: 'crypto', layer: 'page' });
+  await tick();
+  const lines = listed();
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /^\d\d:\d\d:\d\d page no id yet Filter: crypto$/);
+  assert.match(lines[1], /^\d\d:\d\d:\d\d data #[0-9a-z]{6} Sponsored: th_dat_spo$/);
+  assert.ok(!lines[1].includes('UzpfSTEyMw'), 'the id itself never shows');
+  [...shadow.querySelectorAll('button')].find((button) => button.textContent === 'Copy report').click();
+  await tick();
+  const report = copied[0].split('\n');
+  const start = report.indexOf('Why posts were hidden, oldest first:');
+  assert.ok(start > 0);
+  assert.match(report[start + 1], /Sponsored: th_dat_spo$/);
+  assert.match(report[start + 2], /Filter: crypto$/);
+  assert.ok(!copied[0].includes('UzpfSTEyMw'));
+});
+
 test('General has the switch for leaving a note where a post was hidden', () => {
   const { shadow, panel, settings } = setup();
   panel.open('general');

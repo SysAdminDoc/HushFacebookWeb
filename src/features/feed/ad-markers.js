@@ -259,10 +259,17 @@ export function inScope(row, ctx, route) {
   return row.scope.queries.test(ctx?.friendlyName ?? '');
 }
 
+// The id a match is known by: the story's for an edge, the object's own otherwise.
+export const matchId = (value) => value.node?.post_id ?? value.node?.id ?? value.id ?? null;
+
 // The network rule for one switch: its rows, on every GraphQL answer and inline page blob
-// their scope allows. onPrune gets the ids of the rows that fired.
-export function adRule(feature, enabled, onPrune, { route } = {}) {
+// their scope allows. onPrune gets the ids of the rows that fired. With diagnostics and a
+// reason, each match goes on the Diagnostics decision list too.
+export function adRule(feature, enabled, onPrune, { route, diagnostics, reason } = {}) {
   const { rows, text } = markersFor(feature);
+  const report = diagnostics && reason
+    ? (row, value) => diagnostics.decide({ post: matchId(value), rule: reason, signal: row.id, layer: 'data' })
+    : undefined;
   return {
     id: feature,
     enabled,
@@ -271,7 +278,7 @@ export function adRule(feature, enabled, onPrune, { route } = {}) {
     transform(doc, ctx) {
       const active = rows.filter((row) => inScope(row, ctx, route));
       if (!active.length) return false;
-      const fired = pruneAds(doc, active);
+      const fired = pruneAds(doc, active, report);
       if (fired.length) onPrune?.(fired);
       return fired.length > 0;
     },
@@ -279,12 +286,14 @@ export function adRule(feature, enabled, onPrune, { route } = {}) {
 }
 
 // Applies each matching row's action. Returns the ids of the rows that fired, one entry per
-// match, so an empty list means nothing changed.
-export function pruneAds(doc, rows = AD_MARKERS) {
+// match, so an empty list means nothing changed. report(row, value) hears each match before
+// it's changed.
+export function pruneAds(doc, rows = AD_MARKERS, report) {
   const fired = [];
   walk(doc, (value) => {
     const row = adMarkerFor(value, rows);
     if (!row) return undefined;
+    report?.(row, value);
     if (row.action === 'empty-list') {
       for (const [key, empty] of Object.entries(row.empty)) if (key in value) value[key] = Array.isArray(empty) ? [] : empty;
     } else {

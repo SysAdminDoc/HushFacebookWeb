@@ -38,7 +38,7 @@ export default {
       net.transformResponses(adRule('hideSponsoredPosts', enabled, (fired) => {
         for (const id of fired) data.set(id, (data.get(id) ?? 0) + 1);
         changed();
-      }));
+      }, { diagnostics, reason: 'Sponsored' }));
     }
     if (!posts || !hider) return;
 

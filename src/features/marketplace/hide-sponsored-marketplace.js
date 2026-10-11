@@ -9,7 +9,7 @@ export default {
   default: true,
   needsPage: true,
 
-  setup({ net, enabled }) {
-    net.transformResponses(adRule('hideSponsoredMarketplace', enabled));
+  setup({ net, enabled, diagnostics }) {
+    net.transformResponses(adRule('hideSponsoredMarketplace', enabled, undefined, { diagnostics, reason: 'Sponsored listing' }));
   },
 };

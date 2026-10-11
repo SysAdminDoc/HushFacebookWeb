@@ -276,7 +276,7 @@ export function watchSponsoredPosts({ posts, hider, enabled, labelCache, onAd, o
       settled.add(element);
       for (const timer of timers.get(element) ?? []) cancel(timer);
       timers.delete(element);
-      if (hider.hide(element, 'Sponsored')) onAd?.(result, element);
+      if (hider.hide(element, 'Sponsored', undefined, result.signal)) onAd?.(result, element);
       return;
     }
     if (result?.adButton && !timers.get(element)?.length) onAdButton?.(element);

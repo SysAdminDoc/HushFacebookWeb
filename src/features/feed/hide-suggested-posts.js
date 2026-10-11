@@ -45,7 +45,7 @@ export default {
       net.transformResponses(adRule('hideSuggestedPosts', enabled, (fired) => {
         for (const id of fired) tally(data, id);
         changed();
-      }, { route }));
+      }, { route, diagnostics, reason: 'Suggested' }));
     }
     diagnostics?.add('Suggested posts taken out of the data', () => (net ? summary(data) : "Off: the script can't reach the page's data"));
     diagnostics?.add('Suggested posts hidden on the page', () => summary(page));

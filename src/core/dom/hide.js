@@ -38,7 +38,9 @@ export function hideCss({ notes }) {
 
 // notesShown: whether the note line is on screen (not paused, "Leave a note" on). Clicks on
 // a mark are only taken while it is, so a paused script never swallows one.
-export function createHider({ doc = globalThis.document, posts, log, notesShown = () => true } = {}) {
+// onHide({ element, reason, detail, signal }): told each time a reason goes on a post, not
+// when the same reason is applied again, for the Diagnostics decision list.
+export function createHider({ doc = globalThis.document, posts, log, notesShown = () => true, onHide } = {}) {
   const counts = new Map();
   // A post counts once, under the first reason it was hidden for. By id, so a post Facebook
   // draws again counts once, and by element, for posts whose id isn't known yet.
@@ -127,19 +129,28 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
 
   return {
     // Hides a post found by the post tracker. reason is what Diagnostics counts
-    // ("Sponsored", "Filter"); detail narrows it in the note ("Filter: cats").
+    // ("Sponsored", "Filter"); detail narrows it in the note ("Filter: cats"). signal says
+    // what matched, for the decision list only, when detail doesn't already say it.
     // Returns false when the post can't be marked or the person chose to see it.
-    hide(element, reason, detail) {
+    hide(element, reason, detail, signal) {
       if (revealed.has(element)) return false;
       const marker = markOf(element) ?? element.firstElementChild;
       if (!marker || REPLACED.has(marker.tagName)) return false;
       watchRecycling();
       const reasons = marker.hasAttribute(MARK) ? reasonsOf(marker) : new Map();
+      const fresh = !reasons.has(reason);
       reasons.set(reason, detail ? `${reason}: ${detail}` : reason);
       labels.set(marker, reasons);
       write(marker, reasons);
       marks.add(marker);
       if (count(element, reason)) notify();
+      if (fresh && onHide) {
+        try {
+          onHide({ element, reason, detail, signal });
+        } catch (error) {
+          log?.error('Noting a hidden post failed', error);
+        }
+      }
       return true;
     },
     show(element) {

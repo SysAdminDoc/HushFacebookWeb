@@ -2,6 +2,7 @@
 // reach it. Changes apply at once with a toast; there are no confirmation dialogs, and
 // Reset offers Undo instead of asking first.
 
+import { decisionLine } from '../core/diagnostics.js';
 import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
 import { SLIDERS_ICON } from './icons.js';
@@ -179,6 +180,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   const featureRows = () => diagnostics?.rows() ?? [];
+  const decisions = () => diagnostics?.decisions?.() ?? [];
 
   function diagnosticsView() {
     const entries = log.entries().slice(-150);
@@ -194,6 +196,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('dt', { text: 'Posts hidden since the page loaded' }), h('dd', { text: hiddenSummary() }),
         ...featureRows().flatMap(({ label, value }) => [h('dt', { text: label }), h('dd', { text: value })])),
       h('div', { class: 'actions' }, h('button', { class: 'button primary', type: 'button', text: 'Copy report', onclick: copyReport })),
+      h('h3', { text: 'Why posts were hidden', style: 'margin-top: 18px' }),
+      h('p', { class: 'desc', text: "The last 50, newest first. data means it came out of Facebook's data before it was drawn, page means it was hidden on the page. Each post has a short tag instead of its id." }),
+      decisions().length
+        ? h('div', { class: 'log' }, decisions().slice().reverse().map((decision) => h('div', { text: decisionLine(decision) })))
+        : h('p', { class: 'empty', text: 'Nothing hidden yet.' }),
       h('h3', { text: 'Recent log', style: 'margin-top: 18px' }),
       entries.length
         ? h('div', { class: 'log' }, entries.map((entry) => h('div', { class: entry.level, text: `${entry.time.slice(11, 19)} ${entry.level.padEnd(5)} ${entry.message}${entry.detail ? `\n    ${entry.detail}` : ''}` })))
@@ -265,6 +272,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       `Unavailable: ${[...unavailable].join(', ') || 'none'}`,
       `Hidden since the page loaded: ${hiddenSummary()}`,
       ...featureRows().map(({ label, value }) => `${label}: ${value}`),
+      '',
+      'Why posts were hidden, oldest first:',
+      ...(decisions().length ? decisions().map(decisionLine) : ['nothing yet']),
       '',
       ...log.entries().slice(-150).map((entry) => `${entry.time} ${entry.level} ${entry.message}${entry.detail ? ` | ${entry.detail}` : ''}`),
     ].join('\n');

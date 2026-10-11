@@ -5,7 +5,7 @@ import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, when
 import { createActions } from './core/actions.js';
 import { createDiagnostics } from './core/diagnostics.js';
 import { createHider, hideCss } from './core/dom/hide.js';
-import { createPostTracker } from './core/dom/posts.js';
+import { createPostTracker, postIdOf } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
 import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
@@ -35,11 +35,12 @@ function boot() {
   const net = pageAccess === 'page' ? installNetworkHooks({ win: pageWindow, log }) : null;
   const router = createRouter({ win: pageWindow, pageAccess, log });
   const posts = createPostTracker({ doc: document, log });
+  const diagnostics = createDiagnostics();
   const hider = createHider({
     doc: document, posts, log,
     notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote') === true,
+    onHide: ({ element, reason, detail, signal }) => diagnostics.decide({ post: postIdOf(element).id, rule: reason, signal: signal ?? detail, layer: 'page' }),
   });
-  const diagnostics = createDiagnostics();
   diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'));
   const actions = createActions();
   const unavailable = new Set();
