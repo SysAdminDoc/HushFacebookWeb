@@ -11,16 +11,27 @@
 // gets its own budget of clicks, so a long visit never runs dry.
 //
 // Same reach as Default comment order: a post's own page, a photo's page and a post opened
-// over the feed. The buttons are told apart by their English text for now.
+// over the feed. A reply button is found by the curved arrow Facebook draws in front of its
+// words, which is the same in every language (live 2026-10-11: div[role=button] outside the
+// comment, holding a span with that svg and a span of text), or by its English words.
 
 import { normalizeText } from '../../core/dom/visible-text.js';
 import { dialogOpen } from './post-dialog.js';
 
 export const REPLY_BUTTON = /^(?:view (?:all )?[\d.,]+k? (?:more )?repl(?:y|ies)|view more repl(?:y|ies)|[\d.,]+k? repl(?:y|ies))$/i;
+// The start of the reply arrow's svg path.
+export const REPLY_ICON = 'M6.94 10.354';
 const PER_ROUND = 3;
 const PER_BUTTON = 5;
 const RETRY_ROUNDS = 3;
-const MORE_PAGES = /^view more repl/i;
+// "View more replies" carries no count in any language, unlike "View 3 replies".
+const morePages = (text) => !/\d/.test(text);
+
+export function isReplyButton(button, text) {
+  if (REPLY_BUTTON.test(text)) return true;
+  if (!text || button.closest('[role="article"]')) return false;
+  return Boolean(button.querySelector('svg path')?.getAttribute('d')?.startsWith(REPLY_ICON));
+}
 
 export function createReplyExpander({ doc, win = globalThis, inPage, enabled, onClick, idleLimit = 5, delay = 800, maxClicks = 300 }) {
   const clicked = new WeakMap(); // button -> { text, times, round }
@@ -42,7 +53,7 @@ export function createReplyExpander({ doc, win = globalThis, inPage, enabled, on
     const before = clicked.get(button);
     if (!before) return true;
     if (before.times >= PER_BUTTON) return false;
-    return before.text !== text || (MORE_PAGES.test(text) && rounds - before.round >= RETRY_ROUNDS);
+    return before.text !== text || (morePages(text) && rounds - before.round >= RETRY_ROUNDS);
   }
 
   // Reply buttons to click, each with the post it belongs to. The page behind an open dialog
@@ -56,7 +67,7 @@ export function createReplyExpander({ doc, win = globalThis, inPage, enabled, on
       for (const button of scope.querySelectorAll('[role="button"]')) {
         if (found.has(button)) continue;
         const text = normalizeText(button.textContent);
-        if (REPLY_BUTTON.test(text) && ready(button, text)) found.set(button, scope);
+        if (isReplyButton(button, text) && ready(button, text)) found.set(button, scope);
       }
     }
     return [...found];
@@ -111,7 +122,7 @@ export default {
   section: 'comments',
   android: 'Comment sheet options',
   title: 'Show every reply',
-  description: "Opens every folded reply under comments on a post's own page and when you open a post's comments from the feed, so you don't have to click View replies. English Facebook only for now.",
+  description: "Opens every folded reply under comments on a post's own page and when you open a post's comments from the feed, so you don't have to click View replies.",
   default: false,
 
   setup({ doc, win, router, diagnostics, enabled }) {

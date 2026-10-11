@@ -275,6 +275,39 @@ test("with a post open over Home, the feed's copy behind it keeps its replies fo
   expander.stop();
 });
 
+// A reply button as drawn live on 2026-10-11: the arrow's svg in one span, the words in another,
+// outside the comment it belongs to. Here in Spanish and French.
+const arrowButton = (words) => `<div role="button" tabindex="0"><span><svg viewBox="0 0 16 16"><path d="M6.94 10.354a1.5 1.5 0 0 0 2.12 0l3.5-3.5"></path></svg></span><span>${words}</span></div>`;
+
+test('reply buttons in any language are found by the reply arrow, and only outside a comment', async () => {
+  const win = page(`<div role="dialog">
+    <div role="article" aria-label="Comentario de Pat Example">${arrowButton('Responder')}<div role="button">Me gusta</div></div>
+    <div>${arrowButton('Ver 1 respuesta')}</div>
+    <div role="article" aria-label="Commentaire de Pat Example"></div>
+    <div>${arrowButton('Afficher les 12 réponses')}</div>
+    <div><div role="button">Ver más comentarios</div></div></div>`);
+  const doc = win.document;
+  const clicked = [];
+  for (const button of doc.querySelectorAll('[role="button"]')) button.addEventListener('click', () => clicked.push(button.textContent));
+  const expander = createReplyExpander({ doc, win: globalThis, inPage: () => false, enabled: () => true, delay: 5 });
+  expander.wake();
+  await wait(60);
+  assert.deepEqual(clicked.sort(), ['Afficher les 12 réponses', 'Ver 1 respuesta']);
+  expander.stop();
+});
+
+test('a reply button with no count, in any language, is tried again like View more replies', async () => {
+  const win = page(`<div role="dialog"><div>${arrowButton('Ver más respuestas')}</div></div>`);
+  const doc = win.document;
+  let clicks = 0;
+  doc.querySelector('[role="button"]').addEventListener('click', () => clicks++);
+  const expander = createReplyExpander({ doc, win: globalThis, inPage: () => false, enabled: () => true, delay: 5, idleLimit: 20 });
+  expander.wake();
+  await wait(150);
+  expander.stop();
+  assert.ok(clicks >= 2 && clicks <= 5, `${clicks} clicks`);
+});
+
 test('a button Facebook reuses for the next page of replies is clicked again, a few times at most', async () => {
   const win = page('<div role="dialog"><div role="button">View 9 replies</div></div>');
   const doc = win.document;

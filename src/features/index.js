@@ -37,6 +37,7 @@ import hideTyping from './chats/hide-typing.js';
 import hideNotificationKinds from './notifications/hide-kinds.js';
 import commentOrder from './comments/comment-order.js';
 import showAllReplies from './comments/show-all-replies.js';
+import hideCommentStickers from './comments/hide-comment-stickers.js';
 import sanitizeLinks from './links/sanitize-links.js';
 import directLinks from './links/direct-links.js';
 import tapToPlay from './playback/tap-to-play.js';
@@ -69,7 +70,7 @@ import customCss from './appearance/custom-css.js';
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts,
   hideSponsoredReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds,
-  commentOrder, showAllReplies, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
+  commentOrder, showAllReplies, hideCommentStickers, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
   keepSpeed, holdForSpeed, pictureInPicture, keepControls,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
   menuEntry, hideMenuPromotions, hideMetaUpsells,

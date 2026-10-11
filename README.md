@@ -39,6 +39,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hide kinds of notifications
 * Default comment order
 * Show every reply
+* Hide GIF and sticker buttons
 * View stories anonymously
 * Stop stories moving on
 * Sanitize sharing links
