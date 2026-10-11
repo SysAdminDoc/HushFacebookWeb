@@ -37,7 +37,7 @@ What the status words mean:
 | Hide Meta AI comment summaries | Planned | Meta AI's comment summary. |
 | Hide Meta upsells | Planned | Meta Verified, Threads cross-posting and other pitches. |
 | Hide Menu promotions | Planned | Promotions in Facebook's left column and Menu. |
-| Hide posts by words | Planned | Hide posts by words, people, Pages or sites you list. |
+| Hide posts by words | Tested | Hides posts on Home and in your groups feed that mention a word or phrase you list, come from a person, Page or group you name, or link to a site you name. Lines starting with re: are patterns. Separate switches hide every photo, video or link post, and every post on a colored background. Comments don't count. Matching posts come out of Facebook's data before they're drawn. In content mode they're hidden on the page with a note saying which line matched, except colored backgrounds, which only the data shows. |
 | Hide seen posts | Planned | Keeps posts you've already scrolled past out of the feed for a while. |
 | Open on a chosen tab | Planned | Opens Facebook on the page you pick. |
 | Marketplace only | Planned | Strips Facebook down to Marketplace. |
