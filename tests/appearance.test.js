@@ -90,6 +90,47 @@ test('force dark mode stops instead of fighting a page that keeps switching back
   assert.ok(calm.document.documentElement.classList.contains(DARK));
 });
 
+test("force dark mode turns Facebook's popup layers dark too, and puts back only the ones it changed", async () => {
+  // Live 2026-10-11: plain divs in the top bar and at the end of <body> hold the menus and keep
+  // their own theme class.
+  const win = page(`<div role="banner"><div class="${LIGHT}" id="bar-layer"><div role="dialog">menu</div></div></div>
+    <div class="${DARK}" id="own-dark"></div><div><div class="${LIGHT}" id="body-layer"></div></div>`);
+  const doc = win.document;
+  let on = true;
+  const keeper = createDarkKeeper({ doc, enabled: () => on });
+  keeper.start();
+  const theme = (id) => (doc.getElementById(id).classList.contains(DARK) ? 'dark' : 'light');
+  assert.deepEqual(['bar-layer', 'body-layer', 'own-dark'].map(theme), ['dark', 'dark', 'dark']);
+  assert.equal(keeper.state().layers, 2);
+  // A layer drawn later, and one Facebook sets back to light.
+  doc.body.insertAdjacentHTML('beforeend', `<div class="${LIGHT}" id="late-layer"></div>`);
+  doc.getElementById('bar-layer').className = LIGHT;
+  await tick();
+  assert.deepEqual(['bar-layer', 'late-layer'].map(theme), ['dark', 'dark']);
+  assert.equal(keeper.state().layers, 3);
+  on = false;
+  keeper.apply();
+  assert.deepEqual(['bar-layer', 'body-layer', 'late-layer', 'own-dark'].map(theme), ['light', 'light', 'light', 'dark'],
+    "Facebook's own dark layer stays dark");
+  assert.equal(doc.documentElement.className, `_9dls ${LIGHT}`);
+  keeper.stop();
+});
+
+test('force dark mode stops swapping layers that keep coming back light', () => {
+  const win = page(`<div class="${LIGHT}" id="layer"></div>`);
+  let time = 0;
+  const warnings = [];
+  const keeper = createDarkKeeper({ doc: win.document, enabled: () => true, now: () => time, log: { warn: (m) => warnings.push(m) } });
+  const layer = win.document.getElementById('layer');
+  for (let i = 0; i < 250; i += 1) {
+    layer.className = LIGHT;
+    time += 5;
+    keeper.apply();
+  }
+  assert.equal(keeper.state().gaveUp, true);
+  assert.equal(warnings.length, 1);
+});
+
 test('force dark mode follows the switch through settings', () => {
   const win = page();
   let on = true;
