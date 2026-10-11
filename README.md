@@ -33,6 +33,8 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hide sponsored Marketplace listings
 * Hide read receipts
 * Hide typing indicator
+* Default comment order
+* Show every reply
 * View stories anonymously
 * Sanitize sharing links
 * Skip Facebook's link redirect
