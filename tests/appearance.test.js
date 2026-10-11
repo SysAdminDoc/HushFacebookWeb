@@ -264,6 +264,24 @@ test('system emoji swaps emoji pictures, keeps the alt and layout, and puts them
   assert.ok(doc.querySelector('section img').getAttribute('src').includes('/images/emoji.php/'));
 });
 
+test('a swapped emoji image that Facebook reuses for a photo keeps the photo when the switch goes off', async () => {
+  const win = page(`<p>${emojiImg(SMILE, '1f600')}</p>`);
+  const doc = win.document;
+  let on = true;
+  const swapper = createEmojiSwapper({ doc, enabled: () => on });
+  swapper.apply();
+  const img = doc.querySelector('p img');
+  assert.equal(img.hasAttribute(ORIGINAL), true);
+  img.setAttribute('alt', 'photo');
+  img.setAttribute('src', 'https://scontent.xx.fbcdn.net/v/t39/2.jpg');
+  await tick();
+  assert.equal(img.getAttribute('src'), 'https://scontent.xx.fbcdn.net/v/t39/2.jpg');
+  assert.equal(img.hasAttribute(ORIGINAL), false);
+  on = false;
+  swapper.apply();
+  assert.equal(img.getAttribute('src'), 'https://scontent.xx.fbcdn.net/v/t39/2.jpg');
+});
+
 test('an emoji the script can\'t read is left as Facebook drew it', () => {
   const win = page('<img alt="" src="https://static.xx.fbcdn.net/images/emoji.php/v9/t4/1/16/sprite.png">');
   const swapper = createEmojiSwapper({ doc: win.document, enabled: () => true });

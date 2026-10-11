@@ -56,12 +56,22 @@ export function createEmojiSwapper({ doc, enabled, log }) {
     for (const img of root.querySelectorAll(EMOJI_IMG)) if (swapEmoji(img)) swapped += 1;
   };
 
+  // Facebook gave a swapped image a new address, so the one kept on it isn't the one to put back.
+  const release = (img) => {
+    const original = img.getAttribute(ORIGINAL);
+    if (!original) return;
+    const text = emojiText(img, original);
+    if (img.getAttribute('src') !== (text && emojiPicture(text))) img.removeAttribute(ORIGINAL);
+  };
+
   const onMutations = (records) => {
     try {
       for (const record of records) {
-        // Facebook set a new emoji on an image the script had already swapped.
-        if (record.type === 'attributes') swapIn(record.target);
-        else for (const node of record.addedNodes) swapIn(node);
+        // Facebook set a new emoji, or something else, on an image the script had swapped.
+        if (record.type === 'attributes') {
+          release(record.target);
+          swapIn(record.target);
+        } else for (const node of record.addedNodes) swapIn(node);
       }
     } catch (error) {
       log?.error('Use system emoji: swapping an emoji failed', error);
