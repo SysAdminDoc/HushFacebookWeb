@@ -1,4 +1,4 @@
-import { SPONSORED_MARKERS, pruneSponsoredEdges } from './sponsored.js';
+import { AD_MARKER_TEXT, pruneAds } from './ad-markers.js';
 
 export default {
   id: 'hideSponsoredPosts',
@@ -13,9 +13,9 @@ export default {
     net.transformResponses({
       id: 'hideSponsoredPosts',
       enabled,
-      markers: SPONSORED_MARKERS,
+      markers: AD_MARKER_TEXT,
       match: (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql'),
-      transform: (doc) => pruneSponsoredEdges(doc),
+      transform: (doc) => pruneAds(doc).length > 0,
     });
   },
 };

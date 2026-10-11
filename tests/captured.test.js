@@ -4,12 +4,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
-import { SPONSORED_MARKERS, pruneSponsoredEdges } from '../src/features/feed/sponsored.js';
+import { AD_MARKER_TEXT, pruneAds } from '../src/features/feed/ad-markers.js';
 import { SEEN_MUTATIONS } from '../src/features/stories/anonymous-stories.js';
 import { describeRequest, installNetworkHooks } from '../src/core/net/hooks.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
 
-const rule = { id: 'hideSponsoredPosts', enabled: () => true, markers: SPONSORED_MARKERS, match: () => true, transform: (doc) => pruneSponsoredEdges(doc) };
+const rule = { id: 'hideSponsoredPosts', enabled: () => true, markers: AD_MARKER_TEXT, match: () => true, transform: (doc) => pruneAds(doc).length > 0 };
 // The quotes matter: a cursor's logging JSON counts a LATE_DEPENDENT_SEARCH_ADS role, which is not an ad.
 const AD_TEXT = /MarketplaceFeedAdStory|"SEARCH_ADS"|CometStorySponsoredLabelStrategy|"th_dat_spo":\{|"sponsored_data":\{/;
 
@@ -33,7 +33,7 @@ test('a feed page with no ad goes through untouched, and the markers skip the pa
     assert.equal(transformDocumentLine(line, [rule]), line);
     const doc = parseLine(line);
     const before = structuredClone(doc);
-    assert.equal(pruneSponsoredEdges(doc), false);
+    assert.deepEqual(pruneAds(doc), []);
     assert.deepEqual(doc, before);
   }
 });
@@ -44,7 +44,7 @@ test("the home page's inline feed data reaches the JSON.parse hook and comes bac
   const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/' } };
   const net = installNetworkHooks({ win, log: { error: () => {}, warn() {}, info() {}, debug() {} } });
   let transforms = 0;
-  net.transformResponses({ ...rule, match: (ctx) => ctx.transport === 'json-parse', transform: (doc) => { transforms++; return pruneSponsoredEdges(doc); } });
+  net.transformResponses({ ...rule, match: (ctx) => ctx.transport === 'json-parse', transform: (doc) => { transforms++; return pruneAds(doc).length > 0; } });
   for (const line of lines) {
     const hooked = win.JSON.parse(line);
     assert.deepEqual(hooked, JSON.parse(line));
@@ -70,6 +70,7 @@ test('Marketplace: the ad card loses its node, listings and paging stay', async 
     }
     const before = parseLine(line);
     const after = parseLine(out);
+    assert.deepEqual(pruneAds(parseLine(line)), ['MarketplaceFeedAdStory'], 'the Marketplace row catches it');
     assert.equal(before.data.node.__typename, 'MarketplaceFeedAdStory');
     assert.equal(before.label, after.label);
     assert.deepEqual(before.path, after.path);
@@ -90,6 +91,7 @@ test('search: the ad edge is emptied beside the organic results', async () => {
   assert.equal(ad.rendering_strategy.__typename, 'SearchResultsAdRenderingStrategy');
   assert.ok(JSON.stringify(ad.rendering_strategy).includes('CometStorySponsoredLabelStrategy'), 'the ad keeps its story in rendering_strategy');
 
+  assert.deepEqual(pruneAds(parseLine(line)), ['SEARCH_ADS'], 'the search row catches it, and nothing else does');
   const out = transformDocumentLine(line, [rule]);
   const after = parseLine(out);
   const edges = after.data.serpResponse.results.edges;
