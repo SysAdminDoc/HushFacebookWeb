@@ -24,8 +24,23 @@ const WRITING = 'input, textarea, select, [contenteditable=""], [contenteditable
 const MENU = '[role="menu"], [role="menuitem"], [role="menuitemradio"], [role="listbox"], [role="option"]';
 const PLAY_KEYS = new Set([' ', 'k', 'K', 'Enter']);
 
+// The reply bar's Send and quick reaction buttons sit in the same row as its text field, and
+// Facebook plays the story again after a reply, so a button level with a text field doesn't
+// count. The Play button is at the top of the card, well away from it.
+const ROW_SLACK = 8; // px
+const inReplyBar = (button) => {
+  const box = button.getBoundingClientRect?.();
+  if (!box?.height) return false;
+  const middle = box.top + box.height / 2;
+  for (const field of button.ownerDocument?.querySelectorAll(WRITING) ?? []) {
+    const row = field.getBoundingClientRect();
+    if (row.height && middle >= row.top - ROW_SLACK && middle <= row.bottom + ROW_SLACK) return true;
+  }
+  return false;
+};
+
 // A click on a button (Play, or the card's own controls) or a play key, outside a text field
-// and a menu. Clicking into the reply box, or away from it, doesn't count.
+// and a menu. Clicking into the reply box, away from it, or on its Send button doesn't count.
 export function asksToPlay(event) {
   const start = event.composedPath?.()[0] ?? event.target;
   const element = typeof start?.closest === 'function' ? start : start?.parentElement ?? null;
@@ -34,7 +49,8 @@ export function asksToPlay(event) {
     return !element?.closest?.(WRITING) && !element?.closest?.(MENU);
   }
   if (!element || element.closest(WRITING) || element.closest(MENU)) return false;
-  return Boolean(element.closest('button, [role="button"]'));
+  const button = element.closest('button, [role="button"]');
+  return Boolean(button) && !inReplyBar(button);
 }
 
 export function createStoryHold({ doc, win = doc.defaultView, enabled, mode, inViewer, onChange, trusted = (event) => event.isTrusted, now = () => Date.now() }) {
@@ -85,7 +101,7 @@ export function createStoryHold({ doc, win = doc.defaultView, enabled, mode, inV
 
   // Any other click or key ends the window, so a play after it isn't counted.
   const onInput = (event) => {
-    if (!trusted(event)) return;
+    if (!trusted(event) || !enabled() || !inViewer()) return;
     lastInput = asksToPlay(event) ? now() : Number.NEGATIVE_INFINITY;
   };
   const listen = { capture: true, passive: true };

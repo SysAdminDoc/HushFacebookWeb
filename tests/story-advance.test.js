@@ -168,6 +168,36 @@ test("leaving the reply box or a menu doesn't let a held story go, the Play butt
   assert.equal(card.video.paused, false, 'Space on the story plays it');
 });
 
+test("sending a reply or a quick reaction doesn't let a held story go", () => {
+  const win = page();
+  const doc = win.document;
+  hold(win);
+  const card = storyVideo(win);
+  card.at(18.1);
+  const bar = doc.createElement('div');
+  bar.innerHTML = `<div class="bar"><div><div role="textbox" contenteditable="true"></div></div>
+    <div><div role="button" aria-label="Send"><svg><path d="M1 1"></path></svg></div></div>
+    <div><div><div role="button" aria-label="Like"><span>x</span></div></div></div></div>`;
+  doc.body.append(bar);
+  // Laid out as on screen: the reply bar along the bottom of the card.
+  const at = (element, top, height) => { element.getBoundingClientRect = () => ({ top, bottom: top + height, height, left: 0, right: 40, width: 40 }); };
+  at(bar.querySelector('[role="textbox"]'), 800, 40);
+  at(bar.querySelector('[aria-label="Send"]'), 805, 30);
+  at(bar.querySelector('[aria-label="Like"]'), 802, 36);
+  press(win);
+  at(doc.querySelector('[data-test-play]'), 60, 24);
+  for (const target of [bar.querySelector('path'), bar.querySelector('[aria-label="Like"] span')]) {
+    press(win, target);
+    card.video.play();
+    card.at(18.2);
+    assert.equal(card.video.paused, true, `held after ${target.closest('[role="button"]').getAttribute('aria-label')}`);
+  }
+  press(win);
+  card.video.play();
+  card.at(18.3);
+  assert.equal(card.video.paused, false, 'the Play button, away from the reply bar, still lets it go');
+});
+
 test('a play key or button click followed by another click no longer counts', () => {
   const win = page();
   hold(win);
