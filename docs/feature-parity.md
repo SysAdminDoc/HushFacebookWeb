@@ -4,7 +4,7 @@
 
 What the status words mean:
 
-* **Tested**: it ran on facebook.com and did its job, with the script installed in Tampermonkey.
+* **Tested**: it ran on facebook.com and did its job, with the script installed in Tampermonkey and in Violentmonkey on Chrome.
 * **Written**: the code is in the script, but it hasn't been checked on facebook.com yet.
 * **Planned**: there's a clear way to do it on the web and it's on the list.
 * **Needs research**: it probably has a web version, but someone has to look at how Facebook's site handles it first.

@@ -19,7 +19,7 @@ HushFacebook Web is a userscript for Facebook in a desktop browser. It's the web
 
 This is the very start. Version 0.0.1 is the first release.
 
-It has the groundwork in place, meaning the settings panel and the layer that reads Facebook's data as it loads, plus the first seven features. They've all run on facebook.com with the script installed in Tampermonkey:
+It has the groundwork in place, meaning the settings panel and the layer that reads Facebook's data as it loads, plus the first seven features. They've all run on facebook.com with the script installed in Tampermonkey and in Violentmonkey:
 
 * Hide sponsored posts
 * View stories anonymously
@@ -43,7 +43,7 @@ Nothing leaves your browser. The script doesn't talk to any server, and your set
 
 You'll need a userscript manager first:
 
-* [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/) in Chrome, Edge, Firefox or another desktop browser. Tampermonkey on Chrome is what it's been checked in so far.
+* [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/) in Chrome, Edge, Firefox or another desktop browser. It's been checked in both on Chrome. Firefox hasn't been checked yet.
 * In Chrome 138 or newer, open the manager's extension details and turn on **Allow User Scripts**. Chrome won't run any userscript without it.
 
 Then open [hushfacebook-web.user.js](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest/download/hushfacebook-web.user.js) and your manager will offer to install it. It checks for updates on its own.
