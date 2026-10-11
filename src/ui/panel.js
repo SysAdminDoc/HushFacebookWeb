@@ -14,7 +14,7 @@ const SLIDERS_ICON = [
 const CLOSE_ICON = ['M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z'];
 const ERROR_TOAST_GAP_MS = 15000;
 
-export function mountPanel({ settings, features, log, hider, unavailable, environment }) {
+export function mountPanel({ settings, features, log, hider, diagnostics, unavailable, environment }) {
   const host = h('div', { dataset: { hushfacebookWeb: 'ui' } });
   const shadow = host.attachShadow({ mode: 'closed' });
   const root = h('div', { class: 'root' });
@@ -150,6 +150,8 @@ export function mountPanel({ settings, features, log, hider, unavailable, enviro
     return counts.length ? counts.map(([reason, count]) => `${reason} ${count}`).join(', ') : 'None yet';
   }
 
+  const featureRows = () => diagnostics?.rows() ?? [];
+
   function diagnosticsView() {
     const entries = log.entries().slice(-150);
     const blocked = features.filter((feature) => unavailable.has(feature.id)).map((feature) => feature.title);
@@ -161,7 +163,8 @@ export function mountPanel({ settings, features, log, hider, unavailable, enviro
         h('dt', { text: 'Injection mode' }), h('dd', { text: environment.mode }),
         h('dt', { text: 'Page access' }), h('dd', { text: environment.pageAccess === 'page' ? 'Yes' : 'No. Network and playback features are off. In Violentmonkey, set this script to inject into the page.' }),
         h('dt', { text: "Features that didn't start" }), h('dd', { text: blocked.length ? blocked.join(', ') : 'None' }),
-        h('dt', { text: 'Posts hidden since the page loaded' }), h('dd', { text: hiddenSummary() })),
+        h('dt', { text: 'Posts hidden since the page loaded' }), h('dd', { text: hiddenSummary() }),
+        ...featureRows().flatMap(({ label, value }) => [h('dt', { text: label }), h('dd', { text: value })])),
       h('div', { class: 'actions' }, h('button', { class: 'button primary', type: 'button', text: 'Copy report', onclick: copyReport })),
       h('h3', { text: 'Recent log', style: 'margin-top: 18px' }),
       entries.length
@@ -230,6 +233,7 @@ export function mountPanel({ settings, features, log, hider, unavailable, enviro
       `Changed settings: ${JSON.stringify(settings.snapshot())}`,
       `Unavailable: ${[...unavailable].join(', ') || 'none'}`,
       `Hidden since the page loaded: ${hiddenSummary()}`,
+      ...featureRows().map(({ label, value }) => `${label}: ${value}`),
       '',
       ...log.entries().slice(-150).map((entry) => `${entry.time} ${entry.level} ${entry.message}${entry.detail ? ` | ${entry.detail}` : ''}`),
     ].join('\n');
@@ -280,6 +284,7 @@ export function mountPanel({ settings, features, log, hider, unavailable, enviro
     refreshDiagnostics();
   });
   hider?.subscribe(refreshDiagnostics);
+  diagnostics?.subscribe(refreshDiagnostics);
   const earlier = log.entries().findLast((entry) => entry.level === 'error');
   if (earlier) announceError(earlier);
 

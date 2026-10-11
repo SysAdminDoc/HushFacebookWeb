@@ -12,7 +12,7 @@ What the status words mean:
 
 | Android patch | Status | On the web |
 |---|---|---|
-| Hide sponsored posts | Written | Removes ads from the feed data before Facebook draws it, including the first screen that comes inline with the page. It runs on every page, but the test account hasn't been shown a feed ad to watch it go yet. |
+| Hide sponsored posts | Written | Removes ads from the feed data before Facebook draws it, including the first screen that comes inline with the page. An ad that still gets drawn is hidden on the page by its "Sponsored" or "Ad" label, read the way a person sees it (scrambled letters put back in order, hidden decoys skipped). That page check also runs in content mode, where the data layer can't. English labels only for now. The test account hasn't been shown a feed ad to watch either layer work live yet. |
 | View stories anonymously | Tested | Holds back the request that tells Facebook you saw a story. |
 | Sanitize sharing links | Tested | Strips tracking tags from links you open or copy. Copy link and Share to WhatsApp give the post's own address instead of a facebook.com/share link, and sharing to Messenger, a group or a friend's profile works as before. |
 | Open links in external browser | Tested | Becomes "Skip Facebook's link redirect": outside links open directly instead of through l.facebook.com. |

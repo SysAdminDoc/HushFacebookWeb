@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
+import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider } from '../src/core/dom/hide.js';
 import { createLog } from '../src/core/log.js';
 import { createSettings } from '../src/core/settings.js';
@@ -48,19 +49,21 @@ function setup() {
   const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
   const settings = createSettings({ storage: createMemoryStorage(), features: [], log });
   const hider = createHider({ doc: win.document, log });
+  const diagnostics = createDiagnostics();
   const panel = mountPanel({
-    settings, features: [], log, hider, unavailable: new Set(),
+    settings, features: [], log, hider, diagnostics, unavailable: new Set(),
     environment: { version: '0.0.1', manager: 'Tampermonkey', managerVersion: '5.4.1', mode: 'page', pageAccess: 'page' },
   });
-  return { win, shadow, panel, settings, hider, copied, post: win.document.querySelector('[aria-posinset]') };
+  return { win, shadow, panel, settings, hider, diagnostics, copied, post: win.document.querySelector('[aria-posinset]') };
 }
 
 const tick = () => new Promise((resolve) => nodeSetTimeout(resolve, 5));
 
-function hiddenRow(shadow) {
-  const term = [...shadow.querySelectorAll('dt')].find((dt) => dt.textContent === 'Posts hidden since the page loaded');
+function row(shadow, label) {
+  const term = [...shadow.querySelectorAll('dt')].find((dt) => dt.textContent === label);
   return term?.nextElementSibling?.textContent;
 }
+const hiddenRow = (shadow) => row(shadow, 'Posts hidden since the page loaded');
 
 test('Diagnostics shows hidden posts per reason and keeps up while it is open', async () => {
   const { shadow, panel, hider, post } = setup();
@@ -90,4 +93,21 @@ test('General has the switch for leaving a note where a post was hidden', () => 
   toggle.checked = true;
   toggle.dispatchEvent(new toggle.ownerDocument.defaultView.Event('change'));
   assert.equal(settings.get('ui.hiddenNote'), true);
+});
+
+test('rows a feature adds show in Diagnostics, follow its changes and go in the report', async () => {
+  const { shadow, panel, diagnostics, copied } = setup();
+  let hits = 0;
+  diagnostics.add('Ads hidden on the page', () => (hits ? `header label ${hits}` : 'None yet'));
+  diagnostics.add('Broken row', () => { throw new Error('nope'); });
+  panel.open('diagnostics');
+  assert.equal(row(shadow, 'Ads hidden on the page'), 'None yet');
+  assert.equal(row(shadow, 'Broken row'), 'unavailable (nope)');
+  hits = 2;
+  diagnostics.changed();
+  await tick();
+  assert.equal(row(shadow, 'Ads hidden on the page'), 'header label 2');
+  [...shadow.querySelectorAll('button')].find((button) => button.textContent === 'Copy report').click();
+  await tick();
+  assert.match(copied[0], /^Ads hidden on the page: header label 2$/m);
 });

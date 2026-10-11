@@ -21,7 +21,8 @@ const result = await build({
   target: ['chrome120', 'firefox128', 'safari17'],
   minify: false,
   charset: 'utf8',
-  legalComments: 'none',
+  // /*! */ notices (third-party MIT code) go to the end of the script, once each.
+  legalComments: 'eof',
   write: false,
   banner: { js: meta },
   define: { __HFW_VERSION__: JSON.stringify(pkg.version) },

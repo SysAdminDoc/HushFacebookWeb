@@ -8,7 +8,9 @@
 //   options     extra settings: [{ key, type: toggle|select|text|number, label, default, choices? }]
 //   css         string, or (get) => string, applied while the feature is on
 //   setup(ctx)  runs once at document-start
-//               ctx = { win, net, router, posts, hider, log, settings, enabled, option }
+//               ctx = { win, doc, net, router, posts, hider, diagnostics, log, settings, enabled, option }
+//               net is null in content mode (needsPage features never get that far)
+//               diagnostics.add('Row label', () => 'value') adds a Diagnostics row (src/core/diagnostics.js)
 //               posts.on('post/add' | 'post/update' | 'post/remove' | 'reset', fn) (src/core/dom/posts.js)
 //               hider.hide(post.element, 'Reason', 'detail'), hider.show(element) (src/core/dom/hide.js)
 

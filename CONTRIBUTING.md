@@ -12,11 +12,14 @@ src/
     settings.js        settings built from the feature list, with import and export
     storage.js         GM storage, with localStorage and in-memory fallbacks
     log.js             console logging plus the buffer Diagnostics shows
+    diagnostics.js     extra Diagnostics rows a feature can add, also in Copy report
     net/hooks.js       fetch, XHR, sendBeacon and JSON.parse hooks
     net/payload.js     Facebook's multi-document responses, line by line
     url.js             link-shim unwrapping and tracking tag removal
     dom/posts.js       finds posts on the page and reports them to features (post/add, post/remove)
     dom/hide.js        hides a post with a reason, counts it, and can leave a note that shows it again
+    dom/visible-text.js the text a reader actually sees, without zero-width marks or hidden decoys
+    dom/label-cache.js short texts remembered as they're added, for labels Facebook removes right away
     style.js           one style element for every CSS feature that's on
   features/            one file per feature, grouped by settings section
   ui/                  the settings panel (closed shadow root, no innerHTML)
@@ -42,6 +45,8 @@ export default {
   setup(ctx) {},                // optional, runs once at document-start
 };
 ```
+
+`ctx.diagnostics.add('Row label', () => 'value')` adds a row to Diagnostics and to Copy report. Call `ctx.diagnostics.changed()` when the value moves.
 
 `ctx.enabled()` tells you whether the feature is on right now. Check it every time your code runs rather than once at setup, so switching it off works without a reload.
 

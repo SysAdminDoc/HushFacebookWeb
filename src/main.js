@@ -2,6 +2,7 @@
 // document-start, before Facebook's first script runs. The settings panel waits for <body>.
 
 import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady, whenRootReady } from './core/env.js';
+import { createDiagnostics } from './core/diagnostics.js';
 import { createHider, hideCss } from './core/dom/hide.js';
 import { createPostTracker } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
@@ -26,6 +27,7 @@ function boot() {
     doc: document, posts, log,
     notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote') === true,
   });
+  const diagnostics = createDiagnostics();
   const unavailable = new Set();
 
   if (!net) {
@@ -41,7 +43,9 @@ function boot() {
     try {
       feature.setup({
         win: pageWindow,
+        doc: document,
         net,
+        diagnostics,
         router,
         posts,
         hider,
@@ -60,7 +64,7 @@ function boot() {
 
   let panel = null;
   whenBodyReady(() => {
-    panel = mountPanel({ settings, features, log, hider, unavailable, environment: { version, ...managerInfo() } });
+    panel = mountPanel({ settings, features, log, hider, diagnostics, unavailable, environment: { version, ...managerInfo() } });
     const other = document.documentElement.getAttribute(DUPLICATE);
     if (other) log.warn(`A second copy of HushFacebook Web (v${other}) is installed. Turn one off in your userscript manager.`);
   });
