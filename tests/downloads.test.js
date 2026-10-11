@@ -245,6 +245,13 @@ test("the manager's download is tried first, and a fetched copy is saved when it
     request: () => assert.fail('fetched a second time'),
   };
   await assert.rejects(saveFile({ url: 'https://v.example.invalid/a.mp4', name: 'e.mp4', api: cancelled, doc: fakeDoc() }), /^Error: you cancelled it$/);
+  // Some managers hand over the browser's own error object.
+  const cancelledObject = {
+    download: (options) => options.onerror({ error: 'not_succeeded', details: { current: 'USER_CANCELED' } }),
+    request: () => assert.fail('fetched a second time'),
+  };
+  await assert.rejects(saveFile({ url: 'https://v.example.invalid/a.mp4', name: 'f.mp4', api: cancelledObject, doc: fakeDoc() }),
+    (error) => error.cancelled === true && error.message === 'you cancelled it');
 });
 
 // Lays out an element for the button: happy-dom has no layout.
@@ -318,6 +325,86 @@ test('a click saves what is under the button right then, and turning every switc
   button.click();
   await frame();
   assert.deepEqual(saved, ['card2'], 'and a click on it saves nothing');
+  button.stop();
+});
+
+test('a slow save only keeps its own media busy', async () => {
+  const win = page('<video class="a"></video><video class="b"></video>');
+  const doc = win.document;
+  const [a, b] = doc.querySelectorAll('video');
+  box(a, [100, 50, 600, 400]);
+  box(b, [100, 600, 600, 400]);
+  let under = a;
+  doc.elementsFromPoint = () => [under];
+  const started = [];
+  let finish = null;
+  const button = createDownloadButton({
+    doc, win, active: () => true,
+    find: (element) => ({ what: element === a ? 'a' : 'b' }),
+    run: (found) => {
+      started.push(found.what);
+      return found.what === 'a' ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve();
+    },
+  });
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 200, clientY: 100 }));
+  await frame();
+  button.click();
+  await frame();
+  assert.equal(button.state().text, 'Saving');
+  button.click();
+  await frame();
+  assert.deepEqual(started, ['a'], 'a second click on the same one waits');
+  under = b;
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 200, clientY: 700 }));
+  await frame();
+  assert.equal(button.state().text, 'Download', 'the other video is free');
+  button.click();
+  await frame();
+  assert.deepEqual(started, ['a', 'b']);
+  under = a;
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 200, clientY: 100 }));
+  await frame();
+  assert.equal(button.state().text, 'Saving', 'back over the first, still saving');
+  finish();
+  await frame();
+  assert.equal(button.state().text, 'Download');
+  button.stop();
+});
+
+test('when the story swaps its video for a new element, a click saves the new one, or says nothing is there', async () => {
+  const win = page('<div class="viewer"><video class="first"></video></div>');
+  const doc = win.document;
+  const first = doc.querySelector('video');
+  box(first, [100, 50, 600, 400]);
+  let under = () => [first];
+  doc.elementsFromPoint = () => under();
+  const saved = [];
+  let missing = 0;
+  const button = createDownloadButton({
+    doc, win, active: () => true,
+    find: (element) => ({ what: element.className }),
+    run: async (found) => saved.push(found.what),
+    onMissing: () => missing++,
+  });
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 650, clientY: 62 }));
+  await frame();
+  const host = doc.querySelector('[data-hushfacebook-web="download"]');
+  // The pointer is on the button; the viewer replaces the video element with the next card's.
+  const next = doc.createElement('video');
+  next.className = 'second';
+  box(next, [100, 50, 600, 400]);
+  first.replaceWith(next);
+  under = () => [host, next];
+  button.click();
+  await frame();
+  assert.deepEqual(saved, ['second']);
+  // Then a card with nothing to save under the button.
+  next.remove();
+  under = () => [host];
+  button.click();
+  await frame();
+  assert.deepEqual(saved, ['second']);
+  assert.equal(missing, 1);
   button.stop();
 });
 
@@ -401,4 +488,9 @@ test('each switch only offers what it covers, and the index fills from what Face
   assert.equal(found?.feature, 'downloadPhotos');
   await shared.run(found, doc.body);
   assert.deepEqual(downloaded, ['Pat Example photo 9999999.jpg'], toasts.join(' | '));
+  // Cancelled in the manager: a plain note, not an error.
+  api.download = (options) => options.onerror({ error: 'not_succeeded', details: 'USER_CANCELED' });
+  toasts.length = 0;
+  await shared.run(found, doc.body);
+  assert.deepEqual(toasts, ['Cancelled Pat Example photo 9999999.jpg']);
 });

@@ -52,6 +52,10 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
       saved++;
       toast?.(how === 'manager' ? `Saving ${plan.name}` : `Saved ${plan.name}`);
     } catch (error) {
+      if (error.cancelled) {
+        toast?.(`Cancelled ${plan.name}`);
+        return;
+      }
       failed++;
       log?.error(`Couldn't save ${plan.name}`, error);
       toast?.(`Couldn't save it: ${error.message}.`, { tone: 'error' });
@@ -62,6 +66,7 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
 
   const button = createDownloadButton({
     doc, win, log, run, active: anyOn,
+    onMissing: () => toast?.("There's nothing to save under the button now. Point at the photo or video again."),
     find(element) {
       const found = findMedia(element, { href: router?.current()?.href ?? win.location.href, index });
       return found && switches.get(found.feature)?.enabled() ? found : null;

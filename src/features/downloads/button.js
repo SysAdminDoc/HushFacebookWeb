@@ -41,12 +41,16 @@ function ownLayer(media, element) {
   return false;
 }
 
-// The photo or video at a point, the button itself ('button'), or null.
-export function mediaAt(doc, host, x, y) {
+// The photo or video at a point, the button itself ('button'), or null. through: look past
+// the button to what's under it.
+export function mediaAt(doc, host, x, y, { through = false } = {}) {
   const stack = typeof doc.elementsFromPoint === 'function' ? doc.elementsFromPoint(x, y) : [];
   const above = [];
   for (const element of stack) {
-    if (element === host) return 'button';
+    if (host && element === host) {
+      if (through) continue;
+      return 'button';
+    }
     if ((element.tagName === 'VIDEO' || element.tagName === 'IMG') && big(element.getBoundingClientRect())) {
       return above.every((layer) => ownLayer(element, layer)) ? element : null;
     }
@@ -64,13 +68,17 @@ export function mediaAt(doc, host, x, y) {
 
 // find(element) returns what the button would save ({ ... }) or null. run(found) saves it.
 // active() says whether any download switch is on, so nothing is looked up otherwise.
-export function createDownloadButton({ doc, win, find, run, active, log }) {
+// onMissing() is called when a click finds nothing to save any more.
+export function createDownloadButton({ doc, win, find, run, active, log, onMissing }) {
   let host = null;
   let shadow = null;
   let button = null;
   let current = null;
   let found = null;
-  let busy = false;
+  // Media being saved right now. Each one is busy on its own, so a slow save doesn't hold up
+  // the button over everything else.
+  const saving = new Set();
+  const busy = () => Boolean(current && saving.has(current));
   let hideTimer = null;
   let frame = 0;
   let point = null;
@@ -107,7 +115,17 @@ export function createDownloadButton({ doc, win, find, run, active, log }) {
     clearTimeout(hideTimer);
     current = null;
     found = null;
-    if (button && !busy) button.hidden = true;
+    if (button) button.hidden = true;
+  }
+
+  function showState() {
+    if (busy()) {
+      button.setAttribute('aria-busy', 'true');
+      label('Saving');
+    } else {
+      button.removeAttribute('aria-busy');
+      label('Download');
+    }
   }
 
   function hideSoon() {
@@ -157,16 +175,22 @@ export function createDownloadButton({ doc, win, find, run, active, log }) {
       }
       current = target;
       found = next;
-      if (!busy) label('Download');
+      showState();
     }
     button.hidden = false;
     place();
   }
 
   // Looked up again at the click: the story viewer may have moved on, or a switch gone off,
-  // while the pointer rested on the button.
+  // while the pointer rested on the button. When Facebook swapped the photo or video for a new
+  // element, whatever is under the button now is what gets saved.
   function fresh() {
-    if (!current?.isConnected || !active()) return null;
+    if (!active()) return null;
+    if (!current?.isConnected && point) {
+      const below = mediaAt(doc, host, point.x, point.y, { through: true });
+      current = below && below !== 'button' ? below : null;
+    }
+    if (!current) return null;
     try {
       return find(current);
     } catch (error) {
@@ -178,23 +202,23 @@ export function createDownloadButton({ doc, win, find, run, active, log }) {
   async function onClick(event) {
     event.preventDefault();
     event.stopPropagation();
-    if (busy) return;
+    if (busy()) return;
     found = fresh();
     if (!found) {
+      if (active()) onMissing?.();
       hide();
       return;
     }
-    busy = true;
-    button.setAttribute('aria-busy', 'true');
-    label('Saving');
+    const media = current;
+    saving.add(media);
+    showState();
     try {
       await run(found, shadow);
     } catch (error) {
       log?.error('The download failed', error);
     } finally {
-      busy = false;
-      button.removeAttribute('aria-busy');
-      label('Download');
+      saving.delete(media);
+      if (current === media) showState();
       if (!current) button.hidden = true;
     }
   }

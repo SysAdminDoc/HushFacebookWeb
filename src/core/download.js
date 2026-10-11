@@ -43,13 +43,16 @@ export function extensionOf(url, fallback) {
   }
 }
 
+// A manager's error fields can be text or an object (the browser's own error, say).
+const describe = (value) => (value && typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''));
+
 function viaManager(download, url, name) {
   return new Promise((resolve, reject) => {
     download({
       url, name, saveAs: false, timeout: TIMEOUT,
       onload: () => resolve(),
-      onerror: (error) => reject(Object.assign(new Error(error?.error || error?.details || 'the manager could not save it'), {
-        cancelled: /cancel/i.test(`${error?.error} ${error?.details}`),
+      onerror: (error) => reject(Object.assign(new Error(describe(error?.error) || describe(error?.details) || 'the manager could not save it'), {
+        cancelled: /cancel/i.test(`${describe(error?.error)} ${describe(error?.details)}`),
       })),
       ontimeout: () => reject(new Error('it took too long')),
     });
@@ -85,7 +88,7 @@ export async function saveFile({ url, name, api = {}, doc = globalThis.document,
       return 'manager';
     } catch (error) {
       // Cancelled in the browser means no. Anything else, fetch it instead.
-      if (error.cancelled) throw new Error('you cancelled it', { cause: error });
+      if (error.cancelled) throw Object.assign(new Error('you cancelled it', { cause: error }), { cancelled: true });
     }
   }
   const blob = await fetchBlob(url, { request: api.request, win });
