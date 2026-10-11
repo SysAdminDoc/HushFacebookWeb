@@ -14,7 +14,7 @@ const SLIDERS_ICON = [
 const CLOSE_ICON = ['M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z'];
 const ERROR_TOAST_GAP_MS = 15000;
 
-export function mountPanel({ settings, features, log, unavailable, environment }) {
+export function mountPanel({ settings, features, log, hider, unavailable, environment }) {
   const host = h('div', { dataset: { hushfacebookWeb: 'ui' } });
   const shadow = host.attachShadow({ mode: 'closed' });
   const root = h('div', { class: 'root' });
@@ -130,6 +130,12 @@ export function mountPanel({ settings, features, log, unavailable, environment }
             h('div', { class: 'desc', text: "The round button in Facebook's bottom-left corner. Your userscript manager's menu always opens settings too." })),
           toggle('ui.launcher', 'Show the settings button'))),
       h('div', { class: 'card' },
+        h('div', { class: 'row' },
+          h('div', { class: 'text' },
+            h('div', { class: 'title', text: 'Leave a note where a post was hidden' }),
+            h('div', { class: 'desc', text: 'A short line that says why a post was hidden. Click it to see the post.' })),
+          toggle('ui.hiddenNote', 'Leave a note where a post was hidden'))),
+      h('div', { class: 'card' },
         h('div', { class: 'title', text: 'Back up and restore' }),
         h('div', { class: 'desc', text: 'Save your choices to a file, or load them from one on another browser.' }),
         h('div', { class: 'actions' },
@@ -137,6 +143,11 @@ export function mountPanel({ settings, features, log, unavailable, environment }
           h('button', { class: 'button', type: 'button', text: 'Restore from a file', onclick: () => fileInput.click() }),
           h('button', { class: 'button', type: 'button', text: 'Reset to defaults', onclick: resetSettings }))),
     ];
+  }
+
+  function hiddenSummary() {
+    const counts = Object.entries(hider?.counts() ?? {});
+    return counts.length ? counts.map(([reason, count]) => `${reason} ${count}`).join(', ') : 'None yet';
   }
 
   function diagnosticsView() {
@@ -149,7 +160,8 @@ export function mountPanel({ settings, features, log, unavailable, environment }
         h('dt', { text: 'Userscript manager' }), h('dd', { text: `${environment.manager} ${environment.managerVersion}` }),
         h('dt', { text: 'Injection mode' }), h('dd', { text: environment.mode }),
         h('dt', { text: 'Page access' }), h('dd', { text: environment.pageAccess === 'page' ? 'Yes' : 'No. Network and playback features are off. In Violentmonkey, set this script to inject into the page.' }),
-        h('dt', { text: "Features that didn't start" }), h('dd', { text: blocked.length ? blocked.join(', ') : 'None' })),
+        h('dt', { text: "Features that didn't start" }), h('dd', { text: blocked.length ? blocked.join(', ') : 'None' }),
+        h('dt', { text: 'Posts hidden since the page loaded' }), h('dd', { text: hiddenSummary() })),
       h('div', { class: 'actions' }, h('button', { class: 'button primary', type: 'button', text: 'Copy report', onclick: copyReport })),
       h('h3', { text: 'Recent log', style: 'margin-top: 18px' }),
       entries.length
@@ -217,6 +229,7 @@ export function mountPanel({ settings, features, log, unavailable, environment }
       `Browser: ${navigator.userAgent}`,
       `Changed settings: ${JSON.stringify(settings.snapshot())}`,
       `Unavailable: ${[...unavailable].join(', ') || 'none'}`,
+      `Hidden since the page loaded: ${hiddenSummary()}`,
       '',
       ...log.entries().slice(-150).map((entry) => `${entry.time} ${entry.level} ${entry.message}${entry.detail ? ` | ${entry.detail}` : ''}`),
     ].join('\n');
@@ -254,15 +267,19 @@ export function mountPanel({ settings, features, log, unavailable, environment }
     toast(`${entry.message}. Details are in Diagnostics.`, { tone: 'error', action: { label: 'Open', run: () => open('diagnostics') } });
   };
   let renderQueued = false;
-  log.subscribe((entry) => {
-    if (entry.level === 'error') announceError(entry);
+  const refreshDiagnostics = () => {
     if (overlay.hidden || current !== 'diagnostics' || renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => {
       renderQueued = false;
       if (!overlay.hidden && current === 'diagnostics') render();
     });
+  };
+  log.subscribe((entry) => {
+    if (entry.level === 'error') announceError(entry);
+    refreshDiagnostics();
   });
+  hider?.subscribe(refreshDiagnostics);
   const earlier = log.entries().findLast((entry) => entry.level === 'error');
   if (earlier) announceError(earlier);
 

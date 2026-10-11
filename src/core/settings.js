@@ -6,6 +6,7 @@ const STORAGE_KEY = 'settings';
 const GLOBAL_SETTINGS = [
   { key: 'paused', type: 'toggle', default: false, label: 'Pause HushFacebook Web' },
   { key: 'ui.launcher', type: 'toggle', default: true, label: 'Show the settings button on Facebook' },
+  { key: 'ui.hiddenNote', type: 'toggle', default: false, label: 'Leave a note where a post was hidden' },
 ];
 
 export function buildSchema(features) {

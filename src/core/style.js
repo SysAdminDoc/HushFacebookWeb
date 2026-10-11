@@ -3,8 +3,19 @@
 
 import { whenRootReady } from './env.js';
 
-export function renderFeatureCss(features, settings, log) {
+// base: [{ id, css(get) }] for styles the core always needs while the script isn't paused,
+// such as the rules that hide posts.
+export function renderFeatureCss(features, settings, log, base = []) {
   const parts = [];
+  if (settings.get('paused') !== true) {
+    for (const part of base) {
+      try {
+        parts.push(`/* ${part.id} */\n${part.css(settings.get)}`);
+      } catch (error) {
+        log?.error(`The ${part.id} styles couldn't be built`, error);
+      }
+    }
+  }
   for (const feature of features) {
     if (!feature.css || !settings.enabled(feature.id)) continue;
     try {
@@ -16,11 +27,11 @@ export function renderFeatureCss(features, settings, log) {
   return parts.join('\n');
 }
 
-export function mountFeatureStyles({ features, settings, log, doc = document }) {
+export function mountFeatureStyles({ features, settings, log, doc = document, base = [] }) {
   const style = doc.createElement('style');
   style.dataset.hushfacebookWeb = 'features';
   const render = () => {
-    style.textContent = renderFeatureCss(features, settings, log);
+    style.textContent = renderFeatureCss(features, settings, log, base);
   };
   render();
   whenRootReady(() => (doc.head ?? doc.documentElement).append(style), doc);

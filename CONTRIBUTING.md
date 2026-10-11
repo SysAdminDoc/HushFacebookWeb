@@ -16,6 +16,7 @@ src/
     net/payload.js     Facebook's multi-document responses, line by line
     url.js             link-shim unwrapping and tracking tag removal
     dom/posts.js       finds posts on the page and reports them to features (post/add, post/remove)
+    dom/hide.js        hides a post with a reason, counts it, and can leave a note that shows it again
     style.js           one style element for every CSS feature that's on
   features/            one file per feature, grouped by settings section
   ui/                  the settings panel (closed shadow root, no innerHTML)

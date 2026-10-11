@@ -2,6 +2,7 @@
 // document-start, before Facebook's first script runs. The settings panel waits for <body>.
 
 import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady, whenRootReady } from './core/env.js';
+import { createHider, hideCss } from './core/dom/hide.js';
 import { createPostTracker } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
 import { installNetworkHooks } from './core/net/hooks.js';
@@ -21,6 +22,7 @@ function boot() {
   const net = pageAccess === 'page' ? installNetworkHooks({ win: pageWindow, log }) : null;
   const router = createRouter({ win: pageWindow, pageAccess, log });
   const posts = createPostTracker({ doc: document, log });
+  const hider = createHider({ doc: document, posts, log });
   const unavailable = new Set();
 
   if (!net) {
@@ -39,6 +41,7 @@ function boot() {
         net,
         router,
         posts,
+        hider,
         log,
         settings,
         enabled: () => settings.enabled(feature.id),
@@ -50,11 +53,11 @@ function boot() {
     }
   }
 
-  mountFeatureStyles({ features, settings, log });
+  mountFeatureStyles({ features, settings, log, base: [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') === true }) }] });
 
   let panel = null;
   whenBodyReady(() => {
-    panel = mountPanel({ settings, features, log, unavailable, environment: { version, ...managerInfo() } });
+    panel = mountPanel({ settings, features, log, hider, unavailable, environment: { version, ...managerInfo() } });
     const other = document.documentElement.getAttribute(DUPLICATE);
     if (other) log.warn(`A second copy of HushFacebook Web (v${other}) is installed. Turn one off in your userscript manager.`);
   });
