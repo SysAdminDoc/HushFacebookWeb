@@ -33,6 +33,7 @@ There's a settings panel and a layer that filters Facebook's data as it loads. T
 * Show full post dates
 * Keep your place in the feed
 * Hide Follow and Join buttons
+* Expand long posts
 * Hide sponsored reels
 * Don't send watch history
 * Clean up Reels
