@@ -56,7 +56,7 @@ What the status words mean:
 | Keep the progress bar | Tested | Called "Keep video controls on screen" on the web. A feed, Page or Watch video's controls fade out when the pointer leaves, and the script keeps them showing. It finds them by the progress bar whose length matches the video's, so any language works. Reels keep their controls already, and a reel shared to the feed has none. Works in content mode. |
 | Picture-in-picture | Tested | Called "Picture-in-picture button" on the web. A Pop out button shows in the corner of a video or reel when you point at it, and it plays on in its own small window. Clicking it again brings it back. Works in content mode. |
 | Turn off double tap to like | Android only | A double click on a reel doesn't like it on the web. Live, it sent nothing to Facebook and left the Like button as it was. |
-| Clean up Reels | Planned | Hides Follow buttons, comment previews and other clutter on reels. |
+| Clean up Reels | Tested | Same name on the web. Two choices, both on with the switch. One takes the Follow button off a reel. The other keeps the block with the reel's name, audio and caption off the video until you point at the reel. Live, that block was see-through with the pointer away and came back with it over the reel, the Follow button took no space, and the next reel came up the same. Works in content mode too. |
 | Hide reel interest prompts | Planned | "Are you interested in this reel?" |
 | Hide the Reels tab | Written | Part of Hide tabs, where the Video tab is one of the choices and starts on. The test account's top bar only has Home, Friends and Groups, so the Video tab hasn't been seen going yet. |
 | Hide the Reels tab dot | Written | Part of Hide tab badges. |

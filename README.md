@@ -34,6 +34,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Keep your place in the feed
 * Hide sponsored reels
 * Don't send watch history
+* Clean up Reels
 * Hide sponsored search results
 * Hide sponsored Marketplace listings
 * View profile on Marketplace sellers

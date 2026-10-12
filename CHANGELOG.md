@@ -4,6 +4,7 @@
 
 * New Open Messenger as a full page switch, under Opening Facebook, off by default. The Messenger button in the top bar goes straight to the Messages page instead of opening the list of chats over Facebook. Hold Ctrl, Cmd or Shift, or use the middle button, to open it in a new tab. Tried live: with the switch on a click went to Messages, and with it off the usual list opened. It works without the script running in the page too.
 * Tag suggestions only after @ now says it covers new posts as well as comments. The box for a new post loads the same lists, and live a friend's name typed there without @ brought up no one with the switch on, against four suggestions without it.
+* New Clean up Reels switch, under Reels, off by default. It takes the Follow button off reels and keeps a reel's name and caption off the video until you point at the reel, and each part has its own choice. Tried live: the caption block came back as soon as the pointer was over the reel, the Follow button was gone, and the next reel came up the same way. It works without the script running in the page too.
 
 ## v0.0.2 (2026-10-11)
 
