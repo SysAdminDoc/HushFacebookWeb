@@ -72,6 +72,33 @@ test("a shared post's own time is the one kept, not its original's", () => {
   assert.equal(book.timeOf(storyKeys(share)), 1760221440);
 });
 
+test("a key two stories give different times dates neither by it, so no post shows another's date", () => {
+  const words = 'The original post had plenty of words in it to be keyed by';
+  const photo = { attachments: [{ media: { __typename: 'Photo', id: '969545875' } }] };
+  const story = (seconds, content) => ({ __typename: 'Story', creation_time: seconds, comet_sections: { content: { story: content } } });
+  const original = story(1700000000, { message: { text: words }, ...photo });
+  const share = story(1760221440, { message: { text: 'Look at this one, friends, it is worth a read today' }, attached_story: { message: { text: words }, ...photo } });
+  const bareShare = story(1760300000, { attached_story: { message: { text: words }, ...photo } });
+  for (const order of [[original, share], [share, original]]) {
+    const book = createTimeBook();
+    for (const node of order) indexTimes({ data: { node } }, book.remember);
+    // The photo is in both, so each is dated by its own words.
+    assert.equal(book.timeOf(['m:969545875']), null);
+    assert.equal(book.timeOf(storyKeys(original)), 1700000000);
+    assert.equal(book.timeOf(storyKeys(share)), 1760221440);
+    // A share with no words of its own has every key of the original: neither gets a date.
+    indexTimes({ data: { node: bareShare } }, book.remember);
+    assert.equal(book.timeOf(storyKeys(original)), null);
+    assert.equal(book.timeOf(storyKeys(bareShare)), null);
+    assert.equal(book.timeOf(storyKeys(share)), 1760221440);
+  }
+  // The same story in two answers keeps its time.
+  const again = createTimeBook();
+  indexTimes({ data: { node: original } }, again.remember);
+  indexTimes({ data: { node: original } }, again.remember);
+  assert.equal(again.timeOf(storyKeys(original)), 1700000000);
+});
+
 test('the time link is the header link that opens in a new tab, before and after Facebook fills it in', () => {
   const win = page(post());
   const element = win.document.querySelector('[aria-posinset]');

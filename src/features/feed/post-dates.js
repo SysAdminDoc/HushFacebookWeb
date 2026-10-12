@@ -44,15 +44,19 @@ export function indexTimes(data, remember) {
   return found;
 }
 
+// Keys aren't one story's alone: a share carries the photo of the post it shares, a share with
+// no words of its own is keyed by the original's words, and a seller can paste the same words
+// into several groups. A key two stories give different times is kept as null, and a post is
+// dated by its first key only one time belongs to, or not at all, never with another's date.
 export function createTimeBook() {
   const times = new Map();
   return {
     remember(key, seconds) {
       if (times.size >= MAX_REMEMBERED && !times.has(key)) times.clear();
-      times.set(key, seconds);
+      times.set(key, times.has(key) && times.get(key) !== seconds ? null : seconds);
     },
     // A post's time, by its first key that has one: a photo or video first, then its words.
-    timeOf: (keys) => keys.map((key) => times.get(key)).find((seconds) => seconds !== undefined) ?? null,
+    timeOf: (keys) => keys.map((key) => times.get(key)).find((seconds) => typeof seconds === 'number') ?? null,
   };
 }
 
