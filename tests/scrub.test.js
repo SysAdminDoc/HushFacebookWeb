@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  extractDataSjs, fakeDigits, fakeHex, fakeToken, findLeftovers, scrubLine, scrubNumber, scrubString, scrubUrl, scrubValue, setScrubKey, trimArrays,
+  extractDataSjs, fakeDigits, fakeHex, fakeToken, findLeftovers, scrubDomText, scrubDomTree, scrubLine, scrubNumber, scrubString, scrubUrl, scrubValue, setScrubKey, trimArrays,
 } from '../scripts/lib/scrub.mjs';
 
 const KEY = 'test-key-for-the-scrubber-tests';
@@ -193,4 +193,44 @@ test('data-sjs blocks come out of a captured page by the text they mention', () 
   const html = '<html><script type="application/json" data-content-len="9" data-sjs>{"a":"x"}</script><script type="application/json" data-sjs>{"b":"feed"}</script><script>var x = 1</script>';
   assert.deepEqual(extractDataSjs(html, 'feed'), ['{"b":"feed"}']);
   assert.equal(extractDataSjs(html).length, 2);
+});
+
+test('page markup keeps the shape the ad check reads and loses what a person wrote', () => {
+  const tree = ['div', { 'aria-posinset': '3', 'data-hfw-hide': 'Seen', onclick: 'x()' }, 'display:block', '0,0,680,812', [
+    ['h4', {}, 'display:block', '16,12,200,20', [['a', { href: `/groups/${USER_ID}/user/${STORY_ID}/?__cft__[0]=AZWtokentokentoken` }, 'display:inline', '16,12,90,20', ['Jordan Example']]]],
+    ['span', { 'aria-labelledby': ':r5c: :r5d:', id: ':r5c:' }, 'display:flex', '16,36,80,16', [
+      ['span', {}, 'display:block;order:2', '20,36,6,16', ['o']],
+      ['span', {}, 'display:block;position:absolute', '0,0,6,16', ['Q']],
+    ]],
+    ['div', { 'data-ad-rendering-role': 'story_message', 'aria-label': 'Comment by Jordan Example' }, 'display:block', '16,60,640,40', ['Our trip to the lake was lovely this year']],
+    ['img', { src: 'https://scontent-mia5-1.xx.fbcdn.net/v/t39/1.jpg', alt: 'Jordan' }, 'display:block', '0,110,680,400', []],
+    ['span', {}, 'display:inline', '16,520,40,16', [' Like ']],
+  ]];
+  const html = scrubDomTree(tree);
+  assert.match(html, /^<div aria-posinset="3" style="display:block" data-hfw-rect="0,0,680,812">/);
+  assert.ok(!html.includes('data-hfw-hide') && !html.includes('onclick'), 'the hide mark and anything else are dropped');
+  assert.ok(html.includes('aria-labelledby=":r5c: :r5d:"') && html.includes('id=":r5c:"'), 'React ids stay so references still match');
+  assert.ok(html.includes('style="display:block;order:2"') && html.includes('style="display:block;position:absolute"'));
+  assert.ok(html.includes('>o</span>') && html.includes('>Q</span>'), 'one-letter spans stay');
+  assert.ok(html.includes('> Like </span>'), "Facebook's own words stay");
+  assert.ok(html.includes('data-ad-rendering-role="story_message"'));
+  assert.match(html, /<a href="\/groups\/\d{1,9}\/user\/\d{1,9}\/\?__cft__/);
+  assert.ok(html.includes('src="https://cdn.example.invalid/x.jpg"') && !html.includes('alt='), 'alt text is never kept');
+  assert.ok(!/Jordan|Example|lake|lovely|fbcdn|scontent|AZWtoken/.test(html), html);
+  assert.ok(!html.includes('</img>'));
+  assert.deepEqual(findLeftovers(html), []);
+  // The same input always gives the same output.
+  assert.equal(scrubDomTree(tree), html);
+});
+
+test('page text: short runs stay, other scripts are blanked, numbers and spacing are kept', () => {
+  assert.equal(scrubDomText('Ad'), 'Ad');
+  assert.equal(scrubDomText(' · '), ' · ');
+  assert.equal(scrubDomText('日本'), 'xx');
+  assert.equal(scrubDomText('1.2K'), '1.2K');
+  assert.equal(scrubDomText('  '), '  ');
+  const words = scrubDomText(' Happy birthday Sam! ');
+  assert.match(words, /^ [A-Z][a-z]+(?: [a-z]+)* $/);
+  assert.ok(!words.includes('Sam'));
+  assert.equal(scrubDomTree('<&>'), '&lt;&amp;&gt;', 'short text is escaped, not rewritten');
 });

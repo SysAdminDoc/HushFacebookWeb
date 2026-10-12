@@ -37,7 +37,7 @@ const CODE_NAME_KEYS = new Set(['__typename', 'friendly_name', 'fb_api_req_frien
 
 // Path segments that are part of facebook.com's URL grammar, not someone's name.
 export const STATIC_SEGMENTS = new Set([
-  'groups', 'posts', 'permalink', 'permalink.php', 'story.php', 'photo', 'photo.php', 'photos', 'video', 'videos', 'watch',
+  'groups', 'user', 'posts', 'permalink', 'permalink.php', 'story.php', 'photo', 'photo.php', 'photos', 'video', 'videos', 'watch',
   'reel', 'reels', 'stories', 'create', 'marketplace', 'item', 'search', 'top', 'people', 'pages', 'events', 'hashtag',
   'profile.php', 'l.php', 'share', 'p', 'r', 'v', 'ajax', 'api', 'graphql', 'login', 'checkpoint', 'notifications',
   'messages', 't', 'friends', 'gaming', 'saved', 'bookmarks', 'feeds', 'settings', 'help', 'policies', 'privacy', 'terms',
@@ -318,6 +318,83 @@ export function extractDataSjs(html, match) {
     if (!match || found[1].includes(match)) blocks.push(found[1]);
   }
   return blocks;
+}
+
+// ---- Page markup (scrub-fixture.mjs --dom) ----
+//
+// A post captured from the page by .claude/live-review/inject.py (organic-*) comes as a tree of
+// [tag, attributes, style, rect, children], children being trees or text. It's rebuilt as HTML
+// that keeps what the page-side ad check reads: roles, aria-* and data-ad-* attributes, ids
+// (so aria-labelledby still points somewhere), link shapes, the computed display, position,
+// order, visibility, opacity and tiny font sizes written inline, and each element's box
+// relative to the post as data-hfw-rect="left,top,width,height" for a test to replay.
+// Text of three characters or fewer stays (the scrambled one-letter spans of a label or a
+// timestamp are the point), and so do Facebook's own interface words. Everything else a
+// person wrote or is called goes through fakeWords.
+
+const UI_TEXT = new Set([
+  'like', 'comment', 'share', 'send', 'reply', 'follow', 'join', 'see more', 'see less', 'more', 'most relevant',
+  'all comments', 'newest', 'see translation', 'see original', 'write a comment…', 'write a comment...', 'author',
+  'top contributor', 'admin', 'moderator', 'public', 'shared with public', 'friends', 'edited', 'view more comments',
+  'view all comments', 'actions for this post', 'hide post', 'leave a comment', 'react', 'sponsored', 'ad',
+]);
+const VOID_TAGS = new Set(['img', 'br', 'hr', 'input', 'meta', 'link', 'source', 'wbr', 'area', 'col', 'embed', 'track']);
+const ID_ATTRS = new Set(['id', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', 'aria-activedescendant']);
+const PROSE_ATTRS = new Set(['aria-label', 'title', 'aria-valuetext', 'aria-roledescription', 'aria-placeholder', 'aria-description']);
+const SMALL_NUMBER = /^[\d\s.,:·•KkMm+%()-]{1,12}$/;
+// The only attributes that make it into a fixture.
+const DOM_ATTRS = /^(?:role|aria-[a-z-]+|id|href|xlink:href|src|dir|hidden|title|data-ad-[a-z-]+)$/;
+
+const escapeText = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escapeAttr = (value) => escapeText(value).replace(/"/g, '&quot;');
+
+// React's useId ids (":r1a:") and short ones stay, so references between them still match.
+function scrubDomId(value) {
+  if (value === '') return value;
+  if (/^:[A-Za-z0-9_]+:$/.test(value) || (/^[A-Za-z_][\w:-]{0,15}$/.test(value) && !/\d{6,}/.test(value))) return value;
+  return `id${hashToken(value, 10)}`;
+}
+
+export function scrubDomText(value) {
+  const trimmed = value.trim();
+  if (trimmed === '') return value;
+  const lead = value.match(/^\s*/)[0];
+  const tail = value.match(/\s*$/)[0];
+  if (trimmed.length <= 3) return NON_ASCII_LETTER.test(trimmed) ? lead + 'x'.repeat(trimmed.length) + tail : value;
+  if (UI_TEXT.has(trimmed.toLowerCase()) || SMALL_NUMBER.test(trimmed)) return value;
+  return lead + fakeWords(trimmed) + tail;
+}
+
+function scrubDomHref(value) {
+  if (value === '' || value === '#') return value;
+  if (value.startsWith('#')) return `#${scrubDomId(value.slice(1))}`;
+  if (/^(?:https?:)?\/\//i.test(value)) return scrubUrl(value.startsWith('//') ? `https:${value}` : value);
+  if (value.startsWith('/') || value.startsWith('?')) return scrubPath(value);
+  return fakeToken(value);
+}
+
+function scrubDomAttr(name, value) {
+  if (name === 'href' || name === 'xlink:href') return scrubDomHref(value);
+  if (name === 'src') return 'https://cdn.example.invalid/x.jpg';
+  if (ID_ATTRS.has(name)) return value.split(/\s+/).map(scrubDomId).join(' ');
+  if (PROSE_ATTRS.has(name)) return scrubDomText(value);
+  return value;
+}
+
+export function scrubDomTree(node) {
+  if (typeof node === 'string') return escapeText(scrubDomText(node));
+  const [tag, attrs = {}, style = '', rect = '', kids = []] = node;
+  if (!/^[a-z][a-z0-9-]*$/i.test(tag)) return '';
+  const parts = [tag];
+  for (const [name, value] of Object.entries(attrs)) {
+    if (!DOM_ATTRS.test(name)) continue;
+    parts.push(`${name}="${escapeAttr(scrubDomAttr(name, String(value)))}"`);
+  }
+  if (style) parts.push(`style="${escapeAttr(style)}"`);
+  if (rect) parts.push(`data-hfw-rect="${escapeAttr(rect)}"`);
+  const open = `<${parts.join(' ')}>`;
+  if (VOID_TAGS.has(tag.toLowerCase())) return open;
+  return `${open}${kids.map(scrubDomTree).join('')}</${tag}>`;
 }
 
 // What must never be left in a fixture. The test and the CLI share this list.

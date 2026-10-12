@@ -7,6 +7,10 @@
 //        [--index 0,3] --out tests/fixtures/<name>.jsonl
 //   node scripts/scrub-fixture.mjs <network.jsonl> --request --friendly <name>
 //        --out tests/fixtures/<name>.request.jsonl
+//   node scripts/scrub-fixture.mjs <run folder>/organic --dom --out tests/fixtures/organic-posts.jsonl
+//
+// --dom takes the organic-<source>.json post captures in a folder and writes one line per
+// post: { source, width, height, html }, the markup rebuilt by scrubDomTree.
 //
 // A body file holds one JSON document per line (Facebook streams @defer and @stream
 // chunks that way). A page gives one line per data-sjs block that mentions --match. A
@@ -14,8 +18,9 @@
 // rule can see: method, path, friendly name, doc_id and variables.
 
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { extractDataSjs, findLeftovers, scrubLine, scrubValue, setScrubKey } from './lib/scrub.mjs';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { extractDataSjs, findLeftovers, scrubDomTree, scrubLine, scrubValue, setScrubKey } from './lib/scrub.mjs';
 
 // Stand-ins are keyed with a secret that stays beside the raw captures, so a committed
 // fixture can't be checked against a guessed id or name. HFW_SCRUB_KEY overrides the file.
@@ -58,14 +63,24 @@ const trims = args.flatMap((arg, i) => (arg === '--trim' ? [args[i + 1]] : [])).
 });
 
 if (!input || !option('out')) {
-  console.error('usage: scrub-fixture.mjs <capture> --out <fixture.jsonl> [--lines a,b] [--trim path=a,b] | --html --match <text> [--index a,b] | --request --friendly <name>');
+  console.error('usage: scrub-fixture.mjs <capture> --out <fixture.jsonl> [--lines a,b] [--trim path=a,b] | --html --match <text> [--index a,b] | --request --friendly <name> | <folder> --dom');
   process.exit(2);
 }
 
-const raw = await readFile(input, 'utf8');
+const raw = flag('dom') ? '' : await readFile(input, 'utf8');
 let lines;
 
-if (flag('html')) {
+if (flag('dom')) {
+  // A folder of organic-<source>.json captures, each a list of { marked, width, height, tree }.
+  const files = (await readdir(input)).filter((name) => /^organic-[a-z]+\.json$/.test(name)).sort();
+  lines = [];
+  for (const name of files) {
+    const source = name.slice('organic-'.length, -'.json'.length);
+    for (const post of JSON.parse(await readFile(join(input, name), 'utf8'))) {
+      lines.push(JSON.stringify({ source, width: post.width, height: post.height, html: scrubDomTree(post.tree) }));
+    }
+  }
+} else if (flag('html')) {
   const blocks = extractDataSjs(raw, option('match'));
   const picked = option('index') === undefined ? blocks : list(option('index')).map((i) => blocks[i]);
   lines = picked.map((block) => scrubLine(block, { trims }));
