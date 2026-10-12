@@ -48,12 +48,25 @@ export function indexTimes(data, remember) {
 // no words of its own is keyed by the original's words, and a seller can paste the same words
 // into several groups. A key two stories give different times is kept as null, and a post is
 // dated by its first key only one time belongs to, or not at all, never with another's date.
+// When the book is full, the key seen longest ago with a time goes. The null ones stay, so a
+// third story with that key can't date the others.
 export function createTimeBook() {
-  const times = new Map();
+  const times = new Map(); // key -> seconds or null, the longest unseen first
   return {
     remember(key, seconds) {
-      if (times.size >= MAX_REMEMBERED && !times.has(key)) times.clear();
-      times.set(key, times.has(key) && times.get(key) !== seconds ? null : seconds);
+      const value = times.has(key) && times.get(key) !== seconds ? null : seconds;
+      times.delete(key);
+      if (times.size >= MAX_REMEMBERED) {
+        let oldest = times.keys().next().value;
+        for (const [known, time] of times) {
+          if (time !== null) {
+            oldest = known;
+            break;
+          }
+        }
+        times.delete(oldest);
+      }
+      times.set(key, value);
     },
     // A post's time, by its first key that has one: a photo or video first, then its words.
     timeOf: (keys) => keys.map((key) => times.get(key)).find((seconds) => typeof seconds === 'number') ?? null,

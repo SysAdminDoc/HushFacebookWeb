@@ -99,6 +99,24 @@ test("a key two stories give different times dates neither by it, so no post sho
   assert.equal(again.timeOf(storyKeys(original)), 1700000000);
 });
 
+test('a full book forgets the key seen longest ago, and never forgets that a key was shared', () => {
+  const book = createTimeBook();
+  book.remember('shared', 1700000000);
+  book.remember('shared', 1760000000);
+  book.remember('first', 1700000001);
+  for (let i = 0; i < 3998; i++) book.remember(`k${i}`, 1700000100 + i);
+  book.remember('first', 1700000001); // seen again, so it's no longer the oldest
+  book.remember('new', 1760000100);
+  assert.equal(book.timeOf(['k0']), null, 'the oldest key with a time went');
+  assert.equal(book.timeOf(['first']), 1700000001);
+  assert.equal(book.timeOf(['k1']), 1700000101);
+  assert.equal(book.timeOf(['new']), 1760000100);
+  // Long after, a third story with the shared key still dates no one by it.
+  for (let i = 0; i < 5000; i++) book.remember(`later${i}`, 1760001000 + i);
+  book.remember('shared', 1761000000);
+  assert.equal(book.timeOf(['shared']), null);
+});
+
 test('the time link is the header link that opens in a new tab, before and after Facebook fills it in', () => {
   const win = page(post());
   const element = win.document.querySelector('[aria-posinset]');
