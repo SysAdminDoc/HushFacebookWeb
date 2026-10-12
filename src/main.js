@@ -3,6 +3,7 @@
 
 import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady, whenRootReady } from './core/env.js';
 import { createActions } from './core/actions.js';
+import { availableUpdate, UPDATE_KEY, UPDATE_TOLD_KEY } from './core/extension.js';
 import { createDiagnostics } from './core/diagnostics.js';
 import { createHider, hideCss } from './core/dom/hide.js';
 import { createPostTracker, postIdOf } from './core/dom/posts.js';
@@ -109,8 +110,20 @@ function boot() {
   scheduleStorageCheck({ tasks, storage, mirror, log, toast, diagnostics });
   setTimeout(() => whenMirrorReady(mirror, () => tasks.runDue()), 8000);
 
+  // The extension can't update itself, so a newer release gets one toast and a card in General.
+  const update = storage.kind === 'extension' ? () => availableUpdate(storage) : null;
+  if (update) {
+    storage.onChange(UPDATE_KEY, () => panel?.refresh());
+    storage.whenReady(() => {
+      const found = update();
+      if (!found || storage.get(UPDATE_TOLD_KEY, null) === found.version) return;
+      storage.set(UPDATE_TOLD_KEY, found.version);
+      toast(`HushFacebook Web ${found.version} is out.`, { action: { label: 'How to update', run: () => whenBodyReady(() => panel?.open('general')) } });
+    });
+  }
+
   whenBodyReady(() => {
-    panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo() } });
+    panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo(), update } });
     for (const [message, options] of waiting.splice(0)) panel.toast(message, options);
     const other = document.documentElement.getAttribute(DUPLICATE);
     if (other) log.warn(`A second copy of HushFacebook Web (v${other}) is installed. Turn one off in your userscript manager or on the browser's extensions page.`);

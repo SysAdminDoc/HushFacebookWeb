@@ -29,7 +29,8 @@ export function extensionManifest(pkg) {
     action: { default_title: 'HushFacebook Web settings', default_icon: ICONS },
     background: { service_worker: 'background.js' },
     // activeTab: the toolbar button sees which tab it was clicked on, and nothing more.
-    permissions: ['storage', 'downloads', 'activeTab'],
+    // alarms: the daily release check.
+    permissions: ['storage', 'downloads', 'activeTab', 'alarms'],
     content_scripts: [...scripts(FACEBOOK, false), ...scripts(GAMES, true)],
   };
 }

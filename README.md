@@ -136,9 +136,11 @@ This works in Chrome, Edge, Brave and other Chromium browsers from version 111. 
 2. Open `chrome://extensions` (`edge://extensions` in Edge) and turn on **Developer mode**.
 3. Click **Load unpacked** and pick the unzipped folder.
 
-The extension is new in the development build, so the first release to carry the zip is the one after 0.0.2. Until then, build it yourself (below) and load `dist/extension`. It doesn't update itself yet. Load the new folder when a release comes out, and your settings stay where they are.
+The extension is new in the development build, so the first release to carry the zip is the one after 0.0.2. Until then, build it yourself (below) and load `dist/extension`.
 
-The toolbar button opens the settings on Facebook, or opens Facebook with the settings up from any other tab. It asks for storage (your settings), downloads (saving photos and videos) and the tab you click the button on. It runs only on facebook.com and in Instant Games frames.
+A loaded-unpacked extension can't update itself, so once a day it asks GitHub for the latest release. When there's a newer one, its toolbar button shows NEW, Facebook shows a one-time note, and General in the settings says how to update: unzip the new release over the same folder and click Reload on the extensions page. Your settings stay where they are.
+
+The toolbar button opens the settings on Facebook, or opens Facebook with the settings up from any other tab. It asks for storage (your settings), downloads (saving photos and videos), alarms (the daily release check) and the tab you click the button on. It runs only on facebook.com and in Instant Games frames, and the only other place it contacts is GitHub's release API.
 
 The extension has been checked in Chromium, signed in and signed out. It loads before Facebook's own code, keeps each account's settings apart, saves a photo from a post under its readable name, and its toolbar button and Home redirects work. The other features share their code with the userscript, where each one was checked live.
 

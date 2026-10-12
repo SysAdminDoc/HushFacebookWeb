@@ -115,6 +115,7 @@ main { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 24px
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .button { min-height: 40px; max-width: 100%; border: 1px solid var(--surface1); background: var(--surface0); padding: 9px 16px; border-radius: 8px; transition: background 0.15s ease; }
 .button:hover { background: var(--surface1); }
+a.button { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
 .button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 .button.primary:hover { filter: brightness(1.08); }
 footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; border-top: 1px solid var(--border); color: var(--subtext); font-size: 15px; }

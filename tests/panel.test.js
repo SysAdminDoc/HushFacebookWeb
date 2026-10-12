@@ -35,7 +35,7 @@ function lendGlobals(win) {
   });
 }
 
-function setup({ features = [], actions = null, unavailable = new Set(), storage = createMemoryStorage() } = {}) {
+function setup({ features = [], actions = null, unavailable = new Set(), storage = createMemoryStorage(), update } = {}) {
   const win = new Window({ url: 'https://www.facebook.com/' });
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
@@ -54,7 +54,7 @@ function setup({ features = [], actions = null, unavailable = new Set(), storage
   const diagnostics = createDiagnostics();
   const panel = mountPanel({
     settings, features, log, hider, diagnostics, actions, unavailable,
-    environment: { version: '0.0.1', manager: 'Tampermonkey', managerVersion: '5.4.1', mode: 'page', pageAccess: 'page' },
+    environment: { version: '0.0.1', manager: 'Tampermonkey', managerVersion: '5.4.1', mode: 'page', pageAccess: 'page', update },
   });
   return { win, shadow, panel, settings, hider, diagnostics, copied, unavailable, log, post: win.document.querySelector('[aria-posinset]') };
 }
@@ -352,4 +352,27 @@ test('search finds settings by their words, opens the section at the switch, and
   shadow.querySelector('[data-key="nav:general"]').click();
   assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'General', 'a section button clears the search');
   assert.equal(search.value, '');
+});
+
+test("the extension's update notice heads General while a newer release is out, and links to it", () => {
+  let found = { version: '0.0.9', url: 'https://github.com/SysAdminDoc/HushFacebookWeb/releases/tag/v0.0.9' };
+  const { shadow, panel } = setup({ update: () => found });
+  panel.open('general');
+  const card = shadow.querySelector('[data-key="update"]');
+  assert.ok(card, 'the card shows');
+  assert.equal(card.querySelector('.title').textContent, 'HushFacebook Web 0.0.9 is out');
+  assert.match(card.querySelector('.desc').textContent, /^You have 0\.0\.1\. /);
+  const link = card.querySelector('a.button');
+  assert.equal(link.getAttribute('href'), found.url);
+  assert.equal(link.getAttribute('target'), '_blank');
+  found = null;
+  panel.refresh();
+  assert.ok(!shadow.querySelector('[data-key="update"]'), 'gone once there is nothing newer');
+});
+
+test('without an update source General has no notice', () => {
+  const { shadow, panel } = setup();
+  panel.open('general');
+  assert.ok(!shadow.querySelector('[data-key="update"]'));
+  assert.ok(!shadow.querySelector('main, .main')?.textContent.includes('null'), 'no stray text');
 });

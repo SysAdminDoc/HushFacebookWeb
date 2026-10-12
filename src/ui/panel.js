@@ -254,8 +254,20 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     });
   }
 
+  // The extension's notice that a newer release is out (environment.update, extension only).
+  function updateCard() {
+    const update = environment.update?.();
+    if (!update) return null;
+    return h('div', { class: 'card', dataset: { key: 'update' } },
+      h('div', { class: 'title', text: `HushFacebook Web ${update.version} is out` }),
+      h('div', { class: 'desc', text: `You have ${environment.version}. Download hushfacebook-web-extension.zip from the release and unzip it over the folder you loaded. Then click Reload on HushFacebook Web in your browser's extensions page. Your settings stay.` }),
+      h('div', { class: 'actions' },
+        h('a', { class: 'button primary', href: update.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open the release' })));
+  }
+
   function generalView() {
     return [
+      updateCard(),
       h('div', { class: 'card' },
         h('div', { class: 'row' },
           h('div', { class: 'text' },
@@ -275,7 +287,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           h('button', { class: 'button primary', type: 'button', text: 'Back up settings', dataset: { key: 'backup' }, onclick: exportSettings }),
           actionButton('restore', 'Restore from a file', () => fileInput.click(), { busyLabel: 'Restoring...' }),
           h('button', { class: 'button', type: 'button', text: 'Reset to defaults', dataset: { key: 'reset' }, onclick: resetSettings }))),
-    ];
+    ].filter(Boolean);
   }
 
   function hiddenSummary() {
@@ -488,5 +500,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   if (earlier) announceError(earlier);
 
   refreshChrome();
-  return { open, close, toast, refresh: refreshChrome };
+  // For changes from outside the settings: a feature that stopped, the extension's update notice.
+  const refresh = () => {
+    refreshChrome();
+    if (dialog.open) render();
+  };
+  return { open, close, toast, refresh };
 }

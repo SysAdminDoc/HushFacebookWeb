@@ -10,7 +10,7 @@ test('the manifest runs the isolated half first, the page half in MAIN, at docum
   const manifest = extensionManifest({ version: '1.2.3' });
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.version, '1.2.3');
-  assert.deepEqual(manifest.permissions, ['storage', 'downloads', 'activeTab']);
+  assert.deepEqual(manifest.permissions, ['storage', 'downloads', 'activeTab', 'alarms']);
   assert.equal(manifest.host_permissions, undefined, 'no host permissions beyond the content scripts');
   const [isolated, main, gameIsolated, gameMain] = manifest.content_scripts;
   assert.deepEqual(isolated.matches, ['https://www.facebook.com/*', 'https://web.facebook.com/*']);

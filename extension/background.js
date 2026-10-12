@@ -73,6 +73,55 @@ async function openSettings(tab) {
   }
 }
 
+// A loaded-unpacked extension never updates itself, so once a day the worker asks GitHub for
+// the latest release (api.github.com allows any origin, so no host permission). A newer one
+// lights the toolbar badge, and the page shows a notice in General from the saved record
+// (src/core/extension.js reads UPDATE_KEY). Offline or rate limited, it tries again the next day.
+const RELEASES = 'https://api.github.com/repos/SysAdminDoc/HushFacebookWeb/releases/latest';
+const UPDATE_KEY = 'extensionUpdate';
+const DAY = 24 * 60 * 60 * 1000;
+
+function isNewer(candidate, current) {
+  const a = String(candidate).split('.').map(Number);
+  const b = String(current).split('.').map(Number);
+  if (a.some(Number.isNaN)) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return false;
+}
+
+async function checkForUpdate(now = Date.now()) {
+  const current = chrome.runtime.getManifest().version;
+  const { [UPDATE_KEY]: last } = await chrome.storage.local.get(UPDATE_KEY);
+  let record = last;
+  if (!(last?.at && now - last.at >= 0 && now - last.at < DAY && last.current === current)) {
+    record = { at: now, current, latest: last?.latest ?? null, url: last?.url ?? null };
+    try {
+      const response = await fetch(RELEASES, { headers: { accept: 'application/vnd.github+json' }, cache: 'no-store' });
+      if (response.ok) {
+        const release = await response.json();
+        const tag = String(release.tag_name ?? '').replace(/^v/, '');
+        if (/^\d+(\.\d+)*$/.test(tag)) record = { ...record, latest: tag, url: String(release.html_url ?? '') || null };
+      }
+    } catch {
+      // Offline. The record's time means the next try is tomorrow.
+    }
+    record.newer = Boolean(record.latest && isNewer(record.latest, current));
+    await chrome.storage.local.set({ [UPDATE_KEY]: record });
+  }
+  await chrome.action.setBadgeText({ text: record.newer ? 'NEW' : '' });
+  if (record.newer) await chrome.action.setBadgeBackgroundColor({ color: '#9D70EB' });
+  return record;
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'update-check') checkForUpdate();
+});
+chrome.alarms.get('update-check').then((alarm) => {
+  if (!alarm) chrome.alarms.create('update-check', { delayInMinutes: 1, periodInMinutes: 360 });
+});
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type !== 'download' || !sender.tab) return false;
   save(message).then(
