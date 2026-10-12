@@ -243,7 +243,7 @@ export function scrubString(value, key) {
   if (!/[A-Za-z]/.test(text)) {
     // Numbers and punctuation only. Seven or more digits could be a phone number.
     const digits = text.replace(/\D/g, '').length;
-    return digits >= 7 ? text.replace(/\d{3,}/g, (run) => fakeDigits(run, run.length)) : text;
+    return digits >= 7 ? text.replace(/\d+/g, (run) => fakeDigits(run, run.length)) : text;
   }
   if (DOMAIN.test(text)) return FACEBOOK_HOST.test(text) ? text : fakeDomain(text);
   if (TOKEN_KEYS.has(key) || /^__cft__/.test(key ?? '')) return fakeToken(text);
@@ -367,7 +367,7 @@ export function scrubDomText(value) {
   if (trimmed.length <= 3) return NON_ASCII_LETTER.test(trimmed) ? lead + 'x'.repeat(trimmed.length) + tail : value;
   if (UI_TEXT.has(trimmed.toLowerCase())) return value;
   // Counts and times stay. Seven digits or more could be a phone number, as in the data path.
-  if (SMALL_NUMBER.test(trimmed)) return trimmed.replace(/\D/g, '').length >= 7 ? value.replace(/\d{3,}/g, (run) => fakeDigits(run, run.length)) : value;
+  if (SMALL_NUMBER.test(trimmed)) return trimmed.replace(/\D/g, '').length >= 7 ? value.replace(/\d+/g, (run) => fakeDigits(run, run.length)) : value;
   return lead + fakeWords(trimmed) + tail;
 }
 

@@ -241,11 +241,15 @@ test('page text: short runs stay, other scripts are blanked, numbers and spacing
   assert.ok(!words.includes('Sam'));
   assert.equal(scrubDomTree('<&>'), '&lt;&amp;&gt;', 'short text is escaped, not rewritten');
   // A phone number or a long id in a post is a number too, and isn't kept.
-  for (const number of ['555-201-4477', '(555) 201 4477', '2014477', '1234567890']) {
+  // Numbers written in pairs, the way some countries write them, count too.
+  for (const number of ['555-201-4477', '(555) 201 4477', '2014477', '1234567890', '12 34 56 78', '123 45 67']) {
     const scrubbed = scrubDomText(` ${number} `);
     assert.ok(!scrubbed.includes(number), number);
     // Stand-ins never carry ten digits in a row, so only the shorter ones keep their shape.
     if (number.length <= 12 && !/\d{10}/.test(number)) assert.equal(scrubbed.replace(/\d/g, '0'), ` ${number.replace(/\d/g, '0')} `, 'same shape');
+    const kept = number.match(/\d+/g).filter((run) => scrubbed.includes(` ${run} `) || scrubbed.startsWith(` ${run}`)).length;
+    assert.ok(kept < number.match(/\d+/g).length, `${number}: no number keeps all its own digit groups`);
+    assert.notEqual(scrubString(number, 'value'), number, `${number} in data`);
   }
   assert.equal(scrubDomText('1,234'), '1,234');
   assert.equal(scrubDomText('12:45'), '12:45');
