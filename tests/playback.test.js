@@ -401,10 +401,24 @@ test('a video about as long as the volume scale goes takes the slider that follo
   start.document.querySelector('[aria-label="Change Position"]').setAttribute('aria-valuenow', '5');
   muted.at(5.2);
   assert.equal(positionSlider(muted.video).getAttribute('aria-label'), 'Change Position');
-  // A thin progress bar beside the scrubber: both follow the video, and either will do.
+  // The volume at 50 while the video passes second 50: both follow it for a moment, and only
+  // the one that moves is the position. The volume's pop-up is never taken for the bar.
+  const half = page(undefined, player(50).replace('aria-valuenow="31"', 'aria-valuenow="50"'));
+  const mid = fakeVideo(half, { time: 50.3, duration: 100.3, parent: half.document.querySelector('.slot') });
+  const looks = new WeakMap();
+  assert.equal(positionSlider(mid.video, looks), null, 'not before one has moved');
+  half.document.querySelector('[aria-label="Change Position"]').setAttribute('aria-valuenow', '51');
+  mid.at(51.3);
+  assert.equal(positionSlider(mid.video, looks).getAttribute('aria-label'), 'Change Position');
+  // A thin progress bar beside the scrubber: both follow the video and both move, so either
+  // will do once they've moved.
   const twin = page(undefined, player(80).replace('<div class="volume">', '<div class="thin"><div role="slider" aria-label="Progress" aria-valuemax="100" aria-valuenow="31"></div></div><div class="volume">'));
   const both = fakeVideo(twin, { time: 31.4, duration: 100.3, parent: twin.document.querySelector('.slot') });
-  assert.equal(positionSlider(both.video).getAttribute('aria-label'), 'Progress');
+  const seen = new WeakMap();
+  assert.equal(positionSlider(both.video, seen), null);
+  for (const label of ['Progress', 'Change Position']) twin.document.querySelector(`[aria-label="${label}"]`).setAttribute('aria-valuenow', '32');
+  both.at(32.4);
+  assert.equal(positionSlider(both.video, seen).getAttribute('aria-label'), 'Progress');
 });
 
 test('the faded controls are kept on screen, and only them', () => {

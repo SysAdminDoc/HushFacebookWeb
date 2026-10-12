@@ -17,10 +17,11 @@ const TRACKS = 2; // seconds between a slider's value and the video's time for i
 
 // The position slider that belongs to a video: inside the nearest box around the video that has
 // one, with the video's length as its largest value. A video about 100 seconds long can match a
-// volume slider too, and then only a slider whose value follows the video's time counts. In the
-// first seconds of a muted video a volume at 0 follows it as well, so none is taken until the
-// video is past them. After that, two sliders that both follow it are both position bars.
-export function positionSlider(video) {
+// volume slider too, and then only a slider whose value follows the video's time counts. A
+// volume at V follows it too while the video passes second V (at 0 in a muted video's first
+// seconds), so when two follow it, only one whose value has moved since the last look (seen
+// keeps each slider's value) is taken. Two that both move are both position bars.
+export function positionSlider(video, seen = new WeakMap()) {
   const length = Math.round(video.duration);
   if (!Number.isFinite(length) || length <= 0) return null;
   let node = video.parentElement;
@@ -30,8 +31,15 @@ export function positionSlider(video) {
     const fits = sliders.filter((slider) => Math.abs(Number(slider.getAttribute('aria-valuemax')) - length) <= 1);
     if (fits.length <= 1) return fits[0] ?? null;
     const tracking = fits.filter((slider) => Math.abs(Number(slider.getAttribute('aria-valuenow') ?? Number.NaN) - video.currentTime) <= TRACKS);
-    if (tracking.length > 1 && video.currentTime <= TRACKS) return null;
-    return tracking[0] ?? null;
+    if (tracking.length <= 1) return tracking[0] ?? null;
+    const moved = tracking.filter((slider) => {
+      const value = slider.getAttribute('aria-valuenow');
+      const before = seen.get(slider);
+      seen.set(slider, value);
+      return before !== undefined && before !== value;
+    });
+    if (video.currentTime <= TRACKS) return null;
+    return moved[0] ?? null;
   }
   return null;
 }
@@ -53,6 +61,7 @@ export function keepShown(video, slider, styleOf) {
 
 export function createControlsKeeper({ doc, enabled, now = () => Date.now(), styleOf = (node) => doc.defaultView.getComputedStyle(node), inReelsOrStories = () => /^\/(?:reels?|stories)\//.test(doc.location?.pathname ?? '') }) {
   const checked = new WeakMap(); // video -> last check time
+  const values = new WeakMap(); // slider -> its value at the last check
   let kept = 0;
 
   function check(video) {
@@ -60,7 +69,7 @@ export function createControlsKeeper({ doc, enabled, now = () => Date.now(), sty
     const time = now();
     if (time - (checked.get(video) ?? Number.NEGATIVE_INFINITY) < CHECK_EVERY) return;
     checked.set(video, time);
-    const slider = positionSlider(video);
+    const slider = positionSlider(video, values);
     if (slider && keepShown(video, slider, styleOf)) kept++;
   }
 
