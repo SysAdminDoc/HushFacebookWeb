@@ -83,9 +83,9 @@ What the status words mean:
 | Hold back analytics uploads | Needs research | Same question for usage reports. |
 | Block background ad prefetch | Android only | The web has no ad fetch running in the background. Across every captured run, the only ad answer outside the feeds is the one for a video's ad breaks, asked for as you open each video, which Hide sponsored reels already empties. Feed, search and Marketplace ads come inside the answers the other ad switches clean. |
 | Block background-return feed refresh | Needs research | Whether the web feed resets when you come back to the tab. |
-| Block Instant Games ads | Needs research | Games run in their own frame on the web. |
+| Block Instant Games ads | Planned | A game runs in its own frame on Facebook's game host and asks for ads through Facebook's game kit. The plan is to make those ad calls answer that there's no ad to show, which games already handle. It can't be seen working until a game has been opened on the test account, since opening one shares the account's name and picture with the game. |
 | Tag suggestions only after @ | Needs research | How the web composer offers tags. |
-| Send chat photos and videos at original quality | Needs research | How the web chat shrinks uploads. |
+| Send chat photos and videos at original quality | Needs research | Where the web chat shrinks a photo can only be seen by sending one, and the test account's chats are end-to-end encrypted. It needs a chat with a second account. |
 | Hide the Get Messenger card | Written | Called "Hide Facebook's own cards and tips" on the web. Facebook sends its own cards as quick promotions, in lists the Messenger chat list banner, the Messenger menu and the story viewer each ask for, and the script empties those lists before the page reads them. Live, the story viewer's tip was held back and the Messenger menu and stories worked as usual. The test account hasn't been offered a Get Messenger card on the web yet, so that one hasn't been seen go. Needs the script running in the page. |
 | Allow screenshots | Android only | Browsers don't block screenshots. |
 | Block screenshot detection | Android only | Websites can't see screenshots. |
