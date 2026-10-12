@@ -66,35 +66,34 @@ const copyId = (representation) => representation.match(/^<Representation\b[^>]*
 // kept copy to fetch instead (the best one left in its set). One book lasts the whole page,
 // since a video's prefetch list repeats on every streamed line after its manifest (captured
 // feed answer, 2026-10-10). Representation ids are Facebook's own long numbers, the same in the
-// manifest and the list, so they don't repeat across videos. When the book is full it forgets
-// what earlier answers put in, never the answer being read, whose lists come after all its
-// manifests. Lists for videos it forgot wait for their manifests again.
+// manifest and the list, so they don't repeat across videos. When the book is full it forgets the
+// oldest entries, only as many as it needs, and never one the answer being read put in, whose
+// lists come after all its manifests. Lists for videos it forgot wait for their manifests again.
 export function createCopyBook() {
-  const kept = new Map(); // id -> { quality, answer }
-  const instead = new Map(); // id -> { best, answer }
+  const copies = new Map(); // id -> { quality, best, answer }, oldest first; best is null when kept
   let answer = 0;
+  const put = (id, entry) => {
+    copies.delete(id);
+    copies.set(id, entry);
+  };
   return {
     nextAnswer() {
       answer++;
     },
-    instead: (id) => instead.get(id)?.best ?? null,
-    kept: (id) => kept.has(id),
-    quality: (id) => kept.get(id)?.quality ?? null,
+    instead: (id) => copies.get(id)?.best ?? null,
+    kept: (id) => copies.has(id) && copies.get(id).best === null,
+    quality: (id) => (copies.get(id)?.best === null ? copies.get(id).quality : null),
     makeRoom(count) {
-      if (kept.size + instead.size + count <= MAX_REMEMBERED) return;
-      for (const book of [kept, instead]) {
-        for (const [id, entry] of book) if (entry.answer < answer) book.delete(id);
+      for (const [id, entry] of copies) {
+        if (copies.size + count <= MAX_REMEMBERED || entry.answer >= answer) return;
+        copies.delete(id);
       }
     },
     keep(id, quality = null) {
-      if (!id) return;
-      kept.set(id, { quality, answer });
-      instead.delete(id);
+      if (id) put(id, { quality, best: null, answer });
     },
     replace(id, best) {
-      if (!id || !best) return;
-      instead.set(id, { best, answer });
-      kept.delete(id);
+      if (id && best) put(id, { quality: null, best, answer });
     },
   };
 }
@@ -131,8 +130,9 @@ const isVideoCopy = (copy) => /^video\//.test(copy?.mime_type ?? '');
 // Their width and height can't judge them (most copies of a 1080p video say 720x1280), so a
 // copy the manifest never named goes too. Null when the list has video copies but none the
 // manifest kept: its manifest hasn't come yet, or the book forgot it, and the list waits. A
-// first copy that was dropped becomes the best one kept, or when the list doesn't carry that
-// one, the best kept copy the list does carry, so the video never starts with sound only.
+// first copy that was dropped, or that the manifest never named, becomes the best one kept, or
+// when the list doesn't carry that one, the best kept copy the list does carry, so the video
+// never starts with sound only.
 export function capPrefetch(entry, book) {
   const copies = entry?.representations;
   if (!Array.isArray(copies) || !copies.some(isVideoCopy)) return { entry, changed: false };
@@ -143,11 +143,12 @@ export function capPrefetch(entry, book) {
   if (changed) entry.representations = left;
   if (Array.isArray(entry.initial_representation_ids)) {
     const ids = new Set(left.map((copy) => copy?.representation_id));
+    const videos = new Set(copies.filter(isVideoCopy).map((copy) => copy.representation_id));
     const bestLeft = left.filter(isVideoCopy).map((copy) => copy.representation_id)
       .reduce((best, id) => (best === null || (book.quality(id) ?? -1) > (book.quality(best) ?? -1) ? id : best), null);
     const swap = (id) => {
       const best = book.instead(id);
-      if (best === null) return id;
+      if (best === null) return videos.has(id) && !ids.has(id) ? bestLeft ?? id : id;
       return ids.has(best) ? best : bestLeft ?? best;
     };
     const initial = [...new Set(entry.initial_representation_ids.map(swap))].filter((id) => ids.has(id));

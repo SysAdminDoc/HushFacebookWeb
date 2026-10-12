@@ -153,14 +153,45 @@ test("a copy in the list that the manifest never named goes too, and a list left
   assert.deepEqual(listOf(again), [], 'no list with sound only');
 });
 
-test('a full book starts over between sets, never halfway through one', async () => {
+test('a full book makes room between sets, never halfway through one', async () => {
   const book = createCopyBook();
   book.makeRoom(0);
   for (let i = 0; i < 4996; i++) book.keep(`old${i}`);
   const [first] = await prefetchLines();
   capAnswer(first, 'highest', book);
   assert.deepEqual(copiesOf(first, 0), ['353597569v', '367598183a'], 'every drop from the manifest still applies');
-  assert.equal(book.kept('old1'), false, 'the old copies went first');
+  assert.equal(book.kept('old0'), false, 'the old copies went first');
+  assert.equal(book.kept('old4995'), true, 'only as many as needed');
+});
+
+test('a full book forgets the oldest copies first, only as many as it needs, never the answer being read', () => {
+  const book = createCopyBook();
+  book.nextAnswer();
+  for (let i = 0; i < 5000; i++) book.keep(`old${i}`);
+  book.nextAnswer();
+  book.makeRoom(3);
+  assert.deepEqual(['old0', 'old1', 'old2', 'old3', 'old4999'].map((id) => book.kept(id)), [false, false, false, true, true]);
+  for (const id of ['new0', 'new1', 'new2']) book.keep(id, 720);
+  // An answer's own copies stay, even asked for more room than the book has.
+  book.makeRoom(5000);
+  assert.deepEqual(['old4999', 'new0', 'new2'].map((id) => book.kept(id)), [false, true, true]);
+  assert.equal(book.quality('new1'), 720);
+});
+
+test("the line before the one that fills the book keeps its videos, so their lists on later lines still get trimmed", () => {
+  const book = createCopyBook();
+  for (let i = 0; i < 4994; i++) book.keep(`other${i}`);
+  // Line one: a video capped at 480p.
+  capAnswer({ data: { a: { dash_manifest: mpd([1080, 720, 480, 360]) } } }, '480', book);
+  // Line two's video fills the book.
+  capAnswer({ data: { b: { dash_manifest: mpd([1080, 720, 480, 360]).replace(/id="r/g, 'id="s') } } }, '480', book);
+  assert.equal(book.kept('other0'), false);
+  // Line three repeats line one's list, as every streamed line after the manifest does.
+  const later = { extensions: { all_video_dash_prefetch_representations: [{ ...entry(['r1080', 'r720', 'r480', 'r360', 'ra']), initial_representation_ids: ['r1080', 'ra'] }] } };
+  capAnswer(later, '480', book);
+  const [list] = later.extensions.all_video_dash_prefetch_representations;
+  assert.deepEqual(list.representations.map((copy) => copy.representation_id), ['r480', 'r360', 'ra']);
+  assert.deepEqual(list.initial_representation_ids, ['r480', 'ra']);
 });
 
 test('a dropped copy is swapped for the best one kept, in whatever order the manifest lists them', () => {
@@ -202,6 +233,16 @@ test("a first copy swapped for one the list doesn't carry becomes the best kept 
   capAnswer(picks, '480', book);
   assert.deepEqual(picks.all_video_dash_prefetch_representations[0].representations.map((copy) => copy.representation_id), ['r360', 'ra']);
   assert.deepEqual(picks.all_video_dash_prefetch_representations[0].initial_representation_ids, ['r360', 'ra'], 'never sound only');
+});
+
+test('a first copy the manifest never named becomes the best kept copy too', () => {
+  const book = createCopyBook();
+  capManifest(mpd([1080, 720, 480, 360]), '480', book);
+  const picks = { all_video_dash_prefetch_representations: [{ ...entry(['r999', 'r480', 'r360', 'ra']), initial_representation_ids: ['r999', 'ra'] }] };
+  capAnswer(picks, '480', book);
+  const [list] = picks.all_video_dash_prefetch_representations;
+  assert.deepEqual(list.representations.map((copy) => copy.representation_id), ['r480', 'r360', 'ra']);
+  assert.deepEqual(list.initial_representation_ids, ['r480', 'ra'], 'never sound only');
 });
 
 test('an empty set that closes itself leaves the next set to be capped', () => {
