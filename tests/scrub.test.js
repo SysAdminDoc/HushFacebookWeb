@@ -170,6 +170,13 @@ test('relay labels, GraphQL roles and CSS values are kept as they are', () => {
   assert.notEqual(scrubString('Pat Example', 'name'), 'Pat Example');
   assert.notEqual(scrubString('Pat', 'short_name'), 'Pat');
   assert.equal(scrubString('CometStorySponsoredLabelStrategy', '__typename'), 'CometStorySponsoredLabelStrategy');
+  // Module names Relay loads read like domains, and stay under __dr only.
+  for (const kept of ['CometFeedStoryTranslatedMessageContainerRenderingStrategy.react', 'CometFeedStoryTranslatedMessageContainerRenderingStrategy_messageContainer$normalization.graphql']) {
+    assert.equal(scrubString(kept, '__dr'), kept);
+  }
+  assert.notEqual(scrubString('shop.example.react', '__dr'), 'shop.example.react');
+  assert.notEqual(scrubString('patsbakery.com', '__dr'), 'patsbakery.com');
+  assert.notEqual(scrubString('Strategy.react', 'url'), 'Strategy.react');
 });
 
 test('URLs keep the host and grammar of facebook.com and lose everything else', () => {

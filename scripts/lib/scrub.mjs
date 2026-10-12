@@ -64,6 +64,7 @@ const HAS_LONG_DIGITS = /\d{10,}/;
 const EMBEDDED_URL = /https?:\/\/[^\s"'<>\\]+/g;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const DOMAIN = /^(?=.{4,253}$)([a-z0-9-]+\.)+[a-z]{2,}$/i;
+const MODULE_NAME = /^[A-Za-z][A-Za-z0-9_]*(?:\$[A-Za-z0-9_]+)?(?:\.(?:react|graphql|entrypoint|relayprovider|next))?$/;
 const WORDY = /^[A-Za-z_][A-Za-z_$.:-]{0,119}$/;
 const SHORT_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_$.:-]{0,47}$/;
 // A code identifier under a *name key has a separator or a digit ("comet_home", "v2").
@@ -226,6 +227,9 @@ export function scrubString(value, key) {
   if (/^\/[^\s]*$/.test(value) && value.length > 1) return scrubPath(value);
 
   if (EMAIL.test(value)) return `${fakeSlug(value).slice(1)}@example.invalid`;
+  // The name of one of Facebook's own code modules for Relay to load, such as
+  // "CometFeedStoryTranslatedMessageContainerRenderingStrategy.react", which reads as a domain.
+  if (key === '__dr' && MODULE_NAME.test(value)) return value;
   if (GEO_KEYS.has(key)) return '0';
   if (isTextKey(key)) return fakeWords(value);
   if (isNameKey(key) && !CODE_IDENTIFIER.test(value) && !(key === 'name' && CSS_PROPERTIES.has(value))) return fakeWords(value);
