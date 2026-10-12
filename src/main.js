@@ -16,6 +16,7 @@ import { createDailyTasks, pageMirror, scheduleStorageCheck, whenMirrorReady } f
 import { mountFeatureStyles } from './core/style.js';
 import { features } from './features/index.js';
 import { executionTarget, startGameFrame } from './features/games/frame.js';
+import { keepKeysInPanel } from './ui/keys.js';
 import { mountPanel } from './ui/panel.js';
 
 // Which Facebook account is signed in, from its c_user cookie, so each one keeps its own
@@ -32,6 +33,8 @@ const RUNNING = 'data-hushfacebook-web';
 const DUPLICATE = 'data-hushfacebook-web-duplicate';
 
 function boot() {
+  // First, so Facebook's keyboard shortcuts never see what's typed in the settings panel.
+  keepKeysInPanel(pageWindow);
   const log = createLog();
   const storage = createGmStorage();
   const settings = createSettings({ storage, features, log, version, account: signedInAccount() });
