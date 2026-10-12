@@ -7,8 +7,9 @@
 // marks the largest box around the count that holds nothing else and isn't the tab or button
 // itself, and CSS hides the marks. So a group or Page whose name is a number stays.
 //
-// Not seen live yet: the test account showed no counts on 2026-10-11 (captures/2026-10-11-
-// declutter*), so the badge shape is Facebook's usual one and the tests build it by hand.
+// Live 2026-10-12 (the Messenger button with one unread chat): the red pill holds the count and
+// a screen-reader line, "1 Unread Chats", in a 1 px clipped box, so the pill's text isn't the
+// count alone. Text no one can see doesn't count when the walk compares an ancestor's text.
 
 export const BADGE_MARK = 'data-hfw-badge';
 const COUNT = /^\d{1,3}\+?$/;
@@ -25,6 +26,24 @@ function drawnAsBadge(element, view) {
   return style.position === 'absolute' || style.position === 'fixed' || !transparent(style.backgroundColor);
 }
 
+// The usual visually hidden box: clipped to nothing, or a 1 px square that hides its overflow.
+export function screenReaderOnly(element, view = element.ownerDocument.defaultView) {
+  const style = view.getComputedStyle(element);
+  if (/^rect\(\s*0(px)?[\s,]+0(px)?[\s,]+0(px)?[\s,]+0(px)?\s*\)$/.test(style.clip ?? '') || style.clipPath === 'inset(50%)') return true;
+  const tiny = (value) => parseFloat(value) <= 1;
+  return style.position === 'absolute' && style.overflow === 'hidden' && tiny(style.width) && tiny(style.height);
+}
+
+// An element's text without what's only there for screen readers.
+export function drawnText(element, view = element.ownerDocument.defaultView) {
+  let text = '';
+  for (const node of element.childNodes) {
+    if (node.nodeType === 3) text += node.data;
+    else if (node.nodeType === 1 && !screenReaderOnly(node, view)) text += drawnText(node, view);
+  }
+  return text;
+}
+
 // The box to hide around a count, or null when it isn't a badge.
 export function badgeBox(leaf, view = leaf.ownerDocument.defaultView) {
   const count = leaf.textContent.trim();
@@ -33,7 +52,9 @@ export function badgeBox(leaf, view = leaf.ownerDocument.defaultView) {
   let badge = drawnAsBadge(leaf, view);
   for (let el = leaf.parentElement; el; el = el.parentElement) {
     if (el.matches(SCOPES) || el.matches(INTERACTIVE) || el.querySelector(INTERACTIVE)) break;
-    if (el.textContent.trim() !== count) break;
+    // The cheap test first: most ancestors either hold the count alone or plainly hold more.
+    const text = el.textContent.trim();
+    if (text !== count && (!text.includes(count) || drawnText(el, view).trim() !== count)) break;
     box = el;
     badge ||= drawnAsBadge(el, view);
   }

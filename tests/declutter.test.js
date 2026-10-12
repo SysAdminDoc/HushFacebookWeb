@@ -162,6 +162,29 @@ test('a count drawn as a badge is marked, a name that is a number is not', () =>
   assert.equal(markBadges(doc), 0, 'marked once');
 });
 
+// The Messenger button with one unread chat, as drawn live 2026-10-12: the pill holds a
+// screen-reader line beside the count.
+test("a count beside a screen-reader line is still a badge, and the line doesn't hide a name", () => {
+  const SR = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0px, 0px, 0px, 0px)';
+  const win = page(`
+    <div role="navigation" aria-label="Account Controls and Settings">
+      <div role="button" aria-label="Messenger, 1 unread"><svg></svg>
+        <div data-visualcompletion="ignore"><div>
+          <span class="chat-badge" style="background-color:rgb(221, 35, 52)"><div style="${SR}">1 Unread Chats</div><span style="display:flex">1</span></span>
+        </div></div>
+      </div>
+    </div>
+    <div role="navigation" aria-label="Shortcuts"><ul>
+      <li><a href="/groups/7/"><span><span>7</span><span style="${SR}">7 new posts</span></span><span>Club</span></a></li>
+    </ul></div>`);
+  const doc = win.document;
+  assert.equal(markBadges(doc), 1);
+  const marked = doc.querySelector(`[${BADGE_MARK}]`);
+  assert.equal(marked.getAttribute('data-visualcompletion'), 'ignore', 'the largest box holding only the count goes');
+  assert.ok(marked.querySelector('.chat-badge'));
+  assert.equal(doc.querySelector('[role="button"]').hasAttribute(BADGE_MARK), false, 'the button stays');
+});
+
 test('counts outside the top bar and navigation are left alone', () => {
   const win = page('<div role="main"><span style="position:absolute;background-color:red">5</span></div>');
   assert.equal(markBadges(win.document), 0);
