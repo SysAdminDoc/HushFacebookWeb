@@ -11,6 +11,7 @@ import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
 import { accountFromCookie, createSettings } from './core/settings.js';
 import { createGmStorage, UNKEPT_SETTINGS } from './core/storage.js';
+import { keepOutOfStorageReport } from './core/storage-report.js';
 import { createDailyTasks, pageMirror, scheduleStorageCheck, whenMirrorReady } from './core/tasks.js';
 import { mountFeatureStyles } from './core/style.js';
 import { features } from './features/index.js';
@@ -54,6 +55,8 @@ function boot() {
   if (!net) {
     log.warn('Your userscript manager is running HushFacebook Web as a content script, so features that need the page are off. Diagnostics has the details.');
   }
+  // The script's marks for the tab stay out of the storage report Facebook's page sends home.
+  if (net) keepOutOfStorageReport({ win: pageWindow, log, diagnostics });
   if (storage.kind !== 'gm') {
     log.warn(UNKEPT_SETTINGS);
     toast(UNKEPT_SETTINGS, { tone: 'error' });
