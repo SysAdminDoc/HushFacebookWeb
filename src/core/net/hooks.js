@@ -298,7 +298,12 @@ function patchBeacon(win, { blockingRule }) {
   if (typeof original !== 'function') return;
   nav.sendBeacon = function sendBeacon(url, data) {
     const ctx = describeRequest({ transport: 'beacon', url, method: 'POST', body: data, base: win.location.href });
-    if (blockingRule(ctx)) return true;
+    const blocker = blockingRule(ctx);
+    if (blocker) {
+      // A beacon gets no answer, but the rule still hears that it held one back.
+      blocker.fakeResponse?.(ctx);
+      return true;
+    }
     return original.apply(this, arguments);
   };
 }

@@ -47,6 +47,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Tag suggestions only after @
 * Show comments as written
 * View stories anonymously
+* Hold back usage logs
 * Stop stories moving on
 * Sanitize sharing links
 * Skip Facebook's link redirect
