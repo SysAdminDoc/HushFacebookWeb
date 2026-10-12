@@ -7,7 +7,7 @@
 //        [--index 0,3] --out tests/fixtures/<name>.jsonl
 //   node scripts/scrub-fixture.mjs <network.jsonl> --request --friendly <name>
 //        --out tests/fixtures/<name>.request.jsonl
-//   node scripts/scrub-fixture.mjs <run folder>/organic --dom --out tests/fixtures/organic-posts.jsonl
+//   node scripts/scrub-fixture.mjs <run folder>/organic --dom --out tests/fixtures/organic-posts.jsonl.gz
 //
 // --dom takes the organic-<source>.json post captures in a folder and writes one line per
 // post: { source, width, height, html }, the markup rebuilt by scrubDomTree.
@@ -20,6 +20,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { extractDataSjs, findLeftovers, scrubDomTree, scrubLine, scrubValue, setScrubKey } from './lib/scrub.mjs';
 
 // Stand-ins are keyed with a secret that stays beside the raw captures, so a committed
@@ -111,5 +112,7 @@ if (leftovers.length) {
   console.error(`the scrub left something behind, so no fixture was written:\n  ${leftovers.join('\n  ')}`);
   process.exit(1);
 }
-await writeFile(option('out'), text);
-console.log(`wrote ${option('out')}: ${lines.length} line(s), ${(text.length / 1024).toFixed(1)} KiB (from ${(raw.length / 1024).toFixed(1)} KiB)`);
+// A .gz name writes the fixture compressed, for page markup too large to keep as plain text.
+const out = option('out').endsWith('.gz') ? gzipSync(text, { level: 9 }) : text;
+await writeFile(option('out'), out);
+console.log(`wrote ${option('out')}: ${lines.length} line(s), ${(out.length / 1024).toFixed(1)} KiB (from ${(raw.length / 1024).toFixed(1)} KiB)`);
