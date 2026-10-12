@@ -53,6 +53,7 @@ import tapToPlay from './playback/tap-to-play.js';
 import limitHdr from './playback/hdr-brightness.js';
 import resumeVideos from './playback/resume-videos.js';
 import keepSpeed from './playback/keep-speed.js';
+import keepVolume from './playback/keep-volume.js';
 import holdForSpeed from './playback/hold-for-speed.js';
 import pictureInPicture from './playback/picture-in-picture.js';
 import keepControls from './playback/keep-controls.js';
@@ -84,7 +85,7 @@ export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts, keepPostDates, keepFeedPlace,
   hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, holdBackLogs,
   commentOrder, showAllReplies, hideCommentStickers, hideCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
-  keepSpeed, holdForSpeed, pictureInPicture, keepControls, videoQuality,
+  keepSpeed, keepVolume, holdForSpeed, pictureInPicture, keepControls, videoQuality,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
   menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions, blockInstantGamesAds,
   // In this order: the first to claim a Home load redirects it (opening/start.js).

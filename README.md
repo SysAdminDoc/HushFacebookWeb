@@ -63,6 +63,7 @@ There's a settings panel and a layer that filters Facebook's data as it loads. T
 * Turn off HDR brightness
 * Resume long videos
 * Keep your video speed
+* Remember your volume
 * Hold a reel for 2x
 * Picture-in-picture button
 * Keep video controls on screen
