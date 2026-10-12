@@ -79,6 +79,10 @@ main { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 24px
 .options label { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; min-width: 0; color: var(--subtext); font-size: 15px; line-height: 21px; }
 .options .option-toggle { flex-wrap: nowrap; gap: 14px; }
 .option-toggle span { min-width: 0; }
+.field { min-width: 0; }
+.field-error { color: var(--red); font-size: 14px; margin: 8px 0 0; }
+.options [aria-invalid="true"] { border-color: var(--red); }
+.button[aria-busy="true"] { cursor: progress; }
 .options select, .options input[type="text"], .options input[type="number"], .options textarea {
   min-width: 0; max-width: 100%; background: var(--mantle); border: 1px solid var(--surface1); border-radius: 8px; padding: 9px 12px;
 }

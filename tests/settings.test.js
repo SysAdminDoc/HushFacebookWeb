@@ -104,6 +104,67 @@ test('reset hands back what it cleared so Undo can restore it', () => {
   assert.equal(settings.get('beta'), true);
 });
 
+test('failed writes leave saved and running preferences unchanged and can be retried', () => {
+  for (const mutate of [
+    (settings) => settings.set('alpha', false),
+    (settings) => settings.restore({ alpha: false }),
+    (settings) => settings.reset(),
+    (settings) => settings.importJson('{"alpha":false,"beta":false}'),
+  ]) {
+    const storage = createMemoryStorage({ settings: { beta: true } });
+    const save = storage.set;
+    const settings = createSettings({ storage, features });
+    const heard = [];
+    settings.subscribe((change) => heard.push(change));
+    storage.set = () => { throw new Error('Storage unavailable'); };
+    assert.throws(() => mutate(settings), /Storage unavailable/);
+    assert.deepEqual(settings.snapshot(), { beta: true });
+    assert.deepEqual(storage.dump().settings, { beta: true });
+    assert.equal(settings.enabled('beta'), true);
+    assert.deepEqual(heard, []);
+    storage.set = save;
+    mutate(settings);
+    assert.equal(heard.length, 1);
+    assert.deepEqual(settings.snapshot(), storage.dump().settings);
+  }
+});
+
+test('backup envelopes reject foreign apps and unsupported schemas without changing preferences', () => {
+  const { settings } = make({ beta: true });
+  for (const value of [
+    { app: 'Another app', schema: 1, settings: { beta: false } },
+    { app: 'HushFacebook Web', schema: 2, settings: { beta: false } },
+    { app: 'HushFacebook Web', schema: 1, settings: [] },
+    { settings: { beta: false } },
+    { app: 'HushFacebook Web', schema: 1 },
+  ]) {
+    assert.throws(() => settings.importJson(JSON.stringify(value)), TypeError);
+    assert.deepEqual(settings.snapshot(), { beta: true });
+  }
+});
+
+test('direct imports reject oversized UTF-8 text before parsing', () => {
+  const { settings } = make({ beta: true });
+  assert.throws(() => settings.importJson(' '.repeat(1024 * 1024 + 1)), /1 MB/);
+  assert.throws(() => settings.importJson('é'.repeat(600000)), /1 MB/);
+  assert.deepEqual(settings.snapshot(), { beta: true });
+});
+
+test('a complete backup restores defaults too while legacy partial imports keep other choices', () => {
+  const { settings } = make();
+  const defaults = settings.exportJson();
+  settings.set('beta', true);
+  const heard = [];
+  settings.subscribe(({ keys }) => heard.push(keys));
+  settings.importJson(defaults);
+  assert.equal(settings.get('beta'), false);
+  assert.ok(heard[0].includes('beta'));
+  settings.set('beta', true);
+  settings.importJson('{"alpha":false}');
+  assert.equal(settings.get('beta'), true);
+  assert.equal(settings.get('alpha'), false);
+});
+
 test('the signed-in account comes from the c_user cookie, and nothing else', () => {
   assert.equal(accountFromCookie('datr=abc; c_user=615000000000017; xs=12%3Aabc'), '615000000000017');
   assert.equal(accountFromCookie('c_user=615000000000017'), '615000000000017');

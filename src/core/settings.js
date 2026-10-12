@@ -8,6 +8,7 @@
 
 const STORAGE_KEY = 'settings';
 export const EXPORT_SCHEMA = 1;
+export const MAX_BACKUP_BYTES = 1024 * 1024;
 
 export function accountFromCookie(cookie) {
   return /(?:^|;\s*)c_user=(\d+)(?:;|$)/.exec(String(cookie ?? ''))?.[1] ?? null;
@@ -140,13 +141,15 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     return clean;
   }
 
-  function persist() {
+  function persist(next, keys) {
     try {
-      storage.set(key, values);
+      storage.set(key, next);
     } catch (error) {
       log?.error('Could not save settings', error);
       throw error;
     }
+    values = next;
+    notify(keys);
   }
 
   function notify(keys, remote = false) {
@@ -181,10 +184,10 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     set(key, value) {
       const found = spec(key);
       if (!isValid(found, value)) throw new TypeError(`Invalid value for ${key}: ${JSON.stringify(value)}`);
-      if (value === found.default) delete values[key];
-      else values[key] = value;
-      persist();
-      notify([key]);
+      const next = { ...values };
+      if (value === found.default) delete next[key];
+      else next[key] = value;
+      persist(next, [key]);
     },
     // A feature runs only when it's switched on and the whole script isn't paused.
     enabled(featureId) {
@@ -196,23 +199,27 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     },
     snapshot: () => structuredClone(values),
     restore(snapshot) {
-      values = sanitize(snapshot);
-      persist();
-      notify([...schema.keys()]);
+      persist(sanitize(snapshot), [...schema.keys()]);
     },
     reset() {
       const previous = structuredClone(values);
-      values = {};
-      persist();
-      notify([...schema.keys()]);
+      persist({}, [...schema.keys()]);
       return previous;
     },
     exportJson(now = new Date()) {
       return JSON.stringify({ app: 'HushFacebook Web', schema: EXPORT_SCHEMA, version, exported: now.toISOString(), settings: values }, null, 2);
     },
     importJson(text) {
+      if (typeof text !== 'string') throw new TypeError('Choose a JSON settings file');
+      if (text.length > MAX_BACKUP_BYTES || new TextEncoder().encode(text).length > MAX_BACKUP_BYTES) {
+        throw new TypeError('Choose a settings file smaller than 1 MB');
+      }
       const parsed = JSON.parse(text);
-      const incoming = parsed && typeof parsed.settings === 'object' ? parsed.settings : parsed;
+      const wrapped = parsed && typeof parsed === 'object' && ['app', 'schema', 'settings'].some((key) => Object.hasOwn(parsed, key));
+      if (wrapped && (parsed.app !== 'HushFacebook Web' || parsed.schema !== EXPORT_SCHEMA)) {
+        throw new TypeError('Choose a HushFacebook Web backup in format 1');
+      }
+      const incoming = wrapped ? parsed.settings : parsed;
       if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
         throw new TypeError('That file has no HushFacebook Web settings in it');
       }
@@ -222,18 +229,18 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       }
       const applied = [];
       const skipped = [];
+      const next = wrapped ? {} : { ...values };
       for (const [key, value] of Object.entries(changed)) {
         const found = schema.get(key);
         if (!found || !isValid(found, value)) {
           skipped.push(key);
           continue;
         }
-        if (value === found.default) delete values[key];
-        else values[key] = value;
+        if (value === found.default) delete next[key];
+        else next[key] = value;
         applied.push(key);
       }
-      persist();
-      notify(applied);
+      persist(next, wrapped ? [...schema.keys()] : applied);
       return { applied, skipped };
     },
   };

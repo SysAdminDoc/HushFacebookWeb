@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Failed settings writes now leave the saved choices and running features unchanged. A failed toggle returns to its saved position, invalid fields keep your text with an explanation, and unfinished edits survive a refresh.
+* Restoring a full backup now restores defaults too. Backups from another app, unsupported formats and files over 1 MB are rejected before changes are applied. Older plain settings files still work as partial imports.
+* Settings actions show when they're working, ignore repeated clicks and report failures. Restore and report copying return to their usual state when they finish.
 * v0.0.4 adds an experimental Block Instant Games ads switch. It uses the game's no-ad response, stays off by default and follows changes from Facebook through manager storage. Games that require an ad for a reward won't give that reward. Live game acceptance is still open.
 * Hide reel rows in the feed now removes the items from a captured reel row in Facebook's data before it's drawn. Friends' reel posts and other kinds of showcase stay intact. The page-side fallback still needs a live row to check.
 * Settings screenshots and the README banner now show the current development build.

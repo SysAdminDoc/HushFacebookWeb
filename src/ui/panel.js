@@ -3,6 +3,7 @@
 // Reset offers Undo instead of asking first.
 
 import { decisionLine } from '../core/diagnostics.js';
+import { MAX_BACKUP_BYTES } from '../core/settings.js';
 import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
 import { SLIDERS_ICON } from './icons.js';
@@ -46,6 +47,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   ];
   let current = sections[0].id;
   let opener = null;
+  const drafts = new Map();
+  const fieldErrors = new Map();
+  const pending = new Set();
   const hasMenuEntry = features.some((feature) => feature.id === 'menuEntry');
 
   const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
@@ -93,11 +97,24 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   root.append(launcher, dialog, toasts);
   document.body.append(host);
 
-  function apply(key, value) {
+  function apply(key, value, control) {
+    const draft = control?.value;
     try {
+      if (control && !control.validity.valid) {
+        const spec = settings.schema.get(key);
+        throw new TypeError(spec.type === 'number' ? `Enter a number from ${spec.min} to ${spec.max}.` : 'Check this value and try again.');
+      }
+      drafts.delete(key);
+      fieldErrors.delete(key);
       settings.set(key, value);
     } catch (error) {
-      log.error(`Couldn't save ${key}`, error);
+      if (control) {
+        drafts.set(key, draft);
+        fieldErrors.set(key, error instanceof TypeError ? error.message : "Couldn't save this change. Try again.");
+      }
+      if (!(control && error instanceof TypeError)) log.error("Couldn't save your change. Try again", error);
+      refreshChrome();
+      if (dialog.open) render();
     }
   }
 
@@ -121,30 +138,36 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function optionControl(feature, option) {
     const key = `${feature.id}.${option.key}`;
-    const value = settings.get(key);
+    const value = drafts.get(key) ?? settings.get(key);
+    const errorId = `hfw-error-${key}`;
+    const props = {
+      dataset: { key }, 'aria-invalid': fieldErrors.has(key) ? 'true' : null,
+      'aria-describedby': fieldErrors.has(key) ? errorId : null,
+      oninput: (event) => drafts.set(key, event.target.value),
+    };
+    const field = (control) => h('div', { class: 'field' }, h('label', null, option.label, control),
+      fieldErrors.has(key) ? h('p', { class: 'field-error', id: errorId, role: 'alert', text: fieldErrors.get(key) }) : null);
     switch (option.type) {
       case 'toggle':
         return h('label', { class: 'option-toggle' }, toggle(key, option.label), h('span', { text: option.label }));
       case 'select':
-        return h('label', null, option.label,
-          h('select', { dataset: { key }, onchange: (event) => apply(key, option.choices.find((choice) => String(choice.value) === event.target.value)?.value) },
+        return field(h('select', { ...props, onchange: (event) => apply(key, option.choices.find((choice) => String(choice.value) === event.target.value)?.value, event.target) },
             option.choices.map((choice) => h('option', { value: String(choice.value), selected: choice.value === value, text: choice.label }))));
       case 'number':
-        return h('label', null, option.label,
-          h('input', { type: 'number', value: String(value), min: option.min, max: option.max, dataset: { key }, onchange: (event) => apply(key, Number(event.target.value)) }));
+        return field(h('input', { ...props, type: 'number', value: String(value), required: true, min: option.min, max: option.max, onchange: (event) => apply(key, Number(event.target.value), event.target) }));
       default:
         // A short value, like a font name or a color, gets one line.
         if (option.lines === 1) {
-          return h('label', null, option.label,
-            h('input', { type: 'text', value, maxLength: option.maxLength, spellcheck: 'false', dataset: { key }, onchange: (event) => apply(key, event.target.value.trim()) }));
+          return field(h('input', { ...props, type: 'text', value, maxLength: option.maxLength, spellcheck: 'false', onchange: (event) => apply(key, event.target.value.trim(), event.target) }));
         }
-        return h('label', null, option.label,
+        return field(
           h('textarea', {
+            ...props,
             rows: option.rows ?? 3, class: option.code ? 'code' : undefined, spellcheck: option.code ? 'false' : undefined,
             // The browser stops a paste at the setting's limit, rather than the save failing
             // and the text being lost on the next redraw.
             maxLength: option.maxLength,
-            dataset: { key }, onchange: (event) => apply(key, event.target.value),
+            onchange: (event) => apply(key, event.target.value, event.target),
           }, value));
     }
   }
@@ -153,17 +176,27 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function featureActions(feature) {
     const list = actions?.list(feature.id) ?? [];
     if (!list.length) return null;
-    return h('div', { class: 'actions' }, list.map(({ label, run }, index) => h('button', {
-      class: 'button', type: 'button', text: label, dataset: { key: `action:${feature.id}:${index}` },
-      onclick: () => {
-        try {
-          run();
-        } catch (error) {
-          log.error(`${feature.title}: ${label} failed`, error);
-        }
+    return h('div', { class: 'actions' }, list.map(({ label, run }, index) => actionButton(`action:${feature.id}:${index}`, label, run)));
+  }
+
+  function actionButton(key, label, run, { primary = false, busyLabel = 'Working...' } = {}) {
+    return h('button', {
+      class: `button${primary ? ' primary' : ''}`, type: 'button', text: pending.has(key) ? busyLabel : label,
+      dataset: { key }, 'aria-busy': pending.has(key) ? 'true' : null, 'aria-disabled': pending.has(key) ? 'true' : null,
+      onclick: async () => {
+        if (pending.has(key)) return;
+        pending.add(key);
         render();
+        try {
+          await run();
+        } catch (error) {
+          log.error(`${label} failed. Try again`, error);
+        } finally {
+          pending.delete(key);
+          if (dialog.open) render();
+        }
       },
-    })));
+    });
   }
 
   function featureCard(feature) {
@@ -204,7 +237,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'desc', text: 'Save your choices to a file, or load them from one on another browser.' }),
         h('div', { class: 'actions' },
           h('button', { class: 'button primary', type: 'button', text: 'Back up settings', dataset: { key: 'backup' }, onclick: exportSettings }),
-          h('button', { class: 'button', type: 'button', text: 'Restore from a file', dataset: { key: 'restore' }, onclick: () => fileInput.click() }),
+          actionButton('restore', 'Restore from a file', () => fileInput.click(), { busyLabel: 'Restoring...' }),
           h('button', { class: 'button', type: 'button', text: 'Reset to defaults', dataset: { key: 'reset' }, onclick: resetSettings }))),
     ];
   }
@@ -231,7 +264,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('dt', { text: "Features that didn't start" }), h('dd', { text: blocked.length ? blocked.join(', ') : 'None' }),
         h('dt', { text: 'Posts hidden since the page loaded' }), h('dd', { text: hiddenSummary() }),
         ...featureRows().flatMap(({ label, value }) => [h('dt', { text: label }), h('dd', { text: value })])),
-      h('div', { class: 'actions' }, h('button', { class: 'button primary', type: 'button', text: 'Copy report', dataset: { key: 'copy-report' }, onclick: copyReport }))),
+      h('div', { class: 'actions' }, actionButton('copy-report', 'Copy report', copyReport, { primary: true, busyLabel: 'Copying...' }))),
       h('h3', { class: 'subheading', text: 'Why posts were hidden' }),
       h('p', { class: 'desc', text: "The last 50, newest first. data means it came out of Facebook's data before it was drawn, page means it was hidden on the page. Each post has a short tag instead of its id." }),
       decisions().length
@@ -245,7 +278,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function render() {
-    const focusedKey = shadow.activeElement?.dataset?.key;
+    const focused = shadow.activeElement;
+    const focusedKey = focused?.dataset?.key;
+    const selection = typeof focused?.selectionStart === 'number' ? [focused.selectionStart, focused.selectionEnd] : null;
+    const scrollTop = main.scrollTop;
+    const navScroll = [nav.scrollLeft, nav.scrollTop];
     nav.replaceChildren(h('div', { class: 'nav-label', text: 'Settings' }), ...sections.flatMap((section) => [
       section.divider ? h('hr') : null,
       h('button', {
@@ -260,7 +297,14 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('h3', { id: 'hfw-section-title', text: section.title }),
         h('p', { text: SECTION_DESCRIPTIONS[current] ?? '' })),
       ...(current === 'general' ? generalView() : current === 'diagnostics' ? diagnosticsView() : sectionView(section)));
-    if (focusedKey) root.querySelector(`[data-key="${CSS.escape(focusedKey)}"]`)?.focus();
+    main.scrollTop = scrollTop;
+    nav.scrollLeft = navScroll[0];
+    nav.scrollTop = navScroll[1];
+    if (focusedKey) {
+      const replacement = root.querySelector(`[data-key="${CSS.escape(focusedKey)}"]`);
+      replacement?.focus({ preventScroll: true });
+      if (selection && replacement?.setSelectionRange) replacement.setSelectionRange(...selection);
+    }
   }
 
   function refreshChrome() {
@@ -289,17 +333,37 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const file = fileInput.files?.[0];
     fileInput.value = '';
     if (!file) return;
+    if (pending.has('import')) return;
+    pending.add('import');
+    pending.add('restore');
+    render();
     try {
+      if (file.size > MAX_BACKUP_BYTES) throw new TypeError('Choose a settings file smaller than 1 MB');
       const { applied, skipped } = settings.importJson(await file.text());
+      drafts.clear();
+      fieldErrors.clear();
       const extra = skipped.length ? `, and skipped ${skipped.length} this version doesn't know` : '';
       toast(`Restored ${applied.length} settings${extra}.`);
     } catch (error) {
-      log.error("Couldn't restore settings from that file", error);
+      log.error(error instanceof TypeError ? error.message : "Couldn't restore settings. Choose a valid backup and try again", error);
+    } finally {
+      pending.delete('import');
+      pending.delete('restore');
+      if (dialog.open) render();
     }
   }
 
   function resetSettings() {
-    const previous = settings.reset();
+    let previous;
+    try {
+      previous = settings.reset();
+      drafts.clear();
+      fieldErrors.clear();
+      render();
+    } catch (error) {
+      log.error("Couldn't reset settings. Try again", error);
+      return;
+    }
     toast('Settings are back to their defaults.', { action: { label: 'Undo', run: () => {
       settings.restore(previous);
       if (dialog.open) root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });

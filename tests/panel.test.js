@@ -35,7 +35,7 @@ function lendGlobals(win) {
   });
 }
 
-function setup({ features = [], actions = null, unavailable = new Set() } = {}) {
+function setup({ features = [], actions = null, unavailable = new Set(), storage = createMemoryStorage() } = {}) {
   const win = new Window({ url: 'https://www.facebook.com/' });
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
@@ -49,14 +49,14 @@ function setup({ features = [], actions = null, unavailable = new Set() } = {}) 
   };
   win.document.body.innerHTML = '<div role="main"><div class="feed"><div aria-posinset="1"><div>Post</div></div></div></div>';
   const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
-  const settings = createSettings({ storage: createMemoryStorage(), features, log });
+  const settings = createSettings({ storage, features, log });
   const hider = createHider({ doc: win.document, log });
   const diagnostics = createDiagnostics();
   const panel = mountPanel({
     settings, features, log, hider, diagnostics, actions, unavailable,
     environment: { version: '0.0.1', manager: 'Tampermonkey', managerVersion: '5.4.1', mode: 'page', pageAccess: 'page' },
   });
-  return { win, shadow, panel, settings, hider, diagnostics, copied, unavailable, post: win.document.querySelector('[aria-posinset]') };
+  return { win, shadow, panel, settings, hider, diagnostics, copied, unavailable, log, post: win.document.querySelector('[aria-posinset]') };
 }
 
 const tick = () => new Promise((resolve) => nodeSetTimeout(resolve, 5));
@@ -237,4 +237,88 @@ test('an unavailable section request keeps the existing settings page usable', (
   panel.open('missing');
   assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'General');
   assert.equal(shadow.querySelector('dialog').open, true);
+});
+
+test('a failed toggle save restores the visible switch and gives recovery feedback', () => {
+  const storage = createMemoryStorage();
+  const { win, shadow, panel, settings } = setup({ storage });
+  storage.set = () => { throw new Error('Disk full'); };
+  panel.open('general');
+  const input = shadow.querySelector('[data-key="ui.hiddenNote"]');
+  input.checked = true;
+  input.dispatchEvent(new win.Event('change'));
+  assert.equal(settings.get('ui.hiddenNote'), false);
+  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').checked, false);
+  assert.match(shadow.querySelector('.toast.error').textContent, /save|storage/i);
+});
+
+test('invalid numeric edits stay in the field with an associated error and can be corrected', () => {
+  const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];
+  const { win, shadow, panel, settings } = setup({ features });
+  panel.open('feed');
+  let input = shadow.querySelector('[data-key="demo.days"]');
+  input.value = '50';
+  input.dispatchEvent(new win.Event('change'));
+  input = shadow.querySelector('[data-key="demo.days"]');
+  assert.equal(input.value, '50');
+  assert.equal(settings.get('demo.days'), 7);
+  assert.equal(input.getAttribute('aria-invalid'), 'true');
+  assert.match(shadow.getElementById(input.getAttribute('aria-describedby')).textContent, /1.*30/);
+  input.value = '12';
+  input.dispatchEvent(new win.Event('change'));
+  assert.equal(settings.get('demo.days'), 12);
+  assert.equal(shadow.querySelector('[data-key="demo.days"]').getAttribute('aria-invalid'), null);
+});
+
+test('async feature actions show busy state, prevent duplicates and recover from rejection', async () => {
+  const actions = createActions();
+  let reject;
+  let calls = 0;
+  actions.for('demo').add('Run check', () => { calls++; return new Promise((_resolve, fail) => { reject = fail; }); });
+  const { shadow, panel } = setup({ features: [{ id: 'demo', section: 'feed', title: 'Demo', default: true }], actions });
+  panel.open('feed');
+  const button = () => shadow.querySelector('[data-key="action:demo:0"]');
+  button().focus();
+  button().click();
+  assert.equal(button().getAttribute('aria-busy'), 'true');
+  button().click();
+  assert.equal(calls, 1);
+  reject(new Error('Network unavailable'));
+  await tick();
+  assert.equal(button().getAttribute('aria-busy'), null);
+  assert.equal(shadow.activeElement, button());
+  assert.match(shadow.querySelector('.toast.error').textContent, /Run check/);
+});
+
+test('oversized restore files are rejected before their contents are read', async () => {
+  const { win, shadow, panel, settings } = setup();
+  panel.open('general');
+  let reads = 0;
+  const file = { size: 1024 * 1024 + 1, text: async () => { reads++; return '{}'; } };
+  const input = shadow.querySelector('input[type="file"]');
+  Object.defineProperty(input, 'files', { value: [file] });
+  input.dispatchEvent(new win.Event('change'));
+  await tick();
+  assert.equal(reads, 0);
+  assert.deepEqual(settings.snapshot(), {});
+  assert.match(shadow.querySelector('.toast.error').textContent, /1 MB/);
+});
+
+test('a preference refresh preserves an unfinished draft, caret and scroll position', () => {
+  const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'words', type: 'text', label: 'Words', default: '' }] }];
+  const { win, shadow, panel, settings } = setup({ features });
+  panel.open('feed');
+  const input = shadow.querySelector('textarea');
+  input.value = 'unfinished words';
+  input.dispatchEvent(new win.Event('input'));
+  input.focus();
+  input.setSelectionRange(4, 8);
+  shadow.querySelector('main').scrollTop = 90;
+  settings.set('ui.hiddenNote', true);
+  const replacement = shadow.querySelector('textarea');
+  assert.equal(replacement.value, 'unfinished words');
+  assert.equal(shadow.activeElement, replacement);
+  assert.deepEqual([replacement.selectionStart, replacement.selectionEnd], [4, 8]);
+  assert.equal(shadow.querySelector('main').scrollTop, 90);
+  assert.equal(settings.get('demo.words'), '');
 });
