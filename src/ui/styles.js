@@ -20,14 +20,16 @@ button, input, select, textarea { font: inherit; color: inherit; -webkit-tap-hig
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 svg { flex: none; }
+/* Small and faded until pointed at: it sits over the corner of Facebook's left column, where
+   the footer links are. */
 .launcher {
-  position: fixed; left: 16px; bottom: 16px; z-index: 2147483000;
-  width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--surface1);
-  background: var(--base); display: grid; place-items: center; box-shadow: 0 6px 20px #0005;
-  transition: background 0.15s ease, transform 0.15s ease;
+  position: fixed; left: 12px; bottom: 12px; z-index: 2147483000;
+  width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--surface1);
+  background: var(--base); display: grid; place-items: center; box-shadow: 0 4px 14px #0004;
+  opacity: 0.6; transition: background 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
-.launcher:hover { background: var(--selected); transform: translateY(-2px); }
-.launcher svg { width: 24px; height: 24px; fill: var(--accent); }
+.launcher:hover, .launcher:focus-visible { opacity: 1; background: var(--selected); transform: translateY(-2px); }
+.launcher svg { width: 20px; height: 20px; fill: var(--accent); }
 .launcher[hidden] { display: none; }
 .dialog {
   width: min(1100px, calc(100vw - 32px)); height: min(920px, calc(100dvh - 32px));
