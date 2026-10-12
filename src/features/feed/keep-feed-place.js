@@ -16,8 +16,13 @@
 // So while the switch is on the three limits read as the longest delay a timer takes, and the
 // route check answers no. Not Infinity: the opened-post limit is a setTimeout delay too, and a
 // timer given Infinity fires at once. A manual refresh (the Home button) isn't touched.
+//
+// The limits module reads Facebook's experiment values as it runs, so the script takes its
+// exports once Facebook's own code has run it and never asks for it (afterModuleRuns). Asked for
+// early it threw and left Feeds on the splash screen (live 2026-10-11). The route check reads
+// nothing, so asking for it is safe, and Facebook only runs it once you've been away long enough.
 
-import { whenModule } from '../../core/modules.js';
+import { afterModuleRuns, whenModule } from '../../core/modules.js';
 
 export const CONSTANTS = 'CometFeedStalenessConstantsEntryPointVariables';
 export const ROUTES = 'CometReturnToFeedRouteUtils';
@@ -75,7 +80,7 @@ export default {
     const start = () => {
       if (started || !enabled()) return;
       started = true;
-      whenModule(win, CONSTANTS, (exports) => {
+      afterModuleRuns(win, CONSTANTS, (exports) => {
         const held = holdLimits(exports, enabled);
         state.home = held === LIMITS.length ? 'held' : `${held} of ${LIMITS.length} limits held, Facebook's code has changed`;
         if (!held) {
