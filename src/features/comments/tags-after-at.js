@@ -37,7 +37,7 @@ export default {
   section: 'comments',
   android: 'Tag suggestions only after @',
   title: 'Tag suggestions only after @',
-  description: "Typing a friend's name in a comment or post no longer offers to tag them. Type @ first when you do want to tag someone.",
+  description: "Typing a friend's name in a comment no longer offers to tag them. Type @ first when you do want to tag someone.",
   default: false,
   needsPage: true,
 
