@@ -181,6 +181,29 @@ test("force dark mode turns Facebook's popup layers dark too, and puts back only
   keeper.stop();
 });
 
+test("force dark mode leaves the light islands Facebook puts in its own dark areas", async () => {
+  // Live 2026-10-12, Reels' library page with no script: a dark div around the tab list, the
+  // selected tab white, and its word in a light div so it comes out dark.
+  const chip = (id) => `<div class="${DARK}" id="${id}-area"><div role="tablist"><div role="tab">
+    <div class="${LIGHT}" id="${id}"><div class="${LIGHT}" id="${id}-inner"><span>Saved</span></div></div></div></div></div>`;
+  const win = page(`${chip('chip')}<div class="${LIGHT}" id="layer"><div class="${LIGHT}" id="in-layer"></div></div>`);
+  const doc = win.document;
+  let on = true;
+  const keeper = createDarkKeeper({ doc, enabled: () => on });
+  keeper.start();
+  const theme = (id) => (doc.getElementById(id).classList.contains(DARK) ? 'dark' : 'light');
+  assert.deepEqual(['chip', 'chip-inner', 'layer', 'in-layer'].map(theme), ['light', 'light', 'dark', 'dark']);
+  // One drawn later, and one inside a layer the script darkened, which only follows the page.
+  doc.body.insertAdjacentHTML('beforeend', chip('late'));
+  doc.getElementById('layer').insertAdjacentHTML('beforeend', `<div class="${LIGHT}" id="in-layer-late"></div>`);
+  await tick();
+  assert.deepEqual(['late', 'late-inner', 'in-layer-late'].map(theme), ['light', 'light', 'dark']);
+  on = false;
+  keeper.apply();
+  assert.deepEqual(['chip', 'chip-area', 'layer', 'in-layer'].map(theme), ['light', 'dark', 'light', 'light']);
+  keeper.stop();
+});
+
 test('force dark mode stops swapping layers that keep coming back light', () => {
   const win = page(`<div class="${LIGHT}" id="layer"></div>`);
   let time = 0;

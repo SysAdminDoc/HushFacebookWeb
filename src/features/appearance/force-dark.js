@@ -10,6 +10,13 @@
 // every element with the light class is swapped, and only the ones the script swapped go back.
 // When Facebook picks dark itself while the script holds it dark, the page stays dark after
 // the switch goes off.
+//
+// Facebook also inverts on purpose: on its own dark areas a selected chip is white, with its
+// words in a __fb-light-mode island so they come out dark (live 2026-10-12, Reels' library page,
+// Saved: a dark div around the tab list, a white tab, a light div around the word). Swapping that
+// island left white words on white. So a light element stays light when the nearest dark element
+// above it is one Facebook made dark itself, and turns dark when there's none below <html> or the
+// nearest is a layer the script darkened.
 
 import { whenRootReady } from '../../core/env.js';
 
@@ -115,6 +122,15 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now(), is
     return found;
   }
 
+  // Whether a light element only follows the page's theme, rather than Facebook inverting it.
+  // A light element above it goes the same way it does, so only a dark one decides.
+  const followsPage = (element, root) => {
+    for (let node = element.parentElement; node && node !== root; node = node.parentElement) {
+      if (node.classList.contains(DARK)) return layers.has(node);
+    }
+    return true;
+  };
+
   const swapRoot = (root, from, to) => {
     writing = true;
     try {
@@ -144,7 +160,7 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now(), is
       }
       const lights = records ? changedLights(records) : [...doc.getElementsByClassName(LIGHT)];
       for (const layer of lights) {
-        if (layer === root || !layer.classList.contains(LIGHT)) continue;
+        if (layer === root || !layer.classList.contains(LIGHT) || !followsPage(layer, root)) continue;
         // Only a layer turned light again after the script darkened it counts toward giving up,
         // so a page with many layers isn't mistaken for a fight.
         if (layers.has(layer)) {
