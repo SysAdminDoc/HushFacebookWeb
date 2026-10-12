@@ -288,6 +288,63 @@ test('the loader Facebook swaps in for its stub goes through the same wrapper', 
   assert.equal(reloadsHome(swappedFirst.fb.require(CONSTANTS), HOUR, HOUR), false, 'a module defined after the swap');
 });
 
+test('a replacement that wraps the current module definer delegates without recursion', () => {
+  const fb = page();
+  const callbacks = [];
+  afterModuleRuns(fb.win, CONSTANTS, (exports) => callbacks.push(exports));
+  const previous = fb.win.__d;
+  const definitions = [];
+  fb.win.__d = function () {
+    definitions.push(arguments[0]);
+    return previous.apply(this, arguments);
+  };
+  assert.doesNotThrow(() => fb.define(CONSTANTS, fillConstants));
+  const limits = fb.require(CONSTANTS);
+  assert.deepEqual(definitions, [CONSTANTS]);
+  assert.deepEqual(callbacks, [limits], 'a delegated factory is observed once');
+  fb.define('Unrelated', (exports) => { exports.value = 7; });
+  assert.deepEqual(fb.require('Unrelated'), { value: 7 });
+});
+
+test('several delegating wrappers and an independent loader replacement keep one factory callback', () => {
+  const fb = page({ stub: true });
+  let callbacks = 0;
+  afterModuleRuns(fb.win, CONSTANTS, () => { callbacks++; });
+  fb.loaderSwaps();
+  const definitions = [];
+  for (let index = 0; index < 3; index++) {
+    const previous = fb.win.__d;
+    fb.win.__d = function () {
+      definitions.push(index);
+      return previous.apply(this, arguments);
+    };
+  }
+  // Assigning the current loader back must not wrap it again.
+  const same = fb.win.__d;
+  fb.win.__d = same;
+  assert.doesNotThrow(() => fb.define(CONSTANTS, fillConstants));
+  assert.equal(fb.factories.get(CONSTANTS).length, 7);
+  assert.equal(fb.require(CONSTANTS).FEED_STALE_TIMEOUT, 600 * 1e3);
+  assert.deepEqual(definitions, [2, 1, 0]);
+  assert.equal(callbacks, 1);
+});
+
+test('a delegating loader can define another watched module while defining the first', () => {
+  const fb = page();
+  const callbacks = [];
+  afterModuleRuns(fb.win, CONSTANTS, () => callbacks.push(CONSTANTS));
+  afterModuleRuns(fb.win, 'Nested', () => callbacks.push('Nested'));
+  const previous = fb.win.__d;
+  fb.win.__d = function (name) {
+    if (name === CONSTANTS) fb.define('Nested', (exports) => { exports.value = 9; });
+    return previous.apply(this, arguments);
+  };
+  assert.doesNotThrow(() => fb.define(CONSTANTS, fillConstants));
+  assert.deepEqual(fb.require('Nested'), { value: 9 });
+  assert.equal(fb.require(CONSTANTS).FEED_STALE_TIMEOUT, 600 * 1e3);
+  assert.deepEqual(callbacks, ['Nested', CONSTANTS]);
+});
+
 test('every other module passes through untouched, and the wrapped one keeps its shape', () => {
   const fb = page();
   afterModuleRuns(fb.win, CONSTANTS, () => {});

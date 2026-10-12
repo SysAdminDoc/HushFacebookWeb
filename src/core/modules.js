@@ -44,9 +44,10 @@ export function whenModule(win, name, callback, { log } = {}) {
 // left Feeds, and Home with the Following feed on, stuck on Facebook's splash screen.
 //
 // __d becomes a getter and setter on the window, so the loader Facebook assigns later goes
-// through the same wrapper. A module defined before the script could wrap __d is never handed
+// through a wrapper. A module defined before the script could wrap __d is never handed
 // over, which leaves it as Facebook made it.
 const hooks = new WeakMap();
+const factoryHooks = new WeakMap();
 
 export function afterModuleRuns(win, name, callback, { log } = {}) {
   let hook = hooks.get(win);
@@ -85,20 +86,25 @@ function wrapDefiner(win, hook) {
   if (typeof win.__d !== 'function') return false;
   const own = Object.getOwnPropertyDescriptor(win, '__d');
   if (own && !own.configurable) return false;
-  let current = win.__d;
-  const definer = function __d(name, deps, factory) {
-    const watchers = hook.watchers.get(name);
-    if (!watchers || typeof factory !== 'function') return current.apply(this, arguments);
-    const args = Array.prototype.slice.call(arguments);
-    args[2] = afterFactory(win, factory, watchers);
-    return current.apply(this, args);
+  // A replacement can capture the previous wrapper and delegate to it. Each wrapper must
+  // keep its own target instead of calling the latest replacement again.
+  const wrap = (delegate) => {
+    if (typeof delegate !== 'function') return delegate;
+    return function __d(name, deps, factory) {
+      const watchers = hook.watchers.get(name);
+      if (!watchers || typeof factory !== 'function') return delegate.apply(this, arguments);
+      const args = Array.prototype.slice.call(arguments);
+      args[2] = afterFactory(win, factory, watchers);
+      return delegate.apply(this, args);
+    };
   };
+  let current = wrap(win.__d);
   Object.defineProperty(win, '__d', {
     configurable: true,
     enumerable: own ? own.enumerable : true,
-    get: () => definer,
+    get: () => current,
     set: (next) => {
-      if (next !== definer) current = next;
+      if (next !== current) current = wrap(next);
     },
   });
   hook.installed = true;
@@ -106,6 +112,7 @@ function wrapDefiner(win, hook) {
 }
 
 function afterFactory(win, factory, watchers) {
+  if (factoryHooks.get(factory) === watchers) return factory;
   const wrapped = function () {
     const result = factory.apply(this, arguments);
     const exports = exportsOf(win, arguments);
@@ -126,6 +133,7 @@ function afterFactory(win, factory, watchers) {
   } catch {
     // An engine that won't change a function's length still runs the wrapper.
   }
+  factoryHooks.set(wrapped, watchers);
   return wrapped;
 }
 
