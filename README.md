@@ -1,7 +1,7 @@
 ![HushFacebook Web. A quieter Facebook feed.](assets/readme-hero.png)
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.0.2-CBA6F7" alt="Version 0.0.2">
+  <img src="https://img.shields.io/badge/version-0.0.3-CBA6F7" alt="Version 0.0.3">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
   <img src="https://img.shields.io/badge/platform-userscript-1877F2" alt="Platform userscript">
   <img src="https://img.shields.io/badge/for-Tampermonkey%20%7C%20Violentmonkey-00485B" alt="For Tampermonkey or Violentmonkey">
@@ -19,9 +19,9 @@ HushFacebook Web is a userscript for Facebook in a desktop browser. It's the web
 
 ## Where it stands
 
-It's still early. Version 0.0.2 is the second release.
+It's still early. The current development build is 0.0.3. The latest published release is 0.0.2.
 
-It has the groundwork in place, meaning the settings panel and the layer that reads Facebook's data as it loads, plus these features:
+There's a settings panel and a layer that filters Facebook's data as it loads. These features are available.
 
 * Hide sponsored posts
 * Hide suggested posts
@@ -79,7 +79,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Custom CSS
 * Settings in your account menu
 
-All of them have run on facebook.com in a test browser, though a few haven't had anything to act on yet. The test account hasn't been shown a feed ad or a row of reels, so those switches have only been seen leaving ordinary posts alone. The feed has only offered reels to download so far, not plain videos. The test account's chats are all end-to-end encrypted, which the read receipt and typing switches can't reach, so they haven't had anything to hold back yet. The script has also been installed in Tampermonkey and in Violentmonkey on Chrome, and in both it runs in the page, takes Marketplace and search ads out, gives Copy link the post's own address, keeps story views to yourself and remembers its settings. The other features haven't been tried in either manager yet.
+The script has been checked on facebook.com in Chrome with Tampermonkey and Violentmonkey. In both, it runs in the page, removes Marketplace and search ads, copies a post's own address, keeps story views private and remembers settings. Some cases still need real examples. Feed ads and rows of reels haven't appeared during those checks, and plain video downloads haven't been exercised. Read receipt and typing switches can't reach end-to-end encrypted chats. The other features have also run on facebook.com, but haven't all been checked in both managers.
 
 [docs/feature-parity.md](docs/feature-parity.md) goes through every Hushfacebook patch and says what the web version will do with it.
 
@@ -87,10 +87,14 @@ All of them have run on facebook.com in a test browser, though a few haven't had
 
 Click the sliders button in the bottom left corner of Facebook, or the HushFacebook Web row in the menu under your profile picture at the top right. Your userscript manager's menu has a HushFacebook Web settings entry too. Changes save as you make them, and every switch has a line under it saying what it does. If you'd rather not have the corner button, turn it off under Menu or General.
 
+The panel has 18 sections in a dark layout with a lavender accent. Narrow windows get a scrolling section bar, and long labels and options wrap to fit. The power switch pauses the script. General has backup and restore, and Reset offers Undo in a notification. Closing settings returns focus to the control that opened them.
+
 <p>
-  <img src="assets/screenshots/panel-feed.png" width="49%" alt="The News feed section of the settings panel, with switches for sponsored posts, suggested posts, reel rows, the Stories tray, word filters and seen posts">
-  <img src="assets/screenshots/panel-downloads.png" width="49%" alt="The Downloads section of the settings panel, with switches for photos, videos, reels and stories and a video quality choice">
+  <img src="assets/screenshots/panel-feed.png" width="49%" alt="The redesigned News feed settings with lavender switches and word filter options">
+  <img src="assets/screenshots/panel-downloads.png" width="49%" alt="The redesigned Downloads settings for photos, videos, reels and stories">
 </p>
+
+These screenshots show the current development build in a browser preview. All 18 sections were checked at desktop size and at 320, 360 and 640 pixels wide. This design hasn't been rechecked on signed-in Facebook or in Firefox yet.
 
 ## How it works
 
@@ -98,7 +102,7 @@ Most Facebook cleanup tools hunt for posts on the page and hide them. That break
 
 Some things can only be done on the page itself, like download buttons or hiding a menu item. Those use the page, kept to the parts of Facebook's markup that change least.
 
-Nothing leaves your browser. The script doesn't talk to any server, and your settings stay in your userscript manager, kept apart for each Facebook account you sign in with.
+Your userscript manager keeps a separate set of settings for each Facebook account. Downloads request the media you choose to save, and the manager checks GitHub for script updates. Diagnostics reports include changed settings and recent log details, so read them before sharing. If a manager has no storage of its own, the script falls back to page storage, which Facebook may clear.
 
 ## Install
 

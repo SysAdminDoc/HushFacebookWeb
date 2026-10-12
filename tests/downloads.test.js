@@ -451,6 +451,23 @@ test('the button shows over media a switch covers, and a click saves it', async 
   button.stop();
 });
 
+test('floating controls follow resized media without another pointer move', async () => {
+  const win = page('<video></video>');
+  const doc = win.document;
+  const video = doc.querySelector('video');
+  box(video, [100, 50, 600, 400]);
+  doc.elementsFromPoint = () => [video];
+  const button = createDownloadButton({ doc, win, active: () => true, find: () => ({}), run: async () => {} });
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 200, clientY: 100 }));
+  await frame();
+  box(video, [20, 80, 300, 200]);
+  win.dispatchEvent(new win.Event('resize'));
+  await frame();
+  assert.equal(button.state().top, '90px');
+  assert.equal(button.state().right, `${win.innerWidth - 320 + 10}px`);
+  button.stop();
+});
+
 test('each switch only offers what it covers, and the index fills from what Facebook parses', async () => {
   const win = page(POST('<div><video></video><a href="/Pat/videos/7777777/">3h</a></div>') + POST('<a href="/photo/?fbid=9999999"><img></a>'));
   const doc = win.document;

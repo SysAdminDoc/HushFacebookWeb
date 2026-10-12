@@ -9,6 +9,8 @@
 // as one of those boxes when it sits close to the media in the page. Dialogs, menus and chat
 // windows are mounted on their own, far from it, and media under them gets no button.
 
+import { uiTokens } from '../../ui/styles.js';
+
 const MIN_SIZE = 160;
 const HIDE_AFTER = 450;
 const LOOK_UP = 6;
@@ -17,19 +19,20 @@ const ROW_HEIGHT = 40; // px between buttons stacked in one corner
 const DOWNLOAD_ICON = 'M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14';
 
 const CSS = `
-:host { all: initial; }
+:host { all: initial; ${uiTokens} color-scheme: dark; }
 button {
   position: fixed; z-index: 2147483000; display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 999px;
-  background: rgba(17, 17, 27, 0.82); color: #cdd6f4; font: 600 13px/1 system-ui, sans-serif;
+  min-height: 32px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 8px;
+  background: var(--base); color: var(--text); font: 600 13px/1 system-ui, sans-serif;
   cursor: pointer; backdrop-filter: blur(8px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   transition: transform 0.12s ease, background 0.12s ease;
 }
-button:hover { background: rgba(30, 30, 46, 0.95); transform: translateY(-1px); }
-button:focus-visible { outline: 2px solid #89b4fa; outline-offset: 2px; }
+button:hover { background: var(--selected); transform: translateY(-1px); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 button[hidden] { display: none; }
 button[aria-busy="true"] { cursor: progress; opacity: 0.8; }
 svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
 `;
 
 // Set on each floating button's box, so the Download and Pop out buttons see through each other.
@@ -241,6 +244,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
   };
   doc.addEventListener('pointermove', onMove, { capture: true, passive: true });
   win.addEventListener('scroll', onScroll, { capture: true, passive: true });
+  win.addEventListener('resize', onScroll, { passive: true });
 
   return {
     hide,
@@ -257,6 +261,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
       clearTimeout(hideTimer);
       doc.removeEventListener('pointermove', onMove, { capture: true });
       win.removeEventListener('scroll', onScroll, { capture: true });
+      win.removeEventListener('resize', onScroll);
       host?.remove();
     },
   };

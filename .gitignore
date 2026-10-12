@@ -12,6 +12,7 @@ CODEX_CHANGELOG.md
 ROADMAP.md
 Roadmap_Blocked.md
 RESEARCH.md
+.mockups/
 
 # Captured Facebook responses can hold account data; commit only scrubbed fixtures
 captures/

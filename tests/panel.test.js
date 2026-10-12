@@ -152,10 +152,12 @@ test("a feature's own buttons show on its card while it's on, follow its state a
   const button = (text) => [...shadow.querySelectorAll('button')].find((b) => b.textContent === text);
   assert.ok(button('Show them'));
   assert.equal(button('Not mine'), undefined, "another feature's button isn't on this card");
+  button('Show them').focus();
   button('Show them').click();
   await tick();
   assert.equal(showing, true);
   assert.ok(button('Hide them again'), 'the label follows the state');
+  assert.equal(shadow.activeElement, button('Hide them again'), 'focus follows the replacement action');
   settings.set('demo', false);
   await tick();
   assert.equal(button('Hide them again'), undefined, 'no buttons while the switch is off');
@@ -195,4 +197,44 @@ test("no page rule can hide the panel, and a long text box stops at its setting'
   assert.equal(host.getAttribute('style'), 'all: initial !important');
   panel.open('feed');
   assert.equal(shadow.querySelector('textarea[data-key="demo.css"]').maxLength, 50000);
+});
+
+test('closing settings returns focus to the control that opened them', async () => {
+  const { win, shadow, panel } = setup();
+  const opener = win.document.createElement('button');
+  opener.textContent = 'Account settings';
+  win.document.body.append(opener);
+  opener.focus();
+  panel.open('general');
+  assert.equal(shadow.querySelector('dialog').open, true);
+  assert.equal(shadow.activeElement.getAttribute('aria-label'), 'Close settings');
+  panel.close();
+  await tick();
+  assert.equal(shadow.querySelector('dialog').open, false);
+  assert.equal(win.document.activeElement, opener);
+});
+
+test('reset and Undo preserve settings and a reachable focus target', async () => {
+  const { shadow, panel, settings } = setup();
+  settings.set('ui.hiddenNote', true);
+  panel.open('general');
+  const reset = () => shadow.querySelector('[data-key="reset"]');
+  reset().focus();
+  reset().click();
+  assert.equal(settings.get('ui.hiddenNote'), false);
+  assert.equal(shadow.activeElement, reset());
+  const undo = [...shadow.querySelectorAll('.toast button')].find((button) => button.textContent === 'Undo');
+  assert.equal(undo.closest('dialog').open, true, 'the toast action stays in the modal');
+  undo.focus();
+  undo.click();
+  await tick();
+  assert.equal(settings.get('ui.hiddenNote'), true);
+  assert.equal(shadow.activeElement, reset());
+});
+
+test('an unavailable section request keeps the existing settings page usable', () => {
+  const { shadow, panel } = setup();
+  panel.open('missing');
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'General');
+  assert.equal(shadow.querySelector('dialog').open, true);
 });

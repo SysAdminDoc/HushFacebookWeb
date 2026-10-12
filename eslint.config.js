@@ -3,7 +3,7 @@ import globals from 'globals';
 
 export default [
   // Flat config doesn't read .gitignore, so local-only folders are listed here too.
-  { ignores: ['dist/', 'node_modules/', 'coverage/', '.claude/', 'captures/'] },
+  { ignores: ['dist/', 'node_modules/', 'coverage/', '.claude/', 'captures/', '.mockups/'] },
   js.configs.recommended,
   {
     files: ['src/**/*.js'],

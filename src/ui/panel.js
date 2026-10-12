@@ -10,6 +10,26 @@ import { panelCss } from './styles.js';
 
 const CLOSE_ICON = ['M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z'];
 const ERROR_TOAST_GAP_MS = 15000;
+const SECTION_DESCRIPTIONS = {
+  feed: 'Choose what makes it into your feed.',
+  reels: 'Make video time your own.',
+  stories: 'Watch stories at your own pace.',
+  comments: 'Read the conversation your way.',
+  search: 'Keep the results you came for.',
+  marketplace: 'A clearer place to buy and sell.',
+  chats: 'Choose what your conversations share.',
+  notifications: 'Keep the updates that matter to you.',
+  privacy: 'Choose what Facebook gets to know.',
+  links: 'Cleaner links, fewer detours.',
+  downloads: 'Save the moments you want to keep.',
+  playback: 'More control over every video.',
+  appearance: 'Make Facebook feel like yours.',
+  menu: 'Keep your menu focused.',
+  meta: 'Less promotion, more room for you.',
+  opening: 'Start where you want to be.',
+  general: 'Settings for HushFacebook Web.',
+  diagnostics: 'See how HushFacebook Web is running.',
+};
 
 export function mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment }) {
   // Inline and important, so no page rule (Custom CSS included, say div:empty) can hide the
@@ -25,6 +45,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     { id: 'diagnostics', title: 'Diagnostics' },
   ];
   let current = sections[0].id;
+  let opener = null;
   const hasMenuEntry = features.some((feature) => feature.id === 'menuEntry');
 
   const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
@@ -34,27 +55,42 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     icon(SLIDERS_ICON),
   );
   const nav = h('nav', { 'aria-label': 'Settings sections' });
-  const main = h('main');
-  const pauseState = h('span', { class: 'chip' });
+  const main = h('main', { 'aria-labelledby': 'hfw-section-title' });
+  const pauseState = h('span', { class: 'power-state' });
   // Checked means running, so the switch agrees with the "On" chip beside it.
   const power = h('input', {
-    class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'HushFacebook Web on',
+    class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'HushFacebook Web on', dataset: { key: 'power' },
     onchange: (event) => apply('paused', !event.target.checked),
   });
-  const closeButton = h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Close settings', onclick: () => close() }, icon(CLOSE_ICON));
+  const closeButton = h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Close settings', dataset: { key: 'close' }, onclick: () => close() }, icon(CLOSE_ICON));
   const dialog = h(
-    'div',
-    { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'hfw-title' },
+    'dialog',
+    { class: 'dialog', 'aria-labelledby': 'hfw-title' },
     h('header', null,
-      h('h2', { id: 'hfw-title', text: 'HushFacebook Web' }),
-      h('span', { class: 'chip', text: `v${environment.version}` }),
-      h('span', { class: 'spacer' }),
-      pauseState, power, closeButton),
+      h('div', { class: 'brand' },
+        h('span', { class: 'brand-icon' }, icon(SLIDERS_ICON)),
+        h('h2', { id: 'hfw-title', text: 'HushFacebook Web' }),
+        h('span', { class: 'chip', text: `v${environment.version}` })),
+      h('div', { class: 'header-actions' }, pauseState, power, closeButton)),
     h('div', { class: 'body' }, nav, main),
+    h('footer', null,
+      h('span', { text: 'Changes apply as you go.' }),
+      h('span', { class: 'footer-brand', text: 'HushFacebook Web' })),
   );
-  const overlay = h('div', { class: 'overlay', hidden: true, onclick: (event) => event.target === overlay && close() }, dialog);
+  dialog.addEventListener('click', (event) => {
+    if (event.target !== dialog) return;
+    const box = dialog.getBoundingClientRect();
+    if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) close();
+  });
+  dialog.addEventListener('close', () => {
+    root.append(toasts);
+    if (opener?.isConnected && !opener.hidden && opener !== document.body && opener !== document.documentElement) opener.focus({ preventScroll: true });
+    else if (!launcher.hidden) launcher.focus({ preventScroll: true });
+    opener = null;
+  });
   const fileInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onchange: importSettings });
-  root.append(launcher, overlay, toasts, fileInput);
+  dialog.append(fileInput);
+  root.append(launcher, dialog, toasts);
   document.body.append(host);
 
   function apply(key, value) {
@@ -88,7 +124,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const value = settings.get(key);
     switch (option.type) {
       case 'toggle':
-        return h('label', null, toggle(key, option.label), option.label);
+        return h('label', { class: 'option-toggle' }, toggle(key, option.label), h('span', { text: option.label }));
       case 'select':
         return h('label', null, option.label,
           h('select', { dataset: { key }, onchange: (event) => apply(key, option.choices.find((choice) => String(choice.value) === event.target.value)?.value) },
@@ -117,8 +153,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function featureActions(feature) {
     const list = actions?.list(feature.id) ?? [];
     if (!list.length) return null;
-    return h('div', { class: 'actions' }, list.map(({ label, run }) => h('button', {
-      class: 'button', type: 'button', text: label,
+    return h('div', { class: 'actions' }, list.map(({ label, run }, index) => h('button', {
+      class: 'button', type: 'button', text: label, dataset: { key: `action:${feature.id}:${index}` },
       onclick: () => {
         try {
           run();
@@ -133,7 +169,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function featureCard(feature) {
     const blocked = unavailable.has(feature.id);
     const on = settings.get(feature.id) === true;
-    return h('div', { class: 'card' },
+    return h('div', { class: `card${blocked ? ' unavailable' : ''}` },
       h('div', { class: 'row' },
         h('div', { class: 'text' },
           h('div', { class: 'title', text: feature.title }),
@@ -146,12 +182,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function sectionView(section) {
-    return [h('h3', { text: section.title }), ...features.filter((feature) => feature.section === section.id).map(featureCard)];
+    return features.filter((feature) => feature.section === section.id).map(featureCard);
   }
 
   function generalView() {
     return [
-      h('h3', { text: 'General' }),
       h('div', { class: 'card' },
         h('div', { class: 'row' },
           h('div', { class: 'text' },
@@ -168,9 +203,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'title', text: 'Back up and restore' }),
         h('div', { class: 'desc', text: 'Save your choices to a file, or load them from one on another browser.' }),
         h('div', { class: 'actions' },
-          h('button', { class: 'button primary', type: 'button', text: 'Back up settings', onclick: exportSettings }),
-          h('button', { class: 'button', type: 'button', text: 'Restore from a file', onclick: () => fileInput.click() }),
-          h('button', { class: 'button', type: 'button', text: 'Reset to defaults', onclick: resetSettings }))),
+          h('button', { class: 'button primary', type: 'button', text: 'Back up settings', dataset: { key: 'backup' }, onclick: exportSettings }),
+          h('button', { class: 'button', type: 'button', text: 'Restore from a file', dataset: { key: 'restore' }, onclick: () => fileInput.click() }),
+          h('button', { class: 'button', type: 'button', text: 'Reset to defaults', dataset: { key: 'reset' }, onclick: resetSettings }))),
     ];
   }
 
@@ -186,8 +221,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const entries = log.entries().slice(-150);
     const blocked = features.filter((feature) => unavailable.has(feature.id)).map((feature) => feature.title);
     return [
-      h('h3', { text: 'Diagnostics' }),
-      h('dl', null,
+      h('div', { class: 'diagnostic-summary' },
+        h('h3', { class: 'summary-title', text: 'Environment' }),
+        h('dl', null,
         h('dt', { text: 'Version' }), h('dd', { text: environment.version }),
         h('dt', { text: 'Userscript manager' }), h('dd', { text: `${environment.manager} ${environment.managerVersion}` }),
         h('dt', { text: 'Injection mode' }), h('dd', { text: environment.mode }),
@@ -195,13 +231,13 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('dt', { text: "Features that didn't start" }), h('dd', { text: blocked.length ? blocked.join(', ') : 'None' }),
         h('dt', { text: 'Posts hidden since the page loaded' }), h('dd', { text: hiddenSummary() }),
         ...featureRows().flatMap(({ label, value }) => [h('dt', { text: label }), h('dd', { text: value })])),
-      h('div', { class: 'actions' }, h('button', { class: 'button primary', type: 'button', text: 'Copy report', onclick: copyReport })),
-      h('h3', { text: 'Why posts were hidden', style: 'margin-top: 18px' }),
+      h('div', { class: 'actions' }, h('button', { class: 'button primary', type: 'button', text: 'Copy report', dataset: { key: 'copy-report' }, onclick: copyReport }))),
+      h('h3', { class: 'subheading', text: 'Why posts were hidden' }),
       h('p', { class: 'desc', text: "The last 50, newest first. data means it came out of Facebook's data before it was drawn, page means it was hidden on the page. Each post has a short tag instead of its id." }),
       decisions().length
         ? h('div', { class: 'log' }, decisions().slice().reverse().map((decision) => h('div', { text: decisionLine(decision) })))
         : h('p', { class: 'empty', text: 'Nothing hidden yet.' }),
-      h('h3', { text: 'Recent log', style: 'margin-top: 18px' }),
+      h('h3', { class: 'subheading', text: 'Recent log' }),
       entries.length
         ? h('div', { class: 'log' }, entries.map((entry) => h('div', { class: entry.level, text: `${entry.time.slice(11, 19)} ${entry.level.padEnd(5)} ${entry.message}${entry.detail ? `\n    ${entry.detail}` : ''}` })))
         : h('p', { class: 'empty', text: 'Nothing logged yet.' }),
@@ -210,16 +246,20 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function render() {
     const focusedKey = shadow.activeElement?.dataset?.key;
-    nav.replaceChildren(...sections.flatMap((section) => [
+    nav.replaceChildren(h('div', { class: 'nav-label', text: 'Settings' }), ...sections.flatMap((section) => [
       section.divider ? h('hr') : null,
       h('button', {
         type: 'button', text: section.title, dataset: { key: `nav:${section.id}` },
         'aria-current': section.id === current ? 'page' : null,
-        onclick: () => { current = section.id; render(); },
+        onclick: () => { current = section.id; main.scrollTop = 0; render(); },
       }),
     ]).filter(Boolean));
     const section = sections.find((entry) => entry.id === current);
-    main.replaceChildren(...(current === 'general' ? generalView() : current === 'diagnostics' ? diagnosticsView() : sectionView(section)));
+    main.replaceChildren(
+      h('div', { class: 'page-heading' },
+        h('h3', { id: 'hfw-section-title', text: section.title }),
+        h('p', { text: SECTION_DESCRIPTIONS[current] ?? '' })),
+      ...(current === 'general' ? generalView() : current === 'diagnostics' ? diagnosticsView() : sectionView(section)));
     if (focusedKey) root.querySelector(`[data-key="${CSS.escape(focusedKey)}"]`)?.focus();
   }
 
@@ -260,7 +300,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function resetSettings() {
     const previous = settings.reset();
-    toast('Settings are back to their defaults.', { action: { label: 'Undo', run: () => settings.restore(previous) } });
+    toast('Settings are back to their defaults.', { action: { label: 'Undo', run: () => {
+      settings.restore(previous);
+      if (dialog.open) root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
+    } } });
   }
 
   async function copyReport() {
@@ -289,20 +332,24 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // ---- open, close, live updates ----
 
   function open(sectionId) {
-    if (sectionId) current = sectionId;
-    overlay.hidden = false;
+    if (sectionId && sections.some((section) => section.id === sectionId)) {
+      if (sectionId !== current) main.scrollTop = 0;
+      current = sectionId;
+    }
+    if (!dialog.open) opener = shadow.activeElement ?? document.activeElement;
     render();
-    closeButton.focus();
+    dialog.append(toasts);
+    if (!dialog.open) dialog.showModal();
+    closeButton.focus({ preventScroll: true });
   }
 
   function close() {
-    overlay.hidden = true;
-    if (!launcher.hidden) launcher.focus();
+    dialog.close();
   }
 
   settings.subscribe(() => {
     refreshChrome();
-    if (!overlay.hidden) render();
+    if (dialog.open) render();
   });
 
   let lastErrorToast = 0;
@@ -313,11 +360,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   };
   let renderQueued = false;
   const refreshDiagnostics = () => {
-    if (overlay.hidden || current !== 'diagnostics' || renderQueued) return;
+    if (!dialog.open || current !== 'diagnostics' || renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => {
       renderQueued = false;
-      if (!overlay.hidden && current === 'diagnostics') render();
+      if (dialog.open && current === 'diagnostics') render();
     });
   };
   log.subscribe((entry) => {
