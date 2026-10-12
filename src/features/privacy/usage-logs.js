@@ -18,7 +18,7 @@ export default {
   section: 'privacy',
   android: 'Hold back analytics uploads',
   title: 'Hold back usage logs',
-  description: "Facebook's site keeps a log of what you look at and click, and sends it in batches as you go. With this on, those batches stay in your browser. What you post or send still goes through.",
+  description: "Facebook's site keeps a log of what you look at and click, and sends it in batches as you go. With this on, those batches never leave your browser. Nothing else is held back.",
   default: false,
   needsPage: true,
 
