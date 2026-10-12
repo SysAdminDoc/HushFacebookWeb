@@ -67,11 +67,14 @@ const copyId = (representation) => representation.match(/^<Representation\b[^>]*
 // since a video's prefetch list repeats on every streamed line after its manifest (captured
 // feed answer, 2026-10-10). Representation ids are Facebook's own long numbers, the same in the
 // manifest and the list, so they don't repeat across videos. When the book is full it forgets the
-// oldest entries, only as many as it needs, and never one the answer being read put in, whose
-// lists come after all its manifests. Lists for videos it forgot wait for their manifests again.
+// oldest sets whole, only as many as it needs, and never one the answer being read put in, whose
+// lists come after all its manifests. A set forgotten in part would leave a video's list with only
+// its lower copies, so it starts low. Lists for videos it forgot wait for their manifests again.
+// Each makeRoom starts a set, the way capManifest calls it before each one.
 export function createCopyBook() {
-  const copies = new Map(); // id -> { quality, best, answer }, oldest first; best is null when kept
+  const copies = new Map(); // id -> { quality, best, answer, set }, oldest first; best is null when kept
   let answer = 0;
+  let set = 0;
   const put = (id, entry) => {
     copies.delete(id);
     copies.set(id, entry);
@@ -84,16 +87,21 @@ export function createCopyBook() {
     kept: (id) => copies.has(id) && copies.get(id).best === null,
     quality: (id) => (copies.get(id)?.best === null ? copies.get(id).quality : null),
     makeRoom(count) {
+      set++;
+      let forgetting = null;
       for (const [id, entry] of copies) {
-        if (copies.size + count <= MAX_REMEMBERED || entry.answer >= answer) return;
+        if (entry.set !== forgetting) {
+          if (copies.size + count <= MAX_REMEMBERED || entry.answer >= answer) return;
+          forgetting = entry.set;
+        }
         copies.delete(id);
       }
     },
     keep(id, quality = null) {
-      if (id) put(id, { quality, best: null, answer });
+      if (id) put(id, { quality, best: null, answer, set });
     },
     replace(id, best) {
-      if (id && best) put(id, { quality: null, best, answer });
+      if (id && best) put(id, { quality: null, best, answer, set });
     },
   };
 }
