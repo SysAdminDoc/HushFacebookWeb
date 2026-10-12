@@ -9,8 +9,10 @@
 // After an @ Facebook searches instead, with
 // useFeedComposerCometMentionsNetworkDataSourceWithTaggingTransparencyQuery, plus a Nullstate
 // list for a bare @ (10 suggestions either way). The script empties only the two lists the box
-// loads up front, so a name typed without @ matches no one, and @ still finds everyone. Needs the
-// script running in the page.
+// loads up front, so a name typed without @ matches no one, and @ still finds everyone. The post
+// composer ("What's on your mind") loads the same two lists by the same names (run 56: 4
+// suggestions for a name without @ before, none with the switch, and 10 after @ either way).
+// Needs the script running in the page.
 
 export const BOOTLOAD = /^useFeedComposerCometMentionsBootloadDataSource(?:WithTaggingTransparency)?Query$/;
 export const MARKERS = ['"comet_composer_typeahead_bootload"', '"xfb_tag_suggestion_search"'];
@@ -37,7 +39,7 @@ export default {
   section: 'comments',
   android: 'Tag suggestions only after @',
   title: 'Tag suggestions only after @',
-  description: "Typing a friend's name in a comment no longer offers to tag them. Type @ first when you do want to tag someone.",
+  description: "Typing a friend's name in a post or comment no longer offers to tag them. Type @ first when you do want to tag someone.",
   default: false,
   needsPage: true,
 
