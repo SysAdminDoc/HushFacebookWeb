@@ -9,6 +9,10 @@ export const STAGES = ['preflight', 'build', 'notes', 'publish'];
 export const EXTRA_STAGES = { live: 'build' };
 
 export const ASSETS = ['hushfacebook-web.user.js', 'hushfacebook-web.meta.js'];
+// The Chrome extension, built from the same source. Its version is in its manifest.
+export const EXTENSION_ZIP = 'hushfacebook-web-extension.zip';
+// Everything a release carries besides the sums.
+export const PUBLISHED = [...ASSETS, EXTENSION_ZIP];
 export const SUMS_FILE = 'SHA256SUMS.txt';
 export const NOTES_FILE = 'release-notes.txt';
 

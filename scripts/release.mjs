@@ -15,7 +15,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ASSETS, NOTES_FILE, SUMS_FILE, bannerVersion, changelogSection, isStage, record, refusal, sha256, sumsText } from './lib/release.mjs';
+import { ASSETS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, record, refusal, sha256, sumsText } from './lib/release.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DIST = path.join(ROOT, 'dist');
@@ -117,9 +117,11 @@ async function build(head) {
     const found = bannerVersion(await readFile(path.join(DIST, name), 'utf8'));
     if (found !== head.version) throw new Refused(`dist/${name} says @version ${found}, package.json says ${head.version}.`);
   }
-  const sums = await hashFiles(ASSETS);
-  await writeFile(path.join(DIST, SUMS_FILE), sumsText(ASSETS.map((name) => ({ name, hash: sums[name] }))));
-  console.log(`\n${SUMS_FILE}:\n${ASSETS.map((name) => `  ${sums[name]}  ${name}`).join('\n')}`);
+  const manifest = await readJson(path.join(DIST, 'extension', 'manifest.json'), {});
+  if (manifest.version !== head.version) throw new Refused(`The extension's manifest says version ${manifest.version}, package.json says ${head.version}.`);
+  const sums = await hashFiles(PUBLISHED);
+  await writeFile(path.join(DIST, SUMS_FILE), sumsText(PUBLISHED.map((name) => ({ name, hash: sums[name] }))));
+  console.log(`\n${SUMS_FILE}:\n${PUBLISHED.map((name) => `  ${sums[name]}  ${name}`).join('\n')}`);
   return { sums: { ...sums, [SUMS_FILE]: sha256(await readFile(path.join(DIST, SUMS_FILE))) } };
 }
 
@@ -157,7 +159,7 @@ async function publish(head, state, { dryRun }) {
   console.log(state.stages.live ? `Live check for this build: ${state.stages.live.out}` : 'Live check: not run for this build.');
 
   // gh runs from the repo root, so short relative paths keep the printed command readable.
-  const files = [...ASSETS, SUMS_FILE].map((name) => `dist/${name}`);
+  const files = [...PUBLISHED, SUMS_FILE].map((name) => `dist/${name}`);
   const args = ['release', 'create', head.tag, ...files, '--title', head.tag, '--notes-file', `dist/${NOTES_FILE}`, '--target', head.commit, '--repo', head.repo];
   if (dryRun) {
     console.log(`\nDry run. This would run:\ngh ${args.map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg)).join(' ')}`);
@@ -166,7 +168,7 @@ async function publish(head, state, { dryRun }) {
   exec('gh', args);
 
   const served = JSON.parse(exec('gh', ['release', 'view', head.tag, '--repo', head.repo, '--json', 'assets']).out).assets.map((asset) => asset.name);
-  const missing = [...ASSETS, SUMS_FILE].filter((name) => !served.includes(name));
+  const missing = [...PUBLISHED, SUMS_FILE].filter((name) => !served.includes(name));
   if (missing.length) throw new Refused(`${head.tag} is up but GitHub doesn't list ${missing.join(', ')}.`);
   const scratch = await mkdtemp(path.join(tmpdir(), 'hfw-release-'));
   try {
