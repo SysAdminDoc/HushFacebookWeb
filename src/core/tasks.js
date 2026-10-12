@@ -6,9 +6,13 @@
 // that lose what a script saves. A write read back on the same page nearly always works, since
 // managers keep a copy in memory, so the check also leaves a token in two places: the
 // manager's storage and the page's own localStorage. On the next check a day later, the two
-// should still agree. If the manager's copy is gone or different, it didn't keep a write.
+// should still agree. If the manager's copy is gone or older than the page's, it didn't keep a
+// write. A newer one is another page's check, since www.facebook.com and web.facebook.com share
+// the manager's storage but each has its own localStorage. A page copy written in the last few
+// minutes is another tab's check running alongside, and isn't compared.
 
 export const DAY = 24 * 60 * 60 * 1000;
+export const RECENT = 10 * 60 * 1000;
 export const TASKS_KEY = 'tasks';
 export const CHECK_KEY = 'storageCheck';
 export const MIRROR_KEY = 'hfw:storageCheck';
@@ -106,7 +110,8 @@ export function checkStorage({ storage, mirror, now = Date.now(), token = random
     return { ok: false, at: now, message: `Your userscript manager's storage couldn't be read (${error?.message ?? error}), so your settings may not be saved.` };
   }
   const before = mirror?.get() ?? null;
-  const lost = before && (!kept || kept.token !== before.token)
+  const earlier = before && !(now - Number(before.at) < RECENT);
+  const lost = earlier && (!kept || (kept.token !== before.token && !(Number(kept.at) > Number(before.at))))
     ? `Your userscript manager didn't keep what HushFacebook Web saved on ${day(before.at)}. If you didn't reinstall the script or clear its storage since then, your settings may not be saving.`
     : null;
   try {

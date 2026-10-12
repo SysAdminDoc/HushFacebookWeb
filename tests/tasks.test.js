@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CHECK_KEY, checkStorage, createDailyTasks, DAY, localMirror, MIRROR_KEY, scheduleStorageCheck, TASKS_KEY } from '../src/core/tasks.js';
+import { CHECK_KEY, checkStorage, createDailyTasks, DAY, localMirror, MIRROR_KEY, RECENT, scheduleStorageCheck, TASKS_KEY } from '../src/core/tasks.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 
@@ -69,6 +69,33 @@ test('a manager that lost the last write between visits is caught, and the next 
   assert.equal(checkStorage({ storage, mirror, now: T0 + 2 * DAY, token: 'c' }).ok, false);
   // The check wrote both copies again, so the one after that passes.
   assert.equal(checkStorage({ storage, mirror, now: T0 + 3 * DAY, token: 'd' }).ok, true);
+});
+
+test('www and web share the manager but not the page copy, and moving between them is no alarm', () => {
+  const storage = createMemoryStorage();
+  const www = memoryMirror();
+  const web = memoryMirror();
+  assert.equal(checkStorage({ storage, mirror: www, now: T0, token: 'a' }).ok, true);
+  assert.equal(checkStorage({ storage, mirror: web, now: T0 + DAY, token: 'b' }).ok, true);
+  // Back on www, its copy is the older one. The manager's is newer, written from web.
+  assert.equal(checkStorage({ storage, mirror: www, now: T0 + 2 * DAY, token: 'c' }).ok, true);
+  // A loss is still caught there: the manager's copy goes back to before www's last write.
+  storage.set(CHECK_KEY, { token: 'b', at: T0 + DAY });
+  assert.equal(checkStorage({ storage, mirror: www, now: T0 + 3 * DAY, token: 'd' }).ok, false);
+});
+
+test("two tabs checking at once don't trip over each other's copies", () => {
+  const storage = createMemoryStorage({ [CHECK_KEY]: { token: 'a', at: T0 } });
+  const mirror = memoryMirror({ token: 'a', at: T0 });
+  // The first tab's check writes both copies.
+  assert.equal(checkStorage({ storage, mirror, now: T0 + DAY, token: 'b' }).ok, true);
+  // The second tab still sees the manager's old value, but the page copy is seconds old.
+  let reads = 0;
+  const stale = { get: (key, fallback) => (reads++ === 0 ? { token: 'a', at: T0 } : storage.get(key, fallback)), set: (key, value) => storage.set(key, value) };
+  assert.equal(checkStorage({ storage: stale, mirror, now: T0 + DAY + 5000, token: 'c' }).ok, true);
+  // Past those few minutes, the same mismatch is a loss again.
+  storage.set(CHECK_KEY, { token: 'a', at: T0 });
+  assert.equal(checkStorage({ storage, mirror, now: T0 + DAY + 5000 + RECENT, token: 'd' }).ok, false);
 });
 
 test('a manager that won\'t save or won\'t give a value back fails the check', () => {
