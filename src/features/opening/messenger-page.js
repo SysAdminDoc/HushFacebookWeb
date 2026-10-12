@@ -58,7 +58,9 @@ export default {
       stop(event);
       if (where) go(where);
     };
-    for (const type of PRESSES) doc.addEventListener(type, onPress, true);
+    // Not passive: Chrome makes a document's touchstart listeners passive unless told, and
+    // ignores preventDefault in them.
+    for (const type of PRESSES) doc.addEventListener(type, onPress, { capture: true, passive: false });
     for (const type of ['click', 'auxclick', 'keydown']) doc.addEventListener(type, onActivate, true);
     diagnostics?.add('Messenger button presses sent to Messages', () => String(sent));
   },

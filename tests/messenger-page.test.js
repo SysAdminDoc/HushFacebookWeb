@@ -95,6 +95,15 @@ test('which presses navigate and where', () => {
   assert.equal(messengerTarget({ type: 'keydown', key: 'a' }), null);
 });
 
+test('the press listeners can hold a touch back, since a passive one cannot', () => {
+  const added = [];
+  const doc = { addEventListener: (type, listener, options) => added.push([type, options]) };
+  messengerPage.setup({ doc, win: {}, enabled: () => true });
+  const touch = added.find(([type]) => type === 'touchstart');
+  assert.deepEqual(touch[1], { capture: true, passive: false });
+  assert.ok(added.filter(([type]) => type !== 'touchstart').every(([, options]) => options === true || options?.capture === true));
+});
+
 test('the switch starts off and works without the page', () => {
   assert.equal(messengerPage.default, false);
   assert.equal(messengerPage.needsPage, false);
