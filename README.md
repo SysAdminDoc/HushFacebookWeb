@@ -140,7 +140,7 @@ The extension is new in the development build, so the first release to carry the
 
 The toolbar button opens the settings on Facebook, or opens Facebook with the settings up from any other tab. It asks for storage (your settings), downloads (saving photos and videos) and the tab you click the button on. It runs only on facebook.com and in Instant Games frames.
 
-So far the extension has been checked in Chromium on Facebook while signed out. It loads, keeps settings, saves files under their readable names, and its toolbar button and Home redirects work. The signed-in checks listed above ran with the userscript, which uses the same feature code.
+The extension has been checked in Chromium, signed in and signed out. It loads before Facebook's own code, keeps each account's settings apart, saves a photo from a post under its readable name, and its toolbar button and Home redirects work. The other features share their code with the userscript, where each one was checked live.
 
 ## Building it yourself
 
