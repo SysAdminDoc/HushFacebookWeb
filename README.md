@@ -44,6 +44,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Hide GIF and sticker buttons
 * Hide that you're writing a comment
 * Tag suggestions only after @
+* Show comments as written
 * View stories anonymously
 * Stop stories moving on
 * Sanitize sharing links
