@@ -109,7 +109,7 @@ export const ORIGINAL_MARKERS = ['"ORIGINAL"'];
 export function forgetAsked(data, seen) {
   let forgotten = 0;
   walk(data, (value) => {
-    if (Array.isArray(value) || 'body' in value) return;
+    if (Array.isArray(value)) return;
     const shown = value.preferred_body;
     if (!shown || typeof shown !== 'object' || typeof shown.text !== 'string' || shown.translation_type !== 'ORIGINAL') return;
     if (typeof value.id === 'string' && seen.get(value.id) === ASKED) {

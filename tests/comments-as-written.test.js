@@ -204,6 +204,11 @@ test('the rule waiting for See original only runs while a translated comment wai
   book.delete('missing');
   assert.equal(book.asked, 0);
   assert.equal(forgetAsked({ data: { node: { id: 'b', preferred_body: { text: 'x', translation_type: 'ORIGINAL' } } } }, book), 0, 'only asked comments are forgotten');
+  book.set('d', ASKED);
+  const whole = { data: { node: { id: 'd', body: { text: 'Bonjour' }, preferred_body: { text: 'Bonjour', translation_type: 'ORIGINAL' } } } };
+  assert.equal(forgetAsked(whole, book), 1, 'a See original answer that brings the whole comment counts too');
+  assert.equal(book.has('d'), false);
+  assert.equal(book.asked, 0);
 });
 
 test('the comments it remembers are capped, oldest first', () => {
