@@ -14,12 +14,15 @@
 // ORIGINAL, which is what Facebook sends for a comment it left alone. The See translation link
 // comes from translatability_for_viewer, which stays.
 //
-// Posts are left as Facebook sends them. A post's words sit in a message container whose
-// __typename and module references pick the layout (runs 36 to 40). The auto-translated layout
-// throws without its translation, and Facebook's error boundary reports that with the post's
-// tracking data. Switching the container to the plain translatable layout or the default one
-// left posts as loading placeholders (runs 37 and 40), since an answer only lists the code its
-// own layouts need and Facebook never loaded the other one. Needs the script running in the page.
+// A post's words sit in a message container whose __typename and module references pick the
+// layout (runs 36 to 40). The auto-translated layout throws without its translation, and
+// Facebook's error boundary reports that with the post's tracking data. Switching the container
+// to the plain translatable layout or the default one left posts as loading placeholders (runs 37
+// and 40), since an answer only lists the code its own layouts need and Facebook never loaded the
+// other one. So the layout stays, and the translation it draws gets the post's own words, which
+// sit beside it in the post's plain message section (comet_sections.message.story.message, the
+// same story). Its answer has no MACHINE_TRANSLATION in it, so posts have their own rule, found
+// by the layout's name. Needs the script running in the page.
 
 import { walk } from '../../core/json-walk.js';
 
@@ -157,12 +160,38 @@ export function untranslate(data, seen = new Map()) {
   return count;
 }
 
+export const AUTO_TRANSLATED = 'CometFeedStoryAutoTranslatedMessageContainerRenderingStrategy';
+export const POST_MARKERS = [`"${AUTO_TRANSLATED}"`];
+
+// One post's own words put into its auto-translated container. sections is the post's
+// comet_sections. True when it changed.
+export function restorePost(sections) {
+  const container = sections?.message_container;
+  if (!container || container.__typename !== AUTO_TRANSLATED) return false;
+  const shown = container.story?.translation?.message;
+  const plain = sections.message?.story;
+  const own = plain?.message;
+  if (!shown || typeof shown.text !== 'string' || !own || typeof own.text !== 'string') return false;
+  if (!plain.id || plain.id !== container.story.id || shown.text === own.text) return false;
+  putBack(shown, own);
+  return true;
+}
+
+// Every auto-translated post in an answer, as written. How many changed.
+export function untranslatePosts(data) {
+  let posts = 0;
+  walk(data, (value) => {
+    if (!Array.isArray(value) && value.message_container && restorePost(value)) posts++;
+  });
+  return posts;
+}
+
 export default {
   id: 'noAutoTranslate',
   section: 'comments',
   android: 'Turn off auto-translation',
   title: 'Show comments as written',
-  description: "Comments in other languages show the words people wrote instead of Facebook's translation. See translation under a comment still works when you want it.",
+  description: "Comments and posts in other languages show the words people wrote instead of Facebook's automatic translation. See translation under a comment still works when you want it.",
   default: false,
   needsPage: true,
 
@@ -196,6 +225,22 @@ export default {
         return false;
       },
     });
+    let posts = 0;
+    net.transformResponses({
+      id: 'noAutoTranslate-posts',
+      enabled,
+      markers: POST_MARKERS,
+      match: (ctx) => ctx.transport === 'json-parse',
+      transform(data) {
+        const changed = untranslatePosts(data);
+        if (changed) {
+          posts += changed;
+          diagnostics?.changed();
+        }
+        return changed > 0;
+      },
+    });
     diagnostics?.add('Comments shown as written', () => String(shown));
+    diagnostics?.add('Posts shown as written', () => String(posts));
   },
 };

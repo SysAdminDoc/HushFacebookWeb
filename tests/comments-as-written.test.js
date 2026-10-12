@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import commentsAsWritten, { ASKED, CommentBook, forgetAsked, MARKERS, originalRanges, RESTORED, restoreComment, untranslate } from '../src/features/comments/comments-as-written.js';
+import commentsAsWritten, { ASKED, AUTO_TRANSLATED, CommentBook, forgetAsked, MARKERS, originalRanges, POST_MARKERS, RESTORED, restoreComment, restorePost, untranslate, untranslatePosts } from '../src/features/comments/comments-as-written.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 
@@ -118,14 +118,69 @@ test("a real comment dialog: each comment's own words are what the page draws, a
 });
 
 // Switching a post's layout left it a loading placeholder live (runs 37 and 40), and dropping its
-// translation makes Facebook's layout throw, so posts go through untouched.
-test('a real Page timeline post in the auto-translated layout is left exactly as it came', async () => {
+// translation makes Facebook's layout throw, so the comment rule leaves posts alone.
+test('a real Page timeline post in the auto-translated layout is left exactly as it came by the comment rule', async () => {
   const [doc] = (await fixtureLines('translated-post.jsonl')).map(parseLine);
-  const [container] = findAll(doc, (v) => v.__typename === 'CometFeedStoryAutoTranslatedMessageContainerRenderingStrategy');
+  const [container] = findAll(doc, (v) => v.__typename === AUTO_TRANSLATED);
   assert.ok(container.story.translation.message.text);
   const before = JSON.stringify(doc);
   assert.deepEqual(untranslate(doc), { comments: 0, copies: 0 });
   assert.equal(JSON.stringify(doc), before);
+});
+
+// The post rule keeps the layout and its code, and gives the translation the post's own words.
+test("a real auto-translated post draws the words as written, with nothing else changed", async () => {
+  const [line] = await fixtureLines('translated-post.jsonl');
+  const doc = parseLine(line);
+  const [sections] = findAll(doc, (v) => v.message_container?.__typename === AUTO_TRANSLATED);
+  const own = sections.message.story.message.text;
+  assert.notEqual(sections.message_container.story.translation.message.text, own);
+  const expected = parseLine(line);
+  const [target] = findAll(expected, (v) => v.message_container?.__typename === AUTO_TRANSLATED);
+  target.message_container.story.translation.message.text = own;
+  assert.equal(untranslatePosts(doc), 1);
+  assert.deepEqual(doc, expected, 'only the translated text changes: layout, modules and See original stay');
+  assert.equal(untranslatePosts(doc), 0, 'done once, it is left alone');
+});
+
+test("a post's words go back only from its own plain message, and mentions move like a comment's", () => {
+  const sections = (overrides = {}) => ({
+    message: { __typename: 'CometFeedStoryDefaultMessageRenderingStrategy', story: { id: 'UzpfSTE=', message: { text: 'Merci Jean pour cet article', ranges: [{ entity: { id: '100' }, offset: 6, length: 4 }] } } },
+    message_container: {
+      __typename: AUTO_TRANSLATED,
+      story: { id: 'UzpfSTE=', translation: { message: { text: 'Thanks Jean for this article', ranges: [richMention(7, 4)], delight_ranges: [{ offset: 0, length: 6 }] } } },
+    },
+    ...overrides,
+  });
+  const one = sections();
+  assert.equal(restorePost(one), true);
+  const shown = one.message_container.story.translation.message;
+  assert.equal(shown.text, 'Merci Jean pour cet article');
+  assert.deepEqual(shown.ranges, [richMention(6, 4)]);
+  assert.deepEqual(shown.delight_ranges, [], "highlights pointing into the translation's words go");
+  const other = sections();
+  other.message.story.id = 'UzpfSTI=';
+  assert.equal(restorePost(other), false, "another story's words never go in");
+  const plainLayout = sections();
+  plainLayout.message_container.__typename = 'CometFeedStoryDefaultMessageRenderingStrategy';
+  assert.equal(restorePost(plainLayout), false);
+  assert.equal(restorePost(sections({ message: null })), false);
+  assert.equal(restorePost(null), false);
+});
+
+test('the post rule works through JSON.parse only, and finds a post by its layout name', async () => {
+  const [line] = await fixtureLines('translated-post.jsonl');
+  const rules = [];
+  let changed = 0;
+  commentsAsWritten.setup({ net: { transformResponses: (rule) => rules.push(rule) }, enabled: () => true, diagnostics: { add() {}, changed: () => changed++ } });
+  const rule = rules.find((r) => r.id === 'noAutoTranslate-posts');
+  assert.equal(rule.match({ transport: 'json-parse' }), true);
+  assert.equal(rule.match({ transport: 'xhr' }), false);
+  assert.ok(!line.includes('MACHINE_TRANSLATION') && POST_MARKERS.every((marker) => line.includes(marker)), 'the comment marker misses a post, the layout name finds it');
+  const ctx = { transport: 'json-parse' };
+  const out = transformDocumentLine(line, rulesFor(line, rules).filter((r) => r.match(ctx)), ctx);
+  assert.notEqual(out, line);
+  assert.equal(changed, 1);
 });
 
 test("a partial copy in a later answer is marked too, but only for a comment that was put back", () => {
