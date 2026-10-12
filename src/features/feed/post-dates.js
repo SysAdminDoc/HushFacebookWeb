@@ -90,6 +90,26 @@ export function timeLinkOf(post) {
     && !a.closest(MESSAGE) && !a.closest(HEADINGS) && !a.closest('object')) ?? null;
 }
 
+// Facebook draws the short time in a box only as wide as the time, one item in the header's
+// row of time, dot and audience icon (a wrapping flex row, live 2026-10-11, run 68). A date put
+// inside that box wrapped under the time, and the dot and icon landed on top of it. So the date
+// goes right after the box, as an item of its own in the row. A header without such a row keeps
+// it right after the link.
+const ROW_LEVELS = 5;
+
+export function dateSpot(link) {
+  const view = link.ownerDocument?.defaultView;
+  let item = link;
+  for (let i = 0; i < ROW_LEVELS; i++) {
+    const parent = item.parentElement;
+    if (!parent || parent.matches('[aria-posinset], [role="article"]')) break;
+    const display = view?.getComputedStyle ? view.getComputedStyle(parent).display : '';
+    if (display === 'flex' || display === 'inline-flex') return item;
+    item = parent;
+  }
+  return link;
+}
+
 export function formatTime(seconds, lang) {
   const when = new Date(seconds * 1000);
   try {
@@ -99,15 +119,16 @@ export function formatTime(seconds, lang) {
   }
 }
 
-// The date next to a post's time link, put there or brought up to date. True once it's shown.
+// The date next to a post's time, put there or brought up to date. True once it's shown.
 export function showDate(doc, post, seconds, lang = doc.documentElement?.lang) {
   const link = timeLinkOf(post);
+  const spot = link ? dateSpot(link) : null;
   for (const old of post.querySelectorAll(`[${DATE_MARK}]`)) {
-    if (old.previousElementSibling !== link) old.remove();
+    if (old.previousElementSibling !== spot) old.remove();
   }
-  if (!link || seconds === null) return false;
+  if (!spot || seconds === null) return false;
   const value = String(seconds);
-  const next = link.nextElementSibling;
+  const next = spot.nextElementSibling;
   if (next?.hasAttribute(DATE_MARK)) {
     if (next.getAttribute(DATE_MARK) !== value) {
       next.setAttribute(DATE_MARK, value);
@@ -118,7 +139,7 @@ export function showDate(doc, post, seconds, lang = doc.documentElement?.lang) {
   const span = doc.createElement('span');
   span.setAttribute(DATE_MARK, value);
   span.textContent = `· ${formatTime(seconds, lang)}`;
-  link.after(span);
+  spot.after(span);
   return true;
 }
 

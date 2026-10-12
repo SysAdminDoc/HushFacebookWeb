@@ -26,12 +26,17 @@ function page(html) {
 // A post header as drawn live: the group's avatar (labeled), the author's name, the time link
 // (target, no rel), the Hide post button (labeled), then the post's photo and the hidden copies
 // of its link out (rel, or inside an <object>).
-const post = ({ photo = '969545875', words = '', time = '?__cft__[0]=AZx' } = {}) => `
+// row: the time sits in the header row the way Feeds and the groups feed draw it (run 68), a
+// box as wide as the time inside a wrapping flex row, then the dot and the audience icon.
+const timeLink = (time) => `<span><a href="${time}" role="link" tabindex="0" target="_blank"><span>3h</span></a></span>`;
+const post = ({ photo = '969545875', words = '', time = '?__cft__[0]=AZx', row = false } = {}) => `
 <div aria-posinset="1">
   <a aria-label="Venice Beach Florida" href="/groups/12345678/?__cft__[0]=AZx" role="link" tabindex="0"><svg></svg></a>
   <h3><span><a href="/groups/12345678/" role="link" tabindex="0">Venice Beach Florida</a></span></h3>
   <span><span><a href="/groups/12345678/user/87654321/?__cft__[0]=AZx" role="link" tabindex="0">Sun Fiesta</a></span></span>
-  <span><span><span><a href="${time}" role="link" tabindex="0" target="_blank"><span>3h</span></a></span></span></span>
+  ${row
+    ? `<div style="display: flex; flex-wrap: wrap"><span style="display: block"><span style="display: block">${timeLink(time)}</span></span><span aria-hidden="true"> · </span><span><svg></svg></span></div>`
+    : `<span><span>${timeLink(time)}</span></span>`}
   <a aria-label="Hide post by Sun Fiesta" href="#" role="link" tabindex="0"></a>
   <div data-ad-rendering-role="story_message"><div>${words}<a href="https://example.com/" target="_blank" rel="nofollow noopener">example.com</a></div></div>
   ${photo ? `<a href="https://www.facebook.com/photo/?fbid=${photo}&amp;set=a.1" role="link" tabindex="0"></a>` : ''}
@@ -182,6 +187,22 @@ test('the date goes right after the time link once, and follows a change of stor
   assert.equal(showDate(doc, element, 1700000000, 'en-US'), true);
   assert.equal(element.querySelectorAll(`[${DATE_MARK}]`).length, 1);
   assert.equal(showDate(doc, element, null, 'en-US'), false, 'no time known yet');
+});
+
+test("in Facebook's header row the date is an item of its own after the time's box, so nothing lands on it", () => {
+  const win = page(post({ row: true }));
+  const doc = win.document;
+  const element = doc.querySelector('[aria-posinset]');
+  const box = timeLinkOf(element).parentElement.parentElement.parentElement;
+  assert.equal(showDate(doc, element, 1760221440, 'en-US'), true);
+  const mark = element.querySelector(`[${DATE_MARK}]`);
+  assert.ok(mark.previousElementSibling === box, "right after the time's box");
+  assert.equal(mark.parentElement.style.display, 'flex', 'an item of the row');
+  assert.equal(mark.nextElementSibling.textContent.trim(), '·', "Facebook's dot and icon come after it");
+  assert.ok(!box.querySelector(`[${DATE_MARK}]`), "nothing inside the time's box");
+  assert.equal(showDate(doc, element, 1700000000, 'en-US'), true);
+  assert.equal(element.querySelectorAll(`[${DATE_MARK}]`).length, 1);
+  assert.match(element.querySelector(`[${DATE_MARK}]`).textContent, /Nov 1[45], 2023/);
 });
 
 test('a date is written in the page language, or the browser default when that one is unknown', () => {
