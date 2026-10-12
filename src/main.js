@@ -10,8 +10,8 @@ import { createLog } from './core/log.js';
 import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
 import { accountFromCookie, createSettings } from './core/settings.js';
-import { createGmStorage } from './core/storage.js';
-import { createDailyTasks, localMirror, scheduleStorageCheck } from './core/tasks.js';
+import { createGmStorage, UNKEPT_SETTINGS } from './core/storage.js';
+import { createDailyTasks, pageMirror, scheduleStorageCheck, whenMirrorReady } from './core/tasks.js';
 import { mountFeatureStyles } from './core/style.js';
 import { features } from './features/index.js';
 import { mountPanel } from './ui/panel.js';
@@ -43,6 +43,7 @@ function boot() {
     onHide: ({ element, reason, detail, signal }) => diagnostics.decide({ post: postIdOf(element).id, rule: reason, signal: signal ?? detail, layer: 'page' }),
   });
   diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'));
+  diagnostics.add('Settings kept in', () => (storage.kind === 'gm' ? 'Your userscript manager' : "Facebook's page, which clears them"));
   const actions = createActions();
   const unavailable = new Set();
   // Toasts wait for the panel, which mounts once there's a body.
@@ -52,6 +53,10 @@ function boot() {
 
   if (!net) {
     log.warn('Your userscript manager is running HushFacebook Web as a content script, so features that need the page are off. Diagnostics has the details.');
+  }
+  if (storage.kind !== 'gm') {
+    log.warn(UNKEPT_SETTINGS);
+    toast(UNKEPT_SETTINGS, { tone: 'error' });
   }
 
   for (const feature of features) {
@@ -91,10 +96,11 @@ function boot() {
 
   mountFeatureStyles({ features, settings, log, base: [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') === true }) }] });
 
-  // Daily jobs wait until the page has settled.
+  // Daily jobs wait until the page has settled and the page's copy of the check is read.
   const tasks = createDailyTasks({ storage, log });
-  scheduleStorageCheck({ tasks, storage, mirror: localMirror(globalThis), log, toast, diagnostics });
-  setTimeout(() => tasks.runDue(), 8000);
+  const mirror = pageMirror(globalThis);
+  scheduleStorageCheck({ tasks, storage, mirror, log, toast, diagnostics });
+  setTimeout(() => whenMirrorReady(mirror, () => tasks.runDue()), 8000);
 
   whenBodyReady(() => {
     panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo() } });

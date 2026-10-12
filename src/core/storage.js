@@ -21,8 +21,14 @@ export function createGmStorage() {
   };
 }
 
-// Fallback for managers without GM storage. Facebook can read this, so it's a last resort.
-function createLocalStorage(prefix = 'hfw:') {
+// Fallback for managers without GM storage. It can't keep much on Facebook: the page's
+// WebStorageMonster posts every localStorage key's name to Facebook's server and removes the
+// ones the answer lists, which took an hfw: key within ten seconds of a load (live
+// 2026-10-11, run 48). It only covers a manager the script doesn't support, and the script says
+// so (UNKEPT_SETTINGS).
+export const UNKEPT_SETTINGS = "Your userscript manager doesn't give HushFacebook Web storage of its own, so your settings are kept in Facebook's page, which clears them within seconds. Tampermonkey and Violentmonkey keep them.";
+
+export function createLocalStorage(prefix = 'hfw:') {
   return {
     kind: 'localStorage',
     get(key, fallback) {

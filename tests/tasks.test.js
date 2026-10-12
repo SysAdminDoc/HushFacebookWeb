@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CHECK_KEY, checkStorage, createDailyTasks, DAY, localMirror, MIRROR_KEY, RECENT, scheduleStorageCheck, TASKS_KEY } from '../src/core/tasks.js';
+import { CHECK_KEY, checkStorage, createDailyTasks, DAY, MIRROR_DB, MIRROR_KEY, pageMirror, RECENT, scheduleStorageCheck, TASKS_KEY, whenMirrorReady } from '../src/core/tasks.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 
@@ -139,16 +139,137 @@ test('a passing check is quiet and Diagnostics shows when it ran', () => {
   assert.match(diagnostics.rows().find((entry) => entry.label === 'Storage check').value, /^Passed /);
 });
 
-test('the page copy lives in localStorage under its own key and survives junk', () => {
-  const data = new Map();
-  const win = { localStorage: { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) } };
-  const mirror = localMirror(win);
+// IndexedDB as far as pageMirror uses it, answering on a later turn the way a browser does.
+// With record, the database is already there holding it. Without, opening it creates it.
+function fakeIndexedDB({ record, failOpen = false } = {}) {
+  const later = (fn) => setTimeout(fn, 0);
+  const stores = new Map();
+  if (record !== undefined) stores.set('checks', new Map([[MIRROR_KEY, record]]));
+  const opened = [];
+  const db = {
+    createObjectStore(name) {
+      stores.set(name, new Map());
+    },
+    transaction(name, mode) {
+      const store = stores.get(name);
+      if (!store) throw new Error(`No store ${name}`);
+      return {
+        objectStore: () => ({
+          get(key) {
+            const request = {};
+            later(() => {
+              request.result = store.get(key);
+              request.onsuccess?.();
+            });
+            return request;
+          },
+          put(value, key) {
+            if (mode !== 'readwrite') throw new Error('Read only');
+            store.set(key, structuredClone(value));
+            return {};
+          },
+        }),
+      };
+    },
+  };
+  return {
+    stores,
+    opened,
+    open(name, version) {
+      opened.push([name, version]);
+      const request = {};
+      later(() => {
+        if (failOpen) {
+          request.onerror?.();
+          return;
+        }
+        request.result = db;
+        if (!stores.has('checks')) request.onupgradeneeded?.();
+        request.onsuccess?.();
+      });
+      return request;
+    },
+  };
+}
+
+const settle = async () => {
+  for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+};
+
+test('the page copy lives in IndexedDB, where Facebook\'s storage cleaner doesn\'t reach', async () => {
+  const idb = fakeIndexedDB();
+  const writes = [];
+  const win = { indexedDB: idb, localStorage: { getItem: () => null, setItem: (key) => writes.push(key) } };
+  const mirror = pageMirror(win);
+  assert.deepEqual(idb.opened, [[MIRROR_DB, 1]]);
   assert.equal(mirror.get(), null);
+  await settle();
+  assert.equal(mirror.get(), null, 'a new database has no copy yet');
   assert.equal(mirror.set({ token: 'a', at: T0 }), true);
-  assert.deepEqual(JSON.parse(data.get(MIRROR_KEY)), { token: 'a', at: T0 });
+  assert.deepEqual(idb.stores.get('checks').get(MIRROR_KEY), { token: 'a', at: T0 });
   assert.deepEqual(mirror.get(), { token: 'a', at: T0 });
-  data.set(MIRROR_KEY, '{broken');
-  assert.equal(mirror.get(), null);
-  assert.equal(localMirror({ get localStorage() { throw new Error('blocked'); } }), null);
-  assert.equal(localMirror({}), null);
+  assert.deepEqual(writes, [], 'nothing goes to localStorage');
+});
+
+test('a copy from an earlier day is read back once the database answers, and junk reads as none', async () => {
+  const mirror = pageMirror({ indexedDB: fakeIndexedDB({ record: { token: 'old', at: T0 - DAY } }) });
+  assert.equal(mirror.get(), null, 'nothing is known before the read is back');
+  await settle();
+  assert.deepEqual(mirror.get(), { token: 'old', at: T0 - DAY });
+  const junk = pageMirror({ indexedDB: fakeIndexedDB({ record: '{broken' }) });
+  await settle();
+  assert.equal(junk.get(), null);
+});
+
+test('a check that runs before the database answers is saved once it does, and never compared against nothing', async () => {
+  const idb = fakeIndexedDB({ record: { token: 'old', at: T0 - DAY } });
+  const mirror = pageMirror({ indexedDB: idb });
+  const storage = createMemoryStorage({ [CHECK_KEY]: { token: 'other', at: T0 - 2 * DAY } });
+  assert.deepEqual(checkStorage({ storage, mirror, now: T0, token: 'new' }), { ok: true, at: T0 }, 'the stale copy is unread, so no false alarm');
+  assert.deepEqual(idb.stores.get('checks').get(MIRROR_KEY), { token: 'old', at: T0 - DAY }, 'not written before the database is open');
+  await settle();
+  assert.deepEqual(idb.stores.get('checks').get(MIRROR_KEY), { token: 'new', at: T0 });
+  assert.deepEqual(mirror.get(), { token: 'new', at: T0 }, 'the newer write wins over the copy read back');
+});
+
+test('without IndexedDB there is no page copy, and a database that won\'t open stays quiet', async () => {
+  assert.equal(pageMirror({}), null);
+  assert.equal(pageMirror({ get indexedDB() { throw new Error('blocked'); } }), null);
+  assert.equal(pageMirror({ indexedDB: { open() { throw new Error('denied'); } } }), null);
+  const closed = pageMirror({ indexedDB: fakeIndexedDB({ failOpen: true }) });
+  await settle();
+  assert.equal(closed.get(), null);
+  assert.equal(closed.set({ token: 'a', at: T0 }), true);
+  assert.equal(closed.get(), null);
+});
+
+test('the daily jobs wait for the page copy to be read, and not forever', async () => {
+  const idb = fakeIndexedDB({ record: { token: 'old', at: T0 - 1000 } });
+  const mirror = pageMirror({ indexedDB: idb });
+  const storage = createMemoryStorage();
+  const tasks = createDailyTasks({ storage, now: () => T0 });
+  let runs = 0;
+  scheduleStorageCheck({ tasks, storage, mirror, now: () => T0 });
+  tasks.add('demo', () => runs++);
+  let ran = null;
+  let calls = 0;
+  const timers = [];
+  whenMirrorReady(mirror, () => { calls++; ran = tasks.runDue(); }, { setTimer: (fn, ms) => timers.push([fn, ms]) });
+  assert.equal(ran, null, 'not before the read is back');
+  await settle();
+  assert.deepEqual(ran, ['demo'], 'the storage check ran within the day the page copy records, so it waits');
+  timers[0][0]();
+  assert.equal(calls, 1, "the time limit doesn't call them a second time");
+  assert.equal(runs, 1);
+  let late = 0;
+  const never = { ready: new Promise(() => {}), get: () => null, set: () => true };
+  const held = [];
+  whenMirrorReady(never, () => late++, { wait: 30000, setTimer: (fn, ms) => held.push([fn, ms]) });
+  assert.equal(late, 0);
+  assert.equal(held[0][1], 30000);
+  held[0][0]();
+  assert.equal(late, 1, 'a read that never comes back holds them up no longer than the limit');
+  let bare = 0;
+  whenMirrorReady(null, () => bare++);
+  assert.equal(bare, 1, 'with no page copy they run at once');
 });

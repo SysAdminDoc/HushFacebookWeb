@@ -5,10 +5,10 @@
 // The first job is a storage check, after Social Fixer's storage_check, which caught managers
 // that lose what a script saves. A write read back on the same page nearly always works, since
 // managers keep a copy in memory, so the check also leaves a token in two places: the
-// manager's storage and the page's own localStorage. On the next check a day later, the two
+// manager's storage and the page's own IndexedDB. On the next check a day later, the two
 // should still agree. If the manager's copy is gone or older than the page's, it didn't keep a
 // write. A newer one is another page's check, since www.facebook.com and web.facebook.com share
-// the manager's storage but each has its own localStorage. A page copy written in the last few
+// the manager's storage but each has its own IndexedDB. A page copy written in the last few
 // minutes is another tab's check running alongside, and isn't compared.
 
 export const DAY = 24 * 60 * 60 * 1000;
@@ -70,32 +70,90 @@ export function createDailyTasks({ storage, log, now = () => Date.now() }) {
   };
 }
 
-// The page's own localStorage, for the second copy of the token. null where it can't be used.
-export function localMirror(win = globalThis) {
-  let store;
+// The page's own IndexedDB, for the second copy of the token. Not localStorage: Facebook's
+// WebStorageMonster removes localStorage keys it doesn't know a few seconds into a page load
+// (live 2026-10-11, run 48: hfw:storageCheck there at load, gone ten seconds later), and tells
+// Facebook's server their names on the way. The copy is read once at start. Until that read is
+// back, get() knows nothing, so a slow read never looks like a lost write, and a write made
+// meanwhile is kept and saved once the database is open. ready settles when the read is back
+// or the database won't open. null where IndexedDB can't be used.
+export const MIRROR_DB = 'hushfacebook-web';
+const MIRROR_STORE = 'checks';
+
+export function pageMirror(win = globalThis) {
+  const idb = attempt(() => win.indexedDB, null);
+  if (!idb || typeof idb.open !== 'function') return null;
+  let db = null;
+  let known = false;
+  let record = null;
+  let pending = null;
+  let settle;
+  const ready = new Promise((resolve) => {
+    settle = resolve;
+  });
+  const write = (value) => {
+    try {
+      db.transaction(MIRROR_STORE, 'readwrite').objectStore(MIRROR_STORE).put(value, MIRROR_KEY);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const loaded = (value) => {
+    known = true;
+    record = pending ?? asRecord(value);
+    if (pending) write(pending);
+    pending = null;
+    settle();
+  };
   try {
-    store = win.localStorage;
-    if (!store) return null;
+    const request = idb.open(MIRROR_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(MIRROR_STORE);
+    request.onsuccess = () => {
+      db = request.result;
+      // Never stand in the way of a newer copy of the script in another tab.
+      db.onversionchange = () => db.close();
+      try {
+        const read = db.transaction(MIRROR_STORE, 'readonly').objectStore(MIRROR_STORE).get(MIRROR_KEY);
+        read.onsuccess = () => loaded(read.result);
+        read.onerror = () => loaded(null);
+      } catch {
+        loaded(null);
+      }
+    };
+    request.onerror = () => settle();
   } catch {
     return null;
   }
   return {
-    get() {
-      try {
-        return asRecord(JSON.parse(store.getItem(MIRROR_KEY) ?? 'null'));
-      } catch {
-        return null;
-      }
-    },
-    set(record) {
-      try {
-        store.setItem(MIRROR_KEY, JSON.stringify(record));
+    ready,
+    get: () => (known ? record : null),
+    set(value) {
+      if (!known) {
+        pending = value;
         return true;
-      } catch {
-        return false;
       }
+      record = value;
+      return write(value);
     },
   };
+}
+
+// Runs run() once the mirror has read its copy, or after wait ms if it never does, so the daily
+// jobs see the page's record of their last run.
+export function whenMirrorReady(mirror, run, { wait = 30000, setTimer = setTimeout } = {}) {
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    run();
+  };
+  if (!mirror?.ready) {
+    go();
+    return;
+  }
+  mirror.ready.then(go, go);
+  setTimer(go, wait);
 }
 
 const randomToken = () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
