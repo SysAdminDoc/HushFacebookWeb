@@ -361,7 +361,9 @@ export function scrubDomText(value) {
   const lead = value.match(/^\s*/)[0];
   const tail = value.match(/\s*$/)[0];
   if (trimmed.length <= 3) return NON_ASCII_LETTER.test(trimmed) ? lead + 'x'.repeat(trimmed.length) + tail : value;
-  if (UI_TEXT.has(trimmed.toLowerCase()) || SMALL_NUMBER.test(trimmed)) return value;
+  if (UI_TEXT.has(trimmed.toLowerCase())) return value;
+  // Counts and times stay. Seven digits or more could be a phone number, as in the data path.
+  if (SMALL_NUMBER.test(trimmed)) return trimmed.replace(/\D/g, '').length >= 7 ? value.replace(/\d{3,}/g, (run) => fakeDigits(run, run.length)) : value;
   return lead + fakeWords(trimmed) + tail;
 }
 

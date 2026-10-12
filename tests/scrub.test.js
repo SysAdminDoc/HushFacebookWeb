@@ -233,4 +233,13 @@ test('page text: short runs stay, other scripts are blanked, numbers and spacing
   assert.match(words, /^ [A-Z][a-z]+(?: [a-z]+)* $/);
   assert.ok(!words.includes('Sam'));
   assert.equal(scrubDomTree('<&>'), '&lt;&amp;&gt;', 'short text is escaped, not rewritten');
+  // A phone number or a long id in a post is a number too, and isn't kept.
+  for (const number of ['555-201-4477', '(555) 201 4477', '2014477', '1234567890']) {
+    const scrubbed = scrubDomText(` ${number} `);
+    assert.ok(!scrubbed.includes(number), number);
+    // Stand-ins never carry ten digits in a row, so only the shorter ones keep their shape.
+    if (number.length <= 12 && !/\d{10}/.test(number)) assert.equal(scrubbed.replace(/\d/g, '0'), ` ${number.replace(/\d/g, '0')} `, 'same shape');
+  }
+  assert.equal(scrubDomText('1,234'), '1,234');
+  assert.equal(scrubDomText('12:45'), '12:45');
 });
