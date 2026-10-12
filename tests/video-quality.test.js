@@ -176,6 +176,34 @@ test('a dropped copy is swapped for the best one kept, in whatever order the man
   assert.deepEqual(picks.all_video_dash_prefetch_representations[0].initial_representation_ids, ['r480', 'ra']);
 });
 
+test("a full book never forgets a video from the answer it's reading, so its list still gets trimmed", () => {
+  const book = createCopyBook();
+  for (let i = 0; i < 4996; i++) book.keep(`old${i}`);
+  const second = mpd([1080, 720, 360]).replace(/id="r/g, 'id="s');
+  const answer = {
+    data: { a: { dash_manifest: mpd([1080, 720, 360]) }, b: { dash_manifest: second } },
+    extensions: { all_video_dash_prefetch_representations: [
+      { ...entry(['r1080', 'r720', 'r360', 'ra']), initial_representation_ids: ['r1080', 'ra'] },
+      { ...entry(['s1080', 's720', 's360', 'sa']), initial_representation_ids: ['s1080', 'sa'] },
+    ] },
+  };
+  answer.extensions.all_video_dash_prefetch_representations[1].representations[3].mime_type = 'audio/mp4';
+  assert.deepEqual(capAnswer(answer, '720', book), { videos: 2, changed: true });
+  const lists = answer.extensions.all_video_dash_prefetch_representations;
+  assert.deepEqual(lists.map((list) => list.representations.map((copy) => copy.representation_id)), [['r720', 'r360', 'ra'], ['s720', 's360', 'sa']]);
+  assert.deepEqual(lists.map((list) => list.initial_representation_ids), [['r720', 'ra'], ['s720', 'sa']]);
+  assert.equal(book.kept('old1'), false, "earlier answers' copies made the room");
+});
+
+test("a first copy swapped for one the list doesn't carry becomes the best kept copy it does", () => {
+  const book = createCopyBook();
+  capManifest(mpd([1080, 720, 480, 360]), '480', book);
+  const picks = { all_video_dash_prefetch_representations: [{ ...entry(['r1080', 'r360', 'ra']), initial_representation_ids: ['r1080', 'ra'] }] };
+  capAnswer(picks, '480', book);
+  assert.deepEqual(picks.all_video_dash_prefetch_representations[0].representations.map((copy) => copy.representation_id), ['r360', 'ra']);
+  assert.deepEqual(picks.all_video_dash_prefetch_representations[0].initial_representation_ids, ['r360', 'ra'], 'never sound only');
+});
+
 test('an empty set that closes itself leaves the next set to be capped', () => {
   const xml = mpd([360, 720, 1080], { before: '<AdaptationSet contentType="text" mimeType="text/vtt"/>' });
   assert.deepEqual(labelsIn(capManifest(xml, 'highest')), [1080]);
