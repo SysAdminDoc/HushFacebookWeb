@@ -16,6 +16,10 @@ export function isPlainHome(href) {
   return /^(www|web)\.facebook\.com$/.test(url.hostname) && parseRoute(href).type === 'home' && url.search === '';
 }
 
+// Runs a start-of-page decision once the saved choices are in (settings.whenLoaded). They are
+// at once in a userscript; the extension's arrive a few milliseconds after the page starts.
+export const onceLoaded = (settings, run) => (settings?.whenLoaded ? settings.whenLoaded(run) : run());
+
 // Claims this page load's Home redirect for a feature. False when another feature has it.
 export function claimHomeRedirect(win, id) {
   if (win[CLAIM] && win[CLAIM] !== id) return false;

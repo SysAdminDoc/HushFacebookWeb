@@ -94,7 +94,17 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   const listeners = new Set();
   const key = storageKeyFor(account);
   const doneKey = `${key}.migrated`;
-  let values = migrate(load());
+  // The extension's storage fills a few milliseconds in (whenReady). Until then every setting
+  // is at its default, and loading, copying and migrating wait so they see what's really saved.
+  let ready = !storage.whenReady;
+  let values = ready ? migrate(load()) : {};
+  if (!ready) {
+    storage.whenReady(() => {
+      ready = true;
+      values = migrate(load());
+      notify([...schema.keys()], true);
+    });
+  }
 
   function load() {
     const own = storage.get(key, undefined);
@@ -169,6 +179,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   }
 
   storage.onChange?.(key, (raw) => {
+    if (!ready) return;
     values = sanitize(raw);
     notify([...schema.keys()], true);
   });
@@ -180,6 +191,9 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   return {
     schema,
     perAccount: key !== STORAGE_KEY,
+    // Runs once the saved choices are in: at once from a userscript manager, a few
+    // milliseconds in from the extension's storage. For decisions made only as the page starts.
+    whenLoaded: (run) => (storage.whenReady ? storage.whenReady(run) : run()),
     get,
     set(key, value) {
       const found = spec(key);

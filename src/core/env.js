@@ -1,10 +1,13 @@
-// Where the script runs and what the userscript manager gives it.
+// Where the script runs and what the userscript manager gives it. In the browser extension the
+// script always runs in the page, and extension.js stands in for the manager.
 //
 // Network, JSON and media hooks have to patch Facebook's own window. Tampermonkey
 // (@sandbox JavaScript) and Violentmonkey (page mode) put the script where unsafeWindow is
 // that window. When a manager can only run us as a content script, page hooks would patch
 // an isolated copy and do nothing, so features that need the page are skipped and
 // Diagnostics says why.
+
+import { extensionHost } from './extension.js';
 
 export const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : globalThis;
 
@@ -15,6 +18,7 @@ const info = typeof GM_info !== 'undefined' ? GM_info : null;
 export const pageAccess = info?.injectInto === 'content' || info?.sandboxMode === 'dom' ? 'content' : 'page';
 
 export function managerInfo() {
+  if (extensionHost()) return { manager: 'Browser extension', managerVersion: version, mode: 'page', pageAccess };
   return {
     manager: info?.scriptHandler ?? 'unknown',
     managerVersion: info?.version ?? 'unknown',
@@ -25,14 +29,19 @@ export function managerInfo() {
 
 // The manager's download and request functions, where it grants them.
 export function gmApi() {
+  const extension = extensionHost();
+  if (extension) return { download: extension.download, request: null };
   return {
     download: typeof GM_download === 'function' ? GM_download : null,
     request: typeof GM_xmlhttpRequest === 'function' ? GM_xmlhttpRequest : null,
   };
 }
 
+// The extension's toolbar button stands in for the manager's menu.
 export function registerMenuCommand(label, handler) {
-  if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand(label, handler);
+  const extension = extensionHost();
+  if (extension) extension.onOpenSettings(handler);
+  else if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand(label, handler);
 }
 
 // Runs fn once the document has an <html> element, or right away when it already does.

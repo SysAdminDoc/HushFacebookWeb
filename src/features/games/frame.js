@@ -1,3 +1,4 @@
+import { keepsSettings } from '../../core/storage.js';
 import { installInstantGamesHooks } from './sdk.js';
 
 export const GAME_ADS_KEY = 'instantGamesAds.enabled';
@@ -15,7 +16,7 @@ export function executionTarget(win) {
 
 // Facebook account cookies aren't available to a game. Only this boolean is shared.
 export function mirrorGameSetting({ storage, settings, enabled, log }) {
-  if (storage.kind !== 'gm') return null;
+  if (!keepsSettings(storage)) return null;
   const sync = () => {
     const next = enabled() === true;
     try {
@@ -25,7 +26,8 @@ export function mirrorGameSetting({ storage, settings, enabled, log }) {
       log?.error('Could not update the Instant Games ad setting', error);
     }
   };
-  sync();
+  if (settings.whenLoaded) settings.whenLoaded(sync);
+  else sync();
   const unsubscribe = settings.subscribe(({ keys }) => {
     if (keys.includes(GAME_ADS_FEATURE) || keys.includes('paused')) sync();
   });
@@ -33,7 +35,7 @@ export function mirrorGameSetting({ storage, settings, enabled, log }) {
 }
 
 export function startGameFrame({ win, storage, log, onBlocked }) {
-  if (storage.kind !== 'gm') {
+  if (!keepsSettings(storage)) {
     log?.warn('Instant Games ad blocking needs storage from your userscript manager.');
     return null;
   }

@@ -1,9 +1,18 @@
 // Storage adapters. Settings code only sees { get, set, remove, onChange }.
 //
 // GM_getValue is synchronous in Tampermonkey and Violentmonkey, which matters at
-// document-start: hooks need the saved settings before Facebook sends its first request.
+// document-start: hooks need the saved settings before Facebook sends its first request. The
+// browser extension's storage (bridge.js) fills a few milliseconds in, and says when with
+// whenReady.
+
+import { extensionHost } from './extension.js';
+
+// Whether settings outlive the page: the manager's storage or the extension's.
+export const keepsSettings = (storage) => storage.kind === 'gm' || storage.kind === 'extension';
 
 export function createGmStorage() {
+  const extension = extensionHost();
+  if (extension) return extension.storage;
   if (typeof GM_getValue !== 'function' || typeof GM_setValue !== 'function') {
     return createLocalStorage();
   }

@@ -7,7 +7,7 @@
 // choice, since Facebook can open the newest chat there.
 
 import { followingFeedUrl } from './following-feed.js';
-import { claimHomeRedirect, isPlainHome, isVisitStart } from './start.js';
+import { claimHomeRedirect, isPlainHome, isVisitStart, onceLoaded } from './start.js';
 
 export const TABS = [
   { value: 'marketplace', label: 'Marketplace', path: '/marketplace/' },
@@ -39,9 +39,11 @@ export default {
   setup({ win, settings, enabled, option, log }) {
     // Asked on every load, so the visit is marked even while the switch is off.
     const start = isVisitStart(win);
-    if (!start || !enabled() || !isPlainHome(win.location.href) || !claimHomeRedirect(win, 'openOnTab')) return;
-    const path = startPath(option('tab'), settings);
-    log?.info(`Open on a chosen tab: this visit starts on ${path}`);
-    win.location.replace(path);
+    onceLoaded(settings, () => {
+      if (!start || !enabled() || !isPlainHome(win.location.href) || !claimHomeRedirect(win, 'openOnTab')) return;
+      const path = startPath(option('tab'), settings);
+      log?.info(`Open on a chosen tab: this visit starts on ${path}`);
+      win.location.replace(path);
+    });
   },
 };

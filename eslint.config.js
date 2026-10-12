@@ -15,7 +15,16 @@ export default [
         ...globals.greasemonkey,
         exportFunction: 'readonly',
         __HFW_VERSION__: 'readonly',
+        __HFW_TARGET__: 'readonly',
       },
+    },
+  },
+  {
+    files: ['extension/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.browser, ...globals.webextensions },
     },
   },
   {

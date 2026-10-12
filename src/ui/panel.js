@@ -4,12 +4,14 @@
 
 import { decisionLine } from '../core/diagnostics.js';
 import { MAX_BACKUP_BYTES } from '../core/settings.js';
+import { TARGET } from '../core/target.js';
 import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
 import { SLIDERS_ICON } from './icons.js';
 import { findFeatures } from './search.js';
 import { panelCss } from './styles.js';
 
+const ALWAYS_OPENS = TARGET === 'extension' ? "The extension's toolbar button" : "Your userscript manager's menu";
 const CLOSE_ICON = ['M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z'];
 const ERROR_TOAST_GAP_MS = 15000;
 const SECTION_DESCRIPTIONS = {
@@ -258,7 +260,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: 'Show the settings button' }),
-            h('div', { class: 'desc', text: "The round button in Facebook's bottom-left corner. Your userscript manager's menu always opens settings too, and so does the row in your account menu while Settings in your account menu is on." })),
+            h('div', { class: 'desc', text: `The round button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.` })),
           toggle('ui.launcher', 'Show the settings button'))),
       h('div', { class: 'card' },
         h('div', { class: 'row' },

@@ -11,6 +11,8 @@
 // the manager's storage but each has its own IndexedDB. A page copy written in the last few
 // minutes is another tab's check running alongside, and isn't compared.
 
+import { KEEPER } from './target.js';
+
 export const DAY = 24 * 60 * 60 * 1000;
 export const RECENT = 10 * 60 * 1000;
 export const TASKS_KEY = 'tasks';
@@ -165,21 +167,21 @@ export function checkStorage({ storage, mirror, now = Date.now(), token = random
   try {
     kept = asRecord(storage.get(CHECK_KEY, null));
   } catch (error) {
-    return { ok: false, at: now, message: `Your userscript manager's storage couldn't be read (${error?.message ?? error}), so your settings may not be saved.` };
+    return { ok: false, at: now, message: `${KEEPER}'s storage couldn't be read (${error?.message ?? error}), so your settings may not be saved.` };
   }
   const before = mirror?.get() ?? null;
   const earlier = before && !(now - Number(before.at) < RECENT);
   const lost = earlier && (!kept || (kept.token !== before.token && !(Number(kept.at) > Number(before.at))))
-    ? `Your userscript manager didn't keep what HushFacebook Web saved on ${day(before.at)}. If you didn't reinstall the script or clear its storage since then, your settings may not be saving.`
+    ? `${KEEPER} didn't keep what HushFacebook Web saved on ${day(before.at)}. If you didn't reinstall the script or clear its storage since then, your settings may not be saving.`
     : null;
   try {
     storage.set(CHECK_KEY, { token, at: now });
     const back = asRecord(storage.get(CHECK_KEY, null));
     if (!back || back.token !== token) {
-      return { ok: false, at: now, message: "Your userscript manager didn't give back what HushFacebook Web just saved, so your settings may not be saving." };
+      return { ok: false, at: now, message: `${KEEPER} didn't give back what HushFacebook Web just saved, so your settings may not be saving.` };
     }
   } catch (error) {
-    return { ok: false, at: now, message: `Your userscript manager wouldn't save (${error?.message ?? error}), so your settings may not be saving.` };
+    return { ok: false, at: now, message: `${KEEPER} wouldn't save (${error?.message ?? error}), so your settings may not be saving.` };
   }
   mirror?.set({ token, at: now });
   return lost ? { ok: false, at: now, message: lost } : { ok: true, at: now };

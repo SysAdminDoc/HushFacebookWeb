@@ -10,7 +10,7 @@ import { createLog } from './core/log.js';
 import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
 import { accountFromCookie, createSettings } from './core/settings.js';
-import { createGmStorage, UNKEPT_SETTINGS } from './core/storage.js';
+import { createGmStorage, keepsSettings, UNKEPT_SETTINGS } from './core/storage.js';
 import { keepOutOfStorageReport } from './core/storage-report.js';
 import { createDailyTasks, pageMirror, scheduleStorageCheck, whenMirrorReady } from './core/tasks.js';
 import { mountFeatureStyles } from './core/style.js';
@@ -48,7 +48,7 @@ function boot() {
     onHide: ({ element, reason, detail, signal }) => diagnostics.decide({ post: postIdOf(element).id, rule: reason, signal: signal ?? detail, layer: 'page' }),
   });
   diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'));
-  diagnostics.add('Settings kept in', () => (storage.kind === 'gm' ? 'Your userscript manager' : "Facebook's page, which clears them"));
+  diagnostics.add('Settings kept in', () => ({ gm: 'Your userscript manager', extension: "The extension's own storage" })[storage.kind] ?? "Facebook's page, which clears them");
   const actions = createActions();
   const unavailable = new Set();
   // Toasts wait for the panel, which mounts once there's a body.
@@ -61,7 +61,7 @@ function boot() {
   }
   // The script's marks for the tab stay out of the storage report Facebook's page sends home.
   if (net) keepOutOfStorageReport({ win: pageWindow, log, diagnostics });
-  if (storage.kind !== 'gm') {
+  if (!keepsSettings(storage)) {
     log.warn(UNKEPT_SETTINGS);
     toast(UNKEPT_SETTINGS, { tone: 'error' });
   }
@@ -113,7 +113,7 @@ function boot() {
     panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo() } });
     for (const [message, options] of waiting.splice(0)) panel.toast(message, options);
     const other = document.documentElement.getAttribute(DUPLICATE);
-    if (other) log.warn(`A second copy of HushFacebook Web (v${other}) is installed. Turn one off in your userscript manager.`);
+    if (other) log.warn(`A second copy of HushFacebook Web (v${other}) is installed. Turn one off in your userscript manager or on the browser's extensions page.`);
   });
   registerMenuCommand('HushFacebook Web settings', () => whenBodyReady(() => panel?.open()));
 

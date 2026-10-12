@@ -3,7 +3,7 @@
 <p>
   <img src="https://img.shields.io/badge/version-0.0.4-CBA6F7" alt="Version 0.0.4">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
-  <img src="https://img.shields.io/badge/platform-userscript-1877F2" alt="Platform userscript">
+  <img src="https://img.shields.io/badge/platform-userscript%20%7C%20Chrome%20extension-1877F2" alt="Platform userscript or Chrome extension">
   <img src="https://img.shields.io/badge/for-Tampermonkey%20%7C%20Violentmonkey-00485B" alt="For Tampermonkey or Violentmonkey">
 </p>
 
@@ -15,7 +15,7 @@
 
 # HushFacebook Web
 
-HushFacebook Web is a userscript for Facebook in a desktop browser. It's the web sibling of [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app, and it's working toward the same list: a feed without ads or suggested posts, less Meta AI, downloads, privacy switches and playback controls.
+HushFacebook Web is a userscript for Facebook in a desktop browser, and a Chrome extension built from the same code. It's the web sibling of [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app, and it's working toward the same list: a feed without ads or suggested posts, less Meta AI, downloads, privacy switches and playback controls.
 
 ## Where it stands
 
@@ -90,7 +90,7 @@ The script has been checked on facebook.com in Chrome with Tampermonkey and Viol
 
 ## The settings panel
 
-Click the sliders button in the bottom left corner of Facebook, or the HushFacebook Web row in the menu under your profile picture at the top right. Your userscript manager's menu has a HushFacebook Web settings entry too. Changes save as you make them, and every switch has a line under it saying what it does. If you'd rather not have the corner button, turn it off under Menu or General.
+Click the sliders button in the bottom left corner of Facebook, or the HushFacebook Web row in the menu under your profile picture at the top right. Your userscript manager's menu has a HushFacebook Web settings entry too, and in the extension the toolbar button opens them from any tab. Changes save as you make them, and every switch has a line under it saying what it does. If you'd rather not have the corner button, turn it off under Menu or General.
 
 The panel has 18 sections in a dark layout with a lavender accent. Find a setting, above the sections, looks through every switch's name, description and options as you type, and each result's section link opens that section with the switch in view. Narrow windows get a scrolling section bar, and long labels and options wrap to fit. The power switch pauses the script. General has backup and restore, and Reset offers Undo in a notification. Closing settings returns focus to the control that opened them.
 
@@ -109,11 +109,15 @@ Most Facebook cleanup tools hunt for posts on the page and hide them. That break
 
 Some things can only be done on the page itself, like download buttons or hiding a menu item. Those use the page, kept to the parts of Facebook's markup that change least.
 
-Your userscript manager keeps a separate set of settings for each Facebook account. Downloads request the media you choose to save, and the manager checks GitHub for script updates. Diagnostics reports include changed settings and recent log details, so read them before sharing. If a manager has no storage of its own, the script falls back to page storage, which Facebook may clear.
+Your userscript manager, or the extension's own storage, keeps a separate set of settings for each Facebook account. Downloads request the media you choose to save, and the manager checks GitHub for script updates. Diagnostics reports include changed settings and recent log details, so read them before sharing. If a manager has no storage of its own, the script falls back to page storage, which Facebook may clear.
 
 Block Instant Games ads is off by default under Meta's other products. It answers supported ad requests with the game's usual no-ad response. Games with protected ad methods can't be filtered. A game that replaces or adds its ad system can make unfiltered requests before the next check. Rewards that require an ad won't be earned. A game can't read your Facebook account settings, so games share one switch using the account you last opened or changed it in. This needs manager storage and page mode. Reload an open game after changing it. Local SDK and frame checks pass, but it hasn't been checked in a live game yet.
 
 ## Install
+
+There are two ways to run it. They share every feature, so pick one, not both. If both are on, the one that starts second stays out of the way, and the script's log says so.
+
+### As a userscript
 
 You'll need a userscript manager first:
 
@@ -124,6 +128,20 @@ Then open [hushfacebook-web.user.js](https://github.com/SysAdminDoc/HushFacebook
 
 Open the settings from the round button in Facebook's bottom-left corner, from the menu under your profile picture, or from your userscript manager's menu.
 
+### As a Chrome extension
+
+This works in Chrome, Edge, Brave and other Chromium browsers from version 111. No userscript manager needed, and there's no Allow User Scripts switch to find.
+
+1. Download `hushfacebook-web-extension.zip` from a release and unzip it somewhere you'll keep it.
+2. Open `chrome://extensions` (`edge://extensions` in Edge) and turn on **Developer mode**.
+3. Click **Load unpacked** and pick the unzipped folder.
+
+The extension is new in the development build, so the first release to carry the zip is the one after 0.0.2. Until then, build it yourself (below) and load `dist/extension`. It doesn't update itself yet. Load the new folder when a release comes out, and your settings stay where they are.
+
+The toolbar button opens the settings on Facebook, or opens Facebook with the settings up from any other tab. It asks for storage (your settings), downloads (saving photos and videos) and the tab you click the button on. It runs only on facebook.com and in Instant Games frames.
+
+So far the extension has been checked in Chromium on Facebook while signed out. It loads, keeps settings, saves files under their readable names, and its toolbar button and Home redirects work. The signed-in checks listed above ran with the userscript, which uses the same feature code.
+
 ## Building it yourself
 
 You need Node 24.
@@ -133,7 +151,7 @@ npm install
 npm run build
 ```
 
-That writes `dist/hushfacebook-web.user.js`. Open it in your userscript manager to install it. `npm test` runs the tests and `npm run check` runs the lint and version checks. [CONTRIBUTING.md](CONTRIBUTING.md) explains how the code is laid out.
+That writes `dist/hushfacebook-web.user.js`, which you open in your userscript manager to install. It also writes the extension, unpacked in `dist/extension` and zipped as `dist/hushfacebook-web-extension.zip`. `npm test` runs the tests and `npm run check` runs the lint and version checks. [CONTRIBUTING.md](CONTRIBUTING.md) explains how the code is laid out.
 
 ## Thanks
 

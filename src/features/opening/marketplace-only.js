@@ -11,7 +11,7 @@
 
 import { parseRoute } from '../../core/route.js';
 import { FIND_FRIENDS, HOSTS, TAB_ROWS, hide, place } from '../appearance/declutter-table.js';
-import { claimHomeRedirect } from './start.js';
+import { claimHomeRedirect, onceLoaded } from './start.js';
 
 export const MARKETPLACE = '/marketplace/';
 const MARKETPLACE_LINKS = ['[role="banner"] a[href="/marketplace/"]', ...HOSTS.map((host) => `[role="navigation"] a[href^="${host}/marketplace/"]`)].join(', ');
@@ -97,7 +97,7 @@ export default {
   default: false,
   css: MARKETPLACE_ONLY_CSS,
 
-  setup({ win, router, enabled, log }) {
+  setup({ win, router, settings, enabled, log }) {
     let warned = false;
     const leaveHome = () => {
       if (mayRedirect(win)) {
@@ -110,7 +110,9 @@ export default {
       log?.warn('Marketplace only stopped sending Home to Marketplace for a while, because Marketplace keeps sending this tab back. It may not be open to this account.');
     };
 
-    if (enabled() && isHome(win.location.href) && claimHomeRedirect(win, 'marketplaceOnly')) leaveHome();
+    onceLoaded(settings, () => {
+      if (enabled() && isHome(win.location.href) && claimHomeRedirect(win, 'marketplaceOnly')) leaveHome();
+    });
 
     // Once per page is enough to start the bounce count over.
     let counting = true;

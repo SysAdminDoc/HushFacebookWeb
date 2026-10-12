@@ -5,7 +5,7 @@
 // Confidence: ?sk=h_chr and the filter= values were documented working in 2025-02. They
 // need a check on today's Facebook.
 
-import { claimHomeRedirect, isPlainHome } from './start.js';
+import { claimHomeRedirect, isPlainHome, onceLoaded } from './start.js';
 
 export { isPlainHome };
 
@@ -39,12 +39,13 @@ export default {
     },
   ],
 
-  setup({ win, enabled, option, log }) {
+  setup({ win, settings, enabled, option, log }) {
     const target = () => followingFeedUrl(option('filter'));
 
     // A guard in sessionStorage stops a redirect loop if Facebook ever sends us back to "/".
     // Marketplace only and Open on a chosen tab come first when they send this load elsewhere.
-    if (enabled() && isPlainHome(win.location.href) && claimHomeRedirect(win, 'followingFeed')) {
+    onceLoaded(settings, () => {
+      if (!enabled() || !isPlainHome(win.location.href) || !claimHomeRedirect(win, 'followingFeed')) return;
       let recent;
       try {
         recent = Date.now() - Number(win.sessionStorage.getItem(GUARD_KEY) ?? 0) < GUARD_MS;
@@ -54,7 +55,7 @@ export default {
       }
       if (recent) log.warn('Facebook sent Home back to its ranked feed, so the Following feed redirect stopped to avoid a loop');
       else win.location.replace(target());
-    }
+    });
 
     win.addEventListener(
       'click',

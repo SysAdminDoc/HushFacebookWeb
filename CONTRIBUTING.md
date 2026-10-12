@@ -9,6 +9,9 @@ src/
   main.js              boot order: settings, network hooks, features, styles, panel
   core/
     env.js             which window we're in and what the userscript manager offers
+    target.js          which build this is, the userscript or the extension
+    extension.js       what the extension gives in place of a manager: storage, downloads, the toolbar button
+    bridge.js          the page half of the extension's bridge to its isolated content script
     settings.js        settings built from the feature list, with import and export
     storage.js         GM storage, with localStorage and in-memory fallbacks
     log.js             console logging plus the buffer Diagnostics shows
@@ -33,7 +36,10 @@ src/
     style.js           one style element for every CSS feature that's on
   features/            one file per feature, grouped by settings section
   ui/                  the settings panel (closed shadow root, no innerHTML)
-scripts/               build, metadata block, version check
+extension/
+  isolated.js          the extension's content script beside the page: chrome.storage and messages
+  background.js        the service worker: downloads and the toolbar button
+scripts/               build, metadata block, extension manifest, zip, version check
 tests/                 node:test suites, no browser needed (happy-dom stands in for the page)
 docs/feature-parity.md every Hushfacebook patch and its web plan
 ```
@@ -94,6 +100,8 @@ npm run build
 
 Then install `dist/hushfacebook-web.user.js` in Violentmonkey or Tampermonkey and try the feature on facebook.com. Note what you checked in the pull request.
 
+The extension is the same bundle built with `__HFW_TARGET__` set to `extension`. In the page, `core/extension.js` stands in for the manager, and storage reads come from a copy in memory that fills from `chrome.storage` a few milliseconds after the page starts. Anything decided once as the page loads, like a redirect, goes through `settings.whenLoaded` so it sees the saved choices rather than the defaults. To try it, load `dist/extension` with Load unpacked.
+
 ## Releasing
 
 Releases go out in stages, and each stage refuses to run until the ones before it have passed for the same version and commit:
@@ -106,4 +114,4 @@ npm run release -- --stage live
 npm run release -- --stage publish
 ```
 
-Preflight wants a clean `main`, a version that isn't tagged yet and a `## vX.Y.Z` section in CHANGELOG.md, then runs the checks and tests. Build starts from an empty `dist/` and writes `SHA256SUMS.txt` beside the script. Notes copies the whole CHANGELOG section into `dist/release-notes.txt`. Live is optional and only runs on the maintainer's PC, since it drives a signed-in browser. Publish needs `main` pushed, makes the GitHub release with the script, the `.meta.js` and the sums, then downloads the script back and compares it with the build. Add `--dry-run` to publish to see the command first. A new commit, or a changed file in `dist/`, sends you back to the stage that made it.
+Preflight wants a clean `main`, a version that isn't tagged yet and a `## vX.Y.Z` section in CHANGELOG.md, then runs the checks and tests. Build starts from an empty `dist/`, checks the extension's manifest carries the same version, and writes `SHA256SUMS.txt` for the script, the `.meta.js` and the extension zip. Notes copies the whole CHANGELOG section into `dist/release-notes.txt`. Live is optional and only runs on the maintainer's PC, since it drives a signed-in browser. Publish needs `main` pushed, makes the GitHub release with the script, the `.meta.js`, the extension zip and the sums, then downloads the script back and compares it with the build. Add `--dry-run` to publish to see the command first. A new commit, or a changed file in `dist/`, sends you back to the stage that made it.
