@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* New Open Messenger as a full page switch, under Opening Facebook, off by default. The Messenger button in the top bar goes straight to the Messages page instead of opening the list of chats over Facebook. Hold Ctrl, Cmd or Shift, or use the middle button, to open it in a new tab. Tried live: with the switch on a click went to Messages, and with it off the usual list opened. It works without the script running in the page too.
+
 ## v0.0.2 (2026-10-11)
 
 * Checked in Violentmonkey on Chrome as well as Tampermonkey. The script starts in the page, takes Marketplace and search ads out before Facebook sees them, gives Copy link the post's own address and keeps a story view to yourself, the same as in Tampermonkey.

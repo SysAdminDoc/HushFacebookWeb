@@ -58,6 +58,7 @@ import videoQuality from './playback/video-quality.js';
 import marketplaceOnly from './opening/marketplace-only.js';
 import openOnTab from './opening/open-on-tab.js';
 import followingFeed from './opening/following-feed.js';
+import messengerPage from './opening/messenger-page.js';
 import downloadPhotos from './downloads/download-photos.js';
 import downloadVideos from './downloads/download-videos.js';
 import downloadReels from './downloads/download-reels.js';
@@ -84,7 +85,7 @@ export const features = [
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
   menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions,
   // In this order: the first to claim a Home load redirects it (opening/start.js).
-  marketplaceOnly, openOnTab, followingFeed,
+  marketplaceOnly, openOnTab, followingFeed, messengerPage,
   // Last, so its rules come after every built-in style.
   customCss,
 ];

@@ -55,6 +55,7 @@ It has the groundwork in place, meaning the settings panel and the layer that re
 * Following feed on Home
 * Open on a chosen tab
 * Marketplace only
+* Open Messenger as a full page
 * Tap to play
 * Turn off HDR brightness
 * Resume long videos
