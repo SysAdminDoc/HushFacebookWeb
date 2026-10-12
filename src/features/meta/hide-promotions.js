@@ -7,7 +7,9 @@
 //                                                    (trigger fb_stories_www_tofu_nux)
 // The script empties those lists before Facebook reads them, so there's nothing to draw. Each
 // node is one promotion with its surface and trigger, and an empty list is what Facebook sends
-// when it has none for you. Needs the script running in the page.
+// when it has none for you. Every list goes, whatever the surface: an account reminder sent as
+// a quick promotion is taken out too, and the description says so. Needs the script running
+// in the page.
 
 export const MARKERS = ['"eligible_promotions"', '"jewel_qp"'];
 const LISTS = ['eligible_promotions', 'jewel_qp'];
@@ -38,7 +40,7 @@ export default {
   section: 'meta',
   android: 'Hide the Get Messenger card',
   title: "Hide Facebook's own cards and tips",
-  description: 'Cards like Get the Messenger app over your chats or in the Messenger menu, and the tips Facebook shows in stories, never show up.',
+  description: 'Takes out the cards Facebook puts up for its own things, like Get the Messenger app over your chats or in the Messenger menu and the tips in stories. Reminders Facebook sends the same way go too.',
   default: false,
   needsPage: true,
 
