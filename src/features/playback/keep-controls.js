@@ -19,8 +19,9 @@ const TRACKS = 2; // seconds between a slider's value and the video's time for i
 // one, with the video's length as its largest value. A video about 100 seconds long can match a
 // volume slider too, and then only a slider whose value follows the video's time counts. A
 // volume at V follows it too while the video passes second V (at 0 in a muted video's first
-// seconds), so when two follow it, only one whose value has moved since the last look (seen
-// keeps each slider's value) is taken. Two that both move are both position bars.
+// seconds), so when two follow it, only one whose value has moved since the last look is taken.
+// seen keeps each fitting slider's value from every look, so a volume turned a minute ago
+// doesn't count as moving now. Two that both move are both position bars.
 export function positionSlider(video, seen = new WeakMap()) {
   const length = Math.round(video.duration);
   if (!Number.isFinite(length) || length <= 0) return null;
@@ -29,17 +30,18 @@ export function positionSlider(video, seen = new WeakMap()) {
     const sliders = [...node.querySelectorAll('[role="slider"]')];
     if (!sliders.length) continue;
     const fits = sliders.filter((slider) => Math.abs(Number(slider.getAttribute('aria-valuemax')) - length) <= 1);
-    if (fits.length <= 1) return fits[0] ?? null;
-    const tracking = fits.filter((slider) => Math.abs(Number(slider.getAttribute('aria-valuenow') ?? Number.NaN) - video.currentTime) <= TRACKS);
-    if (tracking.length <= 1) return tracking[0] ?? null;
-    const moved = tracking.filter((slider) => {
+    const moved = new Set();
+    for (const slider of fits) {
       const value = slider.getAttribute('aria-valuenow');
       const before = seen.get(slider);
       seen.set(slider, value);
-      return before !== undefined && before !== value;
-    });
+      if (before !== undefined && before !== value) moved.add(slider);
+    }
+    if (fits.length <= 1) return fits[0] ?? null;
+    const tracking = fits.filter((slider) => Math.abs(Number(slider.getAttribute('aria-valuenow') ?? Number.NaN) - video.currentTime) <= TRACKS);
+    if (tracking.length <= 1) return tracking[0] ?? null;
     if (video.currentTime <= TRACKS) return null;
-    return moved[0] ?? null;
+    return tracking.find((slider) => moved.has(slider)) ?? null;
   }
   return null;
 }

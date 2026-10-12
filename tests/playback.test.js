@@ -421,6 +421,34 @@ test('a video about as long as the volume scale goes takes the slider that follo
   assert.equal(positionSlider(both.video, seen).getAttribute('aria-label'), 'Progress');
 });
 
+test('a volume turned earlier is not taken for moving when the video later passes it', () => {
+  const win = page(undefined, `
+<div class="player">
+  <div class="frame"><div class="slot"></div></div>
+  <div class="volume"><div role="slider" aria-label="Change volume" aria-valuemax="100" aria-valuenow="30"></div></div>
+  <div class="track"><div role="slider" aria-label="Change Position" aria-valuemax="100" aria-valuenow="30"></div></div>
+</div>`);
+  const position = win.document.querySelector('[aria-label="Change Position"]');
+  const volume = win.document.querySelector('[aria-label="Change volume"]');
+  const { video, at } = fakeVideo(win, { time: 30.3, duration: 100.3, parent: win.document.querySelector('.slot') });
+  const looks = new WeakMap();
+  const look = (second) => {
+    position.setAttribute('aria-valuenow', String(second));
+    at(second + 0.3);
+    return positionSlider(video, looks)?.getAttribute('aria-label') ?? null;
+  };
+  assert.equal(look(30), null, 'both at 30, neither has moved yet');
+  assert.equal(look(31), 'Change Position');
+  // Ten seconds on, the volume goes up to 70, and the looks go on every second.
+  for (let second = 32; second < 68; second++) {
+    if (second === 40) volume.setAttribute('aria-valuenow', '70');
+    look(second);
+  }
+  // At 68 both follow the video again. Only the position moved since the last look.
+  assert.equal(look(68), 'Change Position');
+  assert.equal(look(69), 'Change Position');
+});
+
 test('the faded controls are kept on screen, and only them', () => {
   const win = page(undefined, PLAYER);
   const { video } = fakeVideo(win, { duration: 40.2, parent: win.document.querySelector('.slot') });
