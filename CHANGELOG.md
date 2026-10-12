@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Keep your place in the feed no longer leaves the feed stuck on gray loading placeholders when another extension or script also hooks the way Facebook loads its code. The two hooks ended up calling each other until the browser gave up ("Maximum call stack size exceeded"). Tried live with a stand-in for such an extension: the old build left Home on placeholders after a couple of seconds, and the fixed one loads and scrolls with both hooks working.
 * Failed settings writes now leave the saved choices and running features unchanged. A failed toggle returns to its saved position, invalid fields keep your text with an explanation, and unfinished edits survive a refresh.
 * Restoring a full backup now restores defaults too. Backups from another app, unsupported formats and files over 1 MB are rejected before changes are applied. Older plain settings files still work as partial imports.
 * Settings actions show when they're working, ignore repeated clicks and report failures. Restore and report copying return to their usual state when they finish.
