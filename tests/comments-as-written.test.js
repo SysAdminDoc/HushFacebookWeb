@@ -5,8 +5,8 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import commentsAsWritten, { ASKED, MARKERS, originalRanges, RESTORED, restoreComment, untranslate } from '../src/features/comments/comments-as-written.js';
-import { transformDocumentLine } from '../src/core/net/payload.js';
+import commentsAsWritten, { ASKED, CommentBook, forgetAsked, MARKERS, originalRanges, RESTORED, restoreComment, untranslate } from '../src/features/comments/comments-as-written.js';
+import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 
 const mention = (offset, length, id = '100') => ({ __typename: 'EntityAtRange', entity: { __typename: 'User', __isNode: 'User', id }, entity_is_weak_reference: false, offset, length });
@@ -166,6 +166,44 @@ test('a comment the reader asked to translate stays translated, and its link off
   assert.equal(remembered.has(node.id), false);
   const after = { data: { comment: { ...comment(), id: node.id } } };
   assert.deepEqual(untranslate(after, remembered), { comments: 1, copies: 0 });
+});
+
+test('See original after See translation is followed, so the comment shows as written when it comes again', async () => {
+  // Live 2026-10-11, run 47: the answers to both clicks on one comment, scrubbed.
+  const [askedLine, originalLine] = await fixtureLines('translated-comment-original.jsonl');
+  const id = parseLine(askedLine).data.node.id;
+  assert.equal(parseLine(originalLine).data.node.id, id);
+  assert.ok(!originalLine.includes('MACHINE_TRANSLATION'), "See original's answer has no translation in it");
+  const rules = [];
+  commentsAsWritten.setup({ net: { transformResponses: (rule) => rules.push(rule) }, enabled: () => true, diagnostics: { add() {}, changed() {} } });
+  const ctx = { transport: 'json-parse' };
+  // The way the page picks rules for a parse: markers in the text first, then on and matching.
+  const run = (line) => transformDocumentLine(line, rulesFor(line, rules).filter((rule) => rule.enabled() && rule.match(ctx)), ctx);
+  const reopened = () => JSON.parse(run(JSON.stringify({ data: { comment: { ...comment(), id } } }))).data.comment.preferred_body.translation_type;
+  assert.equal(reopened(), 'ORIGINAL', 'put back before the reader clicked');
+  assert.equal(run(askedLine), askedLine, "See translation's answer goes through as Facebook sent it");
+  assert.equal(reopened(), 'MACHINE_TRANSLATION', 'the translation the reader asked for stays');
+  assert.equal(run(originalLine), originalLine);
+  assert.equal(reopened(), 'ORIGINAL', 'after See original it shows as written again');
+});
+
+test('the rule waiting for See original only runs while a translated comment waits for it', () => {
+  const rules = [];
+  commentsAsWritten.setup({ net: { transformResponses: (rule) => rules.push(rule) }, enabled: () => true, diagnostics: { add() {}, changed() {} } });
+  const waiting = rules.find((rule) => rule.id === 'noAutoTranslate-original');
+  assert.equal(waiting.enabled(), false);
+  const book = new CommentBook();
+  book.set('a', ASKED);
+  book.set('b', RESTORED);
+  book.set('a', ASKED);
+  assert.equal(book.asked, 1);
+  book.set('a', RESTORED);
+  assert.equal(book.asked, 0);
+  book.set('c', ASKED);
+  book.delete('c');
+  book.delete('missing');
+  assert.equal(book.asked, 0);
+  assert.equal(forgetAsked({ data: { node: { id: 'b', preferred_body: { text: 'x', translation_type: 'ORIGINAL' } } } }, book), 0, 'only asked comments are forgotten');
 });
 
 test('the comments it remembers are capped, oldest first', () => {

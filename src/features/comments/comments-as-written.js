@@ -84,6 +84,42 @@ function remember(seen, id, kind) {
   seen.set(id, kind);
 }
 
+// The comment ids untranslate keeps, counting the ASKED ones as they come and go, so the rule
+// that waits for See original only runs while there's one to wait for.
+export class CommentBook extends Map {
+  asked = 0;
+
+  set(id, kind) {
+    if (super.get(id) === ASKED) this.asked--;
+    if (kind === ASKED) this.asked++;
+    return super.set(id, kind);
+  }
+
+  delete(id) {
+    if (super.get(id) === ASKED) this.asked--;
+    return super.delete(id);
+  }
+}
+
+// See original answers with the comment again, still without its own words, marked ORIGINAL
+// and with no MACHINE_TRANSLATION anywhere (live 2026-10-11, run 47), so the main rule's marker
+// never lets it through. A comment that answer names is no longer one the reader asked for.
+export const ORIGINAL_MARKERS = ['"ORIGINAL"'];
+
+export function forgetAsked(data, seen) {
+  let forgotten = 0;
+  walk(data, (value) => {
+    if (Array.isArray(value) || 'body' in value) return;
+    const shown = value.preferred_body;
+    if (!shown || typeof shown !== 'object' || typeof shown.text !== 'string' || shown.translation_type !== 'ORIGINAL') return;
+    if (typeof value.id === 'string' && seen.get(value.id) === ASKED) {
+      seen.delete(value.id);
+      forgotten++;
+    }
+  });
+  return forgotten;
+}
+
 // Every translated comment in an answer, as written. How many comments and link copies changed.
 // seen: comment ids kept across answers. RESTORED ones were put back, so a partial copy of one
 // in a later answer is marked ORIGINAL too. ASKED ones the reader translated with See
@@ -132,7 +168,7 @@ export default {
 
   setup({ net, enabled, diagnostics }) {
     let shown = 0;
-    const seen = new Map();
+    const seen = new CommentBook();
     net.transformResponses({
       id: 'noAutoTranslate',
       enabled,
@@ -146,6 +182,18 @@ export default {
           diagnostics?.changed();
         }
         return comments + copies > 0;
+      },
+    });
+    // Only while a comment the reader translated waits for See original. "ORIGINAL" is in most
+    // comment answers, so this isn't run on them the rest of the time.
+    net.transformResponses({
+      id: 'noAutoTranslate-original',
+      enabled: () => enabled() && seen.asked > 0,
+      markers: ORIGINAL_MARKERS,
+      match: (ctx) => ctx.transport === 'json-parse',
+      transform(data) {
+        forgetAsked(data, seen);
+        return false;
       },
     });
     diagnostics?.add('Comments shown as written', () => String(shown));
