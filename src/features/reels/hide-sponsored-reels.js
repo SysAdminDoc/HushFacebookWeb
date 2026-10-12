@@ -9,12 +9,15 @@ export default {
   default: true,
   needsPage: true,
 
+  // Only the count goes to Diagnostics. A cleared schedule isn't a hidden post, and the same
+  // video comes back in answer after answer, so on the decision list it would push every real
+  // decision off within a few minutes of scrolling video.
   setup({ net, enabled, diagnostics }) {
     let breaks = 0;
     net.transformResponses(adRule('hideSponsoredReels', enabled, (ids) => {
       breaks += ids.length;
       diagnostics?.changed();
-    }, { diagnostics, reason: 'Video ad breaks' }));
+    }));
     diagnostics?.add('Videos cleared of ad breaks', () => String(breaks));
   },
 };

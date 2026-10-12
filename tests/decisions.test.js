@@ -10,6 +10,7 @@ import { adRule } from '../src/features/feed/ad-markers.js';
 import { pruneFiltered } from '../src/features/feed/filters.js';
 import { compileFilters } from '../src/core/filters/engine.js';
 import { pruneSeen } from '../src/features/feed/hide-seen-posts.js';
+import hideSponsoredReels from '../src/features/reels/hide-sponsored-reels.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
 
 const windows = [];
@@ -74,6 +75,19 @@ test('the data rules report the post they took out and the rule that matched', (
   const quiet = adRule('hideSponsoredPosts', () => true);
   const out = JSON.parse(transformDocumentLine(line, [quiet], { transport: 'fetch', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' }));
   assert.equal(out.data.viewer.news_feed.edges[1].node, undefined);
+});
+
+test('a cleared video ad break schedule is counted but stays off the decision list', () => {
+  const diagnostics = createDiagnostics();
+  const rules = [];
+  hideSponsoredReels.setup({ net: { transformResponses: (rule) => rules.push(rule) }, enabled: () => true, diagnostics });
+  const line = JSON.stringify({ data: { video: { id: 'v1', instream_video_ad_breaks_comet: { mid_rolls: [{ index: 0, instream_placement: 'MID_ROLL', time_offset_in_ms: 60000 }], pre_roll: null } } } });
+  const ctx = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'FBUnifiedVideoContainerQuery' };
+  for (let i = 0; i < 3; i++) {
+    assert.equal(JSON.parse(transformDocumentLine(line, rules, ctx)).data.video.instream_video_ad_breaks_comet, null);
+  }
+  assert.deepEqual(diagnostics.decisions(), []);
+  assert.deepEqual(diagnostics.rows().find((row) => row.label === 'Videos cleared of ad breaks'), { label: 'Videos cleared of ad breaks', value: '3' });
 });
 
 test('word filters and seen posts report each story they drop, with what matched', () => {
