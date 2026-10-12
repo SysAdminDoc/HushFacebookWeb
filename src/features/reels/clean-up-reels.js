@@ -10,7 +10,8 @@ const DELAY = 150;
 
 export const CLEAN_REELS_CSS = (get) => [
   get('cleanUpReels.follow') ? `[${MARK}="follow"] { display: none !important; }` : '',
-  get('cleanUpReels.caption') ? `[${MARK}="overlay"] { transition: opacity 0.2s ease; }\n[${MARK}="player"]:not(:hover) [${MARK}="overlay"] { opacity: 0 !important; }` : '',
+  // Only where there's a pointer to hover with. On a touch screen the caption stays.
+  get('cleanUpReels.caption') ? `@media (hover: hover) {\n[${MARK}="overlay"] { transition: opacity 0.2s ease; }\n[${MARK}="player"]:not(:hover) [${MARK}="overlay"] { opacity: 0 !important; }\n}` : '',
 ].filter(Boolean).join('\n');
 
 const clean = (text) => (text ?? '').replace(/\s+/g, ' ').trim();
@@ -38,19 +39,25 @@ export function overlayOf(heading, player, styleOf) {
   return null;
 }
 
-// The Follow button and its " · " in front, as one element to hide.
+// The Follow button and its " · " in front, as one element to hide. Other buttons can carry the
+// name too, so the one nearest the heading wins: live it shares the heading's row.
 export function followOf(heading, player) {
   const name = clean(heading.querySelector('a')?.textContent);
   if (!name) return null;
-  const button = [...player.querySelectorAll('div[role="button"][aria-label]')].find((candidate) => {
+  const isFollow = (candidate) => {
     const label = clean(candidate.getAttribute('aria-label'));
     return label !== name && label.includes(name) && !candidate.closest('h2');
-  });
+  };
+  let button = null;
+  for (let scope = heading.parentElement; scope && !button; scope = scope === player ? null : scope.parentElement) {
+    button = [...scope.querySelectorAll('div[role="button"][aria-label]')].find(isFollow) ?? null;
+  }
   if (!button) return null;
+  const hasDot = (node) => [...node.querySelectorAll('span[aria-hidden="true"]')].some((span) => !button.contains(span));
   let node = button;
   while (node.parentElement && node.parentElement !== player && !node.parentElement.contains(heading)) {
     node = node.parentElement;
-    if (node.querySelector('span[aria-hidden="true"]')) return node;
+    if (hasDot(node)) return node;
   }
   return button;
 }

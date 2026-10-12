@@ -49,6 +49,18 @@ test('the Follow button is found by the name in its label, whatever the language
   assert.equal(marked(doc).follow, 'follow-row');
 });
 
+test("the Follow button nearest the name wins over another button with the name in it, and its dot goes with it", () => {
+  const doc = page(REEL());
+  const other = doc.createElement('div');
+  other.setAttribute('role', 'button');
+  other.setAttribute('aria-label', 'More options for Pat Example Page');
+  doc.querySelector('[aria-label="Search Reel"]').after(other);
+  doc.getElementById('follow').innerHTML = '<span aria-hidden="true"><i></i></span>Follow';
+  markReels(doc, styleOf);
+  assert.equal(other.hasAttribute(MARK), false);
+  assert.equal(marked(doc).follow, 'follow-row', "an icon inside the button isn't taken for the dot");
+});
+
 test('no Follow button, or one labeled with the name alone, leaves the row alone', () => {
   const doc = page(REEL('Pat Example Page'));
   markReels(doc, styleOf);
@@ -72,6 +84,7 @@ test('the CSS hides the Follow button and fades the block until the reel is poin
   const both = CLEAN_REELS_CSS(() => true);
   assert.match(both, new RegExp(`\\[${MARK}="follow"\\] \\{ display: none !important; \\}`));
   assert.match(both, new RegExp(`\\[${MARK}="player"\\]:not\\(:hover\\) \\[${MARK}="overlay"\\] \\{ opacity: 0 !important; \\}`));
+  assert.match(both, /^@media \(hover: hover\) \{\n[^@]*opacity: 0[^@]*\n\}$/m, 'only where something can hover, so a touch screen keeps the caption');
   assert.doesNotMatch(CLEAN_REELS_CSS((key) => key === 'cleanUpReels.follow'), /opacity/);
   assert.doesNotMatch(CLEAN_REELS_CSS((key) => key === 'cleanUpReels.caption'), /display: none/);
   assert.equal(CLEAN_REELS_CSS(() => false), '');
