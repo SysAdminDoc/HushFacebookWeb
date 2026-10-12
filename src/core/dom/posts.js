@@ -199,6 +199,18 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
     if (!live.size) emit('reset', undefined);
   }
 
+  // A post that lost its aria-posinset or gained a role isn't a post any more. Posts it had
+  // taken in when it wrapped them stand on their own again.
+  function release(element, found) {
+    const post = live.get(element);
+    if (!post || element.matches(CANDIDATE_SELECTOR)) return;
+    remove(element, post);
+    for (const inner of element.querySelectorAll(CANDIDATE_SELECTOR)) {
+      processed.delete(inner);
+      found.add(inner);
+    }
+  }
+
   // Each post is looked at once per batch, however many of its nodes changed.
   function onMutations(records) {
     let removals = false;
@@ -206,7 +218,10 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
     for (const record of records) {
       if (record.removedNodes.length) removals = true;
       if (record.addedNodes.length) for (const node of record.addedNodes) collect(node, found);
-      else if (record.type === 'attributes') collect(record.target, found);
+      else if (record.type === 'attributes') {
+        release(record.target, found);
+        collect(record.target, found);
+      }
     }
     if (removals) sweepRemovals();
     for (const element of found) if (element.isConnected) consider(element);

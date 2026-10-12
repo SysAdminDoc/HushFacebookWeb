@@ -63,6 +63,21 @@ test('a permalink post that holds comments is still a post', () => {
   assert.equal(classifyCandidate(comment).reason, 'nested');
 });
 
+// Opened from a link to one of its comments (live 2026-10-11, captures/2026-10-11-run31): the
+// address bar carries comment_id, but the post is drawn as an aria-posinset block in the dialog,
+// none of its own links carry comment_id, and its comments sit inside it as role=article. So the
+// post is never taken for a comment, and the comments are left to it.
+test('a post opened from a link to one of its comments is still a post', () => {
+  const win = new Window({ url: 'https://www.facebook.com/NASA/posts/pfbid0Post7?comment_id=Y29tbWVudDox' });
+  windows.push(win);
+  win.document.body.innerHTML = `<div role="dialog">${post(7)
+    .replace('</div>\n', '</div><div role="article" aria-label="Comment by Sam"><a href="/NASA/posts/pfbid0Post7?comment_id=999">5m</a>Nice</div>\n')}</div>`;
+  const element = win.document.querySelector('[aria-posinset]');
+  assert.deepEqual(classifyCandidate(element), { ok: true, kind: 'feed' });
+  assert.deepEqual(postIdOf(element), { id: 'pfbid0Post7', source: 'permalink' });
+  assert.notEqual(classifyCandidate(win.document.querySelector('[role="article"]')).ok, true);
+});
+
 test('loading: a skeleton with a progressbar and no links waits', () => {
   const win = page(feed('<div aria-posinset="1"><div role="progressbar" aria-label="Loading..."></div></div>'));
   assert.deepEqual(classifyCandidate(win.document.querySelector('[aria-posinset]')), { ok: false, reason: 'loading', retry: true });
@@ -303,6 +318,45 @@ test('a post wrapped by another post afterwards becomes part of it', async () =>
   await tick();
   assert.deepEqual(events, [['add', '222'], ['remove', '222'], ['add', '111']]);
   assert.deepEqual(tracker.current().map((p) => p.id), ['111']);
+  tracker.stop();
+});
+
+test('a post that gains a role or loses aria-posinset is no longer tracked', async () => {
+  const win = page(feed(post(1), post(2)));
+  const tracker = createPostTracker({ doc: win.document });
+  const events = [];
+  tracker.on('post/add', (p) => events.push(['add', p.id]));
+  tracker.on('post/remove', (p) => events.push(['remove', p.id]));
+  const [first, second] = win.document.querySelectorAll('[aria-posinset]');
+  first.setAttribute('role', 'listitem');
+  second.removeAttribute('aria-posinset');
+  await tick();
+  assert.deepEqual(events, [['add', 'pfbid0Post1'], ['add', 'pfbid0Post2'], ['remove', 'pfbid0Post1'], ['remove', 'pfbid0Post2']]);
+  assert.deepEqual(tracker.current(), []);
+  // Back as a post, it's found again.
+  first.removeAttribute('role');
+  await tick();
+  assert.deepEqual(tracker.current().map((p) => p.id), ['pfbid0Post1']);
+  tracker.stop();
+});
+
+test('a post a wrapper took in stands on its own again when the wrapper stops being a post', async () => {
+  const win = page(feed('<div class="slot"><div role="article"><a href="/b/posts/222">3d</a>Shared</div></div>'));
+  const tracker = createPostTracker({ doc: win.document });
+  const events = [];
+  tracker.on('post/add', (p) => events.push(['add', p.id]));
+  tracker.on('post/remove', (p) => events.push(['remove', p.id]));
+  const slot = win.document.querySelector('.slot');
+  const outer = win.document.createElement('div');
+  outer.setAttribute('aria-posinset', '1');
+  outer.innerHTML = '<a href="/a/posts/111">1h</a>';
+  slot.replaceWith(outer);
+  outer.append(slot);
+  await tick();
+  outer.removeAttribute('aria-posinset');
+  await tick();
+  assert.deepEqual(events, [['add', '222'], ['remove', '222'], ['add', '111'], ['remove', '111'], ['add', '222']]);
+  assert.deepEqual(tracker.current().map((p) => p.id), ['222']);
   tracker.stop();
 });
 
