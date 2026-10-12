@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import tapToPlay, { pointInside, shouldAllowPlay } from '../src/features/playback/tap-to-play.js';
+import tapToPlay, { VIEWER_INPUT_MS, VIEWER_OPEN_MS, isViewer, pointInside, shouldAllowPlay } from '../src/features/playback/tap-to-play.js';
 
 const REFUSED = { name: 'NotAllowedError' };
 
@@ -12,13 +12,26 @@ test('shouldAllowPlay needs a fresh press on the media, or an element the user a
   assert.equal(shouldAllowPlay({ activationActive: false, aimedAtMedia: false, userStarted: true }), true);
 });
 
+test('in Reels and stories a start goes ahead soon after input, or as the viewer opens', () => {
+  const base = { activationActive: false, aimedAtMedia: false, userStarted: false };
+  assert.equal(shouldAllowPlay({ ...base, inViewer: true, sinceInput: VIEWER_INPUT_MS }), true);
+  assert.equal(shouldAllowPlay({ ...base, inViewer: true, sinceInput: VIEWER_INPUT_MS + 1 }), false);
+  assert.equal(shouldAllowPlay({ ...base, inViewer: true, openedHere: true }), true);
+  // Outside a viewer neither counts: the feed still waits for a press on the video.
+  assert.equal(shouldAllowPlay({ ...base, inViewer: false, sinceInput: 0, openedHere: true }), false);
+  assert.equal(isViewer({ type: 'reel' }), true);
+  assert.equal(isViewer({ type: 'stories' }), true);
+  assert.equal(isViewer({ type: 'watch' }), false);
+  assert.equal(isViewer(undefined), false);
+});
+
 test('pointInside counts the edges of the box', () => {
   const rect = { left: 10, top: 10, right: 20, bottom: 20 };
   assert.equal(pointInside(rect, { x: 10, y: 20 }), true);
   assert.equal(pointInside(rect, { x: 21, y: 15 }), false);
 });
 
-function harness() {
+function harness({ route = { type: 'home', path: '/' } } = {}) {
   class FakeMedia {
     constructor() {
       this.parentElement = null;
@@ -32,7 +45,8 @@ function harness() {
   }
   FakeMedia.prototype.play = function () {
     this.plays = (this.plays ?? 0) + 1;
-    return Promise.resolve();
+    // An element Facebook pauses or swaps out before it starts: the browser's AbortError.
+    return this.interrupted ? Promise.reject(new DOMException('interrupted', 'AbortError')) : Promise.resolve();
   };
   const listeners = {};
   const activation = { isActive: false };
@@ -41,9 +55,92 @@ function harness() {
     HTMLMediaElement: FakeMedia, navigator: { userActivation: activation }, Promise, DOMException,
     addEventListener: (type, listener) => { listeners[type] = listener; },
   };
-  tapToPlay.setup({ win, enabled: () => state.on, log: { debug() {} } });
-  return { FakeMedia, listeners, activation, state };
+  const clock = { now: 1000 };
+  const nav = { current: route, listeners: [] };
+  const router = { current: () => nav.current, subscribe: (fn) => nav.listeners.push(fn) };
+  const go = (next) => {
+    nav.current = next;
+    for (const fn of nav.listeners) fn(next);
+  };
+  tapToPlay.setup({ win, router, enabled: () => state.on, log: { debug() {} }, now: () => clock.now });
+  return { FakeMedia, listeners, activation, state, clock, go };
 }
+
+const REEL = (id) => ({ type: 'reel', path: `/reel/${id}` });
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('the Next arrow, a key or the wheel in Reels starts the reel it moves to', async () => {
+  const { FakeMedia, listeners, clock, go } = harness({ route: REEL(1) });
+  clock.now += VIEWER_OPEN_MS + 1;
+  const reel = new FakeMedia();
+  // Facebook resuming a reel with nobody touching anything still waits.
+  await assert.rejects(reel.play(), REFUSED);
+
+  // The arrow sits outside the video's box.
+  listeners.pointerdown({ isTrusted: true, clientX: 1563, clientY: 560 });
+  go(REEL(2));
+  const next = new FakeMedia();
+  await next.play();
+  assert.equal(next.plays, 1);
+
+  clock.now += VIEWER_INPUT_MS + 1;
+  await assert.rejects(new FakeMedia().play(), REFUSED);
+  listeners.keydown({ isTrusted: true, target: {} });
+  await new FakeMedia().play();
+  clock.now += VIEWER_INPUT_MS + 1;
+  listeners.wheel({ isTrusted: true });
+  await new FakeMedia().play();
+  clock.now += VIEWER_INPUT_MS + 1;
+  listeners.wheel({ isTrusted: false });
+  await assert.rejects(new FakeMedia().play(), REFUSED);
+});
+
+test('opening Reels plays its first reel once, and a later start with no input waits', async () => {
+  const { FakeMedia, clock, go } = harness();
+  go({ type: 'reel', path: '/reel/' });
+  // Facebook swaps /reel/?s=tab for the first reel's own address as it opens.
+  go(REEL(1));
+  clock.now += 3000;
+  const first = new FakeMedia();
+  await first.play();
+  await settle();
+  assert.equal(first.plays, 1);
+
+  // A reel ending and moving on by itself, with no press, key or wheel.
+  go(REEL(2));
+  await assert.rejects(new FakeMedia().play(), REFUSED);
+
+  // Leaving Reels and coming back opens it again.
+  go({ type: 'profile', path: '/me/' });
+  go(REEL(3));
+  await new FakeMedia().play();
+});
+
+test('the opening allowance lasts a while, and loading a reel by its address counts', async () => {
+  const late = harness();
+  late.go(REEL(1));
+  late.clock.now += VIEWER_OPEN_MS + 1;
+  await assert.rejects(new late.FakeMedia().play(), REFUSED);
+
+  const loaded = harness({ route: REEL(9) });
+  await new loaded.FakeMedia().play();
+});
+
+test('a start Facebook drops leaves the opening allowance for the next one', async () => {
+  const { FakeMedia, go } = harness();
+  go(REEL(1));
+  const swapped = new FakeMedia();
+  swapped.interrupted = true;
+  await assert.rejects(swapped.play(), { name: 'AbortError' });
+  await settle();
+  // Still the opening start: Facebook's real copy of the reel goes ahead.
+  const kept = new FakeMedia();
+  await kept.play();
+  assert.equal(kept.plays, 1);
+  await settle();
+  // Now something played, so a start with no input waits again.
+  await assert.rejects(new FakeMedia().play(), REFUSED);
+});
 
 test('play() waits for a press on that video, not a click somewhere else', async () => {
   const { FakeMedia, listeners, activation, state } = harness();

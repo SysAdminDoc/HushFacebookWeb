@@ -16,7 +16,7 @@ What the status words mean:
 | View stories anonymously | Tested | Holds back the request that tells Facebook you saw a story. |
 | Sanitize sharing links | Tested | Strips tracking tags from links you open or copy. Copy link and Share to WhatsApp give the post's own address instead of a facebook.com/share link, and sharing to Messenger, a group or a friend's profile works as before. |
 | Open links in external browser | Tested | Becomes "Skip Facebook's link redirect": outside links open directly instead of through l.facebook.com. |
-| Tap to play | Tested | Videos only start when you click them. |
+| Tap to play | Tested | Videos only start when you click them. In Reels and stories, the reel or story you open or skip to plays, and nothing starts on its own. |
 | Turn off HDR brightness | Tested | Caps HDR video and photos at normal brightness in browsers that support it. |
 | Hushfacebook settings | Tested | The settings panel, opened from the corner button or your userscript manager's menu. |
 | Following feed on Home | Tested | Opens Home on Facebook's most recent feed, from everyone you follow or just friends, favorites, groups or Pages. |

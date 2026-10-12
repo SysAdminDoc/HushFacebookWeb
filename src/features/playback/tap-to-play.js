@@ -8,11 +8,27 @@
 // seconds, long enough for Facebook's autoplay to get through. So the press has to land
 // inside the media's box, where Facebook's overlay and play button sit, or a key has to be
 // pressed on a control right next to it.
+//
+// Reels and the story viewer are different: they show one thing at a time, and getting to it
+// is always the person's own doing (a link that opened the viewer, its address, the arrows,
+// the arrow keys, the wheel). Live 2026-10-12 (Matt's report): held there, the reel the Next
+// arrow moved to sat frozen on its first frame with no play button, and so did the first reel
+// after opening Reels from Facebook's menu, whose row isn't over the video. Facebook draws no
+// play button for a reel it couldn't start, so it read as broken. In a viewer a start now
+// goes ahead soon after a press, key or wheel, and so does the first reel or story the
+// viewer plays after it opens (Facebook swaps /reel/?s=tab for the first reel's own address
+// as it opens, so this goes by time, not address). A start with neither, like Facebook
+// resuming a reel when you come back to the tab or a story moving on by itself, still waits.
 
 const NEARBY_LEVELS = 4;
+export const VIEWER_INPUT_MS = 5000;
+export const VIEWER_OPEN_MS = 15000;
 
-export function shouldAllowPlay({ activationActive, aimedAtMedia, userStarted }) {
-  return userStarted === true || (activationActive === true && aimedAtMedia === true);
+export const isViewer = (route) => route?.type === 'reel' || route?.type === 'stories';
+
+export function shouldAllowPlay({ activationActive, aimedAtMedia, userStarted, inViewer = false, sinceInput = Infinity, openedHere = false }) {
+  if (userStarted === true || (activationActive === true && aimedAtMedia === true)) return true;
+  return inViewer === true && (sinceInput <= VIEWER_INPUT_MS || openedHere === true);
 }
 
 export function pointInside(rect, point) {
@@ -31,22 +47,41 @@ export default {
   section: 'playback',
   android: 'Tap to play',
   title: 'Tap to play',
-  description: 'Videos, reels, stories and music wait for your tap instead of starting by themselves.',
+  description: "Videos and music wait for your tap instead of starting by themselves. In Reels and stories, the one you open or skip to plays, and nothing starts on its own.",
   default: false,
 
-  setup({ win, enabled, log }) {
+  setup({ win, router, enabled, log, now = Date.now }) {
     const proto = win.HTMLMediaElement?.prototype;
     const play = proto?.play;
     if (typeof play !== 'function') return;
     const started = new WeakSet();
     let lastPress = null;
+    let lastInput = -Infinity;
+    // The viewer that's open, when it opened, and whether its first start has played yet.
+    let opened = null;
+    const route = () => router?.current();
+    const open = (current) => {
+      opened = isViewer(current) ? { type: current.type, at: now(), played: false } : null;
+    };
+    open(route());
+    router?.subscribe((current) => {
+      // Moving from reel to reel inside the viewer isn't opening it again.
+      if (!isViewer(current) || opened?.type !== current.type) open(current);
+    });
 
     const listen = { capture: true, passive: true };
     win.addEventListener('pointerdown', (event) => {
-      if (event.isTrusted) lastPress = { point: { x: event.clientX, y: event.clientY } };
+      if (!event.isTrusted) return;
+      lastPress = { point: { x: event.clientX, y: event.clientY } };
+      lastInput = now();
     }, listen);
     win.addEventListener('keydown', (event) => {
-      if (event.isTrusted) lastPress = { target: event.target };
+      if (!event.isTrusted) return;
+      lastPress = { target: event.target };
+      lastInput = now();
+    }, listen);
+    win.addEventListener('wheel', (event) => {
+      if (event.isTrusted) lastInput = now();
     }, listen);
 
     const aimedAt = (media) => {
@@ -58,12 +93,27 @@ export default {
     proto.play = function () {
       if (!enabled()) return play.apply(this, arguments);
       const activationActive = win.navigator.userActivation?.isActive === true;
-      if (!shouldAllowPlay({ activationActive, aimedAtMedia: aimedAt(this), userStarted: started.has(this) })) {
+      const inViewer = isViewer(route());
+      const first = inViewer && opened && !opened.played && now() - opened.at <= VIEWER_OPEN_MS ? opened : null;
+      const allowed = shouldAllowPlay({
+        activationActive,
+        aimedAtMedia: aimedAt(this),
+        userStarted: started.has(this),
+        inViewer,
+        sinceInput: now() - lastInput,
+        openedHere: Boolean(first),
+      });
+      if (!allowed) {
         log.debug('Held back autoplay');
         return win.Promise.reject(new win.DOMException('Waiting for a tap (HushFacebook Web)', 'NotAllowedError'));
       }
       started.add(this);
-      return play.apply(this, arguments);
+      const result = play.apply(this, arguments);
+      // Once something in the viewer plays, its first start is used. A start Facebook drops
+      // (a reel swapped for another copy of itself) leaves it for the next one.
+      const viewer = inViewer ? opened : null;
+      if (viewer && !viewer.played) result?.then?.(() => { viewer.played = true; }, () => {});
+      return result;
     };
   },
 };
