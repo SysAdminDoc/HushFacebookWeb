@@ -201,6 +201,19 @@ export const AD_MARKERS = [
     empty: { instream_video_ad_breaks: [], post_roll_ad_break: null },
   },
   {
+    id: 'reels_showcase',
+    feature: 'hideReelsInFeed',
+    surface: 'news feed and groups feed (rows of reels)',
+    seen: '2026-10-11: a Home inline Relay response carries a ShowcaseFeedUnit with SHOWCASE_SHORT_VIDEO and six ShowcaseShortVideoAttachment items; its page markup has not been captured',
+    text: ['"ShowcaseFeedUnit"'],
+    scope: FEEDS,
+    kind: 'object',
+    match: (value) => value.__typename === 'ShowcaseFeedUnit' && value.showcase_story_type === 'SHOWCASE_SHORT_VIDEO'
+      && Array.isArray(value.showcase_item) && value.showcase_item.length > 0,
+    action: 'empty-list',
+    empty: { showcase_item: [] },
+  },
+  {
     id: 'follow_button',
     feature: 'hideSuggestedPosts',
     surface: "news feed and groups feed (Pages and people you don't follow)",

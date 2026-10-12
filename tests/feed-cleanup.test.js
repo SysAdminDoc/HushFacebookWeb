@@ -1,5 +1,5 @@
 // The page checks of Hide suggested posts and Hide reel rows, against posts shaped like the
-// live 2026-10-11 Home feed (structure from the harness's anatomy probe).
+// live 2026-10-11 Home feed, plus the data check against a captured reel-row response.
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
@@ -8,9 +8,12 @@ import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider, MARK } from '../src/core/dom/hide.js';
 import { watchPostChecks } from '../src/core/dom/post-checks.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
+import { installNetworkHooks } from '../src/core/net/hooks.js';
+import { transformDocumentLine } from '../src/core/net/payload.js';
 import { parseRoute } from '../src/core/route.js';
 import hideReelsInFeed, { reelRowOf } from '../src/features/feed/hide-reels-in-feed.js';
 import hideSuggestedPosts, { suggestionButton } from '../src/features/feed/hide-suggested-posts.js';
+import { fixtureLines, parseLine } from './helpers/fixtures.js';
 
 const windows = [];
 afterEach(async () => {
@@ -160,4 +163,80 @@ test('Hide reel rows hides rows on Home as they arrive, and brings them back whe
   on = false;
   for (const fn of subscribers) fn({});
   assert.equal(hider.isHidden(row), false);
+});
+
+function reelDataHook(enabled = () => true) {
+  const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/' } };
+  const net = installNetworkHooks({ win, log: { error() {}, warn() {}, info() {}, debug() {} } });
+  const rules = [];
+  const diagnostics = createDiagnostics();
+  hideReelsInFeed.setup({
+    net: { transformResponses: (rule) => { rules.push(rule); net.transformResponses(rule); } },
+    router: { current: () => parseRoute(win.location.href) }, diagnostics, enabled,
+  });
+  return { win, rules, diagnostics };
+}
+
+test('the captured Home reel unit loses only its six showcase items before the page draws', async () => {
+  // Inline Relay response from run12, 2026-10-11. The saved HTML has no row DOM.
+  const [line] = await fixtureLines('reel-row.jsonl');
+  const captured = parseLine(line);
+  assert.equal(captured.data.node.__typename, 'ShowcaseFeedUnit');
+  assert.equal(captured.data.node.showcase_story_type, 'SHOWCASE_SHORT_VIDEO');
+  assert.equal(captured.data.node.showcase_item.length, 6);
+  assert.ok(captured.data.node.showcase_item.every((item) => item.attachment.__typename === 'ShowcaseShortVideoAttachment'));
+  const expected = structuredClone(captured);
+  expected.data.node.showcase_item = [];
+  const { win, diagnostics } = reelDataHook();
+  const out = win.JSON.parse(line);
+  assert.deepEqual(out, expected, 'all response fields outside showcase_item stay intact');
+  assert.equal(diagnostics.decisions().filter((decision) => decision.rule === 'Reels').length, 1);
+  assert.deepEqual(win.JSON.parse(JSON.stringify(out)), out, 'an already empty row stays empty');
+  assert.equal(diagnostics.decisions().filter((decision) => decision.rule === 'Reels').length, 1);
+});
+
+test('the captured reel unit is filtered only in the feeds and while its switch is on', async () => {
+  const [line] = await fixtureLines('reel-row.jsonl');
+  const captured = parseLine(line);
+  let on = true;
+  const { win, rules } = reelDataHook(() => on);
+  assert.equal(rules.length, 1, 'the data rule is registered without a DOM or hider');
+  for (const [href, hidden] of [
+    ['https://www.facebook.com/', true],
+    ['https://www.facebook.com/groups/feed/', true],
+    ['https://www.facebook.com/search/top/?q=reels', false],
+    ['https://www.facebook.com/somepage/', false],
+  ]) {
+    win.location.href = href;
+    const expected = structuredClone(captured);
+    if (hidden) expected.data.node.showcase_item = [];
+    assert.deepEqual(win.JSON.parse(line), expected, href);
+  }
+  for (const [friendlyName, hidden] of [
+    ['CometNewsFeedPaginationQuery', true],
+    ['GroupsCometCrossGroupFeedPaginationQuery', true],
+    ['ProfileCometTimelineFeedRefetchQuery', false],
+    ['SearchCometResultsPaginatedResultsQuery', false],
+  ]) {
+    const expected = structuredClone(captured);
+    if (hidden) expected.data.node.showcase_item = [];
+    assert.deepEqual(parseLine(transformDocumentLine(line, rules, { transport: 'fetch', path: '/api/graphql/', friendlyName })), expected, friendlyName);
+  }
+  win.location.href = 'https://www.facebook.com/';
+  on = false;
+  assert.deepEqual(win.JSON.parse(line), captured, 'a disabled switch leaves the real unit intact');
+});
+
+test('friends reel posts and other Showcase units stay intact in the data', async () => {
+  const [line] = await fixtureLines('reel-row.jsonl');
+  const captured = parseLine(line).data.node;
+  const friend = {
+    __typename: 'Story', __isFeedUnit: 'Story', id: 'friend-reel',
+    attachments: [structuredClone(captured.showcase_item[0].attachment)],
+  };
+  const otherShowcase = { ...structuredClone(captured), showcase_story_type: 'OTHER' };
+  const wrongType = { ...structuredClone(captured), __typename: 'Story', __isFeedUnit: 'Story' };
+  const doc = { data: { edges: [{ cursor: 'friend', node: friend }, { cursor: 'other', node: otherShowcase }, { cursor: 'wrong', node: wrongType }] } };
+  const { win } = reelDataHook();
+  assert.deepEqual(win.JSON.parse(JSON.stringify(doc)), doc);
 });

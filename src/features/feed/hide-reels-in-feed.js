@@ -1,12 +1,14 @@
-// Rows of reels Facebook puts between posts on Home ("Reels and short videos"). A single reel
-// a friend posted is a post like any other and stays.
+// Rows of reels Facebook puts between posts ("Reels and short videos"). The data check
+// empties captured ShowcaseFeedUnit rows with SHOWCASE_SHORT_VIDEO on Home and the groups
+// feed. A single reel a friend posted is a Story and stays.
 //
 // A row is told apart without reading its heading, so it works in any language: it sits in
 // the feed's list beside the posts, it isn't a post itself, and it links to at least two
-// different reels. The Stories tray links to reels too, so it never counts. The test account
-// hasn't been shown a reel row yet (2026-10-11), so this follows FB Feed Filter 0.1.0.17's
-// reel module check (content.js scanReelModules, MIT), which also asks for two reel links.
+// different reels. The Stories tray links to reels too, so it never counts. The captured row
+// has no page markup yet, so this follows FB Feed Filter 0.1.0.17's reel module check
+// (content.js scanReelModules, MIT), which also asks for two reel links.
 
+import { adRule } from './ad-markers.js';
 import { CANDIDATE_SELECTOR } from '../../core/dom/posts.js';
 
 const REEL_LINK = 'a[href*="/reel/"]';
@@ -36,10 +38,18 @@ export default {
   section: 'feed',
   android: 'Hide Reels in the feed',
   title: 'Hide reel rows in the feed',
-  description: 'Hides the rows of reels Facebook puts between posts on Home. Reels your friends post stay.',
+  description: 'Hides the rows of reels Facebook puts between posts on Home and in your groups feed. Reels your friends post stay.',
   default: false,
 
-  setup({ doc, win, router, hider, log, settings, diagnostics, enabled }) {
+  setup({ net, doc, win, router, hider, log, settings, diagnostics, enabled }) {
+    let dataHidden = 0;
+    if (net) {
+      net.transformResponses(adRule('hideReelsInFeed', enabled, (fired) => {
+        dataHidden += fired.length;
+        diagnostics?.changed();
+      }, { route: () => router?.current(), diagnostics, reason: 'Reels' }));
+    }
+    diagnostics?.add('Reel rows taken out of the data', () => (net ? String(dataHidden) : "Off: the script can't reach the page's data"));
     if (!hider || !doc) return;
     let hidden = 0;
     let queued = false;

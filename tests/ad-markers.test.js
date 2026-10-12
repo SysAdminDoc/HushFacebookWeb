@@ -76,6 +76,10 @@ const SAMPLES = {
     instream_extra_config: { instream_halo_delay_time_seconds: 16 },
     instream_video_ad_breaks_comet: { mid_rolls: [{ index: 0, instream_placement: 'MID_ROLL', time_offset_in_ms: 60000 }], pre_roll: null },
   }),
+  reels_showcase: () => ({
+    __typename: 'ShowcaseFeedUnit', showcase_story_type: 'SHOWCASE_SHORT_VIDEO',
+    showcase_item: [{ id: 'reel-1', attachment: { __typename: 'ShowcaseShortVideoAttachment' } }],
+  }),
   follow_button: () => titled('suggested', followTitle),
   group_join: () => titled('suggested', joinTitle),
   genai_label: () => labeled('ai'),
