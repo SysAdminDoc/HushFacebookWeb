@@ -1,7 +1,7 @@
 ![HushFacebook Web. A quieter Facebook feed.](assets/readme-hero.png)
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.0.1-CBA6F7" alt="Version 0.0.1">
+  <img src="https://img.shields.io/badge/version-0.0.2-CBA6F7" alt="Version 0.0.2">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
   <img src="https://img.shields.io/badge/platform-userscript-1877F2" alt="Platform userscript">
   <img src="https://img.shields.io/badge/for-Tampermonkey%20%7C%20Violentmonkey-00485B" alt="For Tampermonkey or Violentmonkey">
@@ -19,7 +19,7 @@ HushFacebook Web is a userscript for Facebook in a desktop browser. It's the web
 
 ## Where it stands
 
-This is the very start. Version 0.0.1 is the first release.
+It's still early. Version 0.0.2 is the second release.
 
 It has the groundwork in place, meaning the settings panel and the layer that reads Facebook's data as it loads, plus these features:
 

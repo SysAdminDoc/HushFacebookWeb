@@ -1,6 +1,6 @@
 {
   "name": "hushfacebook-web",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Userscript that takes ads, suggested posts and Meta AI out of facebook.com, with download, privacy and playback controls.",
   "private": true,
   "type": "module",

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.2 (2026-10-11)
 
 * Checked in Violentmonkey on Chrome as well as Tampermonkey. The script starts in the page, takes Marketplace and search ads out before Facebook sees them, gives Copy link the post's own address and keeps a story view to yourself, the same as in Tampermonkey.
 * The tests now run against scrubbed copies of what Facebook really sends: a feed page, the home page's inline feed data, a Marketplace page with an ad card, a search page with an ad, and the request that marks a story as seen. A new script turns a raw capture into one of these fixtures, replacing ids, names, places, text, tokens and links with stand-ins keyed by a private key, and a test checks every fixture for leftover ids, tokens, places and addresses.
