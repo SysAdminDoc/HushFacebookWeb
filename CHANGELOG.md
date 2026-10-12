@@ -3,6 +3,7 @@
 ## Unreleased
 
 * Keep your place in the feed no longer leaves the feed stuck on gray loading placeholders when another extension or script also hooks the way Facebook loads its code. The two hooks ended up calling each other until the browser gave up ("Maximum call stack size exceeded"). Tried live with a stand-in for such an extension: the old build left Home on placeholders after a couple of seconds, and the fixed one loads and scrolls with both hooks working.
+* Show full post dates leaves posts a week old or more alone. Facebook already writes their date out ("September 29 at 5:13 PM") instead of "6 days ago", so the script's date said the same thing twice. The cutoff is the one Facebook's own code uses.
 * Hide tab badges now hides the Messenger button's unread count. Facebook tucks a line for screen readers ("1 Unread Chats") inside the red pill, so the pill's text wasn't the count alone and the script passed it by. Live, the count was gone and the title had no "(1)", and the button still tells a screen reader how many chats are unread.
 * Failed settings writes now leave the saved choices and running features unchanged. A failed toggle returns to its saved position, invalid fields keep your text with an explanation, and unfinished edits survive a refresh.
 * Restoring a full backup now restores defaults too. Backups from another app, unsupported formats and files over 1 MB are rejected before changes are applied. Older plain settings files still work as partial imports.

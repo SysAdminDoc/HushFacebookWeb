@@ -25,6 +25,12 @@ const HEADINGS = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 
 export const POST_DATES_CSS = `[${DATE_MARK}] { margin-inline-start: 0.25em; white-space: nowrap; }`;
 
+// Facebook writes a post's time as "6 days ago" only while it's under a week old, and as
+// "October 1 at 5:47 PM" from then on (BaseRelativeTimestampUtils counts whole days below 7,
+// live 2026-10-12), so an older post already shows its date and gets none from the script.
+export const RELATIVE_FOR = 7 * 24 * 60 * 60;
+export const shownAsRelative = (seconds, now = Date.now() / 1000) => now - seconds < RELATIVE_FOR;
+
 // Each top-level feed story's keys with its time. The number of stories read.
 export function indexTimes(data, remember) {
   let found = 0;
@@ -119,13 +125,16 @@ export function formatTime(seconds, lang) {
   }
 }
 
-// The date next to a post's time, put there or brought up to date. True once it's shown.
-export function showDate(doc, post, seconds, lang = doc.documentElement?.lang) {
+// The date next to a post's time, put there or brought up to date. True once it's shown, or
+// once it's clear Facebook shows the date itself.
+export function showDate(doc, post, seconds, lang = doc.documentElement?.lang, now = Date.now() / 1000) {
   const link = timeLinkOf(post);
   const spot = link ? dateSpot(link) : null;
+  const relative = seconds !== null && shownAsRelative(seconds, now);
   for (const old of post.querySelectorAll(`[${DATE_MARK}]`)) {
-    if (old.previousElementSibling !== spot) old.remove();
+    if (old.previousElementSibling !== spot || !relative) old.remove();
   }
+  if (seconds !== null && !relative) return true;
   if (!spot || seconds === null) return false;
   const value = String(seconds);
   const next = spot.nextElementSibling;
@@ -153,7 +162,7 @@ export default {
   needsPage: true,
   css: POST_DATES_CSS,
 
-  setup({ doc, net, posts, enabled, settings, diagnostics }) {
+  setup({ doc, net, posts, enabled, settings, diagnostics, now = () => Date.now() / 1000 }) {
     const book = createTimeBook();
     net.transformResponses({
       id: 'keepPostDates',
@@ -171,7 +180,7 @@ export default {
     let shown = 0;
     const check = (element) => {
       const had = Boolean(element.querySelector(`[${DATE_MARK}]`));
-      const done = showDate(doc, element, book.timeOf(pageKeys(element)));
+      const done = showDate(doc, element, book.timeOf(pageKeys(element)), undefined, now());
       if (done && !had) {
         shown++;
         diagnostics?.changed();

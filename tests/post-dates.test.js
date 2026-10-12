@@ -6,10 +6,12 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
-import keepPostDates, { DATE_MARK, MARKERS, createTimeBook, formatTime, indexTimes, showDate, timeLinkOf } from '../src/features/feed/post-dates.js';
+import keepPostDates, { DATE_MARK, MARKERS, RELATIVE_FOR, createTimeBook, formatTime, indexTimes, showDate, shownAsRelative, timeLinkOf } from '../src/features/feed/post-dates.js';
 import { storyKeys } from '../src/core/seen-keys.js';
 import { rulesFor } from '../src/core/net/payload.js';
 
+// A post an hour old, which Facebook still dates as "1 hour ago".
+const SOON_AFTER = (seconds) => seconds + 3600;
 const windows = [];
 afterEach(async () => {
   for (const win of windows.splice(0)) await win.happyDOM.close();
@@ -172,19 +174,19 @@ test('the date goes right after the time link once, and follows a change of stor
   const win = page(post());
   const doc = win.document;
   const element = doc.querySelector('[aria-posinset]');
-  assert.equal(showDate(doc, element, 1760221440, 'en-US'), true);
-  assert.equal(showDate(doc, element, 1760221440, 'en-US'), true);
+  assert.equal(showDate(doc, element, 1760221440, 'en-US', SOON_AFTER(1760221440)), true);
+  assert.equal(showDate(doc, element, 1760221440, 'en-US', SOON_AFTER(1760221440)), true);
   const marks = element.querySelectorAll(`[${DATE_MARK}]`);
   assert.equal(marks.length, 1);
   assert.equal(marks[0].previousElementSibling, timeLinkOf(element));
   assert.match(marks[0].textContent, /^· Oct 1[12], 2025, /);
-  showDate(doc, element, 1700000000, 'en-US');
+  showDate(doc, element, 1700000000, 'en-US', SOON_AFTER(1700000000));
   assert.match(element.querySelector(`[${DATE_MARK}]`).textContent, /Nov 1[45], 2023/);
   // Facebook drew the header again somewhere else: the old date goes.
   const link = timeLinkOf(element);
   link.parentElement.append(doc.createElement('i'));
   link.parentElement.append(link);
-  assert.equal(showDate(doc, element, 1700000000, 'en-US'), true);
+  assert.equal(showDate(doc, element, 1700000000, 'en-US', SOON_AFTER(1700000000)), true);
   assert.equal(element.querySelectorAll(`[${DATE_MARK}]`).length, 1);
   assert.equal(showDate(doc, element, null, 'en-US'), false, 'no time known yet');
 });
@@ -194,15 +196,31 @@ test("in Facebook's header row the date is an item of its own after the time's b
   const doc = win.document;
   const element = doc.querySelector('[aria-posinset]');
   const box = timeLinkOf(element).parentElement.parentElement.parentElement;
-  assert.equal(showDate(doc, element, 1760221440, 'en-US'), true);
+  assert.equal(showDate(doc, element, 1760221440, 'en-US', SOON_AFTER(1760221440)), true);
   const mark = element.querySelector(`[${DATE_MARK}]`);
   assert.ok(mark.previousElementSibling === box, "right after the time's box");
   assert.equal(mark.parentElement.style.display, 'flex', 'an item of the row');
   assert.equal(mark.nextElementSibling.textContent.trim(), '·', "Facebook's dot and icon come after it");
   assert.ok(!box.querySelector(`[${DATE_MARK}]`), "nothing inside the time's box");
-  assert.equal(showDate(doc, element, 1700000000, 'en-US'), true);
+  assert.equal(showDate(doc, element, 1700000000, 'en-US', SOON_AFTER(1700000000)), true);
   assert.equal(element.querySelectorAll(`[${DATE_MARK}]`).length, 1);
   assert.match(element.querySelector(`[${DATE_MARK}]`).textContent, /Nov 1[45], 2023/);
+});
+
+// Facebook writes "6 days ago" up to a week, then the date itself ("September 29 at 5:13 PM"),
+// and the script's date beside that read twice live (2026-10-12).
+test("a post a week old or more gets no date, since Facebook's own time is a date by then", () => {
+  const seconds = 1760221440;
+  assert.equal(shownAsRelative(seconds, seconds + RELATIVE_FOR - 1), true, '6 days 23 hours: still "6 days ago"');
+  assert.equal(shownAsRelative(seconds, seconds + RELATIVE_FOR), false);
+  const win = page(post());
+  const doc = win.document;
+  const element = doc.querySelector('[aria-posinset]');
+  assert.equal(showDate(doc, element, seconds, 'en-US', seconds + 3600), true);
+  assert.equal(element.querySelectorAll(`[${DATE_MARK}]`).length, 1);
+  assert.equal(showDate(doc, element, seconds, 'en-US', seconds + RELATIVE_FOR), true, 'done: nothing to add');
+  assert.equal(element.querySelector(`[${DATE_MARK}]`), null, 'a date put up while it was recent goes once Facebook shows one');
+  assert.equal(showDate(doc, element, null, 'en-US', seconds + RELATIVE_FOR), false, 'no time known yet');
 });
 
 test('a date is written in the page language, or the browser default when that one is unknown', () => {
@@ -234,6 +252,7 @@ test('the feature reads the data without changing it and dates the posts it can 
     enabled: () => on,
     settings: { subscribe: (fn) => subscribers.push(fn) },
     diagnostics: { add: (label, read) => rows.push([label, read]), changed() {} },
+    now: () => SOON_AFTER(219816548),
   });
   const [rule] = rules;
   assert.equal(rule.match({ transport: 'json-parse' }), true);
