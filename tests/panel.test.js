@@ -322,3 +322,34 @@ test('a preference refresh preserves an unfinished draft, caret and scroll posit
   assert.equal(shadow.querySelector('main').scrollTop, 90);
   assert.equal(settings.get('demo.words'), '');
 });
+
+test('search finds settings by their words, opens the section at the switch, and clears back to the sections', () => {
+  const features = [
+    { id: 'quiet', section: 'feed', android: 'Quiet', title: 'Hide sponsored posts', description: 'Ads leave the feed.', default: false },
+    { id: 'speedy', section: 'playback', android: 'Speedy', title: 'Keep your video speed', description: 'The speed you pick stays.', default: false,
+      options: [{ key: 'step', type: 'select', label: 'Speed step', default: 1, choices: [{ value: 1, label: 'Quarter steps' }] }] },
+  ];
+  const { shadow, panel, win } = setup({ features });
+  panel.open('feed');
+  const search = shadow.querySelector('[data-key="search"]');
+  const type = (text) => {
+    search.value = text;
+    search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  };
+  type('quarter');
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Search');
+  assert.deepEqual([...shadow.querySelectorAll('.result .title')].map((node) => node.textContent), ['Keep your video speed'], 'choice names count');
+  assert.equal(shadow.querySelector('nav [aria-current="page"]'), null, 'no section is current while searching');
+  assert.ok(shadow.querySelector('.result [data-key="speedy"]'), 'the switch works from the results');
+  type('zebra');
+  assert.match(shadow.querySelector('main .empty').textContent, /No setting matches "zebra"/);
+  type('SPEED keep');
+  shadow.querySelector('[data-key="show:speedy"]').click();
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Playback');
+  assert.equal(shadow.activeElement?.dataset.key, 'speedy', "the feature's switch has focus");
+  assert.equal(search.value, '');
+  type('sponsored');
+  shadow.querySelector('[data-key="nav:general"]').click();
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'General', 'a section button clears the search');
+  assert.equal(search.value, '');
+});

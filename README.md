@@ -92,7 +92,7 @@ The script has been checked on facebook.com in Chrome with Tampermonkey and Viol
 
 Click the sliders button in the bottom left corner of Facebook, or the HushFacebook Web row in the menu under your profile picture at the top right. Your userscript manager's menu has a HushFacebook Web settings entry too. Changes save as you make them, and every switch has a line under it saying what it does. If you'd rather not have the corner button, turn it off under Menu or General.
 
-The panel has 18 sections in a dark layout with a lavender accent. Narrow windows get a scrolling section bar, and long labels and options wrap to fit. The power switch pauses the script. General has backup and restore, and Reset offers Undo in a notification. Closing settings returns focus to the control that opened them.
+The panel has 18 sections in a dark layout with a lavender accent. Find a setting, above the sections, looks through every switch's name, description and options as you type, and each result's section link opens that section with the switch in view. Narrow windows get a scrolling section bar, and long labels and options wrap to fit. The power switch pauses the script. General has backup and restore, and Reset offers Undo in a notification. Closing settings returns focus to the control that opened them.
 
 Backups restore your saved choices, including defaults. Restore accepts HushFacebook Web format 1 files up to 1 MB. Older plain settings files apply only the choices they contain. If a save fails, the previous choices stay in use and you can retry.
 
@@ -101,7 +101,7 @@ Backups restore your saved choices, including defaults. Restore accepts HushFace
   <img src="assets/screenshots/panel-downloads.png" width="49%" alt="The redesigned Downloads settings for photos, videos, reels and stories">
 </p>
 
-These screenshots show the current development build in a browser preview. All 18 sections were checked at desktop size and at 320, 360 and 640 pixels wide. This design hasn't been rechecked on signed-in Facebook or in Firefox yet.
+These screenshots show the current development build in a browser preview. All 18 sections were checked at desktop size and at 320, 360 and 640 pixels wide. On signed-in Facebook in Chrome the panel, search and section links were checked at desktop size and 400 pixels wide. Firefox hasn't been checked yet.
 
 ## How it works
 

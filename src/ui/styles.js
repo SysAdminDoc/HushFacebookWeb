@@ -65,6 +65,18 @@ nav button[aria-current="page"] { background: var(--selected); color: var(--text
 nav button[aria-current="page"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--accent); }
 nav button:focus-visible { outline-offset: -3px; }
 nav hr { border: 0; border-top: 1px solid var(--border); margin: 16px 14px 12px 22px; }
+.search {
+  display: block; box-sizing: border-box; width: calc(100% - 22px); margin: 0 0 18px 22px; padding: 8px 12px;
+  background: var(--mantle); border: 1px solid var(--surface1); border-radius: 8px; font-size: 14px;
+}
+.search::placeholder { color: var(--subtext); opacity: 0.85; }
+.result { border-top: 1px solid var(--border); }
+.result > .card { border-top: 0; padding-top: 6px; }
+.result-section {
+  display: block; margin: 16px 0 0; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--accent); font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase;
+}
+.result-section:hover { text-decoration: underline; }
 main { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 24px 40px 32px; scrollbar-gutter: stable; overflow-wrap: anywhere; }
 .page-heading { margin-bottom: 20px; }
 .page-heading h3 { margin: 0; font-size: 32px; line-height: 40px; font-weight: 700; letter-spacing: -0.7px; }
@@ -147,6 +159,7 @@ nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surfac
   .body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   nav { display: flex; align-items: center; gap: 4px; padding: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
   .nav-label { display: none; }
+  .search { flex: none; width: 150px; margin: 0 4px 0 0; padding: 7px 10px; font-size: 13px; }
   nav button { flex: none; white-space: nowrap; width: auto; min-height: 38px; padding: 7px 12px; border-radius: 7px; font-size: 13px; }
   nav button[aria-current="page"]::before { inset: auto 10px 0; width: auto; height: 2px; }
   nav hr { display: none; }

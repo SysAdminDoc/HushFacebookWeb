@@ -7,6 +7,7 @@ import { MAX_BACKUP_BYTES } from '../core/settings.js';
 import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
 import { SLIDERS_ICON } from './icons.js';
+import { findFeatures } from './search.js';
 import { panelCss } from './styles.js';
 
 const CLOSE_ICON = ['M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z'];
@@ -46,6 +47,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     { id: 'diagnostics', title: 'Diagnostics' },
   ];
   let current = sections[0].id;
+  let query = '';
   let opener = null;
   const drafts = new Map();
   const fieldErrors = new Map();
@@ -60,6 +62,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   );
   const nav = h('nav', { 'aria-label': 'Settings sections' });
   const main = h('main', { 'aria-labelledby': 'hfw-section-title' });
+  // One element for the life of the panel, so typing keeps its place across redraws.
+  const search = h('input', {
+    class: 'search', type: 'search', placeholder: 'Find a setting', 'aria-label': 'Find a setting',
+    autocomplete: 'off', spellcheck: 'false', dataset: { key: 'search' },
+    oninput: (event) => { query = event.target.value; main.scrollTop = 0; render(); },
+  });
   const pauseState = h('span', { class: 'power-state' });
   // Checked means running, so the switch agrees with the "On" chip beside it.
   const power = h('input', {
@@ -218,6 +226,32 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return features.filter((feature) => feature.section === section.id).map(featureCard);
   }
 
+  function clearSearch() {
+    query = '';
+    search.value = '';
+  }
+
+  // A search result's section link: opens the section with that feature's switch focused.
+  function showFeature(feature) {
+    clearSearch();
+    current = feature.section;
+    main.scrollTop = 0;
+    render();
+    const control = main.querySelector(`[data-key="${CSS.escape(feature.id)}"]`);
+    control?.scrollIntoView?.({ block: 'center' });
+    control?.focus({ preventScroll: true });
+  }
+
+  function resultsView(found) {
+    if (!found.length) return [h('p', { class: 'empty', text: `No setting matches "${query.trim()}". Try a shorter word, or pick a section.` })];
+    return found.map((feature) => {
+      const section = sections.find((entry) => entry.id === feature.section);
+      return h('div', { class: 'result' },
+        h('button', { class: 'result-section', type: 'button', text: `In ${section.title}`, dataset: { key: `show:${feature.id}` }, onclick: () => showFeature(feature) }),
+        featureCard(feature));
+    });
+  }
+
   function generalView() {
     return [
       h('div', { class: 'card' },
@@ -283,20 +317,30 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const selection = typeof focused?.selectionStart === 'number' ? [focused.selectionStart, focused.selectionEnd] : null;
     const scrollTop = main.scrollTop;
     const navScroll = [nav.scrollLeft, nav.scrollTop];
-    nav.replaceChildren(h('div', { class: 'nav-label', text: 'Settings' }), ...sections.flatMap((section) => [
+    const searching = query.trim() !== '';
+    nav.replaceChildren(search, h('div', { class: 'nav-label', text: 'Settings' }), ...sections.flatMap((section) => [
       section.divider ? h('hr') : null,
       h('button', {
         type: 'button', text: section.title, dataset: { key: `nav:${section.id}` },
-        'aria-current': section.id === current ? 'page' : null,
-        onclick: () => { current = section.id; main.scrollTop = 0; render(); },
+        'aria-current': !searching && section.id === current ? 'page' : null,
+        onclick: () => { clearSearch(); current = section.id; main.scrollTop = 0; render(); },
       }),
     ]).filter(Boolean));
-    const section = sections.find((entry) => entry.id === current);
-    main.replaceChildren(
-      h('div', { class: 'page-heading' },
-        h('h3', { id: 'hfw-section-title', text: section.title }),
-        h('p', { text: SECTION_DESCRIPTIONS[current] ?? '' })),
-      ...(current === 'general' ? generalView() : current === 'diagnostics' ? diagnosticsView() : sectionView(section)));
+    if (searching) {
+      const found = findFeatures(features, sections, query);
+      main.replaceChildren(
+        h('div', { class: 'page-heading' },
+          h('h3', { id: 'hfw-section-title', text: 'Search' }),
+          h('p', { text: found.length === 1 ? '1 setting matches.' : `${found.length} settings match.` })),
+        ...resultsView(found));
+    } else {
+      const section = sections.find((entry) => entry.id === current);
+      main.replaceChildren(
+        h('div', { class: 'page-heading' },
+          h('h3', { id: 'hfw-section-title', text: section.title }),
+          h('p', { text: SECTION_DESCRIPTIONS[current] ?? '' })),
+        ...(current === 'general' ? generalView() : current === 'diagnostics' ? diagnosticsView() : sectionView(section)));
+    }
     main.scrollTop = scrollTop;
     nav.scrollLeft = navScroll[0];
     nav.scrollTop = navScroll[1];
@@ -397,7 +441,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function open(sectionId) {
     if (sectionId && sections.some((section) => section.id === sectionId)) {
-      if (sectionId !== current) main.scrollTop = 0;
+      if (sectionId !== current || query) main.scrollTop = 0;
+      clearSearch();
       current = sectionId;
     }
     if (!dialog.open) opener = shadow.activeElement ?? document.activeElement;
