@@ -184,6 +184,25 @@ test('blocked beacons report success without sending', () => {
   assert.deepEqual(beacons, ['/other']);
 });
 
+test('a held-back request stays held when its rule fails to make an answer, beacons included', async () => {
+  const { win, calls, beacons } = fakeWindow();
+  const log = quietLog();
+  const net = installNetworkHooks({ win, log });
+  const asked = [];
+  net.blockRequests({
+    id: 'broken', enabled: () => true, match: (ctx) => ctx.path === '/ajax/bz',
+    fakeResponse: (ctx) => { asked.push(ctx.transport); throw new Error('nope'); },
+  });
+  const answer = await win.fetch('/ajax/bz', { method: 'POST', body: 'x' });
+  assert.equal(answer.status, 200);
+  assert.equal(await answer.text(), '{}');
+  assert.equal(win.navigator.sendBeacon('/ajax/bz', 'x'), true);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(beacons, []);
+  assert.deepEqual(asked, ['fetch', 'beacon'], 'the rule hears about the beacon too');
+  assert.equal(log.errors.length, 1, 'logged once');
+});
+
 test('installing twice returns the same hooks', () => {
   const { win } = fakeWindow();
   const log = quietLog();

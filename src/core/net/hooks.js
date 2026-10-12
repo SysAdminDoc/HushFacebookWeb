@@ -54,6 +54,19 @@ export function installNetworkHooks({ win, log }) {
     });
 
   const blockingRule = (ctx) => active(requestRules, ctx)[0];
+  // The answer a held-back request gets. A rule that fails to make one is logged once and the
+  // request stays held back, with an empty answer.
+  const fakeAnswer = (rule, ctx) => {
+    try {
+      return rule.fakeResponse?.(ctx) ?? '{}';
+    } catch (error) {
+      if (!failed.has(rule.id)) {
+        failed.add(rule.id);
+        log.error(`Network rule "${rule.id}" couldn't make its answer, so the page got an empty one`, error);
+      }
+      return '{}';
+    }
+  };
   // Taken before patchJsonParse wraps it. See transformDocumentLine.
   const parse = win.JSON?.parse ?? JSON.parse;
   const handled = createHandledLines();
@@ -64,9 +77,9 @@ export function installNetworkHooks({ win, log }) {
     return out;
   };
 
-  patchFetch(win, { blockingRule, active, responseRules, lineTransformer, log });
-  patchXhr(win, { blockingRule, active, responseRules, lineTransformer });
-  patchBeacon(win, { blockingRule });
+  patchFetch(win, { blockingRule, fakeAnswer, active, responseRules, lineTransformer, log });
+  patchXhr(win, { blockingRule, fakeAnswer, active, responseRules, lineTransformer });
+  patchBeacon(win, { blockingRule, fakeAnswer });
   patchJsonParse(win, { active, responseRules, onError, handled });
   const sockets = patchWebSocket(win, { log });
 
@@ -88,7 +101,7 @@ export function installNetworkHooks({ win, log }) {
   return api;
 }
 
-function patchFetch(win, { blockingRule, active, responseRules, lineTransformer, log }) {
+function patchFetch(win, { blockingRule, fakeAnswer, active, responseRules, lineTransformer, log }) {
   const original = win.fetch;
   if (typeof original !== 'function') return;
 
@@ -105,7 +118,7 @@ function patchFetch(win, { blockingRule, active, responseRules, lineTransformer,
 
     const blocker = blockingRule(ctx);
     if (blocker) {
-      return win.Promise.resolve(new win.Response(blocker.fakeResponse?.(ctx) ?? '{}', { status: 200 }));
+      return win.Promise.resolve(new win.Response(fakeAnswer(blocker, ctx), { status: 200 }));
     }
 
     const promise = original.apply(this, arguments);
@@ -155,7 +168,7 @@ function rewriteFetchResponse(win, response, transformLine) {
   return rewritten;
 }
 
-function patchXhr(win, { blockingRule, active, responseRules, lineTransformer }) {
+function patchXhr(win, { blockingRule, fakeAnswer, active, responseRules, lineTransformer }) {
   const Xhr = win.XMLHttpRequest;
   if (typeof Xhr !== 'function') return;
   const proto = Xhr.prototype;
@@ -181,7 +194,7 @@ function patchXhr(win, { blockingRule, active, responseRules, lineTransformer })
     const ctx = describeRequest({ transport: 'xhr', url: entry.url, method: entry.method, body, headers: entry.headers, base: win.location.href });
 
     const blocker = blockingRule(ctx);
-    if (blocker) return fakeXhrSuccess(win, this, ctx, blocker.fakeResponse?.(ctx) ?? '{}');
+    if (blocker) return fakeXhrSuccess(win, this, ctx, fakeAnswer(blocker, ctx));
 
     const rules = active(responseRules, ctx);
     if (rules.length) attachTextTransform(this, lineTransformer(rules, ctx), textGetter, responseGetter);
@@ -292,7 +305,7 @@ export function createHandledLines(limit = 64) {
   };
 }
 
-function patchBeacon(win, { blockingRule }) {
+function patchBeacon(win, { blockingRule, fakeAnswer }) {
   const nav = win.navigator;
   const original = nav?.sendBeacon;
   if (typeof original !== 'function') return;
@@ -301,7 +314,7 @@ function patchBeacon(win, { blockingRule }) {
     const blocker = blockingRule(ctx);
     if (blocker) {
       // A beacon gets no answer, but the rule still hears that it held one back.
-      blocker.fakeResponse?.(ctx);
+      fakeAnswer(blocker, ctx);
       return true;
     }
     return original.apply(this, arguments);
