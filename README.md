@@ -1,7 +1,7 @@
 ![HushFacebook Web. A quieter Facebook feed.](assets/readme-hero.png)
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.0.3-CBA6F7" alt="Version 0.0.3">
+  <img src="https://img.shields.io/badge/version-0.0.4-CBA6F7" alt="Version 0.0.4">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
   <img src="https://img.shields.io/badge/platform-userscript-1877F2" alt="Platform userscript">
   <img src="https://img.shields.io/badge/for-Tampermonkey%20%7C%20Violentmonkey-00485B" alt="For Tampermonkey or Violentmonkey">
@@ -19,7 +19,7 @@ HushFacebook Web is a userscript for Facebook in a desktop browser. It's the web
 
 ## Where it stands
 
-It's still early. The current development build is 0.0.3. The latest published release is 0.0.2.
+It's still early. The current development build is 0.0.4. The latest published release is 0.0.2.
 
 There's a settings panel and a layer that filters Facebook's data as it loads. These features are available.
 
@@ -49,6 +49,7 @@ There's a settings panel and a layer that filters Facebook's data as it loads. T
 * Show comments as written
 * View stories anonymously
 * Hold back usage logs
+* Block Instant Games ads (experimental)
 * Stop stories moving on
 * Sanitize sharing links
 * Skip Facebook's link redirect
@@ -103,6 +104,8 @@ Most Facebook cleanup tools hunt for posts on the page and hide them. That break
 Some things can only be done on the page itself, like download buttons or hiding a menu item. Those use the page, kept to the parts of Facebook's markup that change least.
 
 Your userscript manager keeps a separate set of settings for each Facebook account. Downloads request the media you choose to save, and the manager checks GitHub for script updates. Diagnostics reports include changed settings and recent log details, so read them before sharing. If a manager has no storage of its own, the script falls back to page storage, which Facebook may clear.
+
+Block Instant Games ads is off by default under Meta's other products. It answers supported ad requests with the game's usual no-ad response. Games with protected ad methods can't be filtered. A game that replaces or adds its ad system can make unfiltered requests before the next check. Rewards that require an ad won't be earned. A game can't read your Facebook account settings, so games share one switch using the account you last opened or changed it in. This needs manager storage and page mode. Reload an open game after changing it. Local SDK and frame checks pass, but it hasn't been checked in a live game yet.
 
 ## Install
 

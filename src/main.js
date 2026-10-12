@@ -15,6 +15,7 @@ import { keepOutOfStorageReport } from './core/storage-report.js';
 import { createDailyTasks, pageMirror, scheduleStorageCheck, whenMirrorReady } from './core/tasks.js';
 import { mountFeatureStyles } from './core/style.js';
 import { features } from './features/index.js';
+import { executionTarget, startGameFrame } from './features/games/frame.js';
 import { mountPanel } from './ui/panel.js';
 
 // Which Facebook account is signed in, from its c_user cookie, so each one keeps its own
@@ -120,12 +121,18 @@ function boot() {
 // way and leaves a note the first one reports. The mark goes on the page window, which
 // exists before <html> does, and on <html>, which copies in other worlds can see.
 const RUNNING_KEY = Symbol.for('hushfacebook-web.running');
-const running = pageWindow[RUNNING_KEY] ?? document.documentElement?.getAttribute(RUNNING);
-if (running) {
-  whenRootReady(() => document.documentElement.setAttribute(DUPLICATE, version));
-  console.warn(`[HushFacebook Web] v${version} didn't start because v${running} is already running.`);
-} else {
-  pageWindow[RUNNING_KEY] = version;
-  whenRootReady(() => document.documentElement.setAttribute(RUNNING, version));
-  boot();
+const target = executionTarget(pageWindow);
+if (target === 'game') {
+  if (pageAccess === 'page') startGameFrame({ win: pageWindow, storage: createGmStorage(), log: createLog() });
+  else console.warn('[HushFacebook Web] Instant Games ad blocking needs the userscript to run in the page.');
+} else if (target === 'facebook') {
+  const running = pageWindow[RUNNING_KEY] ?? document.documentElement?.getAttribute(RUNNING);
+  if (running) {
+    whenRootReady(() => document.documentElement.setAttribute(DUPLICATE, version));
+    console.warn(`[HushFacebook Web] v${version} didn't start because v${running} is already running.`);
+  } else {
+    pageWindow[RUNNING_KEY] = version;
+    whenRootReady(() => document.documentElement.setAttribute(RUNNING, version));
+    boot();
+  }
 }

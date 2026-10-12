@@ -30,3 +30,9 @@ test('the script starts at document-start and updates from the release assets', 
   assert.match(block, new RegExp(`^// @updateURL\\s+\\S+/releases/latest/download/${fileName}\\.meta\\.js$`, 'm'));
   assert.match(block, new RegExp(`^// @downloadURL\\s+\\S+/releases/latest/download/${fileName}\\.user\\.js$`, 'm'));
 });
+
+test('the game host can run the ad hook inside its frame', () => {
+  const block = renderMetaBlock('1.2.3');
+  assert.ok(/^\/\/ @match\s+https:\/\/\*\.apps\.fbsbx\.com\/\*$/m.test(block), 'the game host is matched');
+  assert.doesNotMatch(block, /^\/\/ @noframes(?:\s|$)/m);
+});

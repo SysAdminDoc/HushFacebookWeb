@@ -77,6 +77,7 @@ import menuEntry from './menu/menu-entry.js';
 import hideMetaUpsells from './meta/hide-meta-upsells.js';
 import hidePromotions from './meta/hide-promotions.js';
 import customCss from './appearance/custom-css.js';
+import blockInstantGamesAds from './games/block-ads.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts, keepPostDates, keepFeedPlace,
@@ -84,7 +85,7 @@ export const features = [
   commentOrder, showAllReplies, hideCommentStickers, hideCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
   keepSpeed, holdForSpeed, pictureInPicture, keepControls, videoQuality,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
-  menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions,
+  menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions, blockInstantGamesAds,
   // In this order: the first to claim a Home load redirects it (opening/start.js).
   marketplaceOnly, openOnTab, followingFeed, messengerPage,
   // Last, so its rules come after every built-in style.

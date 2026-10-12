@@ -20,6 +20,7 @@ export const metadata = [
   ['downloadURL', `${repo}/releases/latest/download/${fileName}.user.js`],
   ['match', 'https://www.facebook.com/*'],
   ['match', 'https://web.facebook.com/*'],
+  ['match', 'https://*.apps.fbsbx.com/*'],
   // Network hooks must wrap fetch and XHR before Facebook's own code captures them.
   ['run-at', 'document-start'],
   // Page world, so the hooks see Facebook's fetch and XHR. facebook.com's CSP only allows
@@ -27,7 +28,6 @@ export const metadata = [
   // mode when it can't, and the script then runs its DOM features only.
   ['inject-into', 'auto'],
   ['sandbox', 'JavaScript'],
-  ['noframes', ''],
   ['grant', 'GM_getValue'],
   ['grant', 'GM_setValue'],
   ['grant', 'GM_deleteValue'],
