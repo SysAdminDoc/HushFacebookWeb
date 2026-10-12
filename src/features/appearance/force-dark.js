@@ -8,6 +8,8 @@
 // handful of plain divs in the top bar and at the end of <body> hold the account, Notifications
 // and Messenger menus and a post's menu, and they keep __fb-light-mode whatever <html> says. So
 // every element with the light class is swapped, and only the ones the script swapped go back.
+// When Facebook picks dark itself while the script holds it dark, the page stays dark after
+// the switch goes off.
 
 import { whenRootReady } from '../../core/env.js';
 
@@ -19,8 +21,61 @@ const MAX_SWAPS = 20;
 const MAX_LAYER_SWAPS = 200;
 const SWAP_WINDOW = 5000;
 
-export function createDarkKeeper({ doc, enabled, log, now = () => Date.now() }) {
+// Which theme Facebook writes on <html>, from the classList calls it makes: remove the old class,
+// then add the new one (live 2026-10-11, captures/2026-10-11-run32, at load). Facebook picking dark
+// while the script already holds the page dark changes nothing on the page, so no mutation shows
+// it, and without this, switching Force dark off would put light back against Facebook's choice.
+// Only calls in the page's own world are seen. In content mode nothing is, and the script works
+// as it did before.
+const WATCHERS = Symbol.for('hushfacebook-web.theme-watchers');
+const METHODS = ['add', 'replace', 'toggle'];
+
+function themeWritten(method, args, result) {
+  if (method === 'add') return args.includes(DARK) ? DARK : args.includes(LIGHT) ? LIGHT : null;
+  if (method === 'replace') return result && (args[1] === DARK || args[1] === LIGHT) ? args[1] : null;
+  return result === true && (args[0] === DARK || args[0] === LIGHT) ? args[0] : null;
+}
+
+function watchThemeWrites(doc, watcher) {
+  const list = doc.documentElement?.classList;
+  const proto = list ? Object.getPrototypeOf(list) : null;
+  if (!proto || typeof proto.add !== 'function') return;
+  if (!Object.hasOwn(proto, WATCHERS)) {
+    const watchers = new Set();
+    Object.defineProperty(proto, WATCHERS, { value: watchers });
+    for (const method of METHODS) {
+      const original = proto[method];
+      if (typeof original !== 'function') continue;
+      proto[method] = function (...args) {
+        const result = original.apply(this, args);
+        if (watchers.size) {
+          const theme = themeWritten(method, args, result);
+          // A watcher's failure never reaches the page's own call.
+          if (theme) {
+            for (const watch of watchers) {
+              try {
+                watch(this, theme);
+              } catch {
+                // Nothing to undo: the page's call already went through.
+              }
+            }
+          }
+        }
+        return result;
+      };
+    }
+  }
+  proto[WATCHERS].add(watcher);
+  return () => proto[WATCHERS].delete(watcher);
+}
+
+// isRootList: whether a list a classList method ran on is <html>'s. In a browser that's the
+// list itself. Tests pass their own, since happy-dom runs the methods on a list behind a Proxy.
+export function createDarkKeeper({ doc, enabled, log, now = () => Date.now(), isRootList = (list) => list === doc.documentElement?.classList }) {
   let swapped = false;
+  // Set while the script writes the class itself, so its own swaps aren't taken for Facebook's.
+  let writing = false;
+  let unwatch = null;
   let observer = null;
   const swaps = [];
   const layerSwaps = [];
@@ -60,15 +115,31 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now() }) 
     return found;
   }
 
+  const swapRoot = (root, from, to) => {
+    writing = true;
+    try {
+      root.classList.replace(from, to);
+    } finally {
+      writing = false;
+    }
+  };
+
+  // Facebook choosing dark itself means there's no light to put back.
+  const facebookWrote = (list, theme) => {
+    if (writing || theme !== DARK || !isRootList(list)) return;
+    swapped = false;
+  };
+
   // records: what the observer saw, or nothing to look over the whole page.
   function apply(records) {
     const root = doc.documentElement;
     if (!root) return;
     const want = enabled() && !gaveUp;
     if (want) {
+      unwatch ??= watchThemeWrites(doc, facebookWrote) ?? (() => {});
       if (root.classList.contains(LIGHT)) {
         if (tooMany(swaps, MAX_SWAPS)) return giveUp();
-        root.classList.replace(LIGHT, DARK);
+        swapRoot(root, LIGHT, DARK);
         swapped = true;
       }
       const lights = records ? changedLights(records) : [...doc.getElementsByClassName(LIGHT)];
@@ -87,7 +158,7 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now() }) 
       return undefined;
     }
     if (swapped && root.classList.contains(DARK)) {
-      root.classList.replace(DARK, LIGHT);
+      swapRoot(root, DARK, LIGHT);
       swapped = false;
     }
     if (layerCount) {
@@ -113,7 +184,11 @@ export function createDarkKeeper({ doc, enabled, log, now = () => Date.now() }) 
     start: () => whenRootReady(start, doc),
     apply: () => apply(),
     state: () => ({ swapped, gaveUp, layers: layerCount }),
-    stop: () => observer?.disconnect(),
+    stop: () => {
+      observer?.disconnect();
+      unwatch?.();
+      unwatch = null;
+    },
   };
 }
 

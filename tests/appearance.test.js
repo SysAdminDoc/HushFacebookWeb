@@ -64,6 +64,71 @@ test('force dark mode leaves a page that was already dark as it is when switched
   keeper.stop();
 });
 
+// Facebook writes its theme by removing the old class and adding the new one (live 2026-10-11,
+// run 32). Picking Dark in its own menu while the script holds the page dark changes nothing on
+// the page, so only the calls show it.
+const facebookPicks = (root, theme) => {
+  root.classList.remove(theme === DARK ? LIGHT : DARK);
+  root.classList.add(theme);
+};
+// happy-dom runs classList methods on the list behind its Proxy, which knows its element.
+const ownerOf = (list) => list[Object.getOwnPropertySymbols(list).find((symbol) => symbol.description === 'ownerElement')];
+const watchingKeeper = (doc, enabled) => createDarkKeeper({ doc, enabled, isRootList: (list) => ownerOf(list) === doc.documentElement });
+
+test("force dark mode keeps dark after it's switched off when Facebook picked dark meanwhile", async () => {
+  const win = page();
+  const root = win.document.documentElement;
+  let on = true;
+  const keeper = watchingKeeper(win.document, () => on);
+  keeper.start();
+  assert.equal(keeper.state().swapped, true);
+  facebookPicks(root, DARK);
+  await tick();
+  assert.equal(keeper.state().swapped, false);
+  on = false;
+  keeper.apply();
+  assert.equal(root.className, `_9dls ${DARK}`, "Facebook's new choice stays");
+  keeper.stop();
+});
+
+test('force dark mode brings light back when Facebook went dark and then light again before the switch went off', async () => {
+  const win = page();
+  const root = win.document.documentElement;
+  let on = true;
+  const keeper = watchingKeeper(win.document, () => on);
+  keeper.start();
+  facebookPicks(root, DARK);
+  await tick();
+  facebookPicks(root, LIGHT);
+  await tick();
+  assert.ok(root.classList.contains(DARK), 'still held dark while the switch is on');
+  assert.equal(keeper.state().swapped, true);
+  on = false;
+  keeper.apply();
+  assert.equal(root.className, `_9dls ${LIGHT}`);
+  keeper.stop();
+});
+
+test("force dark mode never takes its own swaps, or a popup layer's class, for Facebook's choice", async () => {
+  const win = page(`<div class="${LIGHT}" id="layer"></div>`);
+  const doc = win.document;
+  let on = true;
+  const keeper = watchingKeeper(doc, () => on);
+  keeper.start();
+  on = false;
+  keeper.apply();
+  on = true;
+  keeper.apply();
+  assert.equal(keeper.state().swapped, true, "the second swap is the script's too");
+  doc.getElementById('layer').classList.add(DARK);
+  await tick();
+  assert.equal(keeper.state().swapped, true);
+  on = false;
+  keeper.apply();
+  assert.equal(doc.documentElement.className, `_9dls ${LIGHT}`);
+  keeper.stop();
+});
+
 test('force dark mode stops instead of fighting a page that keeps switching back', () => {
   const win = page();
   const root = win.document.documentElement;
