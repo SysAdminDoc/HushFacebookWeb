@@ -53,6 +53,7 @@ There's a settings panel and a layer that filters Facebook's data as it loads. T
 * Stop stories moving on
 * Sanitize sharing links
 * Skip Facebook's link redirect
+* Trim the share menu
 * Download any photo, video, reel or story
 * Following feed on Home
 * Open on a chosen tab

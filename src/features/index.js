@@ -48,6 +48,7 @@ import tagsAfterAt from './comments/tags-after-at.js';
 import commentsAsWritten from './comments/comments-as-written.js';
 import sanitizeLinks from './links/sanitize-links.js';
 import directLinks from './links/direct-links.js';
+import shareSheet from './links/share-sheet.js';
 import tapToPlay from './playback/tap-to-play.js';
 import limitHdr from './playback/hdr-brightness.js';
 import resumeVideos from './playback/resume-videos.js';
@@ -82,7 +83,7 @@ import blockInstantGamesAds from './games/block-ads.js';
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts, keepPostDates, keepFeedPlace,
   hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, holdBackLogs,
-  commentOrder, showAllReplies, hideCommentStickers, hideCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
+  commentOrder, showAllReplies, hideCommentStickers, hideCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
   keepSpeed, holdForSpeed, pictureInPicture, keepControls, videoQuality,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges,
   menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions, blockInstantGamesAds,
