@@ -99,12 +99,13 @@ test("a key two stories give different times dates neither by it, so no post sho
   assert.equal(again.timeOf(storyKeys(original)), 1700000000);
 });
 
-test('a full book forgets the key seen longest ago, and never forgets that a key was shared', () => {
+test('a full book forgets the key seen longest ago, and a shared key stays shared while dated ones come and go', () => {
   const book = createTimeBook();
   book.remember('shared', 1700000000);
   book.remember('shared', 1760000000);
   book.remember('first', 1700000001);
-  for (let i = 0; i < 3998; i++) book.remember(`k${i}`, 1700000100 + i);
+  // The shared key takes no room among the dated ones, so 4000 dated keys fill the book.
+  for (let i = 0; i < 3999; i++) book.remember(`k${i}`, 1700000100 + i);
   book.remember('first', 1700000001); // seen again, so it's no longer the oldest
   book.remember('new', 1760000100);
   assert.equal(book.timeOf(['k0']), null, 'the oldest key with a time went');
@@ -115,6 +116,41 @@ test('a full book forgets the key seen longest ago, and never forgets that a key
   for (let i = 0; i < 5000; i++) book.remember(`later${i}`, 1760001000 + i);
   book.remember('shared', 1761000000);
   assert.equal(book.timeOf(['shared']), null);
+});
+
+test('shared keys never crowd dated ones out of the book', () => {
+  const book = createTimeBook();
+  for (let i = 0; i < 3990; i++) {
+    book.remember(`shared${i}`, 1700000000);
+    book.remember(`shared${i}`, 1760000000);
+  }
+  for (let i = 0; i < 4000; i++) book.remember(`dated${i}`, 1700000100 + i);
+  assert.equal(book.timeOf(['dated0']), 1700000100);
+  assert.equal(book.timeOf(['dated3999']), 1700004099);
+  assert.equal(book.timeOf(['shared0', 'dated5']), 1700000105, 'a shared key is passed over for the next one');
+  // Shared keys are capped too, the ones seen longest ago going first.
+  const small = createTimeBook({ max: 3 });
+  for (const key of ['a', 'b', 'c', 'd']) {
+    small.remember(key, 1);
+    small.remember(key, 2);
+  }
+  small.remember('a', 3);
+  assert.equal(small.timeOf(['a']), 3, 'a forgotten shared key can be dated again');
+  assert.equal(small.timeOf(['d']), null);
+});
+
+test('a key the book let go comes back shared when another story brings it with another time', () => {
+  const book = createTimeBook({ max: 3 });
+  book.remember('own', 1700000000);
+  book.remember('again', 1700000500);
+  for (const key of ['x', 'y', 'z']) book.remember(key, 1750000000);
+  assert.equal(book.timeOf(['own']), null, 'let go');
+  // A later story with the same words: the first post must not take its date.
+  book.remember('own', 1760000000);
+  assert.equal(book.timeOf(['own']), null);
+  // The same story brought back is dated again.
+  book.remember('again', 1700000500);
+  assert.equal(book.timeOf(['again']), 1700000500);
 });
 
 test('the time link is the header link that opens in a new tab, before and after Facebook fills it in', () => {

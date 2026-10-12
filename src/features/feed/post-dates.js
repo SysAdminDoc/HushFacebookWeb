@@ -48,28 +48,40 @@ export function indexTimes(data, remember) {
 // no words of its own is keyed by the original's words, and a seller can paste the same words
 // into several groups. A key two stories give different times is kept as null, and a post is
 // dated by its first key only one time belongs to, or not at all, never with another's date.
-// When the book is full, the key seen longest ago with a time goes. The null ones stay, so a
-// third story with that key can't date the others.
-export function createTimeBook() {
-  const times = new Map(); // key -> seconds or null, the longest unseen first
+// Shared keys are kept apart from the dated ones, so they never take a dated key's room, and a
+// third story with one can't date the others. When the dated book is full, the key seen longest
+// ago goes, and its time is kept a while longer, so a story bringing that key back with another
+// time makes it shared instead of dating the first post by it. Each of the three is capped.
+export function createTimeBook({ max = MAX_REMEMBERED } = {}) {
+  const times = new Map(); // key -> seconds, the longest unseen first
+  const shared = new Map(); // key -> true, the longest unseen first
+  const gone = new Map(); // key -> seconds, for keys that left times
+  const add = (map, key, value) => {
+    map.delete(key);
+    map.set(key, value);
+    if (map.size <= max) return null;
+    const [oldest, time] = map.entries().next().value;
+    map.delete(oldest);
+    return [oldest, time];
+  };
   return {
     remember(key, seconds) {
-      const value = times.has(key) && times.get(key) !== seconds ? null : seconds;
-      times.delete(key);
-      if (times.size >= MAX_REMEMBERED) {
-        let oldest = times.keys().next().value;
-        for (const [known, time] of times) {
-          if (time !== null) {
-            oldest = known;
-            break;
-          }
-        }
-        times.delete(oldest);
+      if (shared.has(key)) {
+        add(shared, key, true);
+        return;
       }
-      times.set(key, value);
+      const before = times.has(key) ? times.get(key) : gone.get(key);
+      gone.delete(key);
+      if (before !== undefined && before !== seconds) {
+        times.delete(key);
+        add(shared, key, true);
+        return;
+      }
+      const dropped = add(times, key, seconds);
+      if (dropped) add(gone, ...dropped);
     },
     // A post's time, by its first key that has one: a photo or video first, then its words.
-    timeOf: (keys) => keys.map((key) => times.get(key)).find((seconds) => typeof seconds === 'number') ?? null,
+    timeOf: (keys) => keys.map((key) => (shared.has(key) ? null : times.get(key))).find((seconds) => typeof seconds === 'number') ?? null,
   };
 }
 
