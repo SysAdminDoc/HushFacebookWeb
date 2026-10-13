@@ -32,7 +32,8 @@ export function hideCss({ notes }) {
     `[${MARK}] > * { display: none !important; }`,
     // Loose text right inside the mark has no element to hide, so it shrinks to nothing.
     `[${MARK}] { font-size: 0 !important; }`,
-    `[${MARK}]::before { content: attr(${NOTE}); display: block; padding: 10px 16px; font: 13px/1.4 system-ui, sans-serif; color: var(--secondary-text, #65676b); cursor: pointer; }`,
+    `[${MARK}]::before { content: attr(${NOTE}); display: block; padding: 12px 16px; border: 1px solid #343745; border-radius: 6px; background: #171923; font: 600 13px/1.4 system-ui, sans-serif; color: #c4b0ff; cursor: pointer; }`,
+    `[${MARK}]:hover::before { text-decoration: underline; }`,
   ].join('\n');
 }
 

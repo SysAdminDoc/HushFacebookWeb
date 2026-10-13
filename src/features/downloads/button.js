@@ -15,15 +15,15 @@ const MIN_SIZE = 160;
 const HIDE_AFTER = 450;
 const LOOK_UP = 6;
 const OWN_LAYER = 12;
-const ROW_HEIGHT = 40; // px between buttons stacked in one corner
+const ROW_HEIGHT = 44; // px between buttons stacked in one corner
 const DOWNLOAD_ICON = 'M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14';
 
 const CSS = `
 :host { all: initial; ${uiTokens} color-scheme: dark; }
 button {
   position: fixed; z-index: 2147483000; display: inline-flex; align-items: center; gap: 6px;
-  min-height: 32px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 8px;
-  background: var(--base); color: var(--text); font: 600 13px/1 system-ui, sans-serif;
+  min-height: 36px; padding: 9px 12px; border: 1px solid var(--surface1); border-radius: 6px;
+  background: var(--base); color: var(--text); font: 600 13px/1.2 system-ui, sans-serif;
   cursor: pointer; backdrop-filter: blur(8px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   transition: transform 0.12s ease, background 0.12s ease;
 }

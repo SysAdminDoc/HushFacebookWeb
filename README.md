@@ -1,4 +1,4 @@
-![HushFacebook Web. A quieter Facebook feed.](assets/readme-hero.png)
+![HushFacebook Web. A quieter Facebook feed.](assets/readme-hero.jpg)
 
 <p>
   <img src="https://img.shields.io/badge/version-0.0.4-CBA6F7" alt="Version 0.0.4">
@@ -43,13 +43,13 @@ A loaded-unpacked extension can't update itself, so once a day it asks GitHub fo
 
 ## Settings
 
-Click the sliders button in the bottom left corner of Facebook, or the HushFacebook Web row in the menu under your profile picture. Your userscript manager's menu has a settings entry too, and in the extension the toolbar button opens them from any tab. Changes save as you make them, and every switch has a line under it saying what it does. If you'd rather not have the corner button, turn it off under Menu or General.
+Click the sliders button in the bottom left corner of Facebook, or the HushFacebook Web row in the menu under your profile picture. Your userscript manager's menu has a settings entry too, and in the extension the toolbar button opens them from any tab. Settings use a dark panel with a section sidebar, grouped controls and lavender switches. Changes save as you make them, and every switch has a line under it saying what it does. If you'd rather not have the corner button, turn it off under Menu or General.
 
 **Find a setting** at the top searches every switch's name and description as you type. The power switch pauses the script. General has backup and restore (HushFacebook Web format 1 files up to 1 MB, plus older plain settings files), and Reset offers Undo. Each Facebook account gets its own set of settings.
 
 <p>
-  <img src="assets/screenshots/panel-feed.png" width="49%" alt="The News feed settings with lavender switches and word filter options">
-  <img src="assets/screenshots/panel-downloads.png" width="49%" alt="The Downloads settings for photos, videos, reels and stories">
+  <img src="assets/screenshots/panel-feed.jpg" width="49%" alt="News feed settings with an icon sidebar, grouped rows and lavender switches">
+  <img src="assets/screenshots/panel-downloads.jpg" width="49%" alt="Downloads settings for photos, videos, reels and stories, with nested quality choices">
 </p>
 
 ### What it can do
@@ -89,7 +89,7 @@ That writes `dist/hushfacebook-web.user.js`, which you open in your userscript m
 
 ## Thanks
 
-These projects showed what works on Facebook's site and what doesn't: [FB Clean my feeds](https://github.com/Artificial-Sweetener/facebook-clean-my-feeds), [Social Fixer](https://www.socialfixer.com/), [F.B. Purity](https://www.fbpurity.com/), uBlock Origin's Facebook filters, [Privacy Badger](https://github.com/EFForg/privacybadger) and [ClearURLs](https://github.com/ClearURLs/Rules). HushFacebook Web is written from scratch and doesn't include their code.
+These projects showed what works on Facebook's site and what doesn't: [FB Clean my feeds](https://github.com/Artificial-Sweetener/facebook-clean-my-feeds), [Social Fixer](https://www.socialfixer.com/), [F.B. Purity](https://www.fbpurity.com/), uBlock Origin's Facebook filters, [Privacy Badger](https://github.com/EFForg/privacybadger) and [ClearURLs](https://github.com/ClearURLs/Rules). HushFacebook Web is written from scratch and doesn't include their code. Settings navigation uses [Tabler Icons](https://github.com/tabler/tabler-icons) under the MIT license.
 
 ## License
 

@@ -8,11 +8,11 @@ import { TARGET } from '../core/target.js';
 import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
 import { SLIDERS_ICON } from './icons.js';
+import { navigationIcon } from './navigation-icons.js';
 import { findFeatures } from './search.js';
 import { panelCss } from './styles.js';
 
 const ALWAYS_OPENS = TARGET === 'extension' ? "The extension's toolbar button" : "Your userscript manager's menu";
-const CLOSE_ICON = ['M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z'];
 const ERROR_TOAST_GAP_MS = 15000;
 const SECTION_DESCRIPTIONS = {
   feed: 'Choose what makes it into your feed.',
@@ -70,20 +70,23 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     autocomplete: 'off', spellcheck: 'false', dataset: { key: 'search' },
     oninput: (event) => { query = event.target.value; main.scrollTop = 0; render(); },
   });
+  const searchField = h('div', { class: 'search-field' }, navigationIcon('search'), search);
   const pauseState = h('span', { class: 'power-state' });
   // Checked means running, so the switch agrees with the "On" chip beside it.
   const power = h('input', {
     class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'HushFacebook Web on', dataset: { key: 'power' },
     onchange: (event) => apply('paused', !event.target.checked),
   });
-  const closeButton = h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Close settings', dataset: { key: 'close' }, onclick: () => close() }, icon(CLOSE_ICON));
+  const closeButton = h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Close settings', dataset: { key: 'close' }, onclick: () => close() }, navigationIcon('close'));
   const dialog = h(
     'dialog',
     { class: 'dialog', 'aria-labelledby': 'hfw-title' },
     h('header', null,
       h('div', { class: 'brand' },
         h('span', { class: 'brand-icon' }, icon(SLIDERS_ICON)),
-        h('h2', { id: 'hfw-title', text: 'HushFacebook Web' }),
+        h('div', { class: 'brand-copy' },
+          h('h2', { id: 'hfw-title', text: 'HushFacebook Web' }),
+          h('span', { class: 'brand-subtitle', text: 'Settings' })),
         h('span', { class: 'chip', text: `v${environment.version}` })),
       h('div', { class: 'header-actions' }, pauseState, power, closeButton)),
     h('div', { class: 'body' }, nav, main),
@@ -246,12 +249,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function resultsView(found) {
     if (!found.length) return [h('p', { class: 'empty', text: `No setting matches "${query.trim()}". Try a shorter word, or pick a section.` })];
-    return found.map((feature) => {
+    return [h('div', { class: 'settings-group results' }, found.map((feature) => {
       const section = sections.find((entry) => entry.id === feature.section);
       return h('div', { class: 'result' },
         h('button', { class: 'result-section', type: 'button', text: `In ${section.title}`, dataset: { key: `show:${feature.id}` }, onclick: () => showFeature(feature) }),
         featureCard(feature));
-    });
+    }))];
   }
 
   // The extension's notice that a newer release is out (environment.update, extension only).
@@ -272,7 +275,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: 'Show the settings button' }),
-            h('div', { class: 'desc', text: `The round button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.` })),
+            h('div', { class: 'desc', text: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.` })),
           toggle('ui.launcher', 'Show the settings button'))),
       h('div', { class: 'card' },
         h('div', { class: 'row' },
@@ -313,15 +316,17 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('dt', { text: 'Posts hidden since the page loaded' }), h('dd', { text: hiddenSummary() }),
         ...featureRows().flatMap(({ label, value }) => [h('dt', { text: label }), h('dd', { text: value })])),
       h('div', { class: 'actions' }, actionButton('copy-report', 'Copy report', copyReport, { primary: true, busyLabel: 'Copying...' }))),
+      h('section', { class: 'diagnostic-group' },
       h('h3', { class: 'subheading', text: 'Why posts were hidden' }),
       h('p', { class: 'desc', text: "The last 50, newest first. data means it came out of Facebook's data before it was drawn, page means it was hidden on the page. Each post has a short tag instead of its id." }),
       decisions().length
         ? h('div', { class: 'log' }, decisions().slice().reverse().map((decision) => h('div', { text: decisionLine(decision) })))
-        : h('p', { class: 'empty', text: 'Nothing hidden yet.' }),
+        : h('p', { class: 'empty', text: 'Nothing hidden yet.' })),
+      h('section', { class: 'diagnostic-group' },
       h('h3', { class: 'subheading', text: 'Recent log' }),
       entries.length
         ? h('div', { class: 'log' }, entries.map((entry) => h('div', { class: entry.level, text: `${entry.time.slice(11, 19)} ${entry.level.padEnd(5)} ${entry.message}${entry.detail ? `\n    ${entry.detail}` : ''}` })))
-        : h('p', { class: 'empty', text: 'Nothing logged yet.' }),
+        : h('p', { class: 'empty', text: 'Nothing logged yet.' })),
     ];
   }
 
@@ -332,28 +337,32 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const scrollTop = main.scrollTop;
     const navScroll = [nav.scrollLeft, nav.scrollTop];
     const searching = query.trim() !== '';
-    nav.replaceChildren(search, h('div', { class: 'nav-label', text: 'Settings' }), ...sections.flatMap((section) => [
+    nav.replaceChildren(searchField, h('div', { class: 'nav-label', text: 'Settings' }), ...sections.flatMap((section) => [
       section.divider ? h('hr') : null,
       h('button', {
-        type: 'button', text: section.title, dataset: { key: `nav:${section.id}` },
+        type: 'button', dataset: { key: `nav:${section.id}` },
         'aria-current': !searching && section.id === current ? 'page' : null,
         onclick: () => { clearSearch(); current = section.id; main.scrollTop = 0; render(); },
-      }),
+      }, navigationIcon(section.id), h('span', { text: section.title })),
     ]).filter(Boolean));
     if (searching) {
       const found = findFeatures(features, sections, query);
       main.replaceChildren(
         h('div', { class: 'page-heading' },
+          h('div', { class: 'eyebrow', text: 'Find a setting' }),
           h('h3', { id: 'hfw-section-title', text: 'Search' }),
-          h('p', { text: found.length === 1 ? '1 setting matches.' : `${found.length} settings match.` })),
+          h('p', { role: 'status', text: found.length === 1 ? '1 setting matches.' : `${found.length} settings match.` })),
         ...resultsView(found));
     } else {
       const section = sections.find((entry) => entry.id === current);
+      const count = features.filter((feature) => feature.section === current).length;
       main.replaceChildren(
         h('div', { class: 'page-heading' },
+          h('div', { class: 'eyebrow', text: 'Settings' }),
           h('h3', { id: 'hfw-section-title', text: section.title }),
-          h('p', { text: SECTION_DESCRIPTIONS[current] ?? '' })),
-        ...(current === 'general' ? generalView() : current === 'diagnostics' ? diagnosticsView() : sectionView(section)));
+          h('p', { text: SECTION_DESCRIPTIONS[current] ?? '' }),
+          count ? h('span', { class: 'setting-count', text: `${count} ${count === 1 ? 'setting' : 'settings'}` }) : null),
+        ...(current === 'diagnostics' ? diagnosticsView() : [h('div', { class: 'settings-group' }, ...(current === 'general' ? generalView() : sectionView(section)))]));
     }
     main.scrollTop = scrollTop;
     nav.scrollLeft = navScroll[0];
