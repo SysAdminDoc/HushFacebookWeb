@@ -18,6 +18,7 @@ import { mountFeatureStyles } from './core/style.js';
 import { features } from './features/index.js';
 import { executionTarget, startGameFrame } from './features/games/frame.js';
 import { keepKeysInPanel } from './ui/keys.js';
+import { installLogoLongPress } from './ui/logo-long-press.js';
 import { mountPanel } from './ui/panel.js';
 
 // Which Facebook account is signed in, from its c_user cookie, so each one keeps its own
@@ -54,8 +55,18 @@ function boot() {
   const unavailable = new Set();
   // Toasts wait for the panel, which mounts once there's a body.
   let panel = null;
+  let pendingSettingsOpen = false;
+  let pendingSettingsSection;
   const waiting = [];
   const toast = (message, options) => (panel ? panel.toast(message, options) : waiting.push([message, options]));
+  const openSettings = (section) => whenBodyReady(() => {
+    if (panel) panel.open(section);
+    else {
+      pendingSettingsOpen = true;
+      pendingSettingsSection = section;
+    }
+  });
+  installLogoLongPress({ doc: document, openSettings });
 
   if (!net) {
     log.warn('Your userscript manager is running HushFacebook Web as a content script, so features that need the page are off. Diagnostics has the details.');
@@ -86,7 +97,7 @@ function boot() {
         hider,
         log,
         toast,
-        openSettings: (section) => whenBodyReady(() => panel?.open(section)),
+        openSettings,
         // A feature that stops working after setup says so, the same as one that couldn't start.
         markUnavailable: () => {
           unavailable.add(feature.id);
@@ -125,10 +136,14 @@ function boot() {
   whenBodyReady(() => {
     panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo(), update } });
     for (const [message, options] of waiting.splice(0)) panel.toast(message, options);
+    if (pendingSettingsOpen) {
+      panel.open(pendingSettingsSection);
+      pendingSettingsOpen = false;
+    }
     const other = document.documentElement.getAttribute(DUPLICATE);
     if (other) log.warn(`A second copy of HushFacebook Web (v${other}) is installed. Turn one off in your userscript manager or on the browser's extensions page.`);
   });
-  registerMenuCommand('HushFacebook Web settings', () => whenBodyReady(() => panel?.open()));
+  registerMenuCommand('HushFacebook Web settings', () => openSettings());
 
   log.info(`v${version} started (${pageAccess} mode)`);
 }

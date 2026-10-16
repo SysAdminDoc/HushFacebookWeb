@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Pressing and holding the Facebook logo now opens HushFacebook Web settings. A normal click still goes Home.
 * Settings that need Facebook reloaded now show a Reload row at the top of the panel. It reloads Facebook and brings the same settings page back for up to 90 seconds. Block Instant Games ads uses it when an open game needs the new choice.
 * General now ends with a Buy me a coffee row that opens the project's Ko-fi page in a new tab.
 

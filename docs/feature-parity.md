@@ -18,7 +18,7 @@ What the status words mean:
 | Open links in external browser | Tested | Becomes "Skip Facebook's link redirect": outside links open directly instead of through l.facebook.com. |
 | Tap to play | Tested | Videos only start when you click them. In Reels and stories, the reel or story you open or skip to plays, and nothing starts on its own. |
 | Turn off HDR brightness | Tested | Caps HDR video and photos at normal brightness in browsers that support it. |
-| Hushfacebook settings | Tested | The settings panel, opened from the corner button or your userscript manager's menu. |
+| Hushfacebook settings | Tested | Press and hold the Facebook logo to open the settings panel. A normal click still goes Home. The corner button, account-menu row, userscript manager's menu and extension toolbar button work too. |
 | Following feed on Home | Tested | Opens Home on Facebook's most recent feed, from everyone you follow or just friends, favorites, groups or Pages. |
 | Hide sponsored profile posts | Planned | Same feed cleanup, applied to profile and Page timelines. |
 | Hide sponsored reels | Written | Drops the ad breaks Facebook schedules inside videos and reels. Every video the test account opened came with an empty list, so it hasn't had one to drop yet. Ads between reels need a capture first. |
