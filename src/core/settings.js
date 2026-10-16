@@ -98,21 +98,49 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   // is at its default, and loading, copying and migrating wait so they see what's really saved.
   let ready = !storage.whenReady;
   let values = ready ? migrate(load()) : {};
+  let pageLoadValues = ready ? structuredClone(values) : {};
+  const changedBeforeReady = new Set();
   if (!ready) {
     storage.whenReady(() => {
       ready = true;
-      values = migrate(load());
+      if (storage.getAtLoad) {
+        const changedValues = values;
+        const get = (name, fallback) => storage.getAtLoad(name, fallback);
+        const inheritedShared = key !== STORAGE_KEY && get(key, undefined) === undefined;
+        const storedMigrations = migrationRecord(get);
+        const migration = migrationResult(read(get), storedMigrations);
+        pageLoadValues = migration.after;
+        load();
+        values = { ...pageLoadValues };
+        for (const key of changedBeforeReady) {
+          if (Object.hasOwn(changedValues, key)) values[key] = changedValues[key];
+          else delete values[key];
+        }
+        values = sanitize(values);
+        saveMigration(migration, values, changedBeforeReady.size > 0);
+        if (inheritedShared && !migration.pending.length && Array.isArray(storedMigrations)) {
+          try {
+            storage.set(doneKey, storedMigrations);
+          } catch (error) {
+            log?.error('Could not copy your settings to this account', error);
+          }
+        }
+      } else {
+        values = migrate(load());
+        pageLoadValues = structuredClone(values);
+        for (const key of changedBeforeReady) delete pageLoadValues[key];
+      }
       notify([...schema.keys()], true);
     });
   }
 
-  function load() {
-    const own = storage.get(key, undefined);
+  function read(get, copyShared = false) {
+    const own = get(key, undefined);
     if (own !== undefined || key === STORAGE_KEY) return own ?? {};
-    const shared = sanitize(storage.get(STORAGE_KEY, {}));
-    if (Object.keys(shared).length) {
+    const shared = sanitize(get(STORAGE_KEY, {}));
+    if (copyShared) {
       try {
-        storage.set(key, shared);
+        if (Object.keys(shared).length) storage.set(key, shared);
         // The copy has already had whatever the shared settings had.
         const sharedDone = storage.get(`${STORAGE_KEY}.migrated`, undefined);
         if (Array.isArray(sharedDone)) storage.set(doneKey, sharedDone);
@@ -123,22 +151,40 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     return shared;
   }
 
-  function migrate(raw) {
-    const stored = storage.get(doneKey, []);
+  function load() {
+    return read(storage.get, true);
+  }
+
+  function migrationResult(raw, stored) {
     const done = Array.isArray(stored) ? stored : [];
     const before = sanitize(raw);
     const pending = migrations.filter((migration) => !done.includes(migration.id));
-    if (!pending.length) return before;
+    if (!pending.length) return { before, after: before, done, pending };
     const next = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
     for (const migration of pending) migration.run(next);
-    const after = sanitize(next);
+    return { before, after: sanitize(next), done, pending };
+  }
+
+  function migrationRecord(get) {
+    const own = get(doneKey, undefined);
+    if (own !== undefined || key === STORAGE_KEY || get(key, undefined) !== undefined) return own;
+    return get(`${STORAGE_KEY}.migrated`, undefined);
+  }
+
+  function migrate(raw) {
+    const migration = migrationResult(raw, migrationRecord(storage.get));
+    saveMigration(migration);
+    return migration.after;
+  }
+
+  function saveMigration({ before, after, done, pending }, valuesToSave = after, forceValues = false) {
+    if (!pending.length && !forceValues) return;
     try {
-      if (JSON.stringify(after) !== JSON.stringify(before)) storage.set(key, after);
-      storage.set(doneKey, [...done, ...pending.map((migration) => migration.id)]);
+      if (forceValues || JSON.stringify(valuesToSave) !== JSON.stringify(before)) storage.set(key, valuesToSave);
+      if (pending.length) storage.set(doneKey, [...done, ...pending.map((migration) => migration.id)]);
     } catch (error) {
       log?.error('Could not save a settings update', error);
     }
-    return after;
   }
 
   function sanitize(raw) {
@@ -159,6 +205,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       throw error;
     }
     values = next;
+    if (!ready) for (const key of keys) changedBeforeReady.add(key);
     notify(keys);
   }
 
@@ -188,6 +235,10 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     return Object.hasOwn(values, key) ? values[key] : spec(key).default;
   }
 
+  function pageLoadValue(key) {
+    return Object.hasOwn(pageLoadValues, key) ? pageLoadValues[key] : spec(key).default;
+  }
+
   return {
     schema,
     perAccount: key !== STORAGE_KEY,
@@ -195,6 +246,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     // milliseconds in from the extension's storage. For decisions made only as the page starts.
     whenLoaded: (run) => (storage.whenReady ? storage.whenReady(run) : run()),
     get,
+    pageLoadValue,
     set(key, value) {
       const found = spec(key);
       if (!isValid(found, value)) throw new TypeError(`Invalid value for ${key}: ${JSON.stringify(value)}`);

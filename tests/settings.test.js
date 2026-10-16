@@ -274,6 +274,18 @@ test('each account runs the ad switch change once, and a copy of migrated shared
   assert.deepEqual(old.dump()[`${ownKey}.migrated`], ['split-ad-switch']);
 });
 
+test('an account inherits a shared migration record even when every shared setting is at its default', () => {
+  const account = '615000000000019';
+  const accountKey = storageKeyFor(account);
+  const storage = createMemoryStorage({ 'settings.migrated': ['split-ad-switch'] });
+  const first = createSettings({ storage, features: adSwitches, account });
+  first.set('hideSponsoredPosts', false);
+  const second = createSettings({ storage, features: adSwitches, account });
+  assert.equal(second.get('hideSponsoredSearch'), true);
+  assert.equal(second.get('hideSponsoredMarketplace'), true);
+  assert.deepEqual(storage.dump()[`${accountKey}.migrated`], ['split-ad-switch']);
+});
+
 test('importing a v0.0.1 export gets the ad switch change, a newer export does not', () => {
   const exported = (version) => JSON.stringify({ app: 'HushFacebook Web', schema: 1, version, settings: { hideSponsoredPosts: false } });
   const old = createSettings({ storage: createMemoryStorage(), features: adSwitches });

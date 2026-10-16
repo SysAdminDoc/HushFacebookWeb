@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
 import { HELLO_ISOLATED, HELLO_MAIN, bridgeDownload, channelNames, connectBridge, createBridgeStorage } from '../src/core/bridge.js';
-import { createSettings } from '../src/core/settings.js';
+import { createSettings, storageKeyFor } from '../src/core/settings.js';
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 const cleanups = [];
@@ -127,6 +127,7 @@ test('storage reads defaults until the saved copy arrives, then tells listeners 
   assert.equal(ready, true);
   assert.deepEqual(told, [1.5]);
   assert.equal(storage.get('keepSpeed.rate', 1), 1.5);
+  assert.equal(storage.getAtLoad('keepSpeed.rate', 1), 1.5);
   const ran = [];
   storage.whenReady(() => ran.push('now'));
   assert.deepEqual(ran, ['now'], 'once loaded, whenReady runs at once');
@@ -140,6 +141,7 @@ test('a write before the load keeps the newer value, and writes reach chrome.sto
   storage.set('keepSpeed.rate', 2);
   await settle();
   assert.equal(storage.get('keepSpeed.rate'), 2);
+  assert.equal(storage.getAtLoad('keepSpeed.rate'), 1.5, 'the original loaded value remains available');
   assert.equal(chrome.data['keepSpeed.rate'], 2);
 
   storage.remove('keepSpeed.rate');
@@ -216,6 +218,60 @@ test('settings wait for the saved copy: defaults first, then the saved choices, 
   assert.deepEqual(ran, [{ alpha: false }]);
   assert.deepEqual(seen, [['change', true, false], ['loaded', false]]);
   assert.deepEqual(chrome.data['settings.migrated'], ['one']);
+});
+
+test('settings retain a nondefault page-start value when the same value is written before load', async () => {
+  const win = page();
+  const chrome = fakeChrome({ settings: { alpha: true }, 'settings.migrated': [] });
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  const settings = createSettings({ storage, features: [{ id: 'alpha', title: 'Alpha', default: false }], migrations: [] });
+  settings.set('alpha', true);
+  await settle();
+  assert.equal(settings.get('alpha'), true);
+  assert.equal(settings.pageLoadValue('alpha'), true);
+});
+
+test('a pre-load settings write preserves untouched saved choices', async () => {
+  const win = page();
+  const chrome = fakeChrome({ settings: { alpha: true, beta: true }, 'settings.migrated': [] });
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  const features = [
+    { id: 'alpha', title: 'Alpha', default: false },
+    { id: 'beta', title: 'Beta', default: false },
+  ];
+  const settings = createSettings({ storage, features, migrations: [] });
+  settings.set('alpha', false);
+  await settle();
+  assert.equal(settings.get('alpha'), false);
+  assert.equal(settings.get('beta'), true);
+  assert.deepEqual(chrome.data.settings, { beta: true });
+});
+
+test('a new account inherits the shared migration record when it writes before storage loads', async () => {
+  const win = page();
+  const account = '615000000000017';
+  const accountKey = storageKeyFor(account);
+  const chrome = fakeChrome({
+    settings: { hideSponsoredPosts: false },
+    'settings.migrated': ['split-ad-switch'],
+  });
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  const features = [
+    { id: 'hideSponsoredPosts', title: 'Feed ads', default: true },
+    { id: 'hideSponsoredSearch', title: 'Search ads', default: true },
+    { id: 'hideSponsoredMarketplace', title: 'Marketplace ads', default: true },
+  ];
+  const settings = createSettings({ storage, features, account });
+  settings.set('hideSponsoredPosts', false);
+  await settle();
+  assert.equal(settings.get('hideSponsoredSearch'), true);
+  assert.equal(settings.get('hideSponsoredMarketplace'), true);
+  assert.equal(settings.pageLoadValue('hideSponsoredSearch'), true);
+  assert.deepEqual(chrome.data[accountKey], { hideSponsoredPosts: false });
+  assert.deepEqual(chrome.data[`${accountKey}.migrated`], ['split-ad-switch']);
 });
 
 test('the channel names carry the secret', () => {

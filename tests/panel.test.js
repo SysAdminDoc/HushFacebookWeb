@@ -35,7 +35,7 @@ function lendGlobals(win) {
   });
 }
 
-function setup({ features = [], actions = null, unavailable = new Set(), storage = createMemoryStorage(), update } = {}) {
+function setup({ features = [], actions = null, unavailable = new Set(), storage = createMemoryStorage(), update, environment = {}, beforeMount } = {}) {
   const win = new Window({ url: 'https://www.facebook.com/' });
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
@@ -50,11 +50,12 @@ function setup({ features = [], actions = null, unavailable = new Set(), storage
   win.document.body.innerHTML = '<div role="main"><div class="feed"><div aria-posinset="1"><div>Post</div></div></div></div>';
   const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
   const settings = createSettings({ storage, features, log });
+  beforeMount?.(settings);
   const hider = createHider({ doc: win.document, log });
   const diagnostics = createDiagnostics();
   const panel = mountPanel({
     settings, features, log, hider, diagnostics, actions, unavailable,
-    environment: { version: '0.0.1', manager: 'Tampermonkey', managerVersion: '5.4.1', mode: 'page', pageAccess: 'page', update },
+    environment: { version: '0.0.1', manager: 'Tampermonkey', managerVersion: '5.4.1', mode: 'page', pageAccess: 'page', update, ...environment },
   });
   return { win, shadow, panel, settings, hider, diagnostics, copied, unavailable, log, post: win.document.querySelector('[aria-posinset]') };
 }
@@ -135,6 +136,172 @@ test('General ends with the Ko-fi row', () => {
   assert.equal(row.getAttribute('href'), 'https://ko-fi.com/X8K126YVER');
   assert.equal(row.getAttribute('target'), '_blank');
   assert.equal(row.getAttribute('rel'), 'noopener');
+});
+
+test('a reload-required change shows the top row and remembers its settings page through reload', () => {
+  const feature = { id: 'restartMe', section: 'feed', title: 'Restart me', description: 'Needs a reload.', default: false, reload: true, setup() {} };
+  const values = new Map();
+  const sessionStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  let reloads = 0;
+  const first = setup({ features: [feature], environment: { sessionStorage, now: () => 1_000, reload: () => reloads++ } });
+  first.panel.open('feed');
+  assert.equal(first.shadow.querySelector('[data-key="reload-facebook"]'), null);
+  const toggle = first.shadow.querySelector('input[data-key="restartMe"]');
+  toggle.checked = true;
+  toggle.dispatchEvent(new toggle.ownerDocument.defaultView.Event('change'));
+  const row = first.shadow.querySelector('[data-key="reload-facebook"]');
+  assert.equal(row.parentElement.children[1], row, 'the reload row follows the page heading');
+  assert.equal(row.querySelector('.title').textContent, 'Reload Facebook to apply this change');
+  row.querySelector('button').click();
+  assert.equal(reloads, 1);
+  const marker = JSON.parse([...values.values()][0]);
+  assert.deepEqual(marker, { page: 'feed', timestamp: 1_000 });
+
+  const second = setup({ features: [feature], environment: { sessionStorage, now: () => 1_001, reload() {} } });
+  assert.equal(second.shadow.querySelector('dialog').open, true);
+  assert.equal(second.shadow.querySelector('#hfw-section-title').textContent, 'News feed');
+  assert.equal(values.size, 0, 'the marker is one shot');
+
+  const changedLate = setup({
+    features: [feature],
+    beforeMount: (settings) => settings.set('restartMe', true),
+    environment: { sessionStorage, now: () => 1_001, reload() {} },
+  });
+  changedLate.panel.open('feed');
+  assert.ok(changedLate.shadow.querySelector('[data-key="reload-facebook"]'), 'a change made before panel mount still compares with page load');
+  changedLate.settings.set('restartMe', false);
+  assert.equal(changedLate.shadow.querySelector('[data-key="reload-facebook"]'), null, 'returning to the page-load value clears the row');
+});
+
+test('reload returns to the active Search page and query', () => {
+  const feature = { id: 'restartMe', section: 'feed', title: 'Restart me', description: 'Needs a reload.', default: false, reload: true, setup() {} };
+  const values = new Map();
+  const sessionStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const first = setup({ features: [feature], environment: { sessionStorage, now: () => 2_000, reload() {} } });
+  first.panel.open('feed');
+  const search = first.shadow.querySelector('[data-key="search"]');
+  search.value = 'restart';
+  search.dispatchEvent(new search.ownerDocument.defaultView.Event('input'));
+  const toggle = first.shadow.querySelector('input[data-key="restartMe"]');
+  toggle.checked = true;
+  toggle.dispatchEvent(new toggle.ownerDocument.defaultView.Event('change'));
+  first.shadow.querySelector('[data-key="reload-facebook"] button').click();
+  assert.deepEqual(JSON.parse([...values.values()][0]), {
+    page: 'find', section: 'feed', query: 'restart', timestamp: 2_000,
+  });
+
+  const second = setup({ features: [feature], environment: { sessionStorage, now: () => 2_001, reload() {} } });
+  assert.equal(second.shadow.querySelector('dialog').open, true);
+  assert.equal(second.shadow.querySelector('#hfw-section-title').textContent, 'Search');
+  assert.equal(second.shadow.querySelector('[data-key="search"]').value, 'restart');
+  assert.equal(values.size, 0);
+});
+
+test('reload distinguishes the Search section from finding a setting', () => {
+  const feature = { id: 'restartMe', section: 'search', title: 'Restart me', description: 'Needs a reload.', default: false, reload: true, setup() {} };
+  const values = new Map();
+  const sessionStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const first = setup({ features: [feature], environment: { sessionStorage, now: () => 3_000, reload() {} } });
+  first.panel.open('search');
+  first.settings.set('restartMe', true);
+  first.shadow.querySelector('[data-key="reload-facebook"] button').click();
+  assert.deepEqual(JSON.parse([...values.values()][0]), { page: 'search', timestamp: 3_000 });
+
+  const second = setup({ features: [feature], environment: { sessionStorage, now: () => 3_001, reload() {} } });
+  assert.equal(second.shadow.querySelector('dialog').open, true);
+  assert.equal(second.shadow.querySelector('[data-key="nav:search"]').getAttribute('aria-current'), 'page');
+  assert.equal(second.shadow.querySelector('[data-key="search"]').value, '');
+  assert.equal(values.size, 0);
+});
+
+test('a reload-required change made before extension storage is ready keeps the startup baseline', () => {
+  const feature = { id: 'restartMe', section: 'feed', title: 'Restart me', description: 'Needs a reload.', default: false, reload: true, setup() {} };
+  const data = new Map();
+  const ready = [];
+  const storage = {
+    kind: 'extension',
+    get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    set: (key, value) => void data.set(key, structuredClone(value)),
+    remove: (key) => void data.delete(key),
+    onChange() {},
+    whenReady: (run) => ready.push(run),
+  };
+  const { panel, settings, shadow } = setup({ features: [feature], storage, environment: { sessionStorage: null } });
+  panel.open('feed');
+  settings.set('restartMe', true);
+  assert.ok(shadow.querySelector('[data-key="reload-facebook"]'));
+  for (const run of ready.splice(0)) run();
+  assert.equal(settings.pageLoadValue('restartMe'), false);
+  assert.ok(shadow.querySelector('[data-key="reload-facebook"]'), 'storage readiness does not absorb the change');
+  settings.set('restartMe', false);
+  assert.equal(shadow.querySelector('[data-key="reload-facebook"]'), null);
+});
+
+test('an expired reload marker is cleared without opening settings', () => {
+  const values = new Map([['hfw:settings-reload', JSON.stringify({ page: 'general', timestamp: 1_000 })]]);
+  const sessionStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const { shadow } = setup({ environment: { sessionStorage, now: () => 91_001, reload() {} } });
+  assert.equal(shadow.querySelector('dialog').open, false);
+  assert.equal(values.size, 0);
+});
+
+test('malformed reload markers are consumed without opening settings', () => {
+  for (const marker of [
+    { page: 'general', timestamp: '1000' },
+    { page: 'missing', timestamp: 1_000 },
+  ]) {
+    const values = new Map([['hfw:settings-reload', JSON.stringify(marker)]]);
+    const sessionStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: (key) => values.delete(key),
+    };
+    const { shadow } = setup({ environment: { sessionStorage, now: () => 1_001, reload() {} } });
+    assert.equal(shadow.querySelector('dialog').open, false);
+    assert.equal(values.size, 0);
+  }
+});
+
+test('a blocked browser storage getter does not stop settings from mounting', () => {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    get() { throw new Error('blocked'); },
+  });
+  cleanups.push(() => {
+    if (saved) Object.defineProperty(globalThis, 'sessionStorage', saved);
+    else delete globalThis.sessionStorage;
+  });
+  const { shadow, log } = setup();
+  assert.ok(shadow.querySelector('dialog'));
+  assert.match(log.entries().at(-1).message, /Couldn't access reload recovery storage/);
+});
+
+test('settings do not reopen when the one-shot reload marker cannot be cleared', () => {
+  const sessionStorage = {
+    getItem: () => JSON.stringify({ page: 'general', timestamp: 1_000 }),
+    setItem() {},
+    removeItem() { throw new Error('denied'); },
+  };
+  const { shadow, log } = setup({ environment: { sessionStorage, now: () => 1_001, reload() {} } });
+  assert.equal(shadow.querySelector('dialog').open, false, 'clear happens before open');
+  assert.match(log.entries().at(-1).message, /Couldn't reopen settings/);
 });
 
 test('rows a feature adds show in Diagnostics, follow its changes and go in the report', async () => {

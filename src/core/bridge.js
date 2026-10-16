@@ -91,6 +91,7 @@ export function connectBridge({ doc = globalThis.document, win = globalThis, sec
 // written before that keeps the newer value.
 export function createBridgeStorage(bridge, { log } = {}) {
   const data = new Map();
+  const pageLoadData = new Map();
   const written = new Set();
   const listeners = new Map();
   const waiting = [];
@@ -113,6 +114,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
 
   bridge.request('storage:load').then((saved) => {
     for (const [key, value] of Object.entries(saved ?? {})) {
+      pageLoadData.set(key, copy(value));
       if (written.has(key) || same(data.get(key), value)) continue;
       data.set(key, value);
       tell(key, value);
@@ -137,6 +139,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
   return {
     kind: 'extension',
     get: (key, fallback) => (data.has(key) ? copy(data.get(key)) : fallback),
+    getAtLoad: (key, fallback) => (pageLoadData.has(key) ? copy(pageLoadData.get(key)) : fallback),
     set(key, value) {
       const stored = copy(value);
       written.add(key);

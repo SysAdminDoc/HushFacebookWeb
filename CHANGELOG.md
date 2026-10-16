@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Settings that need Facebook reloaded now show a Reload row at the top of the panel. It reloads Facebook and brings the same settings page back for up to 90 seconds. Block Instant Games ads uses it when an open game needs the new choice.
 * General now ends with a Buy me a coffee row that opens the project's Ko-fi page in a new tab.
 
 * Redesigned all 18 settings pages with a charcoal sidebar, section icons, larger headings and rectangular lavender switches. Related settings share a panel, nested choices line up with their parent controls, and search results use the same grouping. Diagnostics separates environment details, hidden-post reasons and recent logs. The corner button, media actions and hidden-post notes follow the same style, with fresh screenshots in the README. Existing settings, defaults and backup files still work.

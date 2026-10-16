@@ -90,6 +90,9 @@ main { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 24px
 .page-heading h3 { margin: 0; font-size: 38px; line-height: 46px; font-weight: 700; letter-spacing: -0.7px; }
 .page-heading p { margin: 5px 0 0; color: var(--subtext); font-size: 16px; line-height: 24px; }
 .setting-count { display: block; margin-top: 10px; color: var(--subtext); font-size: 12px; }
+.reload-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 0 10px 16px; padding: 14px 16px; background: var(--surface0); border: 1px solid var(--accent); border-radius: 10px; }
+.reload-card .text { min-width: 0; }
+.reload-card .button { flex: none; }
 .settings-group { background: var(--surface0); border: 1px solid var(--border); border-radius: 10px; padding: 0 22px; }
 .card { padding: 14px 0; border-top: 1px solid var(--border); }
 .card:first-child { border-top: 0; }
@@ -186,6 +189,7 @@ nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surfac
   nav hr { display: none; }
   main { padding: 20px 14px 24px; }
   .page-heading { margin-inline: 4px; }
+  .reload-card { margin-inline: 4px; gap: 12px; }
   .settings-group { padding-inline: 14px; }
   .result { padding-block: 14px; }
   .page-heading h3 { font-size: 26px; line-height: 34px; }

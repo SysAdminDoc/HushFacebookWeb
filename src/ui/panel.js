@@ -15,6 +15,8 @@ import { panelCss } from './styles.js';
 const ALWAYS_OPENS = TARGET === 'extension' ? "The extension's toolbar button" : "Your userscript manager's menu";
 const ERROR_TOAST_GAP_MS = 15000;
 const KOFI_URL = 'https://ko-fi.com/X8K126YVER';
+const RELOAD_MARKER_KEY = 'hfw:settings-reload';
+const RELOAD_MARKER_MAX_AGE_MS = 90_000;
 const SECTION_DESCRIPTIONS = {
   feed: 'Choose what makes it into your feed.',
   reels: 'Make video time your own.',
@@ -56,6 +58,19 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const fieldErrors = new Map();
   const pending = new Set();
   const hasMenuEntry = features.some((feature) => feature.id === 'menuEntry');
+  const reloadFeatureIds = new Set(features.filter((feature) => feature.reload).map((feature) => feature.id));
+  const reloadKeys = [...settings.schema].filter(([, spec]) => reloadFeatureIds.has(spec.featureId)).map(([key]) => key);
+  let reloadStorage = null;
+  try {
+    reloadStorage = environment.sessionStorage ?? globalThis.sessionStorage;
+  } catch (error) {
+    log.warn("Couldn't access reload recovery storage", error);
+  }
+  const now = environment.now ?? Date.now;
+  const reloadPage = environment.reload ?? (() => globalThis.location.reload());
+  const reloadValueAtLoad = (key) => settings.pageLoadValue?.(key) ?? settings.get(key);
+  let reloadBaseline = new Map(reloadKeys.map((key) => [key, reloadValueAtLoad(key)]));
+  let reloadPending = reloadKeys.some((key) => settings.get(key) !== reloadBaseline.get(key));
 
   const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
   const launcher = h(
@@ -269,6 +284,13 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('a', { class: 'button primary', href: update.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open the release' })));
   }
 
+  function reloadCard() {
+    return h('div', { class: 'reload-card', dataset: { key: 'reload-facebook' } },
+      h('div', { class: 'text' },
+        h('div', { class: 'title', text: 'Reload Facebook to apply this change' })),
+      h('button', { class: 'button primary', type: 'button', text: 'Reload', onclick: reloadFacebook }));
+  }
+
   function generalView() {
     return [
       updateCard(),
@@ -356,6 +378,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           h('div', { class: 'eyebrow', text: 'Find a setting' }),
           h('h3', { id: 'hfw-section-title', text: 'Search' }),
           h('p', { role: 'status', text: found.length === 1 ? '1 setting matches.' : `${found.length} settings match.` })),
+        ...(reloadPending ? [reloadCard()] : []),
         ...resultsView(found));
     } else {
       const section = sections.find((entry) => entry.id === current);
@@ -366,6 +389,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           h('h3', { id: 'hfw-section-title', text: section.title }),
           h('p', { text: SECTION_DESCRIPTIONS[current] ?? '' }),
           count ? h('span', { class: 'setting-count', text: `${count} ${count === 1 ? 'setting' : 'settings'}` }) : null),
+        ...(reloadPending ? [reloadCard()] : []),
         ...(current === 'diagnostics' ? diagnosticsView() : [h('div', { class: 'settings-group' }, ...(current === 'general' ? generalView() : sectionView(section)))]));
     }
     main.scrollTop = scrollTop;
@@ -441,6 +465,45 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     } } });
   }
 
+  function reloadFacebook() {
+    const timestamp = now();
+    const searchQuery = query.trim();
+    const marker = searchQuery
+      ? { page: 'find', section: current, query, timestamp }
+      : { page: current, timestamp };
+    try {
+      reloadStorage?.setItem(RELOAD_MARKER_KEY, JSON.stringify(marker));
+    } catch (error) {
+      log.warn("Couldn't remember which settings page to reopen", error);
+    }
+    reloadPage();
+  }
+
+  function reopenAfterReload() {
+    if (!reloadStorage) return;
+    let marker;
+    try {
+      const saved = reloadStorage.getItem(RELOAD_MARKER_KEY);
+      if (saved === null) return;
+      // One shot even when the value is old or malformed, and clear before opening so a
+      // failing page can't get stuck reopening the panel on every reload.
+      reloadStorage.removeItem(RELOAD_MARKER_KEY);
+      marker = JSON.parse(saved);
+    } catch (error) {
+      log.warn("Couldn't reopen settings after the reload", error);
+      return;
+    }
+    if (typeof marker?.timestamp !== 'number' || !Number.isFinite(marker.timestamp)) return;
+    const age = now() - marker.timestamp;
+    if (age < 0 || age >= RELOAD_MARKER_MAX_AGE_MS) return;
+    if (marker.page === 'find') {
+      const validSection = sections.some((section) => section.id === marker.section);
+      if (validSection && typeof marker.query === 'string' && marker.query.trim()) open(marker.section, marker.query);
+      return;
+    }
+    if (sections.some((section) => section.id === marker.page)) open(marker.page);
+  }
+
   async function copyReport() {
     const report = [
       `HushFacebook Web ${environment.version}`,
@@ -466,11 +529,16 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   // ---- open, close, live updates ----
 
-  function open(sectionId) {
+  function open(sectionId, searchQuery) {
     if (sectionId && sections.some((section) => section.id === sectionId)) {
       if (sectionId !== current || query) main.scrollTop = 0;
-      clearSearch();
       current = sectionId;
+      if (typeof searchQuery === 'string' && searchQuery.trim()) {
+        query = searchQuery;
+        search.value = searchQuery;
+      } else {
+        clearSearch();
+      }
     }
     if (!dialog.open) opener = shadow.activeElement ?? document.activeElement;
     render();
@@ -485,6 +553,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   settings.subscribe(() => {
     refreshChrome();
+    reloadPending = reloadKeys.some((key) => settings.get(key) !== reloadBaseline.get(key));
+    if (dialog.open) render();
+  });
+  settings.whenLoaded(() => {
+    reloadBaseline = new Map(reloadKeys.map((key) => [key, reloadValueAtLoad(key)]));
+    reloadPending = reloadKeys.some((key) => settings.get(key) !== reloadBaseline.get(key));
     if (dialog.open) render();
   });
 
@@ -518,5 +592,6 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     refreshChrome();
     if (dialog.open) render();
   };
+  reopenAfterReload();
   return { open, close, toast, refresh };
 }
