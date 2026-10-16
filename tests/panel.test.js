@@ -124,6 +124,19 @@ test('General has the switch for leaving a note where a post was hidden', () => 
   assert.equal(settings.get('ui.hiddenNote'), true);
 });
 
+test('General ends with the Ko-fi row', () => {
+  const { shadow, panel } = setup();
+  panel.open('general');
+  const cards = [...shadow.querySelectorAll('.settings-group > .card')];
+  const row = cards.at(-1);
+  assert.equal(row.dataset.key, 'kofi');
+  assert.equal(row.querySelector('.title').textContent, 'Buy me a coffee');
+  assert.equal(row.querySelector('.desc').textContent, 'Hush is free. A coffee on Ko-fi helps me keep testing patches.');
+  assert.equal(row.getAttribute('href'), 'https://ko-fi.com/X8K126YVER');
+  assert.equal(row.getAttribute('target'), '_blank');
+  assert.equal(row.getAttribute('rel'), 'noopener');
+});
+
 test('rows a feature adds show in Diagnostics, follow its changes and go in the report', async () => {
   const { shadow, panel, diagnostics, copied } = setup();
   let hits = 0;

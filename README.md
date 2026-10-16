@@ -45,7 +45,7 @@ A loaded-unpacked extension can't update itself, so once a day it asks GitHub fo
 
 Click the sliders button in the bottom left corner of Facebook, or the HushFacebook Web row in the menu under your profile picture. Your userscript manager's menu has a settings entry too, and in the extension the toolbar button opens them from any tab. Settings use a dark panel with a section sidebar, grouped controls and lavender switches. Changes save as you make them, and every switch has a line under it saying what it does. If you'd rather not have the corner button, turn it off under Menu or General.
 
-**Find a setting** at the top searches every switch's name and description as you type. The power switch pauses the script. General has backup and restore (HushFacebook Web format 1 files up to 1 MB, plus older plain settings files), and Reset offers Undo. Each Facebook account gets its own set of settings.
+**Find a setting** at the top searches every switch's name and description as you type. The power switch pauses the script. General has backup and restore (HushFacebook Web format 1 files up to 1 MB, plus older plain settings files), Reset with Undo, and a Ko-fi link if you'd like to support continued testing. Each Facebook account gets its own set of settings.
 
 <p>
   <img src="assets/screenshots/panel-feed.jpg" width="49%" alt="News feed settings with an icon sidebar, grouped rows and lavender switches">

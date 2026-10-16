@@ -94,6 +94,8 @@ main { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 24px
 .card { padding: 14px 0; border-top: 1px solid var(--border); }
 .card:first-child { border-top: 0; }
 .card:last-child { border-bottom: 0; }
+a.card { display: block; color: inherit; text-decoration: none; }
+.link-card:hover .title { color: var(--accent); text-decoration: underline; }
 .row { display: flex; align-items: flex-start; gap: 24px; }
 .row .text { flex: 1; min-width: 0; }
 .title { font-size: 17px; line-height: 24px; font-weight: 600; }

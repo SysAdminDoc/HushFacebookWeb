@@ -14,6 +14,7 @@ import { panelCss } from './styles.js';
 
 const ALWAYS_OPENS = TARGET === 'extension' ? "The extension's toolbar button" : "Your userscript manager's menu";
 const ERROR_TOAST_GAP_MS = 15000;
+const KOFI_URL = 'https://ko-fi.com/X8K126YVER';
 const SECTION_DESCRIPTIONS = {
   feed: 'Choose what makes it into your feed.',
   reels: 'Make video time your own.',
@@ -290,6 +291,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           h('button', { class: 'button primary', type: 'button', text: 'Back up settings', dataset: { key: 'backup' }, onclick: exportSettings }),
           actionButton('restore', 'Restore from a file', () => fileInput.click(), { busyLabel: 'Restoring...' }),
           h('button', { class: 'button', type: 'button', text: 'Reset to defaults', dataset: { key: 'reset' }, onclick: resetSettings }))),
+      h('a', { class: 'card link-card', href: KOFI_URL, target: '_blank', rel: 'noopener', dataset: { key: 'kofi' } },
+        h('div', { class: 'title', text: 'Buy me a coffee' }),
+        h('div', { class: 'desc', text: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.' })),
     ].filter(Boolean);
   }
 
