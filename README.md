@@ -78,6 +78,8 @@ Some things can only be done on the page itself, like download buttons or hiding
 
 Downloads request only the media you choose to save. Diagnostics reports include changed settings and recent log details, so read them before sharing. If a manager has no storage of its own, the script falls back to page storage, which Facebook may clear.
 
+If Facebook stays on loading skeletons, open General and choose Open problem report. Include the full console stack, the Hush version, your browser and userscript manager versions, and the other Facebook tools you have enabled.
+
 ## Building it yourself
 
 You need Node 24.
