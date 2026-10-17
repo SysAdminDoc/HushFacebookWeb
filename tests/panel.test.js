@@ -11,7 +11,9 @@ import { createHider } from '../src/core/dom/hide.js';
 import { createLog } from '../src/core/log.js';
 import { createSettings } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
+import { features as allFeatures } from '../src/features/index.js';
 import { mountPanel } from '../src/ui/panel.js';
+import { QUICK_SETUPS } from '../src/ui/quick-setups.js';
 import menuEntry from '../src/features/menu/menu-entry.js';
 
 const GLOBALS = ['document', 'Node', 'CSS', 'requestAnimationFrame', 'navigator', 'setTimeout'];
@@ -136,6 +138,102 @@ test('General ends with the Ko-fi row', () => {
   assert.equal(row.getAttribute('href'), 'https://ko-fi.com/X8K126YVER');
   assert.equal(row.getAttribute('target'), '_blank');
   assert.equal(row.getAttribute('rel'), 'noopener');
+});
+
+test('General puts a privacy-safe filled problem report directly above Ko-fi', () => {
+  const { shadow, panel, settings } = setup({ features: allFeatures });
+  settings.set('hideTyping', true);
+  panel.open('general');
+  const cards = [...shadow.querySelectorAll('.settings-group > .card')];
+  const report = cards.at(-2);
+  assert.equal(report.dataset.key, 'report-problem');
+  assert.equal(report.nextElementSibling.dataset.key, 'kofi');
+  assert.equal(report.querySelector('.title').textContent, 'Report a problem');
+  assert.equal(report.querySelector('.desc').textContent, 'Opens a GitHub report with your versions and settings filled in. Add what happened.');
+  assert.equal(report.getAttribute('target'), '_blank');
+  assert.equal(report.getAttribute('rel'), 'noopener noreferrer');
+  const url = new URL(report.getAttribute('href'));
+  assert.equal(`${url.origin}${url.pathname}`, 'https://github.com/SysAdminDoc/HushFacebookWeb/issues/new');
+  assert.equal(url.searchParams.get('title'), 'HushFacebook Web 0.0.1 problem');
+  const body = url.searchParams.get('body');
+  assert.match(body, /^Userscript manager: Tampermonkey 5\.4\.1$/m);
+  assert.match(body, /^- Show the settings button on Facebook$/m);
+  assert.match(body, /^- Hide typing indicator$/m);
+  assert.match(body, /What happened:\n\n\nWhat I expected:\n$/);
+  assert.ok(body.length <= 6000);
+});
+
+test('Quick setups report their changed count and Back to defaults raises Reload when needed', () => {
+  const quiet = QUICK_SETUPS.find((setup) => setup.id === 'quiet');
+  const privacy = QUICK_SETUPS.find((setup) => setup.id === 'privacy');
+  const first = setup({ features: allFeatures });
+  first.panel.open('general');
+  const clickSetup = (label) => [...first.shadow.querySelectorAll('[data-key="quick-setups"] button')].find((button) => button.textContent === label).click();
+  const expectedQuiet = quiet.keys.filter((key) => first.settings.get(key) !== true).length;
+  clickSetup('Quiet');
+  assert.equal(first.shadow.querySelector('.toast:last-child span').textContent, `Changed ${expectedQuiet} settings`);
+  assert.ok(quiet.keys.every((key) => first.settings.get(key) === true));
+  const expectedPrivacy = privacy.keys.filter((key) => first.settings.get(key) !== true).length;
+  clickSetup('Privacy');
+  assert.equal(first.shadow.querySelector('.toast:last-child span').textContent, `Changed ${expectedPrivacy} settings`);
+  assert.ok(privacy.keys.every((key) => first.settings.get(key) === true));
+
+  const storage = createMemoryStorage({ settings: { blockInstantGamesAds: true } });
+  const second = setup({ features: allFeatures, storage });
+  second.panel.open('general');
+  [...second.shadow.querySelectorAll('[data-key="quick-setups"] button')].find((button) => button.textContent === 'Back to defaults').click();
+  assert.equal(second.settings.get('blockInstantGamesAds'), false);
+  assert.ok(second.shadow.querySelector('[data-key="reload-facebook"]'), 'resetting a reload-gated page-load choice raises Reload');
+});
+
+test('Back to defaults clears invalid drafts even when saved settings already use their defaults', () => {
+  const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];
+  const { win, shadow, panel, settings } = setup({ features });
+  panel.open('feed');
+  let input = shadow.querySelector('[data-key="demo.days"]');
+  input.value = '99';
+  input.dispatchEvent(new win.Event('change'));
+  input = shadow.querySelector('[data-key="demo.days"]');
+  assert.equal(input.getAttribute('aria-invalid'), 'true');
+  assert.equal(settings.get('demo.days'), 7);
+
+  panel.open('general');
+  [...shadow.querySelectorAll('[data-key="quick-setups"] button')].find((button) => button.textContent === 'Back to defaults').click();
+  panel.open('feed');
+  input = shadow.querySelector('[data-key="demo.days"]');
+  assert.equal(input.value, '7');
+  assert.equal(input.getAttribute('aria-invalid'), null);
+});
+
+test('Quick setups wait for extension storage and preserve unrelated saved choices', () => {
+  const data = new Map();
+  const atLoad = new Map();
+  const ready = [];
+  const storage = {
+    kind: 'extension',
+    get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    getAtLoad: (key, fallback) => (atLoad.has(key) ? structuredClone(atLoad.get(key)) : fallback),
+    set: (key, value) => void data.set(key, structuredClone(value)),
+    remove: (key) => void data.delete(key),
+    onChange() {},
+    whenReady: (run) => ready.push(run),
+  };
+  const quiet = QUICK_SETUPS.find((setup) => setup.id === 'quiet');
+  const { shadow, panel, settings } = setup({ features: allFeatures, storage });
+  panel.open('general');
+  shadow.querySelector('[data-key="quick:quiet"]').click();
+  assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), 'true');
+  assert.equal(settings.get('cleanUpReels'), false, 'the setup has not used unloaded defaults');
+
+  data.set('settings', { forceDarkMode: true });
+  atLoad.set('settings', { forceDarkMode: true });
+  for (const run of ready.splice(0)) run();
+
+  assert.equal(settings.get('forceDarkMode'), true);
+  assert.ok(quiet.keys.every((key) => settings.get(key) === true));
+  assert.equal(data.get('settings').forceDarkMode, true);
+  assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), null);
+  assert.match(shadow.querySelector('.toast:last-child').textContent, /^Changed \d+ settings$/);
 });
 
 test('a reload-required change shows the top row and remembers its settings page through reload', () => {
@@ -503,13 +601,13 @@ test('a preference refresh preserves an unfinished draft, caret and scroll posit
   assert.equal(settings.get('demo.words'), '');
 });
 
-test('search finds settings by their words, opens the section at the switch, and clears back to the sections', () => {
+test('search finds settings by their words, changes toggles in place, and clears back to the sections', () => {
   const features = [
     { id: 'quiet', section: 'feed', android: 'Quiet', title: 'Hide sponsored posts', description: 'Ads leave the feed.', default: false },
     { id: 'speedy', section: 'playback', android: 'Speedy', title: 'Keep your video speed', description: 'The speed you pick stays.', default: false,
       options: [{ key: 'step', type: 'select', label: 'Speed step', default: 1, choices: [{ value: 1, label: 'Quarter steps' }] }] },
   ];
-  const { shadow, panel, win } = setup({ features });
+  const { shadow, panel, win, settings } = setup({ features });
   panel.open('feed');
   const search = shadow.querySelector('[data-key="search"]');
   const type = (text) => {
@@ -519,8 +617,12 @@ test('search finds settings by their words, opens the section at the switch, and
   type('quarter');
   assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Search');
   assert.deepEqual([...shadow.querySelectorAll('.result .title')].map((node) => node.textContent), ['Keep your video speed'], 'choice names count');
+  assert.ok(shadow.querySelector('.result [data-key="speedy.step"]'), 'the matching option works from the results while its parent is off');
   assert.equal(shadow.querySelector('nav [aria-current="page"]'), null, 'no section is current while searching');
-  assert.ok(shadow.querySelector('.result [data-key="speedy"]'), 'the switch works from the results');
+  const resultToggle = shadow.querySelector('.result [data-key="speedy"]');
+  resultToggle.checked = true;
+  resultToggle.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(settings.get('speedy'), true, 'the result switch changes the saved setting');
   type('zebra');
   assert.match(shadow.querySelector('main .empty').textContent, /No setting matches "zebra"/);
   type('SPEED keep');
@@ -534,9 +636,33 @@ test('search finds settings by their words, opens the section at the switch, and
   assert.equal(search.value, '');
 });
 
+test('search covers every kind of General row', () => {
+  const { shadow, panel, win, settings } = setup();
+  panel.open('general');
+  const search = shadow.querySelector('[data-key="search"]');
+  const find = (query) => {
+    search.value = query;
+    search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  };
+  find('settings button');
+  const toggle = shadow.querySelector('.result [data-key="ui.launcher"]');
+  toggle.checked = false;
+  toggle.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(settings.get('ui.launcher'), false);
+  for (const [query, key] of [
+    ['privacy defaults', 'quick-setups'],
+    ['back up restore', 'backup-restore'],
+    ['report problem', 'report-problem'],
+    ['coffee kofi', 'kofi'],
+  ]) {
+    find(query);
+    assert.ok(shadow.querySelector(`.result [data-key="${key}"]`), query);
+  }
+});
+
 test("the extension's update notice heads General while a newer release is out, and links to it", () => {
   let found = { version: '0.0.9', url: 'https://github.com/SysAdminDoc/HushFacebookWeb/releases/tag/v0.0.9' };
-  const { shadow, panel } = setup({ update: () => found });
+  const { shadow, panel, win } = setup({ update: () => found });
   panel.open('general');
   const card = shadow.querySelector('[data-key="update"]');
   assert.ok(card, 'the card shows');
@@ -545,6 +671,10 @@ test("the extension's update notice heads General while a newer release is out, 
   const link = card.querySelector('a.button');
   assert.equal(link.getAttribute('href'), found.url);
   assert.equal(link.getAttribute('target'), '_blank');
+  const search = shadow.querySelector('[data-key="search"]');
+  search.value = 'new extension release';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.ok(shadow.querySelector('.result [data-key="update"]'), 'the visible update row is searchable');
   found = null;
   panel.refresh();
   assert.ok(!shadow.querySelector('[data-key="update"]'), 'gone once there is nothing newer');

@@ -2,7 +2,14 @@
 // title, description, section name, option labels or choice names. Only the script's own text is
 // searched, nothing from Facebook.
 
-const fold = (text) => String(text ?? '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+const fold = (text) => String(text ?? '')
+  .toLowerCase()
+  .normalize('NFKD')
+  .replace(/[̀-ͯ]/g, '')
+  .replace(/[-‐‑‒–—'’]/g, '')
+  .replace(/[^\p{L}\p{N}]+/gu, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
 
 export function searchText(feature, sections) {
   const section = sections.find((entry) => entry.id === feature.section)?.title ?? '';

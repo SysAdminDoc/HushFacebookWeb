@@ -9,6 +9,8 @@ import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
 import { SLIDERS_ICON } from './icons.js';
 import { navigationIcon } from './navigation-icons.js';
+import { buildProblemReport } from './problem-report.js';
+import { applyQuickSetup, QUICK_SETUPS } from './quick-setups.js';
 import { findFeatures } from './search.js';
 import { panelCss } from './styles.js';
 
@@ -228,7 +230,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     });
   }
 
-  function featureCard(feature) {
+  function featureCard(feature, { showOptions = false } = {}) {
     const blocked = unavailable.has(feature.id);
     const on = settings.get(feature.id) === true;
     return h('div', { class: `card${blocked ? ' unavailable' : ''}` },
@@ -239,7 +241,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           blocked ? h('div', { class: 'note', text: "This one isn't available the way your userscript manager runs the script. Diagnostics explains why." }) : null,
           feature.reload ? h('div', { class: 'note', text: 'Applies after Facebook reloads.' }) : null),
         toggle(feature.id, feature.title, { disabled: blocked })),
-      on && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option))) : null,
+      (on || showOptions) && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option))) : null,
       on ? featureActions(feature) : null);
   }
 
@@ -252,30 +254,29 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     search.value = '';
   }
 
-  // A search result's section link: opens the section with that feature's switch focused.
-  function showFeature(feature) {
+  // A search result's section link: opens the section with that row's control focused.
+  function showSetting(setting) {
     clearSearch();
-    current = feature.section;
+    current = setting.section;
     main.scrollTop = 0;
     render();
-    const control = main.querySelector(`[data-key="${CSS.escape(feature.id)}"]`);
+    const control = main.querySelector(`[data-key="${CSS.escape(setting.focusKey ?? setting.id)}"]`);
     control?.scrollIntoView?.({ block: 'center' });
     control?.focus({ preventScroll: true });
   }
 
   function resultsView(found) {
     if (!found.length) return [h('p', { class: 'empty', text: `No setting matches "${query.trim()}". Try a shorter word, or pick a section.` })];
-    return [h('div', { class: 'settings-group results' }, found.map((feature) => {
-      const section = sections.find((entry) => entry.id === feature.section);
+    return [h('div', { class: 'settings-group results' }, found.map((setting) => {
+      const section = sections.find((entry) => entry.id === setting.section);
       return h('div', { class: 'result' },
-        h('button', { class: 'result-section', type: 'button', text: `In ${section.title}`, dataset: { key: `show:${feature.id}` }, onclick: () => showFeature(feature) }),
-        featureCard(feature));
+        h('button', { class: 'result-section', type: 'button', text: `In ${section.title}`, dataset: { key: `show:${setting.id}` }, onclick: () => showSetting(setting) }),
+        setting.render ? setting.render() : featureCard(setting, { showOptions: true }));
     }))];
   }
 
   // The extension's notice that a newer release is out (environment.update, extension only).
-  function updateCard() {
-    const update = environment.update?.();
+  function updateCard(update = environment.update?.()) {
     if (!update) return null;
     return h('div', { class: 'card', dataset: { key: 'update' } },
       h('div', { class: 'title', text: `HushFacebook Web ${update.version} is out` }),
@@ -291,32 +292,110 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       h('button', { class: 'button primary', type: 'button', text: 'Reload', onclick: reloadFacebook }));
   }
 
-  function generalView() {
-    return [
-      updateCard(),
-      h('div', { class: 'card' },
+  function applySetup(id) {
+    const key = `quick:${id}`;
+    if (pending.has(key)) return;
+    pending.add(key);
+    render();
+    settings.whenLoaded(() => {
+      try {
+        const changed = applyQuickSetup(settings, id);
+        if (id === 'defaults') {
+          drafts.clear();
+          fieldErrors.clear();
+          render();
+        }
+        toast(`Changed ${changed} settings`);
+      } catch (error) {
+        log.error("Couldn't apply the Quick setup. Try again", error);
+      } finally {
+        pending.delete(key);
+        if (dialog.open) render();
+      }
+    });
+  }
+
+  function quickSetupsCard() {
+    return h('div', { class: 'card', dataset: { key: 'quick-setups' } },
+      h('div', { class: 'title', text: 'Quick setups' }),
+      h('div', { class: 'desc', text: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.' }),
+      h('div', { class: 'actions' }, QUICK_SETUPS.map((setup) => {
+        const key = `quick:${setup.id}`;
+        return h('button', {
+          class: 'button', type: 'button', text: pending.has(key) ? 'Waiting...' : setup.label, dataset: { key },
+          'aria-busy': pending.has(key) ? 'true' : null, 'aria-disabled': pending.has(key) ? 'true' : null,
+          onclick: () => applySetup(setup.id),
+        });
+      })));
+  }
+
+  function launcherCard() {
+    return h('div', { class: 'card' },
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: 'Show the settings button' }),
             h('div', { class: 'desc', text: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.` })),
-          toggle('ui.launcher', 'Show the settings button'))),
-      h('div', { class: 'card' },
+          toggle('ui.launcher', 'Show the settings button')));
+  }
+
+  function hiddenNoteCard() {
+    return h('div', { class: 'card' },
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: 'Leave a note where a post was hidden' }),
             h('div', { class: 'desc', text: 'A short line that says why a post was hidden. Click it to see the post.' })),
-          toggle('ui.hiddenNote', 'Leave a note where a post was hidden'))),
-      h('div', { class: 'card' },
+          toggle('ui.hiddenNote', 'Leave a note where a post was hidden')));
+  }
+
+  function backupCard() {
+    return h('div', { class: 'card', dataset: { key: 'backup-restore' } },
         h('div', { class: 'title', text: 'Back up and restore' }),
         h('div', { class: 'desc', text: 'Save your choices to a file, or load them from one on another browser.' }),
         h('div', { class: 'actions' },
           h('button', { class: 'button primary', type: 'button', text: 'Back up settings', dataset: { key: 'backup' }, onclick: exportSettings }),
           actionButton('restore', 'Restore from a file', () => fileInput.click(), { busyLabel: 'Restoring...' }),
-          h('button', { class: 'button', type: 'button', text: 'Reset to defaults', dataset: { key: 'reset' }, onclick: resetSettings }))),
-      h('a', { class: 'card link-card', href: KOFI_URL, target: '_blank', rel: 'noopener', dataset: { key: 'kofi' } },
-        h('div', { class: 'title', text: 'Buy me a coffee' }),
-        h('div', { class: 'desc', text: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.' })),
-    ].filter(Boolean);
+          h('button', { class: 'button', type: 'button', text: 'Reset to defaults', dataset: { key: 'reset' }, onclick: resetSettings })));
+  }
+
+  function reportProblemCard() {
+    const report = buildProblemReport({
+      version: environment.version,
+      browser: document.defaultView?.navigator?.userAgent ?? navigator.userAgent,
+      manager: environment.manager,
+      managerVersion: environment.managerVersion,
+      features,
+      settings,
+    });
+    return h('a', { class: 'card link-card', href: report.url, target: '_blank', rel: 'noopener noreferrer', dataset: { key: 'report-problem' } },
+      h('div', { class: 'title', text: 'Report a problem' }),
+      h('div', { class: 'desc', text: 'Opens a GitHub report with your versions and settings filled in. Add what happened.' }));
+  }
+
+  function kofiCard() {
+    return h('a', { class: 'card link-card', href: KOFI_URL, target: '_blank', rel: 'noopener', dataset: { key: 'kofi' } },
+      h('div', { class: 'title', text: 'Buy me a coffee' }),
+      h('div', { class: 'desc', text: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.' }));
+  }
+
+  function generalRows() {
+    const update = environment.update?.();
+    return [
+      ...(update ? [{
+        id: 'update', section: 'general', title: `HushFacebook Web ${update.version} is out`,
+        description: `You have ${environment.version}. Download the new extension files, then reload HushFacebook Web in your browser.`,
+        options: [{ label: 'Open the release' }], focusKey: 'update', render: () => updateCard(update),
+      }] : []),
+      { id: 'quick-setups', section: 'general', title: 'Quick setups', description: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.', options: QUICK_SETUPS.map((setup) => ({ label: setup.label })), focusKey: 'quick:quiet', render: quickSetupsCard },
+      { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too.`, render: launcherCard },
+      { id: 'ui.hiddenNote', section: 'general', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post.', render: hiddenNoteCard },
+      { id: 'backup-restore', section: 'general', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.', focusKey: 'backup', render: backupCard },
+      { id: 'report-problem', section: 'general', title: 'Report a problem', description: 'Opens a GitHub report with your versions and settings filled in. Add what happened.', render: reportProblemCard },
+      { id: 'kofi', section: 'general', title: 'Buy me a coffee', description: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.', render: kofiCard },
+    ];
+  }
+
+  function generalView() {
+    return generalRows().map((row) => row.render());
   }
 
   function hiddenSummary() {
@@ -372,7 +451,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       }, navigationIcon(section.id), h('span', { text: section.title })),
     ]).filter(Boolean));
     if (searching) {
-      const found = findFeatures(features, sections, query);
+      const found = findFeatures([...features, ...generalRows()], sections, query);
       main.replaceChildren(
         h('div', { class: 'page-heading' },
           h('div', { class: 'eyebrow', text: 'Find a setting' }),
@@ -382,7 +461,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         ...resultsView(found));
     } else {
       const section = sections.find((entry) => entry.id === current);
-      const count = features.filter((feature) => feature.section === current).length;
+      const count = current === 'general' ? generalRows().length : features.filter((feature) => feature.section === current).length;
       main.replaceChildren(
         h('div', { class: 'page-heading' },
           h('div', { class: 'eyebrow', text: 'Settings' }),
