@@ -1307,3 +1307,105 @@ test('a failed direct-write verification reports an older worker overwrite inste
   assert.deepEqual(data.settings, { alpha: 1 });
   assert.deepEqual(calls.sent, [[7, 'storage-error']]);
 });
+
+// Facebook's top frame, as Chrome describes the sender of the isolated script's messages.
+const topFrame = (id = 1, url = 'https://www.facebook.com/') => ({
+  tab: { id }, frameId: 0, origin: new URL(url).origin, url, documentId: `document-${id}`,
+});
+// One message through the worker's listener. Null means it never answered.
+function ask({ listeners }, message, sender = topFrame()) {
+  return new Promise((resolve) => {
+    let answered = false;
+    const kept = listeners.messages[0](message, sender, (answer) => {
+      answered = true;
+      resolve(answer);
+    });
+    if (!kept && !answered) resolve(null);
+  });
+}
+
+test('the worker answers only the isolated script in a Facebook top frame', async () => {
+  const current = worker({ saved: { settings: { alpha: true } } });
+  const recover = { type: 'storage:recover' };
+  assert.equal(await ask(current, recover, { id: 'popup', url: 'chrome-extension://abc/popup.html' }), null);
+  for (const sender of [
+    { ...topFrame(), frameId: 3 },
+    { ...topFrame(), frameId: 3, documentLifecycle: 'active' },
+    { tab: { id: 1 }, frameId: 2, origin: 'https://game1.apps.fbsbx.com', url: 'https://game1.apps.fbsbx.com/' },
+    topFrame(1, 'http://www.facebook.com/'),
+    topFrame(1, 'https://www.facebook.com.evil.example/'),
+    { ...topFrame(), origin: 'https://evil.example' },
+    { ...topFrame(), url: 'https://evil.example/' },
+    { ...topFrame(), tab: { id: '1' } },
+  ]) {
+    const answer = await ask(current, recover, sender);
+    assert.equal(answer.ok, false, JSON.stringify(sender));
+    assert.match(answer.error, /cannot ask the extension/);
+  }
+  assert.equal((await ask(current, recover, topFrame(2, 'https://web.facebook.com/groups/feed/'))).ok, true);
+  // Chrome gives a prerendered page's top frame its own frameId until the page is shown.
+  const prerendered = { ...topFrame(3), frameId: 41, documentLifecycle: 'prerender' };
+  assert.equal((await ask(current, recover, prerendered)).ok, true, 'a prerendered Facebook page loads its settings');
+});
+
+test('the worker refuses request shapes, keys and file names it does not know', async () => {
+  const current = worker({ saved: { settings: { alpha: true }, other: 'x' } });
+  for (const message of [
+    { type: 'storage:remove', key: 'other' },
+    { type: 'storage:set', key: 'settings', value: {} },
+    { type: 'storage:recover', extra: true },
+    { type: 'storage:mutate', key: 'hushfacebookWeb.storageRevisions', mutation: { set: {} } },
+    { type: 'storage:mutate', key: 'other', mutation: { set: {} } },
+    { type: 'storage:mutate', key: 'settings', mutation: { set: { alpha: { nested: true } } } },
+    { type: 'storage:mutate', key: 'settings', mutation: { set: JSON.parse('{"__proto__":true}') } },
+    { type: 'storage:mutate', key: 'settings', mutation: { set: { css: 'x'.repeat(70000) } } },
+    { type: 'storage:mutate', key: 'settings.migrated', mutation: { union: ['Bad id'] } },
+    { type: 'storage:migrate', key: 'settings@abc', doneKey: 'settings@abc.migrated', mutation: { set: {} }, receipt: [], sourceKey: 'other', sourceDoneKey: 'settings.migrated' },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: '../a.jpg' },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'CON.jpg' },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'flag \u{e0067}\u{e0062}.jpg' },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'photo.jpg‮gpj' },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: '.hidden.jpg' },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'no extension' },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', saveAs: true },
+  ]) {
+    const answer = await ask(current, message);
+    assert.equal(answer.ok, false, JSON.stringify(message));
+    assert.match(answer.error, /not allowed/, JSON.stringify(message));
+  }
+  assert.equal(current.data.other, 'x');
+  assert.deepEqual(current.calls.downloads, []);
+
+  const css = await ask(current, { type: 'storage:mutate', key: 'settings', mutation: { set: { customCss: 'x'.repeat(50000) } } });
+  assert.equal(css.ok, true, 'the longest text setting still saves');
+  assert.equal(current.data.settings.customCss.length, 50000);
+  for (const [url, error] of [
+    ['https://example.com/a.jpg', /not a Facebook file/],
+    ['https://user:pass@scontent.xx.fbcdn.net/a.jpg', /not a Facebook file/],
+    ['https://scontent.xx.fbcdn.net:8443/a.jpg', /not a Facebook file/],
+  ]) {
+    const answer = await ask(current, { type: 'download', url, name: 'a.jpg' });
+    assert.equal(answer.ok, false, url);
+    assert.match(answer.error, error, url);
+  }
+});
+
+test('downloads stop at eight a window for each page, and another page keeps its own allowance', async () => {
+  const current = worker();
+  const download = { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'Pat photo.jpg' };
+  const saving = Array.from({ length: 8 }, () => ask(current, download));
+  await settle();
+  assert.equal(current.calls.downloads.length, 8);
+  const ninth = await ask(current, download);
+  assert.equal(ninth.ok, false);
+  assert.match(ninth.error, /too many extension requests/);
+  assert.equal(current.calls.downloads.length, 8, 'the ninth never reached chrome.downloads');
+  current.listeners.downloadChanged.forEach((fn) => fn({ id: 7, state: { current: 'complete' } }));
+  for (const answer of await Promise.all(saving)) assert.equal(answer.ok, true);
+
+  const other = ask(current, download, topFrame(2));
+  await settle();
+  assert.equal(current.calls.downloads.length, 9);
+  current.listeners.downloadChanged.forEach((fn) => fn({ id: 7, state: { current: 'complete' } }));
+  assert.equal((await other).ok, true);
+});

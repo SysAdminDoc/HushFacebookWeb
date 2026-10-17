@@ -12,14 +12,166 @@ const STORAGE_REVISIONS_KEY = 'hushfacebookWeb.storageRevisions';
 const STORAGE_REVISION_EPOCH_KEY = '__epoch';
 const STORAGE_REVISION_ORDER_KEY = '__order';
 const PREFERENCE_KEY = /^settings(?:@[a-z0-9]+)?(?:\.migrated)?$/;
+const SETTINGS_KEY = /^settings(?:@[a-z0-9]+)?$/;
 const PENDING_RECOVERY_KEY = 'hushfacebookWeb.pendingPreferenceRecovery';
 const DIRECT_STORAGE_RETRY_DELAYS = [50, 150];
+const FACEBOOK_ORIGINS = new Set(['https://www.facebook.com', 'https://web.facebook.com']);
+const MESSAGE_MAX_BYTES = 1536 * 1024;
+const VALUE_MAX_BYTES = 1024 * 1024;
+const REQUEST_RATE_WINDOW = 10000;
+const REQUESTS_PER_WINDOW = 120;
+const DOWNLOADS_PER_WINDOW = 8;
+const SAFE_FIELD = /^(?!__proto__$|prototype$|constructor$)[A-Za-z][A-Za-z0-9._-]{0,127}$/;
+const MIGRATION_ID = /^[a-z0-9][a-z0-9-]{0,127}$/;
 let storageMutationTail = Promise.resolve();
 const pendingStorageWrites = [];
 const pendingStorageRemovals = new Set();
 const pendingDirectRecoveries = new Map();
 const deferredDirectChanges = new Map();
 let pendingDirectRecoveriesLoad = null;
+const senderRates = new Map();
+
+function utf8Bytes(value, max = VALUE_MAX_BYTES) {
+  let text;
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value);
+  } catch {
+    return Infinity;
+  }
+  if (typeof text !== 'string' || text.length > max) return Infinity;
+  let bytes = 0;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code < 0x80) bytes++;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length && text.charCodeAt(index + 1) >= 0xdc00 && text.charCodeAt(index + 1) <= 0xdfff) {
+      bytes += 4;
+      index++;
+    } else bytes += 3;
+    if (bytes > max) return bytes;
+  }
+  return bytes;
+}
+
+// A page Chrome prerenders (Facebook typed into the address bar) has a top frame whose frameId
+// isn't 0 until it's shown, and its content scripts load settings before then.
+function trustedSender(sender) {
+  if (!sender?.tab || !Number.isInteger(sender.tab.id)) return false;
+  if (sender.frameId !== 0 && sender.documentLifecycle !== 'prerender') return false;
+  if (!FACEBOOK_ORIGINS.has(sender.origin)) return false;
+  const parsed = hostOf(sender.url);
+  return parsed?.protocol === 'https:' && sender.origin === parsed.origin && FACEBOOK.includes(parsed.hostname);
+}
+
+function takeRate(list, limit, now) {
+  while (list.length && now - list[0] >= REQUEST_RATE_WINDOW) list.shift();
+  if (list.length >= limit) return false;
+  list.push(now);
+  return true;
+}
+
+function senderAllowedNow(sender, type, now = Date.now()) {
+  const key = `${sender.tab.id}:${sender.documentId ?? sender.url}`;
+  let rate = senderRates.get(key);
+  if (!rate || now - rate.touched >= REQUEST_RATE_WINDOW) {
+    rate = { requests: [], downloads: [], touched: now };
+    senderRates.set(key, rate);
+  }
+  rate.touched = now;
+  for (const [name, entry] of senderRates) {
+    if (now - entry.touched >= REQUEST_RATE_WINDOW) senderRates.delete(name);
+  }
+  if (senderRates.size > 128) senderRates.delete(senderRates.keys().next().value);
+  return takeRate(rate.requests, REQUESTS_PER_WINDOW, now)
+    && (type !== 'download' || takeRate(rate.downloads, DOWNLOADS_PER_WINDOW, now));
+}
+
+function onlyKeys(value, names) {
+  return isStorageRecord(value) && Object.keys(value).every((name) => names.includes(name));
+}
+
+// Custom CSS takes 50,000 characters, the longest text setting.
+function primitiveSetting(value) {
+  return typeof value === 'boolean'
+    || (typeof value === 'string' && value.length <= 65536)
+    || Number.isFinite(value);
+}
+
+function settingsRecord(value) {
+  return isStorageRecord(value)
+    && Object.keys(value).length <= 256
+    && Object.entries(value).every(([name, setting]) => SAFE_FIELD.test(name) && primitiveSetting(setting));
+}
+
+function migrationReceipt(value) {
+  return Array.isArray(value)
+    && value.length <= 128
+    && value.every((id) => typeof id === 'string' && MIGRATION_ID.test(id));
+}
+
+function conditionsRecord(value) {
+  return value === undefined || (
+    isStorageRecord(value)
+    && Object.keys(value).length <= 256
+    && Object.entries(value).every(([name, condition]) => (
+      SAFE_FIELD.test(name)
+      && isStorageRecord(condition)
+      && Object.keys(condition).every((field) => field === 'exists' || field === 'value')
+      && typeof condition.exists === 'boolean'
+      && (!condition.exists || primitiveSetting(condition.value))
+    ))
+  );
+}
+
+function settingsMutation(mutation) {
+  if (!onlyKeys(mutation, ['replace', 'initialize', 'set', 'remove', 'conditions', 'guard', 'guarded', 'migrationOwners', 'expected', 'removeRecord'])) return false;
+  if (mutation.removeRecord === true) {
+    return Object.keys(mutation).every((name) => name === 'removeRecord' || name === 'expected')
+      && (mutation.expected === undefined || settingsRecord(mutation.expected));
+  }
+  if (Object.hasOwn(mutation, 'replace') && !settingsRecord(mutation.replace)) return false;
+  if (Object.hasOwn(mutation, 'initialize') && !settingsRecord(mutation.initialize)) return false;
+  if (Object.hasOwn(mutation, 'expected') && !settingsRecord(mutation.expected)) return false;
+  if (mutation.set !== undefined && !settingsRecord(mutation.set)) return false;
+  if (mutation.remove !== undefined && (!Array.isArray(mutation.remove) || mutation.remove.length > 256 || mutation.remove.some((name) => !SAFE_FIELD.test(name)))) return false;
+  if (!conditionsRecord(mutation.conditions) || !conditionsRecord(mutation.guard)) return false;
+  if (mutation.guarded !== undefined && (!Array.isArray(mutation.guarded) || mutation.guarded.length > 256 || mutation.guarded.some((name) => !SAFE_FIELD.test(name)))) return false;
+  if (
+    mutation.migrationOwners !== undefined
+    && (!isStorageRecord(mutation.migrationOwners) || Object.entries(mutation.migrationOwners).some(([name, id]) => !SAFE_FIELD.test(name) || !MIGRATION_ID.test(id)))
+  ) return false;
+  return utf8Bytes(mutation) <= VALUE_MAX_BYTES;
+}
+
+function receiptMutation(mutation) {
+  return onlyKeys(mutation, ['union'])
+    && migrationReceipt(mutation.union)
+    && utf8Bytes(mutation) <= VALUE_MAX_BYTES;
+}
+
+function validWorkerRequest(message) {
+  if (!isStorageRecord(message) || utf8Bytes(message, MESSAGE_MAX_BYTES) > MESSAGE_MAX_BYTES) return false;
+  if (message.type === 'storage:recover') return onlyKeys(message, ['type']);
+  if (message.type === 'storage:mutate') {
+    if (!onlyKeys(message, ['type', 'key', 'mutation', 'generation', 'baseRevisions']) || !PREFERENCE_KEY.test(message.key)) return false;
+    return message.key.endsWith('.migrated') ? receiptMutation(message.mutation) : settingsMutation(message.mutation);
+  }
+  if (message.type === 'storage:migrate') {
+    if (!onlyKeys(message, ['type', 'key', 'doneKey', 'mutation', 'receipt', 'sourceKey', 'sourceDoneKey', 'generation', 'baseRevisions'])) return false;
+    if (!SETTINGS_KEY.test(message.key) || message.doneKey !== `${message.key}.migrated`) return false;
+    if (!settingsMutation(message.mutation) || !migrationReceipt(message.receipt)) return false;
+    if (message.key === 'settings') return message.sourceKey == null && message.sourceDoneKey == null;
+    return message.sourceKey === 'settings' && message.sourceDoneKey === 'settings.migrated';
+  }
+  if (message.type === 'download') {
+    return onlyKeys(message, ['type', 'url', 'name'])
+      && typeof message.url === 'string'
+      && message.url.length > 0
+      && message.url.length <= 8192
+      && validFilename(message.name);
+  }
+  return false;
+}
 
 function validStorageRevisions(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -910,11 +1062,24 @@ function hostOf(url) {
 
 function savable(url) {
   const parsed = hostOf(url);
-  return parsed?.protocol === 'https:' && SAVABLE.test(parsed.hostname);
+  return parsed?.protocol === 'https:'
+    && !parsed.username
+    && !parsed.password
+    && !parsed.port
+    && SAVABLE.test(parsed.hostname);
+}
+
+function validFilename(name) {
+  if (typeof name !== 'string' || !name || name !== name.normalize('NFC') || utf8Bytes(name, 512) > 512) return false;
+  if (name.startsWith('.') || name.startsWith('~') || /[. ]$/.test(name) || !/\.[A-Za-z0-9]{1,10}$/.test(name)) return false;
+  if (/[\\/:*?"<>|\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb\u{e0000}-\u{e007f}]/u.test(name)) return false;
+  return !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name);
 }
 
 async function save({ url, name }) {
   if (!savable(url)) throw new Error('that address is not a Facebook file');
+  if (!validFilename(name)) throw new Error('that file name is not safe');
+  // The page cannot prove a remote file's size. chrome.downloads owns and reports the transfer.
   const id = await chrome.downloads.download({ url, filename: name, saveAs: false, conflictAction: 'uniquify' });
   return new Promise((resolve, reject) => {
     const done = (error) => {
@@ -1013,8 +1178,22 @@ chrome.alarms.get('update-check').then((alarm) => {
   if (!alarm) chrome.alarms.create('update-check', { delayInMinutes: 1, periodInMinutes: 360 });
 });
 
+// Only Facebook's top frame talks to the worker, with a known request shape, at a bounded rate.
+// The isolated script checks the same things first; this holds even if a page gets past it.
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (!sender.tab) return false;
+  if (!sender?.tab) return false;
+  if (!trustedSender(sender)) {
+    respond({ ok: false, error: 'that page cannot ask the extension for this' });
+    return false;
+  }
+  if (!validWorkerRequest(message)) {
+    respond({ ok: false, error: 'that extension request is not allowed' });
+    return false;
+  }
+  if (!senderAllowedNow(sender, message.type)) {
+    respond({ ok: false, error: 'too many extension requests were sent' });
+    return false;
+  }
   const task = message?.type === 'download'
     ? save(message)
     : message?.type === 'storage:mutate'

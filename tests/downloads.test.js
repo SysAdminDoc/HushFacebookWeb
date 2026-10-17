@@ -207,6 +207,10 @@ test('file names lose characters a file system or a reader could trip on', () =>
   assert.equal(fileName([`Pat${hidden}Example`, 'photo', '1'], 'jpg'), 'Pat Example photo 1.jpg');
   assert.equal(fileName(['.hidden', 'photo'], 'jpg'), 'hidden photo.jpg', 'no hidden file');
   assert.equal(fileName(['~ . Pat'], 'jpg'), 'Pat.jpg');
+  // Windows device names, which the downloads refuse.
+  assert.equal(fileName(['Con'], 'jpg'), 'Facebook Con.jpg');
+  assert.equal(fileName(['nul.txt'], 'mp4'), 'Facebook nul.txt.mp4');
+  assert.equal(fileName(['Connie', 'photo'], 'jpg'), 'Connie photo.jpg');
 });
 
 function fakeDoc() {

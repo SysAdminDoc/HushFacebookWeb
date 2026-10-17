@@ -1,11 +1,17 @@
 // The extension's isolated half. It runs beside the page script (src/core/bridge.js) in its own
-// world, where chrome.storage and the messages to the background work, and answers the page
-// script's requests over DOM events named with the secret the page script makes.
-//
-// The first well-formed hello wins. Both halves start at document_start, before any of
-// Facebook's scripts, so the hello it hears is the page script's own.
+// world, where chrome.storage and messages to the background work. MAIN shares Facebook's world,
+// so every DOM message is untrusted. The random event name prevents accidental collisions but is
+// not authentication. The first well-formed hello only chooses a route; document-derived
+// capabilities, validation and bounds protect it even when the page chooses that route first.
 
 import {
+  BRIDGE_MAX_DOWNLOADS_PER_WINDOW,
+  BRIDGE_MAX_MESSAGE_BYTES,
+  BRIDGE_MAX_PENDING,
+  BRIDGE_MAX_REQUESTS_PER_WINDOW,
+  BRIDGE_MAX_VALUE_BYTES,
+  BRIDGE_MAX_WRITES_PER_WINDOW,
+  BRIDGE_RATE_WINDOW,
   HELLO_ISOLATED,
   HELLO_MAIN,
   STORAGE_REVISION_EPOCH_KEY,
@@ -15,10 +21,20 @@ import {
   storageRevisionEpoch,
   validStorageRevisions,
 } from '../src/core/bridge.js';
+import { accountFromCookie, storageKeyFor } from '../src/core/settings.js';
 
 const SECRET = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const REVISION_WAIT = 5000;
 const STORAGE_READ_RETRY_DELAYS = [50, 150];
+const FACEBOOK = new Set(['www.facebook.com', 'web.facebook.com']);
+const GAME_KEY = 'instantGamesAds.enabled';
+const READ_ONLY_KEY = 'extensionUpdate';
+const SAFE_FIELD = /^(?!__proto__$|prototype$|constructor$)[A-Za-z][A-Za-z0-9._-]{0,127}$/;
+const MIGRATION_ID = /^[a-z0-9][a-z0-9-]{0,127}$/;
+const UPDATE_VERSION = /^\d+(?:\.\d+)*$/;
+// Custom CSS takes 50,000 characters, the longest text setting.
+const SETTING_TEXT_MAX = 65536;
+const encoder = new TextEncoder();
 let channel = null;
 let physicalRevisions;
 let storageRevisions;
@@ -29,6 +45,259 @@ let storageChangeTail = Promise.resolve();
 const retiredStorageEpochs = new Set();
 const observedRevisionOrders = new Map();
 const revisionWaiters = new Set();
+
+const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const jsonBytes = (value, max = BRIDGE_MAX_VALUE_BYTES) => {
+  try {
+    const text = JSON.stringify(value);
+    if (typeof text !== 'string' || text.length > max) return Infinity;
+    return encoder.encode(text).byteLength;
+  } catch {
+    return Infinity;
+  }
+};
+const boundedString = (value, max = 20000) => typeof value === 'string' && value.length <= max;
+const finite = (value, min = -Infinity, max = Infinity) => Number.isFinite(value) && value >= min && value <= max;
+const primitiveSetting = (value) => (
+  typeof value === 'boolean'
+  || boundedString(value, SETTING_TEXT_MAX)
+  || finite(value)
+);
+const settingsRecord = (value) => (
+  isRecord(value)
+  && Object.keys(value).length <= 256
+  && Object.entries(value).every(([name, setting]) => SAFE_FIELD.test(name) && primitiveSetting(setting))
+);
+const migrationReceipt = (value) => (
+  Array.isArray(value)
+  && value.length <= 128
+  && value.every((id) => typeof id === 'string' && MIGRATION_ID.test(id))
+);
+// The stores keep 5,000 seen posts and 200 positions, but a record over that is still read, so a
+// late prune can't hide the whole history and let the next save write over it.
+const seenRecord = (value) => (
+  isRecord(value)
+  && Object.keys(value).length <= 20000
+  && Object.entries(value).every(([id, at]) => boundedString(id, 256) && id.length > 0 && finite(at, 1))
+);
+const taskRecord = (value) => (
+  isRecord(value)
+  && Object.keys(value).length <= 32
+  && Object.entries(value).every(([id, at]) => SAFE_FIELD.test(id) && finite(at, 0))
+);
+const storageCheckRecord = (value) => (
+  isRecord(value)
+  && Object.keys(value).every((name) => name === 'token' || name === 'at')
+  && boundedString(value.token, 80)
+  && value.token.length > 0
+  && finite(value.at, 0)
+);
+const volumeRecord = (value) => (
+  isRecord(value)
+  && Object.keys(value).every((name) => name === 'volume' || name === 'muted')
+  && finite(value.volume, 0, 1)
+  && typeof value.muted === 'boolean'
+);
+const positionRecord = (value) => (
+  isRecord(value)
+  && Object.keys(value).length <= 1000
+  && Object.entries(value).every(([id, spot]) => (
+    boundedString(id, 256)
+    && id.length > 0
+    && isRecord(spot)
+    && Object.keys(spot).every((name) => name === 't' || name === 'd' || name === 'at')
+    && finite(spot.t, 0)
+    && finite(spot.d, 0)
+    && finite(spot.at, 0)
+  ))
+);
+const updateRecord = (value) => (
+  isRecord(value)
+  && Object.keys(value).every((name) => ['at', 'current', 'latest', 'url', 'newer'].includes(name))
+  && finite(value.at, 0)
+  && boundedString(value.current, 32)
+  && UPDATE_VERSION.test(value.current)
+  && (value.latest === null || (boundedString(value.latest, 32) && UPDATE_VERSION.test(value.latest)))
+  && (value.url === null || (boundedString(value.url, 512) && value.url.startsWith('https://github.com/SysAdminDoc/HushFacebookWeb/')))
+  && typeof value.newer === 'boolean'
+);
+
+const FACEBOOK_VALUES = new Map([
+  ['seenPosts', seenRecord],
+  ['seenPostsCleared', (value) => finite(value, 0)],
+  ['tasks', taskRecord],
+  ['storageCheck', storageCheckRecord],
+  [READ_ONLY_KEY, updateRecord],
+  ['extensionUpdate.told', (value) => boundedString(value, 32) && UPDATE_VERSION.test(value)],
+  ['keepSpeed.rate', (value) => finite(value, 0.25, 4)],
+  ['keepVolume.state', volumeRecord],
+  ['resumeVideos.positions', positionRecord],
+  [GAME_KEY, (value) => typeof value === 'boolean'],
+  ['hidePostsByWords.cssWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
+]);
+
+function storageAccessFor(doc) {
+  let url;
+  try {
+    url = new URL(doc.location.href);
+  } catch {
+    return { kind: 'none', values: new Map(), writable: new Set(), settingsKey: null, receiptKey: null };
+  }
+  const hostname = url.hostname.toLowerCase();
+  const top = doc.defaultView?.top === doc.defaultView;
+  if (url.protocol === 'https:' && (hostname === 'apps.fbsbx.com' || hostname.endsWith('.apps.fbsbx.com'))) {
+    return {
+      kind: 'game',
+      values: new Map([[GAME_KEY, (value) => typeof value === 'boolean']]),
+      writable: new Set([GAME_KEY]),
+      settingsKey: null,
+      receiptKey: null,
+    };
+  }
+  if (url.protocol !== 'https:' || !FACEBOOK.has(hostname) || !top) {
+    return { kind: 'none', values: new Map(), writable: new Set(), settingsKey: null, receiptKey: null };
+  }
+  const account = accountFromCookie(doc.cookie);
+  const settingsKey = storageKeyFor(account);
+  const receiptKey = `${settingsKey}.migrated`;
+  const values = new Map(FACEBOOK_VALUES);
+  values.set('settings', settingsRecord);
+  values.set('settings.migrated', migrationReceipt);
+  values.set(settingsKey, settingsRecord);
+  values.set(receiptKey, migrationReceipt);
+  const writable = new Set([...FACEBOOK_VALUES.keys()].filter((key) => key !== READ_ONLY_KEY));
+  writable.add(settingsKey);
+  writable.add(receiptKey);
+  return { kind: 'facebook', values, writable, settingsKey, receiptKey };
+}
+
+const storageAccess = storageAccessFor(document);
+const allowedValue = (key, value) => (
+  storageAccess.values.get(key)?.(value) === true
+  && jsonBytes(value) <= BRIDGE_MAX_VALUE_BYTES
+);
+const visibleRevisions = (value) => {
+  if (!validStorageRevisions(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([key]) => (
+    key === STORAGE_REVISION_EPOCH_KEY
+    || key === STORAGE_REVISION_ORDER_KEY
+    || storageAccess.values.has(key)
+  )));
+};
+const visibleStorage = (saved) => {
+  const result = {};
+  for (const [key, value] of Object.entries(saved ?? {})) {
+    if (key === STORAGE_REVISIONS_KEY) {
+      result[key] = visibleRevisions(value);
+      continue;
+    }
+    if (allowedValue(key, value)) result[key] = clone(value);
+  }
+  if (jsonBytes(result, BRIDGE_MAX_MESSAGE_BYTES) > BRIDGE_MAX_MESSAGE_BYTES) throw new Error('the saved values are too large');
+  return result;
+};
+
+const onlyKeys = (value, names) => (
+  isRecord(value) && Object.keys(value).every((name) => names.includes(name))
+);
+const conditionsRecord = (value) => (
+  value === undefined
+  || (
+    isRecord(value)
+    && Object.keys(value).length <= 256
+    && Object.entries(value).every(([name, condition]) => (
+      SAFE_FIELD.test(name)
+      && isRecord(condition)
+      && Object.keys(condition).every((field) => field === 'exists' || field === 'value')
+      && typeof condition.exists === 'boolean'
+      && (!condition.exists || primitiveSetting(condition.value))
+    ))
+  )
+);
+const settingsMutation = (mutation) => {
+  if (!onlyKeys(mutation, ['replace', 'initialize', 'set', 'remove', 'conditions', 'guard', 'guarded', 'migrationOwners', 'expected', 'removeRecord'])) return false;
+  if (mutation.removeRecord === true) {
+    return Object.keys(mutation).every((name) => name === 'removeRecord' || name === 'expected')
+      && (mutation.expected === undefined || settingsRecord(mutation.expected));
+  }
+  if (Object.hasOwn(mutation, 'replace') && !settingsRecord(mutation.replace)) return false;
+  if (Object.hasOwn(mutation, 'initialize') && !settingsRecord(mutation.initialize)) return false;
+  if (Object.hasOwn(mutation, 'expected') && !settingsRecord(mutation.expected)) return false;
+  if (mutation.set !== undefined && !settingsRecord(mutation.set)) return false;
+  if (mutation.remove !== undefined && (!Array.isArray(mutation.remove) || mutation.remove.length > 256 || mutation.remove.some((name) => !SAFE_FIELD.test(name)))) return false;
+  if (!conditionsRecord(mutation.conditions) || !conditionsRecord(mutation.guard)) return false;
+  if (mutation.guarded !== undefined && (!Array.isArray(mutation.guarded) || mutation.guarded.length > 256 || mutation.guarded.some((name) => !SAFE_FIELD.test(name)))) return false;
+  if (
+    mutation.migrationOwners !== undefined
+    && (!isRecord(mutation.migrationOwners) || Object.entries(mutation.migrationOwners).some(([name, id]) => !SAFE_FIELD.test(name) || !MIGRATION_ID.test(id)))
+  ) return false;
+  return jsonBytes(mutation) <= BRIDGE_MAX_VALUE_BYTES;
+};
+const receiptMutation = (mutation) => (
+  onlyKeys(mutation, ['union'])
+  && migrationReceipt(mutation.union)
+  && jsonBytes(mutation) <= BRIDGE_MAX_VALUE_BYTES
+);
+const validStorageRequest = (type, payload) => {
+  if (!isRecord(payload)) return false;
+  if (type === 'storage:load') return Object.keys(payload).length === 0 && storageAccess.kind !== 'none';
+  // The settings record and its receipt change only through storage:mutate and storage:migrate.
+  const directWrite = (key) => (
+    storageAccess.writable.has(key) && key !== storageAccess.settingsKey && key !== storageAccess.receiptKey
+  );
+  if (type === 'storage:set') {
+    return onlyKeys(payload, ['key', 'value'])
+      && directWrite(payload.key)
+      && (payload.value === null || allowedValue(payload.key, payload.value));
+  }
+  if (type === 'storage:remove') {
+    return onlyKeys(payload, ['key']) && directWrite(payload.key);
+  }
+  if (type === 'storage:mutate') {
+    if (!onlyKeys(payload, ['key', 'mutation']) || !storageAccess.writable.has(payload.key)) return false;
+    if (payload.key === storageAccess.settingsKey) return settingsMutation(payload.mutation);
+    if (payload.key === storageAccess.receiptKey) return receiptMutation(payload.mutation);
+    return false;
+  }
+  if (type === 'storage:migrate') {
+    if (!onlyKeys(payload, ['key', 'doneKey', 'mutation', 'receipt', 'sourceKey', 'sourceDoneKey'])) return false;
+    const accountScoped = storageAccess.settingsKey !== 'settings';
+    return payload.key === storageAccess.settingsKey
+      && payload.doneKey === storageAccess.receiptKey
+      && settingsMutation(payload.mutation)
+      && migrationReceipt(payload.receipt)
+      && (
+        accountScoped
+          ? payload.sourceKey === 'settings' && payload.sourceDoneKey === 'settings.migrated'
+          : payload.sourceKey === undefined && payload.sourceDoneKey === undefined
+      );
+  }
+  return false;
+};
+const validDownloadRequest = (payload) => (
+  storageAccess.kind === 'facebook'
+  && onlyKeys(payload, ['url', 'name'])
+  && boundedString(payload.url, 8192)
+  && payload.url.length > 0
+  && boundedString(payload.name, 512)
+  && payload.name.length > 0
+);
+const activeRequests = new Set();
+// Separate buckets, so a volume-slider drag can't use up the quota a settings save needs.
+const requestTimes = [];
+const writeTimes = [];
+const downloadTimes = [];
+const takeQuota = (times, limit, now = Date.now()) => {
+  while (times.length && now - times[0] >= BRIDGE_RATE_WINDOW) times.shift();
+  if (times.length >= limit) return false;
+  times.push(now);
+  return true;
+};
+const requestAllowedNow = (type) => {
+  if (type === 'download') return takeQuota(downloadTimes, BRIDGE_MAX_DOWNLOADS_PER_WINDOW);
+  if (type === 'storage:set' || type === 'storage:remove') return takeQuota(writeTimes, BRIDGE_MAX_WRITES_PER_WINDOW);
+  return takeQuota(requestTimes, BRIDGE_MAX_REQUESTS_PER_WINDOW);
+};
 
 const clone = (value) => (value === undefined ? undefined : structuredClone(value));
 const pause = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
@@ -220,7 +489,13 @@ function acceptRevisionEvent(record, oldValue, currentRecord) {
   return { accepted: true, reset: changesLogicalEpoch, stale: false, reactivated };
 }
 
-const toMain = (message) => document.dispatchEvent(new CustomEvent(channel.toMain, { detail: JSON.stringify(message) }));
+const toMain = (message) => {
+  const detail = JSON.stringify(message);
+  if (detail.length > BRIDGE_MAX_MESSAGE_BYTES || encoder.encode(detail).byteLength > BRIDGE_MAX_MESSAGE_BYTES) {
+    throw new Error('the extension answer is too large');
+  }
+  document.dispatchEvent(new CustomEvent(channel.toMain, { detail }));
+};
 
 async function workerStorageRequest(type, payload) {
   const answer = await chrome.runtime.sendMessage({
@@ -231,23 +506,30 @@ async function workerStorageRequest(type, payload) {
   });
   if (!answer?.ok) throw new Error(answer?.error || 'the browser could not save the settings');
   if (answer.result?.committed !== false) await waitForRevision(answer.result ?? {});
-  return answer.result;
+  const result = clone(answer.result);
+  if (isRecord(result) && Object.hasOwn(result, 'revisions')) result.revisions = visibleRevisions(result.revisions);
+  return result;
 }
 
 const handlers = {
   'storage:load': async () => {
     const generation = storageRevisionGeneration;
     const recovering = revisionsInitialized;
-    const recovery = await chrome.runtime.sendMessage({ type: 'storage:recover' });
-    if (!recovery?.ok) throw new Error(recovery?.error || 'the browser could not recover the saved settings');
+    // Game frames hold no settings record to recover, and the worker only answers Facebook's top frame.
+    if (storageAccess.kind === 'facebook') {
+      const recovery = await chrome.runtime.sendMessage({ type: 'storage:recover' });
+      if (!recovery?.ok) throw new Error(recovery?.error || 'the browser could not recover the saved settings');
+    }
     const saved = await chrome.storage.local.get(null);
     const revisions = saved?.[STORAGE_REVISIONS_KEY];
     if (storageRevisionGeneration === generation) {
-      if (recovering) acceptRevisionEvent(revisions, physicalRevisions, revisions);
-      else initializeRevisions(revisions);
-      if (recovering) return { ...saved, [STORAGE_REVISIONS_KEY]: clone(storageRevisions) };
+      if (recovering) {
+        acceptRevisionEvent(revisions, physicalRevisions, revisions);
+        return visibleStorage({ ...saved, [STORAGE_REVISIONS_KEY]: clone(storageRevisions) });
+      }
+      initializeRevisions(revisions);
     }
-    return saved;
+    return visibleStorage(saved);
   },
   'storage:set': ({ key, value }) => (value === null ? chrome.storage.local.remove(key) : chrome.storage.local.set({ [key]: value })),
   'storage:remove': ({ key }) => chrome.storage.local.remove(key),
@@ -269,6 +551,11 @@ const handlers = {
 };
 
 async function onRequest(event) {
+  if (typeof event.detail !== 'string') return;
+  if (
+    event.detail.length > BRIDGE_MAX_MESSAGE_BYTES
+    || encoder.encode(event.detail).byteLength > BRIDGE_MAX_MESSAGE_BYTES
+  ) return;
   let message;
   try {
     message = JSON.parse(event.detail);
@@ -277,13 +564,32 @@ async function onRequest(event) {
   }
   const { id, type, payload } = message ?? {};
   const handler = Object.hasOwn(handlers, type) ? handlers[type] : null;
-  if (!Number.isInteger(id)) return;
+  if (!Number.isSafeInteger(id) || id < 0) return;
+  const fail = (error) => toMain({ id, ok: false, error });
+  if (activeRequests.has(id)) {
+    fail('that extension request is already running');
+    return;
+  }
+  if (activeRequests.size >= BRIDGE_MAX_PENDING) {
+    fail('too many extension requests are running');
+    return;
+  }
+  if (!requestAllowedNow(type)) {
+    fail('too many extension requests were sent');
+    return;
+  }
   try {
     if (!handler) throw new Error(`unknown request ${type}`);
-    const result = await handler(payload ?? {});
+    const body = payload ?? {};
+    if (type.startsWith('storage:') && !validStorageRequest(type, body)) throw new Error('that storage request is not allowed');
+    if (type === 'download' && !validDownloadRequest(body)) throw new Error('that download request is not allowed');
+    activeRequests.add(id);
+    const result = await handler(body);
     toMain({ id, ok: true, result: result ?? null });
   } catch (error) {
     toMain({ id, ok: false, error: String(error?.message ?? error) });
+  } finally {
+    activeRequests.delete(id);
   }
 }
 
@@ -339,19 +645,23 @@ document.addEventListener(HELLO_MAIN, (event) => {
     const accepted = {};
     const barriers = {};
     const forwarded = fullSnapshot
-      ? Object.fromEntries(Object.entries(currentSnapshot).map(([key, newValue]) => [key, { newValue }]))
+      ? Object.fromEntries(Object.entries(currentSnapshot)
+        .filter(([key]) => key === STORAGE_REVISIONS_KEY || storageAccess.values.has(key))
+        .map(([key, newValue]) => [key, { newValue }]))
       : changes;
     if (fullSnapshot && validStorageRevisions(revisions)) {
       for (const key of Object.keys(revisions)) {
         if (
           key !== STORAGE_REVISION_EPOCH_KEY
           && key !== STORAGE_REVISION_ORDER_KEY
+          && storageAccess.values.has(key)
           && !Object.hasOwn(currentSnapshot, key)
         ) forwarded[key] = { newValue: undefined };
       }
     }
     for (const [key, { newValue: eventValue }] of Object.entries(forwarded)) {
       if (key === STORAGE_REVISIONS_KEY) continue;
+      if (!storageAccess.values.has(key)) continue;
       let newValue = eventValue;
       if (!fullSnapshot && currentSnapshot) {
         const currentValue = currentSnapshot[key];
@@ -361,6 +671,7 @@ document.addEventListener(HELLO_MAIN, (event) => {
           newValue = currentValue;
         }
       }
+      if (newValue !== undefined && !allowedValue(key, newValue)) newValue = undefined;
       data[key] = newValue ?? null;
       if (
         validStorageRevisions(revisions)
@@ -370,19 +681,27 @@ document.addEventListener(HELLO_MAIN, (event) => {
       else if (Number.isSafeInteger(storageRevisions?.[key])) barriers[key] = storageRevisions[key];
     }
     if (Object.keys(data).length || resetRevisions) {
-      toMain({
-        push: 'storage',
-        data,
-        meta: {
-          revisions: accepted,
-          barriers,
-          state: clone(storageRevisions),
-          resetRevisions,
-          reactivatedEpoch,
-          snapshot: fullSnapshot,
-          epoch: storageEpoch,
-        },
-      });
+      try {
+        toMain({
+          push: 'storage',
+          data,
+          meta: {
+            revisions: accepted,
+            barriers,
+            state: visibleRevisions(storageRevisions),
+            resetRevisions,
+            reactivatedEpoch,
+            snapshot: fullSnapshot,
+            epoch: storageEpoch,
+          },
+        });
+      } catch (error) {
+        toMain({
+          push: 'storage',
+          data: {},
+          meta: { error: String(error?.message ?? error) },
+        });
+      }
     }
   };
   chrome.storage.onChanged.addListener((changes, area) => {

@@ -27,7 +27,9 @@ export function fileName(parts, extension) {
   // A leading dot or tilde would make a hidden or backup file.
   const base = clean.replace(/\s+/g, ' ').trim().replace(/^[.~ ]+/, '');
   const cut = [...base].slice(0, 100).join('').trim().replace(/[. ]+$/, '');
-  return `${cut || 'Facebook'}.${extension}`;
+  // Windows keeps CON, NUL, COM1 and the like for devices, and the downloads refuse them.
+  const safe = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(cut) ? `Facebook ${cut}` : cut;
+  return `${safe || 'Facebook'}.${extension}`;
 }
 
 // Facebook's image server converts files on the way out, and its stp setting says to what:

@@ -7,6 +7,10 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
 import {
+  BRIDGE_MAX_DOWNLOADS_PER_WINDOW,
+  BRIDGE_MAX_MESSAGE_BYTES,
+  BRIDGE_MAX_PENDING,
+  BRIDGE_MAX_REQUESTS_PER_WINDOW,
   HELLO_ISOLATED,
   HELLO_MAIN,
   STORAGE_REVISION_EPOCH_KEY,
@@ -237,8 +241,11 @@ async function startIsolated(win, chrome) {
   await import(`../extension/isolated.js?run=${loads++}`);
 }
 
-function page() {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+// The isolated half picks the settings record from Facebook's c_user cookie, so an account the
+// page script names has to be the one signed in.
+function page(account, url = 'https://www.facebook.com/') {
+  const win = new Window({ url });
+  if (account) win.document.cookie = `c_user=${account}; path=/`;
   cleanups.push(() => win.happyDOM.close());
   return win;
 }
@@ -246,13 +253,13 @@ function page() {
 test('the halves find each other whichever starts first, and the secret stays off the page after', async () => {
   for (const isolatedFirst of [true, false]) {
     const win = page();
-    const chrome = fakeChrome({ answer: 42 });
+    const chrome = fakeChrome({ 'keepSpeed.rate': 1.5 });
     if (isolatedFirst) await startIsolated(win, chrome);
     const bridge = connectBridge({ doc: win.document, win, secret: randomUUID() });
     if (!isolatedFirst) await startIsolated(win, chrome);
     await settle();
     assert.equal(bridge.connected(), true, `connected when the isolated half starts ${isolatedFirst ? 'first' : 'second'}`);
-    assert.deepEqual({ ...(await bridge.request('storage:load')) }, { answer: 42 });
+    assert.deepEqual({ ...(await bridge.request('storage:load')) }, { 'keepSpeed.rate': 1.5 });
 
     // A page script asking later hears nothing.
     const heard = [];
@@ -272,8 +279,8 @@ test('MAIN-first requests wait for readiness and are dispatched exactly once', a
   const load = bridge.request('storage:load', null, { timeout: 100 });
   assert.deepEqual(sent, [], 'the request stays queued until the isolated half is listening');
 
-  await startIsolated(win, fakeChrome({ answer: 42 }));
-  assert.deepEqual({ ...(await load) }, { answer: 42 });
+  await startIsolated(win, fakeChrome({ 'keepSpeed.rate': 1.5 }));
+  assert.deepEqual({ ...(await load) }, { 'keepSpeed.rate': 1.5 });
   assert.equal(sent.length, 1);
   win.document.dispatchEvent(new win.CustomEvent(channelNames(secret).toMain, { detail: JSON.stringify({ ready: true }) }));
   assert.equal(sent.length, 1, 'a repeated ready signal does not dispatch it again');
@@ -290,12 +297,12 @@ test('the pre-ready request queue is bounded and queued requests expire', async 
 
 test("a hello that isn't a secret is ignored, and only the real one opens the channel", async () => {
   const win = page();
-  await startIsolated(win, fakeChrome({ answer: 1 }));
+  await startIsolated(win, fakeChrome({ 'keepSpeed.rate': 2 }));
   win.document.dispatchEvent(new win.CustomEvent(HELLO_MAIN, { detail: 'not-a-secret' }));
   const bridge = connectBridge({ doc: win.document, win, secret: randomUUID() });
   await settle();
   assert.equal(bridge.connected(), true);
-  assert.deepEqual({ ...(await bridge.request('storage:load')) }, { answer: 1 });
+  assert.deepEqual({ ...(await bridge.request('storage:load')) }, { 'keepSpeed.rate': 2 });
 });
 
 test('requests the isolated half has no answer for, or never answers, reject', async () => {
@@ -352,13 +359,20 @@ test('a write before the load keeps the newer value, and writes reach chrome.sto
 });
 
 test('the real adapter preserves newer changes against a delayed snapshot in both script orders', async () => {
+  // The isolated half only carries keys it knows, each in its own shape.
+  const changed = 'seenPostsCleared';
+  const removed = 'keepSpeed.rate';
+  const local = 'hidePostsByWords.cssWarned';
+  const untouched = 'extensionUpdate.told';
+  const localThenRemote = 'tasks';
+  const localThenRemoved = 'storageCheck';
   for (const isolatedFirst of [true, false]) {
     const win = page();
     const load = deferred();
     const readStarted = deferred();
     const stale = {
-      changed: 'old', removed: 'old', local: 'old', untouched: 'saved',
-      localThenRemote: 'old', localThenRemoved: 'old',
+      [changed]: 1, [removed]: 1, [local]: '1:a', [untouched]: '0.0.1',
+      [localThenRemote]: { a: 1 }, [localThenRemoved]: { token: 'old', at: 1 },
     };
     const chrome = fakeChrome(stale, { read: () => {
       readStarted.resolve();
@@ -369,30 +383,30 @@ test('the real adapter preserves newer changes against a delayed snapshot in bot
     if (!isolatedFirst) await startIsolated(win, chrome);
     await readStarted.promise;
 
-    await chrome.storage.local.set({ changed: 'new' });
-    await chrome.storage.local.remove('removed');
-    storage.set('local', 'mine');
-    storage.set('localThenRemote', 'mine');
-    storage.set('localThenRemoved', 'mine');
-    await chrome.storage.local.set({ localThenRemote: 'theirs' });
-    await chrome.storage.local.remove('localThenRemoved');
+    await chrome.storage.local.set({ [changed]: 2 });
+    await chrome.storage.local.remove(removed);
+    storage.set(local, '3:c');
+    storage.set(localThenRemote, { a: 3 });
+    storage.set(localThenRemoved, { token: 'mine', at: 3 });
+    await chrome.storage.local.set({ [localThenRemote]: { a: 4 } });
+    await chrome.storage.local.remove(localThenRemoved);
     await settle();
     const ready = new Promise((resolve) => storage.whenReady(resolve));
     load.resolve(stale);
     await ready;
     await settle();
 
-    assert.equal(storage.get('changed'), 'new');
-    assert.equal(storage.get('removed', 'missing'), 'missing');
-    assert.equal(storage.get('local'), 'mine');
-    assert.equal(storage.get('untouched'), 'saved');
-    assert.equal(storage.get('localThenRemote'), 'theirs');
-    assert.equal(storage.get('localThenRemoved', 'missing'), 'missing');
-    assert.equal(storage.getAtLoad('changed'), 'new');
-    assert.equal(storage.getAtLoad('removed', 'missing'), undefined, 'the remote deletion is a load-time tombstone');
-    assert.equal(storage.getAtLoad('local'), 'old');
-    assert.equal(chrome.data.localThenRemote, 'theirs', 'a newer remote set cancels the queued local write');
-    assert.equal(Object.hasOwn(chrome.data, 'localThenRemoved'), false, 'a newer remote removal cancels the queued local write');
+    assert.equal(storage.get(changed), 2);
+    assert.equal(storage.get(removed, 'missing'), 'missing');
+    assert.equal(storage.get(local), '3:c');
+    assert.equal(storage.get(untouched), '0.0.1');
+    assert.deepEqual(storage.get(localThenRemote), { a: 4 });
+    assert.equal(storage.get(localThenRemoved, 'missing'), 'missing');
+    assert.equal(storage.getAtLoad(changed), 2);
+    assert.equal(storage.getAtLoad(removed, 'missing'), undefined, 'the remote deletion is a load-time tombstone');
+    assert.equal(storage.getAtLoad(local), '1:a');
+    assert.deepEqual(chrome.data[localThenRemote], { a: 4 }, 'a newer remote set cancels the queued local write');
+    assert.equal(Object.hasOwn(chrome.data, localThenRemoved), false, 'a newer remote removal cancels the queued local write');
   }
 });
 
@@ -1931,8 +1945,8 @@ test('migration guards use the physical record when it stores an explicit defaul
 });
 
 test('a new account inherits the shared migration record when it writes before storage loads', async () => {
-  const win = page();
   const account = '615000000000017';
+  const win = page(account);
   const accountKey = storageKeyFor(account);
   const chrome = fakeChrome({
     settings: { hideSponsoredPosts: false },
@@ -1966,7 +1980,7 @@ test('a first-seen account snapshots inherited defaults through the worker', asy
   const account = '615000000000018';
   const accountKey = storageKeyFor(account);
   const chrome = fakeChrome({ 'settings.migrated': ['done'] });
-  const firstPage = page();
+  const firstPage = page(account);
   await startIsolated(firstPage, chrome);
   const firstStorage = createBridgeStorage(connectBridge({ doc: firstPage.document, win: firstPage, secret: randomUUID() }));
   const feature = [{ id: 'beta', title: 'Beta', default: false }];
@@ -1983,7 +1997,7 @@ test('a first-seen account snapshots inherited defaults through the worker', asy
   assert.equal(chrome.data[STORAGE_REVISIONS_KEY][accountKey], 1);
 
   await chrome.storage.local.set({ settings: { beta: true } });
-  const secondPage = page();
+  const secondPage = page(account);
   await startIsolated(secondPage, chrome);
   const secondStorage = createBridgeStorage(connectBridge({ doc: secondPage.document, win: secondPage, secret: randomUUID() }));
   const again = createSettings({
@@ -2010,7 +2024,7 @@ test('a first-seen account rereads shared settings through the worker without mi
     }
     return send(message);
   };
-  const win = page();
+  const win = page(account);
   await startIsolated(win, chrome);
   const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
   const settings = createSettings({
@@ -2027,6 +2041,169 @@ test('a first-seen account rereads shared settings through the worker without mi
   const copy = chrome.sent.find((message) => message.type === 'storage:migrate' && message.key === accountKey);
   assert.deepEqual(copy.receipt, []);
   assert.equal(copy.sourceKey, 'settings');
+});
+
+// A page script that learned the event names: it says hello first and sends whatever it likes.
+function forgedChannel(win, secret = randomUUID()) {
+  const { toIsolated, toMain } = channelNames(secret);
+  const heard = [];
+  const pushes = [];
+  const waiters = [];
+  win.document.addEventListener(toMain, (event) => {
+    const message = JSON.parse(event.detail);
+    if (message.id === undefined) {
+      pushes.push(message);
+      return;
+    }
+    heard.push(message);
+    const at = waiters.findIndex((waiter) => waiter.id === message.id);
+    if (at >= 0) waiters.splice(at, 1)[0].resolve(message);
+  });
+  const raw = (detail) => win.document.dispatchEvent(new win.CustomEvent(toIsolated, { detail }));
+  let next = 0;
+  const send = (type, payload, id = next++) => new Promise((resolve) => {
+    waiters.push({ id, resolve });
+    raw(JSON.stringify({ id, type, payload }));
+  });
+  win.document.dispatchEvent(new win.CustomEvent(HELLO_MAIN, { detail: secret }));
+  return { send, raw, heard, pushes };
+}
+
+const refused = async (answer, pattern, message) => {
+  const { ok, error } = await answer;
+  assert.equal(ok, false, message);
+  assert.match(error, pattern, message);
+};
+
+test('a c_user cookie the page plants for another account opens neither account record', async () => {
+  const real = storageKeyFor('615000000000041');
+  const planted = storageKeyFor('615000000000042');
+  const chrome = fakeChrome({ settings: { beta: true }, [real]: { beta: false }, [planted]: { beta: true } });
+  const win = page('615000000000041', 'https://www.facebook.com/x/videos/');
+  win.document.cookie = 'c_user=615000000000042; path=/x';
+  assert.match(win.document.cookie, /c_user=615000000000042/, 'the planted cookie is visible here');
+  await startIsolated(win, chrome);
+  const loaded = await forgedChannel(win).send('storage:load', {});
+  assert.equal(loaded.ok, true);
+  assert.ok(!Object.hasOwn(loaded.result, real) && !Object.hasOwn(loaded.result, planted), Object.keys(loaded.result).join());
+  assert.deepEqual(loaded.result.settings, { beta: true });
+});
+
+test('a page that says hello first can only reach its own account and the shared bookkeeping', async () => {
+  const mine = storageKeyFor('615000000000031');
+  const theirs = storageKeyFor('615000000000032');
+  const chrome = fakeChrome({
+    settings: { beta: true },
+    [mine]: { beta: false },
+    [`${mine}.migrated`]: ['done'],
+    [theirs]: { beta: true },
+    [`${theirs}.migrated`]: ['done'],
+    'keepSpeed.rate': 1.5,
+    'hushfacebookWeb.pendingPreferenceRecovery': { [theirs]: { beta: true } },
+    unrelated: 'x',
+    [STORAGE_REVISIONS_KEY]: revisions('e1', 3, { settings: 1, [mine]: 2, [theirs]: 3 }),
+  });
+  const win = page('615000000000031');
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+
+  const loaded = await forged.send('storage:load', {});
+  assert.equal(loaded.ok, true);
+  assert.deepEqual(Object.keys(loaded.result).sort(), [
+    'keepSpeed.rate', 'settings', STORAGE_REVISIONS_KEY, mine, `${mine}.migrated`,
+  ].sort());
+  assert.deepEqual(loaded.result[STORAGE_REVISIONS_KEY], revisions('e1', 3, { settings: 1, [mine]: 2 }), 'another account stays out of the journal too');
+
+  await refused(forged.send('storage:remove', { key: theirs }), /not allowed/);
+  await refused(forged.send('storage:remove', { key: STORAGE_REVISIONS_KEY }), /not allowed/);
+  await refused(forged.send('storage:remove', { key: 'unrelated' }), /not allowed/);
+  await refused(forged.send('storage:set', { key: mine, value: {} }), /not allowed/, 'settings change only through mutations');
+  await refused(forged.send('storage:set', { key: 'settings', value: {} }), /not allowed/);
+  await refused(forged.send('storage:set', { key: 'extensionUpdate', value: { at: 1, current: '1.0', latest: '9.0', url: null, newer: true } }), /not allowed/);
+  await refused(forged.send('storage:set', { key: 'keepSpeed.rate', value: 99 }), /not allowed/);
+  await refused(forged.send('storage:mutate', { key: theirs, mutation: { set: { beta: false } } }), /not allowed/);
+  await refused(forged.send('storage:mutate', { key: mine, mutation: { set: { beta: { nested: true } } } }), /not allowed/);
+  await refused(forged.send('storage:migrate', {
+    key: theirs, doneKey: `${theirs}.migrated`, mutation: { set: {} }, receipt: [], sourceKey: 'settings', sourceDoneKey: 'settings.migrated',
+  }), /not allowed/);
+  await refused(forged.send('storage:clear', {}), /unknown request/);
+  assert.deepEqual(chrome.data[theirs], { beta: true });
+  assert.equal(chrome.data.unrelated, 'x');
+  assert.deepEqual(chrome.sent.filter((message) => message.type !== 'storage:recover'), [], 'nothing refused reached the worker');
+
+  assert.equal((await forged.send('storage:set', { key: 'keepSpeed.rate', value: 2 })).ok, true);
+  assert.equal(chrome.data['keepSpeed.rate'], 2);
+
+  // Another tab's account changes never reach this page.
+  await settle();
+  forged.pushes.length = 0;
+  await chrome.storage.local.set({ [theirs]: { beta: false }, unrelated: 'y' });
+  await settle();
+  assert.deepEqual(forged.pushes.filter((push) => Object.keys(push.data ?? {}).length), []);
+  await chrome.storage.local.set({ 'keepSpeed.rate': 3 });
+  await settle();
+  assert.deepEqual(forged.pushes.map((push) => push.data), [{ 'keepSpeed.rate': 3 }]);
+});
+
+test('a game frame sees and changes only the game ads switch', async () => {
+  const chrome = fakeChrome({ 'instantGamesAds.enabled': false, 'keepSpeed.rate': 1.5, settings: { beta: true } });
+  const win = page(undefined, 'https://game123.apps.fbsbx.com/index.html');
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+
+  const loaded = await forged.send('storage:load', {});
+  assert.deepEqual(loaded.result, { 'instantGamesAds.enabled': false });
+  assert.deepEqual(chrome.sent, [], 'a game frame has no settings record for the worker to recover');
+  assert.equal((await forged.send('storage:set', { key: 'instantGamesAds.enabled', value: true })).ok, true);
+  assert.equal(chrome.data['instantGamesAds.enabled'], true);
+  await refused(forged.send('storage:set', { key: 'keepSpeed.rate', value: 2 }), /not allowed/);
+  await refused(forged.send('storage:mutate', { key: 'settings', mutation: { set: { beta: false } } }), /not allowed/);
+  await refused(forged.send('download', { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg' }), /not allowed/);
+});
+
+test('oversize, duplicate, piled-up and flooding requests are turned away', async () => {
+  const account = '615000000000033';
+  const key = storageKeyFor(account);
+  const chrome = fakeChrome({ [key]: {} });
+  const win = page(account);
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+  assert.equal((await forged.send('storage:load', {})).ok, true);
+
+  const before = forged.heard.length;
+  // Well-formed, so only the size check keeps them from being read and answered.
+  const oversize = (value) => JSON.stringify({ id: 900, type: 'storage:set', payload: { key: 'seenPosts', value } });
+  forged.raw(oversize('x'.repeat(BRIDGE_MAX_MESSAGE_BYTES)));
+  forged.raw(oversize('é'.repeat(Math.ceil(BRIDGE_MAX_MESSAGE_BYTES * 0.6))));
+  await settle();
+  assert.equal(forged.heard.length, before, 'a message over the limit is dropped unread, counting bytes, not characters');
+  const big = Object.fromEntries(Array.from({ length: 5000 }, (_, index) => [String(index).padStart(240, 'p'), 1]));
+  await refused(forged.send('storage:set', { key: 'seenPosts', value: big }), /not allowed/);
+  const bridge = connectBridge({ doc: win.document, win, secret: randomUUID() });
+  await assert.rejects(bridge.request('storage:set', { key: 'seenPosts', value: 'x'.repeat(BRIDGE_MAX_MESSAGE_BYTES) }), /too large/);
+
+  // The worker never answers, so every settings change stays running.
+  chrome.runtime.sendMessage = () => new Promise(() => {});
+  const mutation = { key, mutation: { set: { beta: true } } };
+  for (let id = 1000; id < 1000 + BRIDGE_MAX_PENDING; id++) forged.raw(JSON.stringify({ id, type: 'storage:mutate', payload: mutation }));
+  await refused(forged.send('storage:mutate', mutation, 1000), /already running/);
+  await refused(forged.send('storage:mutate', mutation, 2000), /too many extension requests are running/);
+
+  const flood = page(account);
+  const floodChrome = fakeChrome({ [key]: {} });
+  await startIsolated(flood, floodChrome);
+  const flooding = forgedChannel(flood);
+  for (let index = 0; index < BRIDGE_MAX_REQUESTS_PER_WINDOW; index++) {
+    await refused(flooding.send('storage:mutate', { key: 'nope' }), /not allowed/);
+  }
+  await refused(flooding.send('storage:load', {}), /too many extension requests were sent/);
+  assert.equal((await flooding.send('storage:set', { key: 'keepSpeed.rate', value: 2 })).ok, true, 'quick writes have their own allowance');
+  const download = { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'Pat photo.jpg' };
+  for (let index = 0; index < BRIDGE_MAX_DOWNLOADS_PER_WINDOW; index++) {
+    assert.equal((await flooding.send('download', download)).ok, true);
+  }
+  await refused(flooding.send('download', download), /too many extension requests were sent/);
+  assert.equal(floodChrome.sent.filter((message) => message.type === 'download').length, BRIDGE_MAX_DOWNLOADS_PER_WINDOW);
 });
 
 test('the channel names carry the secret', () => {

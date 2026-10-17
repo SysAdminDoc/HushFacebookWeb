@@ -30,6 +30,9 @@ const WAKE_DELAY = 300; // ms after the first click, so a click on Unmute itself
 // Unmute button shares the video's parent and its Like button joins 9 levels up; a feed video's
 // mute button and volume slider join 8 up and its Like 35 up.
 const PLAYER_LEVELS = 8;
+// A slider drag fires volumechange for every step. Ten writes a second go straight to storage and
+// the rest wait as one, so a long drag stays inside the extension's write allowance.
+const WRITES_PER_SECOND = 10;
 // Facebook's mute button. Its label says what a click does: "Unmute" while Facebook has it muted.
 const TOGGLE = /^(mute|unmute)$/i;
 const SAYS_MUTED = /^unmute$/i;
@@ -81,6 +84,7 @@ export function createVolumeKeeper({
   now = () => Date.now(),
   trusted = (event) => event.isTrusted,
   defer = (run) => win.setTimeout(run, WAKE_DELAY),
+  later = (run, ms) => win.setTimeout(run, ms),
 }) {
   const ours = new WeakMap(); // video -> { volume, muted } the script set
   const putBacks = new WeakMap(); // video -> recent put-back times
@@ -96,7 +100,27 @@ export function createVolumeKeeper({
   // holds the script's last write and matches `ours`.
   let applying = false;
 
-  const kept = () => readVolume(storage.get(VOLUME_KEY, null));
+  let unsaved = null; // your newest pick, while it waits for the next write
+  let writeQueued = false;
+  const writes = [];
+  const kept = () => unsaved ?? readVolume(storage.get(VOLUME_KEY, null));
+  function writeUnsaved() {
+    writeQueued = false;
+    if (!unsaved) return;
+    const next = unsaved;
+    unsaved = null;
+    writes.push(now());
+    storage.set(VOLUME_KEY, next);
+  }
+  function save(next) {
+    while (writes.length && now() - writes[0] >= 1000) writes.shift();
+    unsaved = next;
+    if (writes.length < WRITES_PER_SECOND) writeUnsaved();
+    else if (!writeQueued) {
+      writeQueued = true;
+      later(writeUnsaved, Math.max(0, writes[0] + 1000 - now()));
+    }
+  }
   // Whether the page may play sound: the browser's own answer where it gives one.
   const activated = () => win.navigator?.userActivation?.hasBeenActive ?? inputSeen;
   const mutedFor = (state, current) => (state.muted ? true : activated() ? false : current);
@@ -190,7 +214,7 @@ export function createVolumeKeeper({
       volume: pick.volume || !before ? clamp(video.volume) : before.volume,
       muted: pick.muted ? video.muted : before?.muted ?? video.muted,
     };
-    if (!before || before.volume !== next.volume || before.muted !== next.muted) storage.set(VOLUME_KEY, next);
+    if (!before || before.volume !== next.volume || before.muted !== next.muted) save(next);
     lastInput = now(); // a slider drag goes on past the first change
     // A click on the mute button also writes Facebook's own level, which isn't a pick.
     if (video.volume !== next.volume) give(video);
@@ -236,9 +260,14 @@ export function createVolumeKeeper({
       for (const type of ['loadedmetadata', 'play', 'playing']) doc.addEventListener(type, onStart, true);
       doc.addEventListener('timeupdate', onTime, true);
       doc.addEventListener('volumechange', onVolume, true);
+      // A pick still waiting when the page goes away is written then.
+      win.addEventListener('pagehide', writeUnsaved);
     },
     kept,
-    reset: () => storage.remove(VOLUME_KEY),
+    reset: () => {
+      unsaved = null;
+      storage.remove(VOLUME_KEY);
+    },
   };
 }
 

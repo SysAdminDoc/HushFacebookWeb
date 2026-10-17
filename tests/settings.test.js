@@ -828,6 +828,9 @@ test('the signed-in account comes from the c_user cookie, and nothing else', () 
   assert.equal(accountFromCookie('not_c_user=615000000000017'), null);
   assert.equal(accountFromCookie('c_user=deleted'), null);
   assert.equal(accountFromCookie(undefined), null);
+  assert.equal(accountFromCookie('c_user=615000000000017; c_user=615000000000017'), '615000000000017');
+  assert.equal(accountFromCookie('c_user=615000000000099; datr=abc; c_user=615000000000017'), null, 'a second account planted on a deeper path picks neither');
+  assert.equal(accountFromCookie('c_user=615000000000099;c_user=615000000000017'), null);
 });
 
 test('two accounts in one browser keep their own settings, and signed out uses the shared ones', () => {

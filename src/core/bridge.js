@@ -2,12 +2,12 @@
 // chrome.storage and chrome.downloads don't exist, so it asks the extension's isolated content
 // script (extension/isolated.js) over DOM events on the document.
 //
-// Facebook's code shares that document, so the event names carry a secret. This half makes it
-// before any of Facebook's scripts run and hands it over in the same moment: the isolated half
-// listens for HELLO_MAIN, or, when it starts second, says HELLO_ISOLATED and gets the hello once.
-// Its "ready" on the secret channel closes the door, so a page script saying hello later learns
-// nothing. Details are JSON strings, since objects don't cross between the two worlds, and the
-// DOM functions used are taken before Facebook can wrap them.
+// Facebook's code shares that document, so a random event name keeps ordinary page traffic out
+// of the way. It is routing, not authentication: MAIN runs in the page's world, and the page can
+// observe or forge every DOM event it uses. The isolated half therefore treats every request as
+// untrusted and grants only the current document's bounded capabilities. Details are JSON strings,
+// since objects don't cross between the two worlds, and the DOM functions used are taken before
+// Facebook can wrap them.
 
 export const HELLO_MAIN = 'hushfacebook-web:hello-main';
 export const HELLO_ISOLATED = 'hushfacebook-web:hello-isolated';
@@ -35,11 +35,29 @@ export const storageRevisionEpoch = (value) => (
 export const channelNames = (secret) => ({ toIsolated: `hushfacebook-web:${secret}:in`, toMain: `hushfacebook-web:${secret}:out` });
 
 const TIMEOUT = 15000;
-const MAX_PENDING = 64;
+export const BRIDGE_MAX_PENDING = 64;
+export const BRIDGE_MAX_MESSAGE_BYTES = 1536 * 1024;
+export const BRIDGE_MAX_VALUE_BYTES = 1024 * 1024;
+export const BRIDGE_RATE_WINDOW = 10000;
+export const BRIDGE_MAX_REQUESTS_PER_WINDOW = 120;
+// Remembered volume writes on every volumechange, so a slider drag runs near 60 a second.
+export const BRIDGE_MAX_WRITES_PER_WINDOW = 600;
+export const BRIDGE_MAX_DOWNLOADS_PER_WINDOW = 8;
 // Taken when the bundle loads, before the script's own JSON.parse hook or Facebook's code.
 const { stringify } = JSON;
+const Encoder = TextEncoder;
+const serializedBytes = (text) => {
+  if (text.length > BRIDGE_MAX_MESSAGE_BYTES) return BRIDGE_MAX_MESSAGE_BYTES + 1;
+  return new Encoder().encode(text).byteLength;
+};
 
-export function connectBridge({ doc = globalThis.document, win = globalThis, secret = win.crypto.randomUUID(), maxPending = MAX_PENDING } = {}) {
+export function connectBridge({
+  doc = globalThis.document,
+  win = globalThis,
+  secret = win.crypto.randomUUID(),
+  maxPending = BRIDGE_MAX_PENDING,
+  maxMessageBytes = BRIDGE_MAX_MESSAGE_BYTES,
+} = {}) {
   const { toIsolated, toMain } = channelNames(secret);
   const Custom = win.CustomEvent;
   const dispatch = win.EventTarget.prototype.dispatchEvent;
@@ -104,12 +122,21 @@ export function connectBridge({ doc = globalThis.document, win = globalThis, sec
     request(type, payload, { timeout = TIMEOUT } = {}) {
       if (pending.size >= maxPending) return Promise.reject(new Error('too many extension requests are waiting'));
       const id = nextId++;
+      let message;
+      try {
+        message = stringify({ id, type, payload });
+      } catch {
+        return Promise.reject(new Error('the extension request could not be encoded'));
+      }
+      if (message.length > maxMessageBytes || serializedBytes(message) > maxMessageBytes) {
+        return Promise.reject(new Error('the extension request is too large'));
+      }
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(id);
           reject(new Error('the extension did not answer'));
         }, timeout);
-        const waiting = { id, resolve, reject, timer, sent: false, message: stringify({ id, type, payload }) };
+        const waiting = { id, resolve, reject, timer, sent: false, message };
         pending.set(id, waiting);
         if (ready) send(waiting);
       });

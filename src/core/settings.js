@@ -13,8 +13,11 @@ export const MAX_BACKUP_BYTES = 1024 * 1024;
 const isPromise = (value) => value && typeof value.then === 'function';
 const isSettingsRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
+// Two different c_user values mean a page set one of its own on a deeper path, which
+// document.cookie lists first. Neither is trusted then, so the shared signed-out record is used.
 export function accountFromCookie(cookie) {
-  return /(?:^|;\s*)c_user=(\d+)(?:;|$)/.exec(String(cookie ?? ''))?.[1] ?? null;
+  const found = new Set([...String(cookie ?? '').matchAll(/(?:^|;\s*)c_user=(\d+)(?=;|$)/g)].map((match) => match[1]));
+  return found.size === 1 ? [...found][0] : null;
 }
 
 // FNV-1a, enough to tell a few accounts apart without writing their ids down.

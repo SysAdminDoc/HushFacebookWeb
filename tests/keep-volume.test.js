@@ -99,10 +99,22 @@ function guarded(win) {
 function keeper(win, storage, { on = () => true, page = false } = {}) {
   let time = 10000;
   const woken = [];
-  const k = createVolumeKeeper({ doc: win.document, win, storage, enabled: on, page, now: () => time, trusted: () => true, defer: (run) => woken.push(run) });
+  const waiting = [];
+  const k = createVolumeKeeper({
+    doc: win.document, win, storage, enabled: on, page, now: () => time, trusted: () => true,
+    defer: (run) => woken.push(run), later: (run, ms) => waiting.push({ run, at: time + ms }),
+  });
   k.start();
   return {
     keeper: k,
+    waiting,
+    // Runs the writes that are due by now.
+    due() {
+      for (const entry of waiting.filter(({ at }) => at <= time)) {
+        waiting.splice(waiting.indexOf(entry), 1);
+        entry.run();
+      }
+    },
     // A real click: pointerdown, then the click Facebook's buttons act on.
     click(target) {
       target.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true }));
@@ -157,6 +169,51 @@ test("the level comes only from a volume slider, and goes to reels, which Facebo
   assert.equal(reel.video.muted, true);
   assert.equal(reel.video.volume, 0.4, "the mute button's 100% is put back");
   assert.deepEqual(storage.get(VOLUME_KEY), { volume: 0.4, muted: true }, 'and only the mute is kept');
+});
+
+test('a long slider drag writes at most ten times a second and saves where it stops', () => {
+  const storage = createMemoryStorage();
+  const saved = [];
+  const set = storage.set;
+  storage.set = (key, value) => {
+    saved.push(value.volume);
+    set(key, value);
+  };
+  const win = page();
+  const { keeper: k, click, later, due, waiting } = keeper(win, storage);
+  const feed = player(win, { feed: true, muted: false });
+  feed.start();
+  click(feed.slider);
+  // Three seconds at 60 steps a second, down from 100%.
+  for (let step = 1; step <= 180; step++) {
+    later(1000 / 60);
+    due();
+    feed.slide(1 - step / 200);
+    assert.equal(feed.video.volume, 1 - step / 200, `step ${step} stays where you dragged it`);
+  }
+  assert.ok(saved.length <= 40, `${saved.length} writes`);
+  const last = 1 - 180 / 200;
+  assert.deepEqual(k.kept(), { volume: last, muted: false }, 'the newest pick counts before it is written');
+  later(1000);
+  due();
+  assert.equal(waiting.length, 0);
+  assert.deepEqual(storage.get(VOLUME_KEY), { volume: last, muted: false });
+  const writes = saved.length;
+  feed.slide(0.2);
+  assert.equal(saved.length, writes + 1, 'after a pause the next pick is written at once');
+});
+
+test('a pick still waiting to be written is saved when the page goes away', () => {
+  const storage = createMemoryStorage();
+  const win = page();
+  const { click } = keeper(win, storage);
+  const feed = player(win, { feed: true, muted: false });
+  feed.start();
+  click(feed.slider);
+  for (let step = 1; step <= 12; step++) feed.slide(1 - step / 20);
+  assert.deepEqual(storage.get(VOLUME_KEY), { volume: 0.5, muted: false }, 'the first ten were written');
+  win.dispatchEvent(new win.Event('pagehide'));
+  assert.deepEqual(storage.get(VOLUME_KEY), { volume: 0.4, muted: false });
 });
 
 test('a mute you choose is kept too, and a new video stays muted', () => {
