@@ -30,28 +30,49 @@ export function createSeenStore({
 } = {}) {
   let entries = new Map();
   let cleared = 0;
+  let timer = null;
+  let ready = !storage?.whenReady;
+  let savedBeforeReady = false;
+  const waiting = [];
   // The extension's storage fills a few milliseconds in, so the saved list joins whatever was
   // seen before then rather than the other way round.
   const read = () => {
     try {
-      cleared = clearedAt(storage?.get(CLEARED_KEY, 0));
-      for (const [id, at] of parse(storage?.get(SEEN_KEY, null), cleared)) if (!entries.has(id)) entries.set(id, at);
+      const get = storage?.getAtLoad ? storage.getAtLoad.bind(storage) : storage?.get?.bind(storage);
+      cleared = Math.max(cleared, clearedAt(get?.(CLEARED_KEY, 0)));
+      for (const [id, at] of parse(get?.(SEEN_KEY, null), cleared)) {
+        const mine = entries.get(id);
+        if (mine === undefined || at < mine) entries.set(id, at);
+      }
     } catch (error) {
       log?.error("Couldn't read the seen posts list, starting a new one", error);
     }
+    ready = true;
+    if (savedBeforeReady) {
+      savedBeforeReady = false;
+      save();
+    }
+    for (const run of waiting.splice(0)) {
+      try {
+        run();
+      } catch (error) {
+        log?.error('A seen-post ready listener failed', error);
+      }
+    }
   };
-  if (storage?.whenReady) storage.whenReady(read);
-  else read();
-  let timer = null;
 
   function save() {
     timer = null;
+    if (!ready) savedBeforeReady = true;
     try {
       storage?.set(SEEN_KEY, Object.fromEntries(entries));
     } catch (error) {
       log?.error("Couldn't save the seen posts list", error);
     }
   }
+
+  if (storage?.whenReady) storage.whenReady(read);
+  else read();
 
   function later() {
     if (timer === null) timer = schedule(save, SAVE_DELAY);
@@ -113,6 +134,10 @@ export function createSeenStore({
     },
     has: (id) => entries.has(id),
     size: () => entries.size,
+    whenReady(run) {
+      if (ready) run();
+      else waiting.push(run);
+    },
     clear() {
       cleared = Math.max(now(), cleared);
       entries.clear();

@@ -197,5 +197,11 @@ export default {
       hider?.showAll('Seen');
       if (hiding()) watcher?.recheckAll();
     });
+    if (storage?.whenReady) {
+      store.whenReady(() => {
+        refresh(until);
+        if (hiding()) watcher?.recheckAll();
+      });
+    }
   },
 };

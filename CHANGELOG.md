@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* The extension now holds bridge requests until its storage side is ready, so saved choices load in either startup order. Newer changes and deletions win over an older startup snapshot. Filtering and storage-backed housekeeping wait for confirmation. If storage can't be reached, General keeps a Retry notice instead of treating default choices as loaded.
 * General now has Quiet and Privacy Quick setups, plus Back to defaults. Each one says exactly how many settings changed. Find a setting covers General and nested choices too, and those controls work in the results even when their parent switch is off.
 * Report a problem now sits above Ko-fi in General. It opens GitHub with the script, browser, userscript manager and checked switches filled in, while leaving out account ids and private values. The report stays under 6,000 characters and leaves space to describe what happened and what was expected.
 * Pressing and holding the Facebook logo now opens HushFacebook Web settings. A normal click still goes Home.

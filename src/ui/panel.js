@@ -377,9 +377,29 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       h('div', { class: 'desc', text: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.' }));
   }
 
+  function storageRecoveryCard(state) {
+    const loading = state === 'loading';
+    return h('div', { class: 'card', dataset: { key: 'storage-recovery' } },
+      h('div', { class: 'title', text: loading ? 'Loading saved settings' : "Saved settings aren't available" }),
+      h('div', { class: 'desc', text: loading
+        ? 'Startup choices will apply after the extension confirms them.'
+        : "HushFacebook Web hasn't applied startup choices from storage. Retry the connection before changing settings." }),
+      loading ? null : h('div', { class: 'actions' }, actionButton('storage:retry', 'Retry', async () => {
+        const loaded = await environment.storage.retry();
+        if (!loaded) throw environment.storage.status().error ?? new Error("Saved settings still aren't available");
+        toast('Saved settings loaded.');
+      }, { primary: true, busyLabel: 'Retrying...' })));
+  }
+
   function generalRows() {
     const update = environment.update?.();
+    const storageState = environment.storage?.status?.().state;
     return [
+      ...(storageState && storageState !== 'ready' ? [{
+        id: 'storage-recovery', section: 'general', title: storageState === 'loading' ? 'Loading saved settings' : "Saved settings aren't available",
+        description: 'Retry extension storage without treating defaults as loaded choices.', options: [{ label: 'Retry' }], focusKey: 'storage:retry',
+        render: () => storageRecoveryCard(environment.storage.status().state),
+      }] : []),
       ...(update ? [{
         id: 'update', section: 'general', title: `HushFacebook Web ${update.version} is out`,
         description: `You have ${environment.version}. Download the new extension files, then reload HushFacebook Web in your browser.`,
@@ -662,6 +682,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   });
   hider?.subscribe(refreshDiagnostics);
   diagnostics?.subscribe(refreshDiagnostics);
+  environment.storage?.onStatus?.(() => {
+    if (dialog.open) render();
+  });
   const earlier = log.entries().findLast((entry) => entry.level === 'error');
   if (earlier) announceError(earlier);
 

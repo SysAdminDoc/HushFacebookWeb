@@ -66,6 +66,34 @@ test('the store keeps the first time a post was seen and writes once per batch',
   assert.equal(store.size(), 0);
 });
 
+test('ready listeners see merged saved history and the earliest duplicate time', () => {
+  let load;
+  const writes = [];
+  const storage = {
+    get: (_key, fallback) => fallback,
+    getAtLoad: (key, fallback) => (key === SEEN_KEY ? { old: 100, same: 100 } : fallback),
+    set: (key, value) => writes.push([key, value]),
+    whenReady(run) { load = run; },
+    onChange() {},
+  };
+  let scheduled;
+  const store = createSeenStore({
+    storage,
+    now: () => 200,
+    schedule: (run) => { scheduled = run; return 1; },
+    cancel: () => {},
+    every: null,
+  });
+  store.add(['new', 'same']);
+  scheduled();
+  let atReady;
+  store.whenReady(() => { atReady = [...store.since(0)].sort(); });
+  load();
+
+  assert.deepEqual(atReady, ['new', 'old', 'same']);
+  assert.deepEqual(writes.at(-1), [SEEN_KEY, { new: 200, same: 100, old: 100 }]);
+});
+
 test('the store drops old and surplus entries, skips junk, and merges other tabs', () => {
   const now = 100 * DAY;
   const storage = sharedStorage({ [SEEN_KEY]: { old: now - 31 * DAY, keep: now - DAY, newer: now - 1000, bad: 'x', '': now } });

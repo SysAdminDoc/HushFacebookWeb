@@ -14,10 +14,11 @@ export const HELLO_ISOLATED = 'hushfacebook-web:hello-isolated';
 export const channelNames = (secret) => ({ toIsolated: `hushfacebook-web:${secret}:in`, toMain: `hushfacebook-web:${secret}:out` });
 
 const TIMEOUT = 15000;
+const MAX_PENDING = 64;
 // Taken when the bundle loads, before the script's own JSON.parse hook or Facebook's code.
 const { stringify } = JSON;
 
-export function connectBridge({ doc = globalThis.document, win = globalThis, secret = win.crypto.randomUUID() } = {}) {
+export function connectBridge({ doc = globalThis.document, win = globalThis, secret = win.crypto.randomUUID(), maxPending = MAX_PENDING } = {}) {
   const { toIsolated, toMain } = channelNames(secret);
   const Custom = win.CustomEvent;
   const dispatch = win.EventTarget.prototype.dispatchEvent;
@@ -29,6 +30,17 @@ export function connectBridge({ doc = globalThis.document, win = globalThis, sec
   let ready = false;
 
   const say = (type, detail) => dispatch.call(doc, new Custom(type, { detail }));
+  const send = (waiting) => {
+    if (waiting.sent) return;
+    waiting.sent = true;
+    try {
+      say(toIsolated, waiting.message);
+    } catch (error) {
+      pending.delete(waiting.id);
+      clearTimeout(waiting.timer);
+      waiting.reject(error);
+    }
+  };
 
   listen.call(doc, toMain, (event) => {
     let message;
@@ -38,7 +50,9 @@ export function connectBridge({ doc = globalThis.document, win = globalThis, sec
       return;
     }
     if (message?.ready) {
+      if (ready) return;
       ready = true;
+      for (const waiting of pending.values()) send(waiting);
       return;
     }
     if (message?.id !== undefined) {
@@ -67,14 +81,16 @@ export function connectBridge({ doc = globalThis.document, win = globalThis, sec
     connected: () => ready,
     // Resolves with the isolated half's answer, or rejects with its error.
     request(type, payload, { timeout = TIMEOUT } = {}) {
+      if (pending.size >= maxPending) return Promise.reject(new Error('too many extension requests are waiting'));
       const id = nextId++;
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(id);
           reject(new Error('the extension did not answer'));
         }, timeout);
-        pending.set(id, { resolve, reject, timer });
-        say(toIsolated, stringify({ id, type, payload }));
+        const waiting = { id, resolve, reject, timer, sent: false, message: stringify({ id, type, payload }) };
+        pending.set(id, waiting);
+        if (ready) send(waiting);
       });
     },
     // Messages the extension sends on its own: 'storage' (changes from other tabs), 'open-settings'.
@@ -93,64 +109,136 @@ export function createBridgeStorage(bridge, { log } = {}) {
   const data = new Map();
   const pageLoadData = new Map();
   const written = new Set();
+  const queuedWrites = new Map();
+  const remoteChanges = new Map();
   const listeners = new Map();
+  const statusListeners = new Set();
   const waiting = [];
   let loaded = false;
+  let finishing = false;
+  let revision = 0;
+  let state = 'loading';
+  let lastError = null;
+  let loadPromise = null;
   const copy = (value) => (value === undefined ? undefined : structuredClone(value));
   const same = (a, b) => stringify(a) === stringify(b);
-  const tell = (key, value) => {
+  const tell = (key, value, source = 'remote') => {
     for (const listener of listeners.get(key) ?? []) {
       try {
-        listener(copy(value));
+        listener(copy(value), { source });
       } catch (error) {
         log?.error('A storage listener failed', error);
       }
     }
   };
+  const status = () => ({ state, error: lastError });
+  const tellStatus = (listener) => {
+    try {
+      listener(status());
+    } catch (error) {
+      log?.error('A storage status listener failed', error);
+    }
+  };
+  const setStatus = (next, error = null) => {
+    state = next;
+    lastError = error;
+    for (const listener of statusListeners) tellStatus(listener);
+  };
   const finish = () => {
     loaded = true;
-    for (const run of waiting.splice(0)) run();
-  };
-
-  bridge.request('storage:load').then((saved) => {
-    for (const [key, value] of Object.entries(saved ?? {})) {
-      pageLoadData.set(key, copy(value));
-      if (written.has(key) || same(data.get(key), value)) continue;
-      data.set(key, value);
-      tell(key, value);
+    finishing = true;
+    for (const run of waiting.splice(0)) {
+      try {
+        run();
+      } catch (error) {
+        log?.error('A storage ready listener failed', error);
+      }
     }
-    finish();
-  }, (error) => {
-    log?.error("The extension's saved settings couldn't be read, so defaults are in use", error);
-    finish();
-  });
+    finishing = false;
+    for (const { type, payload } of queuedWrites.values()) save(type, payload);
+    queuedWrites.clear();
+    written.clear();
+    setStatus('ready');
+  };
+  const load = () => {
+    if (state === 'ready') return Promise.resolve(true);
+    if (loadPromise && state === 'loading') return loadPromise;
+    const startedAt = revision;
+    setStatus('loading');
+    loadPromise = bridge.request('storage:load').then((saved) => {
+      const snapshot = new Map(Object.entries(saved ?? {}));
+      pageLoadData.clear();
+      for (const [key, value] of snapshot) pageLoadData.set(key, copy(value));
+      for (const [key, change] of remoteChanges) {
+        if (change.revision > startedAt) pageLoadData.set(key, copy(change.value));
+      }
+
+      for (const key of data.keys()) {
+        if (snapshot.has(key) || written.has(key) || (remoteChanges.get(key)?.revision ?? 0) > startedAt) continue;
+        data.delete(key);
+        tell(key, undefined, 'load');
+      }
+      for (const [key, value] of snapshot) {
+        if (written.has(key) || (remoteChanges.get(key)?.revision ?? 0) > startedAt || same(data.get(key), value)) continue;
+        data.set(key, copy(value));
+        tell(key, value, 'load');
+      }
+      finish();
+      return true;
+    }, (error) => {
+      log?.error("The extension's saved settings couldn't be read", error);
+      setStatus('error', error);
+      return false;
+    });
+    return loadPromise;
+  };
   bridge.on('storage', (changes) => {
     for (const [key, value] of Object.entries(changes ?? {})) {
+      const next = value === undefined || value === null ? undefined : copy(value);
       // This tab's own writes come back too, already in the copy.
-      if (same(data.get(key), value)) continue;
-      if (value === undefined || value === null) data.delete(key);
-      else data.set(key, value);
-      tell(key, value ?? undefined);
+      const ownEcho = written.has(key) && same(data.get(key), next);
+      if (!loaded && !ownEcho) {
+        remoteChanges.set(key, { revision: ++revision, value: next });
+        queuedWrites.delete(key);
+        written.delete(key);
+      }
+      if (same(data.get(key), next)) continue;
+      if (next === undefined) data.delete(key);
+      else data.set(key, next);
+      tell(key, next);
     }
   });
 
+  void load();
+
   const save = (type, payload) => bridge.request(type, payload).catch((error) => log?.error("A setting couldn't be saved in the extension", error));
+  const persist = (key, type, payload) => {
+    if (!loaded || finishing) queuedWrites.set(key, { type, payload });
+    else save(type, payload);
+  };
 
   return {
     kind: 'extension',
     get: (key, fallback) => (data.has(key) ? copy(data.get(key)) : fallback),
     getAtLoad: (key, fallback) => (pageLoadData.has(key) ? copy(pageLoadData.get(key)) : fallback),
+    status,
+    onStatus(listener) {
+      statusListeners.add(listener);
+      tellStatus(listener);
+      return () => statusListeners.delete(listener);
+    },
+    retry: load,
     set(key, value) {
       const stored = copy(value);
       written.add(key);
       if (stored === undefined) data.delete(key);
       else data.set(key, stored);
-      save('storage:set', { key, value: stored ?? null });
+      persist(key, 'storage:set', { key, value: stored ?? null });
     },
     remove(key) {
       written.add(key);
       data.delete(key);
-      save('storage:remove', { key });
+      persist(key, 'storage:remove', { key });
     },
     onChange(key, listener) {
       listeners.set(key, [...(listeners.get(key) ?? []), listener]);

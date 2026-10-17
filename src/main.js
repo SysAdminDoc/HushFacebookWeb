@@ -38,7 +38,7 @@ function boot() {
   // First, so Facebook's keyboard shortcuts never see what's typed in the settings panel.
   keepKeysInPanel(pageWindow);
   const log = createLog();
-  const storage = createGmStorage();
+  const storage = createGmStorage({ log });
   const settings = createSettings({ storage, features, log, version, account: signedInAccount() });
   const net = pageAccess === 'page' ? installNetworkHooks({ win: pageWindow, log }) : null;
   const router = createRouter({ win: pageWindow, pageAccess, log });
@@ -51,6 +51,10 @@ function boot() {
   });
   diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'));
   diagnostics.add('Settings kept in', () => ({ gm: 'Your userscript manager', extension: "The extension's own storage" })[storage.kind] ?? "Facebook's page, which clears them");
+  if (storage.status) {
+    diagnostics.add('Saved settings', () => ({ loading: 'Loading', ready: 'Loaded', error: 'Unavailable. Open General to retry.' })[storage.status().state] ?? 'Unavailable');
+    storage.onStatus(() => diagnostics.changed());
+  }
   const actions = createActions();
   const unavailable = new Set();
   // Toasts wait for the panel, which mounts once there's a body.
@@ -134,7 +138,7 @@ function boot() {
   }
 
   whenBodyReady(() => {
-    panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo(), update } });
+    panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo(), update, storage } });
     for (const [message, options] of waiting.splice(0)) panel.toast(message, options);
     if (pendingSettingsOpen) {
       panel.open(pendingSettingsSection);
@@ -154,7 +158,10 @@ function boot() {
 const RUNNING_KEY = Symbol.for('hushfacebook-web.running');
 const target = executionTarget(pageWindow);
 if (target === 'game') {
-  if (pageAccess === 'page') startGameFrame({ win: pageWindow, storage: createGmStorage(), log: createLog() });
+  if (pageAccess === 'page') {
+    const log = createLog();
+    startGameFrame({ win: pageWindow, storage: createGmStorage({ log }), log });
+  }
   else console.warn('[HushFacebook Web] Instant Games ad blocking needs the userscript to run in the page.');
 } else if (target === 'facebook') {
   const running = pageWindow[RUNNING_KEY] ?? document.documentElement?.getAttribute(RUNNING);

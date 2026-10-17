@@ -47,7 +47,7 @@ Press and hold the Facebook logo at the top left to open settings. You can also 
 
 **Find a setting** at the top searches every row as you type, including General and nested choices. The controls work in the results. The power switch pauses the script. When a choice needs a reload, a Reload row appears and brings you back to the same settings page afterward.
 
-General has Quiet and Privacy Quick setups, and each one reports how many settings changed. Back to defaults resets everything in one click. You can also back up or restore a settings file up to 1 MB, open a filled problem report on GitHub, or use the Ko-fi link. Each Facebook account gets its own set of settings.
+General has Quiet and Privacy Quick setups, and each one reports how many settings changed. Back to defaults resets everything in one click. You can also back up or restore a settings file up to 1 MB, open a filled problem report on GitHub, or use the Ko-fi link. Each Facebook account gets its own set of settings. If the extension can't reach its saved settings, General keeps a Retry notice visible until they load.
 
 <p>
   <img src="assets/screenshots/panel-feed.jpg" width="49%" alt="News feed settings with an icon sidebar, grouped rows and lavender switches">

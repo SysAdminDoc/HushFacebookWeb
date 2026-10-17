@@ -45,7 +45,6 @@ document.addEventListener(HELLO_MAIN, (event) => {
   if (channel || typeof event.detail !== 'string' || !SECRET.test(event.detail)) return;
   channel = channelNames(event.detail);
   document.addEventListener(channel.toIsolated, onRequest);
-  toMain({ ready: true });
 
   // Changes from other tabs and the extension's own pages. This tab's writes come back too,
   // and the page script skips those.
@@ -59,6 +58,8 @@ document.addEventListener(HELLO_MAIN, (event) => {
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'open-settings') toMain({ push: 'open-settings' });
   });
+  // Ready comes last, so every queued request sees the storage and toolbar listeners in place.
+  toMain({ ready: true });
 });
 
 // For when the page script started first and its hello went unheard.

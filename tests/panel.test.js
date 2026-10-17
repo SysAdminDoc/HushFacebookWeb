@@ -686,3 +686,30 @@ test('without an update source General has no notice', () => {
   assert.ok(!shadow.querySelector('[data-key="update"]'));
   assert.ok(!shadow.querySelector('main, .main')?.textContent.includes('null'), 'no stray text');
 });
+
+test('General keeps a failed extension storage load visible and offers retry', async () => {
+  let state = 'error';
+  const listeners = new Set();
+  const storage = {
+    status: () => ({ state, error: state === 'error' ? new Error('bridge unavailable') : null }),
+    onStatus(listener) {
+      listeners.add(listener);
+      listener(this.status());
+    },
+    async retry() {
+      state = 'loading';
+      for (const listener of listeners) listener(this.status());
+      state = 'ready';
+      for (const listener of listeners) listener(this.status());
+      return true;
+    },
+  };
+  const { shadow, panel } = setup({ environment: { storage } });
+  panel.open('general');
+  const card = shadow.querySelector('[data-key="storage-recovery"]');
+  assert.match(card.textContent, /saved settings aren't available/i);
+  card.querySelector('button').click();
+  await tick();
+  assert.equal(shadow.querySelector('[data-key="storage-recovery"]'), null);
+  assert.match(shadow.querySelector('.toast').textContent, /saved settings loaded/i);
+});

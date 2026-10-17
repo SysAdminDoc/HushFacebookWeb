@@ -28,6 +28,31 @@ test('a daily job runs once a day and its last run is kept', () => {
   assert.equal(runs, 2);
 });
 
+test('daily jobs wait for authoritative extension storage before deciding what is due', () => {
+  const backing = createMemoryStorage({ [TASKS_KEY]: { demo: T0 - 1000 } });
+  let loaded = false;
+  let release;
+  const storage = {
+    get: (key, fallback) => (loaded ? backing.get(key, fallback) : fallback),
+    set: (key, value) => backing.set(key, value),
+    whenReady(run) {
+      release = () => {
+        loaded = true;
+        run();
+      };
+    },
+  };
+  const tasks = createDailyTasks({ storage, now: () => T0 });
+  let runs = 0;
+  tasks.add('demo', () => runs++);
+
+  assert.deepEqual(tasks.runDue(), []);
+  assert.equal(runs, 0);
+  release();
+  assert.equal(runs, 0, 'the saved recent run prevents a defaults-backed duplicate');
+  assert.deepEqual(backing.get(TASKS_KEY), { demo: T0 - 1000 });
+});
+
 test('a job that throws is logged and still counts as run; junk in the table is ignored', () => {
   const storage = createMemoryStorage({ [TASKS_KEY]: ['junk'] });
   const errors = [];

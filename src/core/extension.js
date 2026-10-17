@@ -21,13 +21,13 @@ export function availableUpdate(storage) {
 
 let host;
 
-export function extensionHost() {
+export function extensionHost({ log } = {}) {
   if (TARGET !== 'extension') return null;
   if (!host) {
     const bridge = connectBridge();
     host = {
       bridge,
-      storage: createBridgeStorage(bridge),
+      storage: createBridgeStorage(bridge, { log }),
       download: bridgeDownload(bridge),
       onOpenSettings: (run) => bridge.on('open-settings', run),
     };

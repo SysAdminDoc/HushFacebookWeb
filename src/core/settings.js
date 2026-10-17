@@ -225,8 +225,14 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     return found;
   }
 
-  storage.onChange?.(key, (raw) => {
-    if (!ready) return;
+  storage.onChange?.(key, (raw, change) => {
+    if (!ready) {
+      if (change?.source === 'load') return;
+      values = sanitize(raw);
+      changedBeforeReady.clear();
+      notify([...schema.keys()], true);
+      return;
+    }
     values = sanitize(raw);
     notify([...schema.keys()], true);
   });
@@ -257,7 +263,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     },
     // A feature runs only when it's switched on and the whole script isn't paused.
     enabled(featureId) {
-      return get('paused') !== true && get(featureId) === true;
+      return ready && get('paused') !== true && get(featureId) === true;
     },
     subscribe(listener) {
       listeners.add(listener);

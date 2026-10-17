@@ -33,43 +33,57 @@ function attempt(read, fallback) {
 
 export function createDailyTasks({ storage, log, now = () => Date.now() }) {
   const tasks = [];
-  return {
+  let ready = !storage.whenReady;
+  let pending = false;
+  const runDue = () => {
+    if (!ready) {
+      pending = true;
+      return [];
+    }
+    let table;
+    try {
+      table = { ...asTable(storage.get(TASKS_KEY, {})) };
+    } catch (error) {
+      log?.error("Couldn't read when the daily jobs last ran", error);
+      table = {};
+    }
+    const ran = [];
+    for (const task of tasks) {
+      const other = attempt(() => Number(task.lastSeen?.()) || 0, 0);
+      const last = Math.max(Number(table[task.id]) || 0, other);
+      if (now() - last < DAY) continue;
+      try {
+        task.run();
+      } catch (error) {
+        log?.error(`The daily job "${task.id}" failed`, error);
+      }
+      table[task.id] = now();
+      ran.push(task.id);
+    }
+    if (ran.length) {
+      try {
+        storage.set(TASKS_KEY, table);
+      } catch (error) {
+        log?.error("Couldn't note that the daily jobs ran", error);
+      }
+    }
+    return ran;
+  };
+  const api = {
     // lastSeen: another record of the last run, used when the table itself was lost.
     add(id, run, { lastSeen } = {}) {
       tasks.push({ id, run, lastSeen });
     },
     // Runs every job that hasn't run in the last day. Returns the ids it ran.
-    runDue() {
-      let table;
-      try {
-        table = { ...asTable(storage.get(TASKS_KEY, {})) };
-      } catch (error) {
-        log?.error("Couldn't read when the daily jobs last ran", error);
-        table = {};
-      }
-      const ran = [];
-      for (const task of tasks) {
-        const other = attempt(() => Number(task.lastSeen?.()) || 0, 0);
-        const last = Math.max(Number(table[task.id]) || 0, other);
-        if (now() - last < DAY) continue;
-        try {
-          task.run();
-        } catch (error) {
-          log?.error(`The daily job "${task.id}" failed`, error);
-        }
-        table[task.id] = now();
-        ran.push(task.id);
-      }
-      if (ran.length) {
-        try {
-          storage.set(TASKS_KEY, table);
-        } catch (error) {
-          log?.error("Couldn't note that the daily jobs ran", error);
-        }
-      }
-      return ran;
-    },
+    runDue,
   };
+  storage.whenReady?.(() => {
+    ready = true;
+    if (!pending) return;
+    pending = false;
+    runDue();
+  });
+  return api;
 }
 
 // The page's own IndexedDB, for the second copy of the token. Not localStorage: Facebook's

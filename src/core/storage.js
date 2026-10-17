@@ -10,8 +10,8 @@ import { extensionHost } from './extension.js';
 // Whether settings outlive the page: the manager's storage or the extension's.
 export const keepsSettings = (storage) => storage.kind === 'gm' || storage.kind === 'extension';
 
-export function createGmStorage() {
-  const extension = extensionHost();
+export function createGmStorage({ log } = {}) {
+  const extension = extensionHost({ log });
   if (extension) return extension.storage;
   if (typeof GM_getValue !== 'function' || typeof GM_setValue !== 'function') {
     return createLocalStorage();

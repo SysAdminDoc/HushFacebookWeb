@@ -8,15 +8,25 @@ import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
 import { HELLO_ISOLATED, HELLO_MAIN, bridgeDownload, channelNames, connectBridge, createBridgeStorage } from '../src/core/bridge.js';
 import { createSettings, storageKeyFor } from '../src/core/settings.js';
+import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
+const deferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+};
 const cleanups = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
 // chrome.storage.local, chrome.runtime and the background's answers to downloads.
-function fakeChrome(saved = {}, { download = () => ({ ok: true }) } = {}) {
+function fakeChrome(saved = {}, { download = () => ({ ok: true }), read } = {}) {
   const data = structuredClone(saved);
   const changed = [];
   const fromBackground = [];
@@ -28,7 +38,7 @@ function fakeChrome(saved = {}, { download = () => ({ ok: true }) } = {}) {
     openSettings: () => fromBackground.forEach((listener) => listener({ type: 'open-settings' })),
     storage: {
       local: {
-        get: async () => structuredClone(data),
+        get: async () => (read ? read(data) : structuredClone(data)),
         async set(items) {
           const changes = {};
           for (const [key, value] of Object.entries(items)) {
@@ -87,6 +97,32 @@ test('the halves find each other whichever starts first, and the secret stays of
     win.document.dispatchEvent(new win.CustomEvent(HELLO_ISOLATED));
     assert.deepEqual(heard, []);
   }
+});
+
+test('MAIN-first requests wait for readiness and are dispatched exactly once', async () => {
+  const win = page();
+  const secret = randomUUID();
+  const { toIsolated } = channelNames(secret);
+  const sent = [];
+  win.document.addEventListener(toIsolated, (event) => sent.push(JSON.parse(event.detail)));
+  const bridge = connectBridge({ doc: win.document, win, secret });
+  const load = bridge.request('storage:load', null, { timeout: 100 });
+  assert.deepEqual(sent, [], 'the request stays queued until the isolated half is listening');
+
+  await startIsolated(win, fakeChrome({ answer: 42 }));
+  assert.deepEqual({ ...(await load) }, { answer: 42 });
+  assert.equal(sent.length, 1);
+  win.document.dispatchEvent(new win.CustomEvent(channelNames(secret).toMain, { detail: JSON.stringify({ ready: true }) }));
+  assert.equal(sent.length, 1, 'a repeated ready signal does not dispatch it again');
+});
+
+test('the pre-ready request queue is bounded and queued requests expire', async () => {
+  const win = page();
+  const bridge = connectBridge({ doc: win.document, win, secret: randomUUID(), maxPending: 1 });
+  const first = bridge.request('storage:load', null, { timeout: 20 });
+  await assert.rejects(bridge.request('storage:load', null, { timeout: 20 }), /too many extension requests/);
+  await assert.rejects(first, /did not answer/);
+  await assert.rejects(bridge.request('storage:load', null, { timeout: 20 }), /did not answer/, 'an expired request frees its queue slot');
 });
 
 test("a hello that isn't a secret is ignored, and only the real one opens the channel", async () => {
@@ -150,6 +186,205 @@ test('a write before the load keeps the newer value, and writes reach chrome.sto
   storage.set('gone', undefined);
   await settle();
   assert.equal(Object.hasOwn(chrome.data, 'gone'), false, 'undefined is a removal');
+});
+
+test('the real adapter preserves newer changes against a delayed snapshot in both script orders', async () => {
+  for (const isolatedFirst of [true, false]) {
+    const win = page();
+    const load = deferred();
+    const readStarted = deferred();
+    const stale = {
+      changed: 'old', removed: 'old', local: 'old', untouched: 'saved',
+      localThenRemote: 'old', localThenRemoved: 'old',
+    };
+    const chrome = fakeChrome(stale, { read: () => {
+      readStarted.resolve();
+      return load.promise;
+    } });
+    if (isolatedFirst) await startIsolated(win, chrome);
+    const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+    if (!isolatedFirst) await startIsolated(win, chrome);
+    await readStarted.promise;
+
+    await chrome.storage.local.set({ changed: 'new' });
+    await chrome.storage.local.remove('removed');
+    storage.set('local', 'mine');
+    storage.set('localThenRemote', 'mine');
+    storage.set('localThenRemoved', 'mine');
+    await chrome.storage.local.set({ localThenRemote: 'theirs' });
+    await chrome.storage.local.remove('localThenRemoved');
+    await settle();
+    const ready = new Promise((resolve) => storage.whenReady(resolve));
+    load.resolve(stale);
+    await ready;
+    await settle();
+
+    assert.equal(storage.get('changed'), 'new');
+    assert.equal(storage.get('removed', 'missing'), 'missing');
+    assert.equal(storage.get('local'), 'mine');
+    assert.equal(storage.get('untouched'), 'saved');
+    assert.equal(storage.get('localThenRemote'), 'theirs');
+    assert.equal(storage.get('localThenRemoved', 'missing'), 'missing');
+    assert.equal(storage.getAtLoad('changed'), 'new');
+    assert.equal(storage.getAtLoad('removed', 'missing'), undefined, 'the remote deletion is a load-time tombstone');
+    assert.equal(storage.getAtLoad('local'), 'old');
+    assert.equal(chrome.data.localThenRemote, 'theirs', 'a newer remote set cancels the queued local write');
+    assert.equal(Object.hasOwn(chrome.data, 'localThenRemoved'), false, 'a newer remote removal cancels the queued local write');
+  }
+});
+
+test('seen posts recorded before load merge with saved history before the queued write is sent', async () => {
+  const win = page();
+  const load = deferred();
+  const readStarted = deferred();
+  const saved = { [SEEN_KEY]: { old: 100, same: 100 } };
+  const chrome = fakeChrome(saved, { read: () => {
+    readStarted.resolve();
+    return load.promise;
+  } });
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  let scheduled = null;
+  const seen = createSeenStore({
+    storage,
+    now: () => 200,
+    schedule: (run) => { scheduled = run; return 1; },
+    cancel: () => {},
+    every: null,
+  });
+  await readStarted.promise;
+  seen.add(['new', 'same']);
+  scheduled();
+  load.resolve(saved);
+  await new Promise((resolve) => storage.whenReady(resolve));
+  await settle();
+
+  assert.equal(seen.has('old'), true);
+  assert.equal(seen.has('new'), true);
+  assert.deepEqual(chrome.data[SEEN_KEY], { new: 200, same: 100, old: 100 });
+});
+
+test('a failed initial load stays unready and can be retried', async () => {
+  const retry = deferred();
+  let loads = 0;
+  const bridge = {
+    request(type) {
+      assert.equal(type, 'storage:load');
+      loads++;
+      return loads === 1 ? Promise.reject(new Error('bridge unavailable')) : retry.promise;
+    },
+    on() {},
+  };
+  const errors = [];
+  const storage = createBridgeStorage(bridge, { log: { error: (...args) => errors.push(args) } });
+  const settings = createSettings({ storage, features: [{ id: 'alpha', title: 'Alpha', default: true }], migrations: [] });
+  const loaded = [];
+  const states = [];
+  storage.onStatus(({ state }) => states.push(state));
+  settings.whenLoaded(() => loaded.push(settings.get('alpha')));
+  await settle();
+
+  assert.equal(storage.status().state, 'error');
+  assert.deepEqual(loaded, [], 'failed loading is not reported as loaded defaults');
+  assert.equal(errors.length, 1);
+  const retried = storage.retry();
+  assert.equal(storage.status().state, 'loading');
+  retry.resolve({ settings: { alpha: false } });
+  await retried;
+  assert.equal(storage.status().state, 'ready');
+  assert.deepEqual(loaded, [false]);
+  assert.deepEqual(states, ['loading', 'error', 'loading', 'ready']);
+  assert.deepEqual(storage.get('settings'), { alpha: false });
+});
+
+test('writes after a failed load wait for retry and retain untouched saved settings', async () => {
+  const retry = deferred();
+  const requests = [];
+  let loads = 0;
+  const bridge = {
+    request(type, payload) {
+      requests.push([type, payload]);
+      if (type !== 'storage:load') return Promise.resolve();
+      loads++;
+      return loads === 1 ? Promise.reject(new Error('bridge unavailable')) : retry.promise;
+    },
+    on() {},
+  };
+  const storage = createBridgeStorage(bridge);
+  const features = [
+    { id: 'alpha', title: 'Alpha', default: false },
+    { id: 'beta', title: 'Beta', default: false },
+  ];
+  const settings = createSettings({ storage, features, migrations: [] });
+  await settle();
+  settings.set('alpha', true);
+  assert.deepEqual(requests, [['storage:load', undefined]], 'the partial default-backed record is not sent after failure');
+
+  const loaded = storage.retry();
+  retry.resolve({ settings: { beta: true } });
+  await loaded;
+  await settle();
+
+  assert.equal(settings.get('alpha'), true);
+  assert.equal(settings.get('beta'), true);
+  assert.deepEqual(requests, [
+    ['storage:load', undefined],
+    ['storage:load', undefined],
+    ['storage:set', { key: 'settings', value: { beta: true, alpha: true } }],
+  ]);
+});
+
+test('a newer remote settings record overrides older pre-load local changes', async () => {
+  for (const remote of [{ beta: true }, undefined]) {
+    const win = page();
+    const load = deferred();
+    const readStarted = deferred();
+    const stale = { settings: { alpha: false, beta: false } };
+    const chrome = fakeChrome(stale, { read: () => {
+      readStarted.resolve();
+      return load.promise;
+    } });
+    await startIsolated(win, chrome);
+    const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+    const settings = createSettings({
+      storage,
+      features: [
+        { id: 'alpha', title: 'Alpha', default: false },
+        { id: 'beta', title: 'Beta', default: false },
+      ],
+      migrations: [],
+    });
+    await readStarted.promise;
+    settings.set('alpha', true);
+    if (remote === undefined) await chrome.storage.local.remove('settings');
+    else await chrome.storage.local.set({ settings: remote });
+    load.resolve(stale);
+    await new Promise((resolve) => settings.whenLoaded(resolve));
+    await settle();
+
+    assert.equal(settings.get('alpha'), false);
+    assert.equal(settings.get('beta'), remote?.beta ?? false);
+    if (remote === undefined) assert.equal(Object.hasOwn(chrome.data, 'settings'), false);
+    else assert.deepEqual(chrome.data.settings, remote);
+  }
+});
+
+test('default-enabled features stay inactive until extension settings are confirmed', async () => {
+  const load = deferred();
+  const bridge = {
+    request: (type) => {
+      assert.equal(type, 'storage:load');
+      return load.promise;
+    },
+    on() {},
+  };
+  const storage = createBridgeStorage(bridge);
+  const settings = createSettings({ storage, features: [{ id: 'alpha', title: 'Alpha', default: true }], migrations: [] });
+  assert.equal(settings.get('alpha'), true, 'the settings UI can still show the default');
+  assert.equal(settings.enabled('alpha'), false, 'irreversible feature decisions wait for storage');
+  load.resolve({ settings: {} });
+  await new Promise((resolve) => settings.whenLoaded(resolve));
+  assert.equal(settings.enabled('alpha'), true);
 });
 
 test("another tab's change reaches listeners, and this tab's own write doesn't come back as one", async () => {
