@@ -16,6 +16,7 @@ export default {
   setup({ net, enabled }) {
     net.blockRequests({
       id: 'anonymousStories',
+      startupPrivacy: true,
       enabled,
       match: (ctx) => SEEN_MUTATIONS.has(ctx.friendlyName),
       fakeResponse: () => '{"data":{},"errors":[]}',

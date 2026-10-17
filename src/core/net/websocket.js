@@ -12,7 +12,7 @@ function bytesOf(data) {
   return null;
 }
 
-export function patchWebSocket(win, { log }) {
+export function patchWebSocket(win, { log, startup }) {
   const rules = [];
   const failed = new Set();
   const stats = { messages: 0, unreadable: 0 };
@@ -64,9 +64,10 @@ export function patchWebSocket(win, { log }) {
       try {
         if (LIGHTSPEED.test(this.url)) {
           stats.messages++;
+          const startupState = startup?.state?.() ?? 'ready';
           const active = rules.filter((rule) => {
             try {
-              return rule.enabled();
+              return startupState === 'ready' ? rule.enabled() : rule.startupPrivacy === true;
             } catch (error) {
               fail(rule, error);
               return false;
@@ -89,7 +90,7 @@ export function patchWebSocket(win, { log }) {
   return {
     installed: typeof original === 'function',
     stats,
-    // rule: { id, enabled(), edit(request) -> true when it changed request.payload }
+    // rule: { id, enabled(), startupPrivacy?, edit(request) -> true when it changed request.payload }
     // request: { type, payload } with payload parsed (3: tasks, 4: one unqueued task).
     editChatRequests(rule) {
       rules.push(rule);

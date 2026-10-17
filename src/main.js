@@ -39,8 +39,17 @@ function boot() {
   keepKeysInPanel(pageWindow);
   const log = createLog();
   const storage = createGmStorage({ log });
-  const settings = createSettings({ storage, features, log, version, account: signedInAccount() });
-  const net = pageAccess === 'page' ? installNetworkHooks({ win: pageWindow, log }) : null;
+  const account = signedInAccount();
+  const settings = createSettings({ storage, features, log, version, account });
+  const net = pageAccess === 'page' ? installNetworkHooks({
+    win: pageWindow,
+    log,
+    startup: {
+      status: settings.startup.status,
+      onStatus: settings.startup.onStatus,
+      accountMatches: () => settings.startup.matchesAccount(signedInAccount()),
+    },
+  }) : null;
   const router = createRouter({ win: pageWindow, pageAccess, log });
   const posts = createPostTracker({ doc: document, log });
   const diagnostics = createDiagnostics();
@@ -53,6 +62,11 @@ function boot() {
   diagnostics.add('Settings kept in', () => ({ gm: 'Your userscript manager', extension: "The extension's own storage" })[storage.kind] ?? "Facebook's page, which clears them");
   if (storage.status) {
     diagnostics.add('Saved settings', () => ({ loading: 'Loading', ready: 'Loaded', error: 'Unavailable. Open General to retry.' })[storage.status().state] ?? 'Unavailable');
+    diagnostics.add('Startup privacy protection', () => ({
+      loading: 'Waiting for saved choices',
+      ready: 'Confirmed',
+      error: 'Unconfirmed. Recognized requests are held back. Open General to retry.',
+    })[net?.startupState?.() ?? settings.startup.status()] ?? 'Unconfirmed');
     storage.onStatus(() => diagnostics.changed());
   }
   const actions = createActions();

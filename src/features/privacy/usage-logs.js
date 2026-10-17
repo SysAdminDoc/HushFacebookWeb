@@ -26,6 +26,7 @@ export default {
     let held = 0;
     net.blockRequests({
       id: 'holdBackLogs',
+      startupPrivacy: true,
       enabled,
       match: isUsageLog,
       fakeResponse: () => {

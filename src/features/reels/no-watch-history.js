@@ -22,6 +22,7 @@ export default {
     let held = 0;
     net.blockRequests({
       id: 'noWatchHistory',
+      startupPrivacy: true,
       enabled,
       match: (ctx) => HISTORY_MUTATIONS.has(ctx.friendlyName),
       fakeResponse: () => {

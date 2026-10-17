@@ -51,6 +51,8 @@ General has Quiet and Privacy Quick setups, and each one reports how many settin
 
 The extension waits for the browser to confirm each settings change. If a save fails, the last saved choice keeps running while your new choice stays visible as a draft, and General offers Retry. Changes from two tabs merge by setting. When both tabs change the same setting, the request the extension accepts last wins.
 
+During extension startup, recognized story views, watch reports, usage logs, read receipts and typing signals wait briefly for saved privacy choices. If storage can't be confirmed, those operations stay on the device and General shows Retry. Unrelated traffic isn't delayed.
+
 <p>
   <img src="assets/screenshots/panel-feed.jpg" width="49%" alt="News feed settings with an icon sidebar, grouped rows and lavender switches">
   <img src="assets/screenshots/panel-general.jpg" width="49%" alt="General settings with Quick setups, backup and problem report rows">

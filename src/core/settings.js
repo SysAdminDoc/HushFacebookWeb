@@ -900,6 +900,20 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
 
   if (!ready) storage.whenReady(loadSavedSettings);
 
+  const startupStatus = () => {
+    if (ready) return 'ready';
+    return storage.status?.().state === 'error' ? 'error' : 'loading';
+  };
+  const startup = {
+    status: startupStatus,
+    onStatus(listener) {
+      if (storage.onStatus) return storage.onStatus(() => listener(startupStatus()));
+      listener(startupStatus());
+      return () => {};
+    },
+    matchesAccount: (candidate) => candidate === account,
+  };
+
   function get(key) {
     return Object.hasOwn(values, key) ? values[key] : spec(key).default;
   }
@@ -911,6 +925,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   return {
     schema,
     perAccount: key !== STORAGE_KEY,
+    startup,
     // Runs once the saved choices are in: at once from a userscript manager, a few
     // milliseconds in from the extension's storage. For decisions made only as the page starts.
     whenLoaded: (run) => (storage.whenReady ? storage.whenReady(run) : run()),

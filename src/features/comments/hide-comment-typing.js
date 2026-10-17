@@ -22,6 +22,7 @@ export default {
     let held = 0;
     net.blockRequests({
       id: 'hideCommentTyping',
+      startupPrivacy: true,
       enabled,
       match: (ctx) => COMMENT_TYPING.test(ctx.friendlyName),
       fakeResponse: () => {

@@ -31,6 +31,7 @@ export default {
     if (net) {
       net.editChatRequests({
         id: 'hideTyping',
+        startupPrivacy: true,
         enabled,
         edit(request) {
           // Unqueued as mautrix-meta sends it (type 4), or among queued tasks (type 3).

@@ -443,12 +443,15 @@ test('a failed initial load stays unready and can be retried', async () => {
   const settings = createSettings({ storage, features: [{ id: 'alpha', title: 'Alpha', default: true }], migrations: [] });
   const loaded = [];
   const states = [];
+  const startupStates = [];
   storage.onStatus(({ state }) => states.push(state));
+  settings.startup.onStatus(() => startupStates.push(settings.startup.status()));
   settings.whenLoaded(() => loaded.push(settings.get('alpha')));
   await settle();
 
   assert.equal(storage.status().state, 'error');
   assert.deepEqual(loaded, [], 'failed loading is not reported as loaded defaults');
+  assert.equal(settings.startup.status(), 'error');
   assert.equal(errors.length, 1);
   const retried = storage.retry();
   assert.equal(storage.status().state, 'loading');
@@ -457,6 +460,7 @@ test('a failed initial load stays unready and can be retried', async () => {
   assert.equal(storage.status().state, 'ready');
   assert.deepEqual(loaded, [false]);
   assert.deepEqual(states, ['loading', 'error', 'loading', 'ready']);
+  assert.deepEqual(startupStates, ['loading', 'error', 'loading', 'ready']);
   assert.deepEqual(storage.get('settings'), { alpha: false });
 });
 
@@ -551,10 +555,14 @@ test('default-enabled features stay inactive until extension settings are confir
   };
   const storage = createBridgeStorage(bridge);
   const settings = createSettings({ storage, features: [{ id: 'alpha', title: 'Alpha', default: true }], migrations: [] });
+  assert.equal(settings.startup.status(), 'loading');
+  assert.equal(settings.startup.matchesAccount(null), true);
+  assert.equal(settings.startup.matchesAccount('another-account'), false);
   assert.equal(settings.get('alpha'), true, 'the settings UI can still show the default');
   assert.equal(settings.enabled('alpha'), false, 'irreversible feature decisions wait for storage');
   load.resolve({ settings: {} });
   await new Promise((resolve) => settings.whenLoaded(resolve));
+  assert.equal(settings.startup.status(), 'ready');
   assert.equal(settings.enabled('alpha'), true);
 });
 

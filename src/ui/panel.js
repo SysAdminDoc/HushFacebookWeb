@@ -400,8 +400,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return h('div', { class: 'card', dataset: { key: 'storage-recovery' } },
       h('div', { class: 'title', text: loading ? 'Loading saved settings' : "Saved settings aren't available" }),
       h('div', { class: 'desc', text: loading
-        ? 'Startup choices will apply after the extension confirms them.'
-        : "HushFacebook Web hasn't applied startup choices from storage. Retry the connection before changing settings." }),
+        ? 'Recognized privacy requests wait while the extension confirms your saved choices.'
+        : "Privacy choices aren't confirmed. Recognized requests are held back until you retry the connection." }),
       loading ? null : h('div', { class: 'actions' }, actionButton('storage:retry', 'Retry', async () => {
         const loaded = await environment.storage.retry();
         if (!loaded) throw environment.storage.status().error ?? new Error("Saved settings still aren't available");

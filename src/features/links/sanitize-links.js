@@ -17,6 +17,7 @@ export default {
   setup({ win, net, enabled }) {
     net?.blockRequests({
       id: 'sanitizeLinks',
+      startupPrivacy: true,
       enabled,
       match: (ctx) => SHARE_LINK_MUTATIONS.has(ctx.friendlyName),
       fakeResponse: () => '{"data":{},"errors":[]}',

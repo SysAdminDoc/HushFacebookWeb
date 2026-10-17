@@ -22,6 +22,7 @@ export default {
     if (net) {
       net.editChatRequests({
         id: 'hideReadReceipts',
+        startupPrivacy: true,
         enabled,
         edit(request) {
           const tasks = request.type === 3 ? request.payload.tasks : null;

@@ -66,17 +66,25 @@ function socketWindow() {
   return { win: { WebSocket, TextDecoder, TextEncoder }, sent };
 }
 
-function setup(features, on = {}) {
+function setup(features, on = {}, startup) {
   const { win, sent } = socketWindow();
   const errors = [];
   const log = { error: (...args) => errors.push(args), warn() {}, info() {} };
-  const sockets = patchWebSocket(win, { log });
+  const sockets = patchWebSocket(win, { log, startup });
   const net = { editChatRequests: sockets.editChatRequests, chatStats: sockets.stats };
   const rows = new Map();
   const diagnostics = { add: (label, read) => rows.set(label, read), changed() {} };
   for (const feature of features) feature.setup({ net, diagnostics, enabled: () => on[feature.id] !== false });
   const socket = new win.WebSocket(LIGHTSPEED);
   return { win, sent, errors, socket, rows, sockets };
+}
+
+function startupControl() {
+  let state = 'loading';
+  return {
+    startup: { state: () => state },
+    ready: () => { state = 'ready'; },
+  };
 }
 
 test('every captured message reads into frames and writes back byte for byte', () => {
@@ -149,6 +157,30 @@ test('with the switch off, or on other sockets, the message is the very same one
   assert.equal(on.sent[1], '{"label":"21"}');
   for (const { bytes } of captured) on.socket.send(bytes);
   assert.deepEqual(on.sent.slice(2), captured.map((m) => m.bytes), 'requests with nothing to take out go as they were');
+});
+
+test('unconfirmed chat choices edit only recognized tasks and never hold a mixed socket frame', () => {
+  const control = startupControl();
+  const { sent, socket } = setup(
+    [hideReadReceipts, hideTyping],
+    { hideReadReceipts: false, hideTyping: false },
+    control.startup,
+  );
+  const original = new Uint8Array([0x09, ...taskMessage([contact(1), markRead(2), contact(3)])]);
+  socket.send(original);
+  const before = frames(original);
+  const pending = frames(sent[0]);
+  assert.equal(sent.length, 1, 'the frame is sent synchronously');
+  assert.deepEqual(pending.slice(0, 2), before.slice(0, 2), 'the keepalive and stream setup are untouched');
+  assert.deepEqual([...pending[2].json.matchAll(/task_id\\":(\d+)/g)].map((match) => match[1]), ['1', '3']);
+
+  control.ready();
+  socket.send(original);
+  assert.equal(sent[1], original, 'saved off switches leave the frame byte for byte');
+  const unreadable = new Uint8Array([0x42, 1, 2]);
+  const uncertain = setup([hideReadReceipts], { hideReadReceipts: false }, startupControl().startup);
+  uncertain.socket.send(unreadable);
+  assert.equal(uncertain.sent[0], unreadable, 'unknown chat traffic is never suppressed');
 });
 
 test('an ArrayBuffer goes out as an ArrayBuffer, and a view into a bigger buffer is read where it sits', () => {

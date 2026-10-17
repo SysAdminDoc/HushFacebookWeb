@@ -860,6 +860,7 @@ test('General keeps a failed extension storage load visible and offers retry', a
   panel.open('general');
   const card = shadow.querySelector('[data-key="storage-recovery"]');
   assert.match(card.textContent, /saved settings aren't available/i);
+  assert.match(card.textContent, /privacy choices aren't confirmed/i);
   card.querySelector('button').click();
   await tick();
   assert.equal(shadow.querySelector('[data-key="storage-recovery"]'), null);

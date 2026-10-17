@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* The extension now applies saved privacy choices before recognized startup requests leave the page. Story views, watch reports, usage logs, read receipts and typing signals wait briefly for storage. If storage fails, the account changes or a request can't be held safely, the operation gets a local success instead of being sent. Unknown traffic isn't delayed, and General keeps Retry available.
 * Extension settings now wait for browser storage before reporting success. Changes from different tabs merge instead of replacing each other, while two changes to the same setting use the order the extension accepts them. A failed save keeps the last confirmed choice running, leaves the draft visible and puts a Retry row in General. Reset, restore and Quick setups wait for the same confirmation.
 * The extension now holds bridge requests until its storage side is ready, so saved choices load in either startup order. Newer changes and deletions win over an older startup snapshot. Filtering and storage-backed housekeeping wait for confirmation. If storage can't be reached, General keeps a Retry notice instead of treating default choices as loaded.
 * General now has Quiet and Privacy Quick setups, plus Back to defaults. Each one says exactly how many settings changed. Find a setting covers General and nested choices too, and those controls work in the results even when their parent switch is off.
