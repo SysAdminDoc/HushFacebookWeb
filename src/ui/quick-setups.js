@@ -43,20 +43,20 @@ export const QUICK_SETUPS = Object.freeze([
 export function applyQuickSetup(settings, id) {
   const setup = QUICK_SETUPS.find((entry) => entry.id === id);
   if (!setup) throw new Error(`Unknown Quick setup: ${id}`);
+  const afterSave = (saved, changed) => saved && typeof saved.then === 'function' ? saved.then(() => changed) : changed;
 
   if (setup.reset) {
-    const changed = [...settings.schema].filter(([key, spec]) => settings.get(key) !== spec.default).length;
-    if (changed) settings.reset();
-    return changed;
+    const changed = [...settings.schema].filter(([key, spec]) => (
+      settings.get(key) !== spec.default || (settings.display?.(key) ?? settings.get(key)) !== spec.default
+    )).length;
+    const pending = settings.saveStatus?.().pending.length ?? 0;
+    return changed || pending ? afterSave(settings.reset(), changed) : 0;
   }
 
   for (const key of setup.keys) {
     if (settings.schema.get(key)?.type !== 'toggle') throw new Error(`Quick setup has an unknown switch: ${key}`);
   }
-  const changed = setup.keys.filter((key) => settings.get(key) !== true);
+  const changed = setup.keys.filter((key) => settings.get(key) !== true || (settings.display?.(key) ?? settings.get(key)) !== true);
   if (!changed.length) return 0;
-  const next = settings.snapshot();
-  for (const key of changed) next[key] = true;
-  settings.restore(next);
-  return changed.length;
+  return afterSave(settings.setMany(Object.fromEntries(changed.map((key) => [key, true]))), changed.length);
 }

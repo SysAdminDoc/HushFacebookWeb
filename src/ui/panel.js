@@ -59,6 +59,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const drafts = new Map();
   const fieldErrors = new Map();
   const pending = new Set();
+  let preferenceSave = settings.saveStatus?.() ?? { state: 'idle', error: null, pending: [] };
+  const quickSetupPending = () => [...pending].some((key) => key.startsWith('quick:'));
+  const settingValue = (key) => settings.display?.(key) ?? settings.get(key);
   const hasMenuEntry = features.some((feature) => feature.id === 'menuEntry');
   const reloadFeatureIds = new Set(features.filter((feature) => feature.reload).map((feature) => feature.id));
   const reloadKeys = [...settings.schema].filter(([, spec]) => reloadFeatureIds.has(spec.featureId)).map(([key]) => key);
@@ -90,6 +93,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   });
   const searchField = h('div', { class: 'search-field' }, navigationIcon('search'), search);
   const pauseState = h('span', { class: 'power-state' });
+  const saveState = h('span', { class: 'save-state', role: 'status', dataset: { key: 'save-state', state: preferenceSave.state } });
   // Checked means running, so the switch agrees with the "On" chip beside it.
   const power = h('input', {
     class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'HushFacebook Web on', dataset: { key: 'power' },
@@ -109,7 +113,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       h('div', { class: 'header-actions' }, pauseState, power, closeButton)),
     h('div', { class: 'body' }, nav, main),
     h('footer', null,
-      h('span', { text: 'Changes apply as you go.' }),
+      saveState,
       h('span', { class: 'footer-brand', text: 'HushFacebook Web' })),
   );
   dialog.addEventListener('click', (event) => {
@@ -128,7 +132,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   root.append(launcher, dialog, toasts);
   document.body.append(host);
 
-  function apply(key, value, control) {
+  async function apply(key, value, control) {
+    if (quickSetupPending()) return;
     const draft = control?.value;
     try {
       if (control && !control.validity.valid) {
@@ -137,11 +142,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       }
       drafts.delete(key);
       fieldErrors.delete(key);
-      settings.set(key, value);
+      await settings.set(key, value);
     } catch (error) {
-      if (control) {
+      if (control && error instanceof TypeError) {
         drafts.set(key, draft);
-        fieldErrors.set(key, error instanceof TypeError ? error.message : "Couldn't save this change. Try again.");
+        fieldErrors.set(key, error.message);
       }
       if (!(control && error instanceof TypeError)) log.error("Couldn't save your change. Try again", error);
       refreshChrome();
@@ -162,18 +167,19 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function toggle(key, label, { disabled = false } = {}) {
     return h('input', {
       class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': label,
-      checked: settings.get(key) === true, disabled, dataset: { key },
+      checked: settingValue(key) === true, disabled: disabled || quickSetupPending(), dataset: { key },
       onchange: (event) => apply(key, event.target.checked),
     });
   }
 
   function optionControl(feature, option) {
     const key = `${feature.id}.${option.key}`;
-    const value = drafts.get(key) ?? settings.get(key);
+    const value = drafts.get(key) ?? settingValue(key);
     const errorId = `hfw-error-${key}`;
     const props = {
       dataset: { key }, 'aria-invalid': fieldErrors.has(key) ? 'true' : null,
       'aria-describedby': fieldErrors.has(key) ? errorId : null,
+      disabled: quickSetupPending(),
       oninput: (event) => drafts.set(key, event.target.value),
     };
     const field = (control) => h('div', { class: 'field' }, h('label', null, option.label, control),
@@ -211,9 +217,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function actionButton(key, label, run, { primary = false, busyLabel = 'Working...' } = {}) {
+    const locked = quickSetupPending() && !pending.has(key) && key !== 'storage:retry';
     return h('button', {
       class: `button${primary ? ' primary' : ''}`, type: 'button', text: pending.has(key) ? busyLabel : label,
-      dataset: { key }, 'aria-busy': pending.has(key) ? 'true' : null, 'aria-disabled': pending.has(key) ? 'true' : null,
+      dataset: { key }, disabled: locked, 'aria-disabled': pending.has(key) ? 'true' : null, 'aria-busy': pending.has(key) ? 'true' : null,
       onclick: async () => {
         if (pending.has(key)) return;
         pending.add(key);
@@ -232,7 +239,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function featureCard(feature, { showOptions = false } = {}) {
     const blocked = unavailable.has(feature.id);
-    const on = settings.get(feature.id) === true;
+    const on = settingValue(feature.id) === true;
     return h('div', { class: `card${blocked ? ' unavailable' : ''}` },
       h('div', { class: 'row' },
         h('div', { class: 'text' },
@@ -294,23 +301,34 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function applySetup(id) {
     const key = `quick:${id}`;
-    if (pending.has(key)) return;
+    if (quickSetupPending()) return;
     pending.add(key);
     render();
     settings.whenLoaded(() => {
-      try {
-        const changed = applyQuickSetup(settings, id);
+      const finish = () => {
+        pending.delete(key);
+        if (dialog.open) render();
+      };
+      const succeeded = (changed) => {
         if (id === 'defaults') {
           drafts.clear();
           fieldErrors.clear();
           render();
         }
         toast(`Changed ${changed} settings`);
+      };
+      const failed = (error) => log.error("Couldn't apply the Quick setup. Try again", error);
+      try {
+        const result = applyQuickSetup(settings, id);
+        if (result && typeof result.then === 'function') {
+          result.then(succeeded, failed).finally(finish);
+        } else {
+          succeeded(result);
+          finish();
+        }
       } catch (error) {
-        log.error("Couldn't apply the Quick setup. Try again", error);
-      } finally {
-        pending.delete(key);
-        if (dialog.open) render();
+        failed(error);
+        finish();
       }
     });
   }
@@ -323,7 +341,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         const key = `quick:${setup.id}`;
         return h('button', {
           class: 'button', type: 'button', text: pending.has(key) ? 'Waiting...' : setup.label, dataset: { key },
-          'aria-busy': pending.has(key) ? 'true' : null, 'aria-disabled': pending.has(key) ? 'true' : null,
+          disabled: quickSetupPending(), 'aria-busy': pending.has(key) ? 'true' : null,
           onclick: () => applySetup(setup.id),
         });
       })));
@@ -352,9 +370,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'title', text: 'Back up and restore' }),
         h('div', { class: 'desc', text: 'Save your choices to a file, or load them from one on another browser.' }),
         h('div', { class: 'actions' },
-          h('button', { class: 'button primary', type: 'button', text: 'Back up settings', dataset: { key: 'backup' }, onclick: exportSettings }),
+          h('button', { class: 'button primary', type: 'button', text: 'Back up settings', dataset: { key: 'backup' }, disabled: quickSetupPending(), onclick: exportSettings }),
           actionButton('restore', 'Restore from a file', () => fileInput.click(), { busyLabel: 'Restoring...' }),
-          h('button', { class: 'button', type: 'button', text: 'Reset to defaults', dataset: { key: 'reset' }, onclick: resetSettings })));
+          actionButton('reset', 'Reset to defaults', resetSettings, { busyLabel: 'Resetting...' })));
   }
 
   function reportProblemCard() {
@@ -391,6 +409,16 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       }, { primary: true, busyLabel: 'Retrying...' })));
   }
 
+  function saveRecoveryCard() {
+    return h('div', { class: 'card save-recovery', dataset: { key: 'save-recovery' } },
+      h('div', { class: 'title', text: "Changes couldn't be saved" }),
+      h('div', { class: 'desc', text: 'Your latest choices are still shown here. Retry to save them without losing the draft.' }),
+      h('div', { class: 'actions' }, actionButton('settings:retry', 'Retry', async () => {
+        await settings.retry();
+        toast('Changes saved.');
+      }, { primary: true, busyLabel: 'Retrying...' })));
+  }
+
   function generalRows() {
     const update = environment.update?.();
     const storageState = environment.storage?.status?.().state;
@@ -399,6 +427,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         id: 'storage-recovery', section: 'general', title: storageState === 'loading' ? 'Loading saved settings' : "Saved settings aren't available",
         description: 'Retry extension storage without treating defaults as loaded choices.', options: [{ label: 'Retry' }], focusKey: 'storage:retry',
         render: () => storageRecoveryCard(environment.storage.status().state),
+      }] : []),
+      ...(preferenceSave.state === 'error' ? [{
+        id: 'save-recovery', section: 'general', title: "Changes couldn't be saved",
+        description: 'Retry unsaved choices without losing the draft.', options: [{ label: 'Retry' }], focusKey: 'settings:retry',
+        render: saveRecoveryCard,
       }] : []),
       ...(update ? [{
         id: 'update', section: 'general', title: `HushFacebook Web ${update.version} is out`,
@@ -462,6 +495,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const scrollTop = main.scrollTop;
     const navScroll = [nav.scrollLeft, nav.scrollTop];
     const searching = query.trim() !== '';
+    power.disabled = quickSetupPending();
     nav.replaceChildren(searchField, h('div', { class: 'nav-label', text: 'Settings' }), ...sections.flatMap((section) => [
       section.divider ? h('hr') : null,
       h('button', {
@@ -502,13 +536,22 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function refreshChrome() {
-    const paused = settings.get('paused') === true;
+    const paused = settingValue('paused') === true;
     power.checked = !paused;
     pauseState.textContent = paused ? 'Paused' : 'On';
     // Settings in your account menu can stand in for the button, unless it couldn't start or
     // stopped working.
     const inMenu = hasMenuEntry && settings.enabled('menuEntry') && settings.get('menuEntry.hideButton') === true && !unavailable.has('menuEntry');
     launcher.hidden = settings.get('ui.launcher') !== true || inMenu;
+  }
+
+  function refreshSaveState() {
+    saveState.dataset.state = preferenceSave.state;
+    saveState.textContent = preferenceSave.state === 'saving'
+      ? 'Saving changes...'
+      : preferenceSave.state === 'error'
+        ? "Changes couldn't be saved. Open General to retry."
+        : 'Changes apply as you go.';
   }
 
   // ---- actions ----
@@ -533,7 +576,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     render();
     try {
       if (file.size > MAX_BACKUP_BYTES) throw new TypeError('Choose a settings file smaller than 1 MB');
-      const { applied, skipped } = settings.importJson(await file.text());
+      const { applied, skipped } = await settings.importJson(await file.text());
       drafts.clear();
       fieldErrors.clear();
       const extra = skipped.length ? `, and skipped ${skipped.length} this version doesn't know` : '';
@@ -548,20 +591,21 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function resetSettings() {
-    let previous;
-    try {
-      previous = settings.reset();
+    const succeeded = (previous) => {
       drafts.clear();
       fieldErrors.clear();
       render();
-    } catch (error) {
-      log.error("Couldn't reset settings. Try again", error);
-      return;
-    }
-    toast('Settings are back to their defaults.', { action: { label: 'Undo', run: () => {
-      settings.restore(previous);
-      if (dialog.open) root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
-    } } });
+      toast('Settings are back to their defaults.', { action: { label: 'Undo', run: () => {
+        Promise.resolve().then(() => settings.restore(previous)).then(
+          () => {
+            if (dialog.open) root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
+          },
+          (error) => log.error("Couldn't undo the settings reset. Try again", error),
+        );
+      } } });
+    };
+    const saved = settings.reset();
+    return saved && typeof saved.then === 'function' ? saved.then(succeeded) : succeeded(saved);
   }
 
   function reloadFacebook() {
@@ -660,6 +704,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     reloadPending = reloadKeys.some((key) => settings.get(key) !== reloadBaseline.get(key));
     if (dialog.open) render();
   });
+  settings.onSaveStatus?.((status) => {
+    preferenceSave = status;
+    refreshSaveState();
+    refreshChrome();
+    if (dialog.open) render();
+  });
 
   let lastErrorToast = 0;
   const announceError = (entry) => {
@@ -688,6 +738,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const earlier = log.entries().findLast((entry) => entry.level === 'error');
   if (earlier) announceError(earlier);
 
+  refreshSaveState();
   refreshChrome();
   // For changes from outside the settings: a feature that stopped, the extension's update notice.
   const refresh = () => {

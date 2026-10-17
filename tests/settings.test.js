@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { accountFromCookie, buildSchema, createSettings, EXPORT_SCHEMA, isValid, olderThan, storageKeyFor } from '../src/core/settings.js';
-import { createMemoryStorage } from '../src/core/storage.js';
+import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
 
 const features = [
   { id: 'alpha', title: 'Alpha', default: true },
@@ -21,6 +21,49 @@ const make = (stored) => {
   const storage = createMemoryStorage(stored ? { settings: stored } : {});
   return { storage, settings: createSettings({ storage, features, version: '0.0.1' }) };
 };
+
+function createAcknowledgedStorage(initial = {}) {
+  const data = new Map(Object.entries(structuredClone(initial)));
+  const listeners = new Map();
+  const mutations = [];
+  const storage = {
+    kind: 'extension',
+    get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    mutate(key, mutation) {
+      let accept;
+      let reject;
+      const promise = new Promise((resolve, fail) => {
+        accept = resolve;
+        reject = fail;
+      });
+      mutations.push({
+        key,
+        mutation: structuredClone(mutation),
+        accept(value) {
+          const committed = arguments.length ? value : applyObjectMutation(data.get(key), mutation);
+          if (committed === undefined) data.delete(key);
+          else data.set(key, structuredClone(committed));
+          accept(committed === undefined ? undefined : structuredClone(committed));
+        },
+        reject,
+      });
+      return promise;
+    },
+    onChange(key, listener) {
+      listeners.set(key, listener);
+    },
+  };
+  return {
+    storage,
+    mutations,
+    dump: () => Object.fromEntries(structuredClone([...data.entries()])),
+    remote(key, value) {
+      if (value === undefined) data.delete(key);
+      else data.set(key, structuredClone(value));
+      listeners.get(key)?.(structuredClone(value), { source: 'remote' });
+    },
+  };
+}
 
 test('duplicate keys are refused', () => {
   assert.throws(() => buildSchema([{ id: 'paused', title: 'Clash' }]), /Duplicate setting key: paused/);
@@ -119,6 +162,8 @@ test('failed writes leave saved and running preferences unchanged and can be ret
     storage.set = () => { throw new Error('Storage unavailable'); };
     assert.throws(() => mutate(settings), /Storage unavailable/);
     assert.deepEqual(settings.snapshot(), { beta: true });
+    assert.equal(settings.display('alpha'), true, 'synchronous manager failures roll the visible choice back');
+    assert.deepEqual(settings.saveStatus(), { state: 'idle', error: null, pending: [] });
     assert.deepEqual(storage.dump().settings, { beta: true });
     assert.equal(settings.enabled('beta'), true);
     assert.deepEqual(heard, []);
@@ -127,6 +172,617 @@ test('failed writes leave saved and running preferences unchanged and can be ret
     assert.equal(heard.length, 1);
     assert.deepEqual(settings.snapshot(), storage.dump().settings);
   }
+});
+
+test('a synchronous migration failure leaves manager settings at the committed value', () => {
+  const storage = createMemoryStorage();
+  storage.mutate = () => { throw new Error('Storage unavailable'); };
+  const errors = [];
+  const settings = createSettings({
+    storage,
+    features: [{ id: 'alpha', title: 'Alpha', default: true }],
+    migrations: [{ id: 'one', run: (raw) => { raw.alpha = false; } }],
+    log: { error: (message, error) => errors.push([message, error]) },
+  });
+
+  assert.equal(settings.get('alpha'), true);
+  assert.equal(settings.display('alpha'), false, 'the rejected migration remains visible as a retryable draft');
+  assert.deepEqual(settings.snapshot(), {});
+  assert.deepEqual(settings.saveStatus().pending, ['alpha']);
+  assert.equal(storage.dump().settings, undefined);
+  assert.equal(storage.dump()['settings.migrated'], undefined);
+  assert.equal(errors.length, 1);
+});
+
+test('a manager can retry a migration whose settings saved before its receipt failed', () => {
+  const storage = createMemoryStorage({ settings: { alpha: false }, 'settings.migrated': [] });
+  const mutate = storage.mutate;
+  let rejectReceipt = true;
+  storage.mutate = (key, mutation) => {
+    if (key === 'settings.migrated' && rejectReceipt) throw new Error('receipt unavailable');
+    return mutate(key, mutation);
+  };
+  const settings = createSettings({
+    storage,
+    features,
+    migrations: [{ id: 'one', run: (raw) => { raw.beta = true; } }],
+    log: { error() {} },
+  });
+
+  assert.deepEqual(settings.snapshot(), { alpha: false }, 'runtime behavior stays on the committed pre-migration record');
+  assert.deepEqual(storage.dump().settings, { alpha: false, beta: true }, 'the first settings mutation did commit');
+  assert.deepEqual(storage.dump()['settings.migrated'], []);
+
+  rejectReceipt = false;
+  settings.retry();
+  assert.deepEqual(settings.snapshot(), { alpha: false, beta: true });
+  assert.deepEqual(storage.dump()['settings.migrated'], ['one']);
+});
+
+test('a committed-value choice overrides a manager migration awaiting its receipt', () => {
+  const storage = createMemoryStorage({ settings: {}, 'settings.migrated': [] });
+  const mutate = storage.mutate;
+  let rejectReceipt = true;
+  storage.mutate = (key, mutation) => {
+    if (key === 'settings.migrated' && rejectReceipt) throw new Error('receipt unavailable');
+    return mutate(key, mutation);
+  };
+  const settings = createSettings({
+    storage,
+    features,
+    migrations: [{ id: 'one', run: (raw) => { raw.beta = true; } }],
+    log: { error() {} },
+  });
+
+  assert.equal(settings.get('beta'), false);
+  assert.equal(settings.display('beta'), true);
+  assert.deepEqual(storage.dump().settings, { beta: true });
+
+  rejectReceipt = false;
+  settings.set('beta', false);
+  assert.equal(settings.get('beta'), false);
+  assert.equal(settings.display('beta'), false);
+  assert.deepEqual(storage.dump().settings, {});
+  assert.deepEqual(storage.dump()['settings.migrated'], ['one']);
+});
+
+test('a synchronous migration receipt failure is reported to the settings caller', () => {
+  const account = '615000000000021';
+  const accountKey = storageKeyFor(account);
+  const receiptKey = `${accountKey}.migrated`;
+  const storage = createMemoryStorage({ settings: { source: false }, 'settings.migrated': [] });
+  const mutate = storage.mutate;
+  let rejectCopy = true;
+  let rejectReceipt = true;
+  storage.mutate = (key, mutation) => {
+    if (key === accountKey && rejectCopy) {
+      rejectCopy = false;
+      throw new Error('copy unavailable');
+    }
+    if (key === receiptKey && rejectReceipt) throw new Error('receipt unavailable');
+    return mutate(key, mutation);
+  };
+  const settings = createSettings({
+    storage,
+    account,
+    features: [
+      { id: 'source', title: 'Source', default: true },
+      { id: 'migrated', title: 'Migrated', default: true },
+      { id: 'other', title: 'Other', default: false },
+    ],
+    migrations: [{ id: 'one', run: (raw) => { raw.migrated = false; } }],
+    log: { error() {} },
+  });
+
+  assert.throws(() => settings.set('other', true), /receipt unavailable/);
+  assert.equal(settings.saveStatus().state, 'error');
+  assert.deepEqual(storage.dump()[receiptKey], undefined);
+
+  rejectReceipt = false;
+  settings.retry();
+  assert.deepEqual(settings.snapshot(), { source: false, migrated: false, other: true });
+  assert.deepEqual(storage.dump()[receiptKey], ['one']);
+});
+
+test('account inheritance and migration use one manager mutation', () => {
+  const inherited = [
+    { id: 'source', title: 'Source', default: true },
+    { id: 'keep', title: 'Keep', default: false },
+    { id: 'migrated', title: 'Migrated', default: true },
+    { id: 'other', title: 'Other', default: false },
+  ];
+  const account = '615000000000020';
+  const accountKey = storageKeyFor(account);
+  const storage = createMemoryStorage({ settings: { source: false, keep: true } });
+  const mutate = storage.mutate;
+  let fail = true;
+  storage.mutate = (...args) => {
+    if (fail) {
+      fail = false;
+      throw new Error('Storage unavailable');
+    }
+    return mutate(...args);
+  };
+  const migrations = [{ id: 'one', run: (raw) => { raw.migrated = false; } }];
+
+  const first = createSettings({ storage, features: inherited, account, migrations, log: { error() {} } });
+  assert.deepEqual(first.snapshot(), { source: false, keep: true }, 'failed atomic copy keeps inherited committed behavior');
+  assert.equal(storage.dump()[accountKey], undefined);
+  assert.equal(storage.dump()[`${accountKey}.migrated`], undefined);
+
+  first.set('other', true);
+  assert.deepEqual(first.snapshot(), { source: false, keep: true, migrated: false, other: true });
+  assert.deepEqual(storage.dump()[accountKey], { source: false, keep: true, migrated: false, other: true });
+  assert.deepEqual(storage.dump()[`${accountKey}.migrated`], ['one']);
+  assert.deepEqual(createSettings({ storage, features: inherited, account, migrations }).snapshot(), first.snapshot());
+});
+
+test('account inheritance unions source and orphan receipts before running pending migrations', () => {
+  const account = '615000000000022';
+  const accountKey = storageKeyFor(account);
+  const storage = createMemoryStorage({
+    settings: { alpha: false },
+    'settings.migrated': ['one'],
+    [`${accountKey}.migrated`]: [],
+  });
+  const inherited = [
+    { id: 'alpha', title: 'Alpha', default: true },
+    { id: 'beta', title: 'Beta', default: false },
+  ];
+  const migrations = [
+    { id: 'one', run: (raw) => { raw.alpha = true; } },
+    { id: 'two', run: (raw) => { raw.beta = true; } },
+  ];
+
+  const settings = createSettings({ storage, features: inherited, account, migrations });
+
+  assert.deepEqual(settings.snapshot(), { alpha: false, beta: true });
+  assert.deepEqual(storage.dump()[accountKey], { alpha: false, beta: true });
+  assert.deepEqual(storage.dump()[`${accountKey}.migrated`], ['one', 'two']);
+});
+
+test('deleting a live account record restores shared settings through the next edit and reload', async () => {
+  const account = '615000000000023';
+  const accountKey = storageKeyFor(account);
+  const acknowledged = createAcknowledgedStorage({
+    settings: { beta: true },
+    [accountKey]: { alpha: false },
+  });
+  const settings = createSettings({
+    storage: acknowledged.storage,
+    features,
+    account,
+    migrations: [],
+  });
+
+  assert.equal(settings.get('alpha'), false);
+  assert.equal(settings.get('beta'), false);
+  acknowledged.remote(accountKey, undefined);
+
+  assert.equal(settings.get('alpha'), true);
+  assert.equal(settings.get('beta'), true);
+
+  const saving = settings.set('alpha', false);
+  assert.deepEqual(acknowledged.mutations[0].mutation.initialize, { beta: true });
+  acknowledged.mutations[0].accept();
+  await saving;
+  assert.deepEqual(acknowledged.dump()[accountKey], { alpha: false, beta: true });
+
+  const reloaded = createSettings({
+    storage: acknowledged.storage,
+    features,
+    account,
+    migrations: [],
+  });
+  assert.equal(reloaded.get('alpha'), false);
+  assert.equal(reloaded.get('beta'), true);
+});
+
+test('an account edit initializes from shared storage even before its deletion callback arrives', async () => {
+  const account = '615000000000032';
+  const accountKey = storageKeyFor(account);
+  const doneKey = `${accountKey}.migrated`;
+  const data = new Map(Object.entries({
+    settings: { beta: true },
+    'settings.migrated': ['shared'],
+    [accountKey]: { 'beta.words': 'account' },
+    [doneKey]: ['orphan'],
+  }));
+  const migrations = [];
+  const storage = {
+    kind: 'extension',
+    get: (name, fallback) => (data.has(name) ? structuredClone(data.get(name)) : fallback),
+    onChange() {},
+    migrate(name, mutation, receiptKey, receipt, options) {
+      migrations.push({ name, mutation: structuredClone(mutation), receiptKey, receipt, options });
+      const target = data.get(name);
+      const source = target === undefined ? data.get(options.sourceKey) : target;
+      const effective = target === undefined ? { ...mutation, initialize: structuredClone(source ?? {}) } : mutation;
+      const value = applyObjectMutation(target, effective);
+      data.set(name, structuredClone(value));
+      data.set(receiptKey, [...new Set([
+        ...(Array.isArray(data.get(receiptKey)) ? data.get(receiptKey) : []),
+        ...(target === undefined && Array.isArray(data.get(options.sourceDoneKey)) ? data.get(options.sourceDoneKey) : []),
+        ...receipt,
+      ])]);
+      return structuredClone(value);
+    },
+  };
+  const settings = createSettings({ storage, features, account, migrations: [] });
+
+  data.delete(accountKey);
+  await settings.set('alpha', false);
+
+  assert.equal(migrations.length, 1);
+  assert.deepEqual(migrations[0], {
+    name: accountKey,
+    mutation: { initialize: {}, set: { alpha: false }, remove: [] },
+    receiptKey: doneKey,
+    receipt: [],
+    options: { sourceKey: 'settings', sourceDoneKey: 'settings.migrated' },
+  });
+  assert.deepEqual(data.get(accountKey), { alpha: false, beta: true });
+  assert.deepEqual(data.get(doneKey), ['orphan', 'shared']);
+});
+
+test('a newer account deletion supersedes an in-flight replacement and re-arms inheritance', async () => {
+  const account = '615000000000025';
+  const accountKey = storageKeyFor(account);
+  const acknowledged = createAcknowledgedStorage({
+    settings: { beta: true },
+    [accountKey]: { alpha: false },
+  });
+  const settings = createSettings({
+    storage: acknowledged.storage,
+    features,
+    account,
+    migrations: [],
+  });
+
+  const resetting = settings.reset();
+  acknowledged.remote(accountKey, undefined);
+  acknowledged.mutations[0].accept(undefined);
+  await resetting;
+
+  assert.deepEqual(settings.snapshot(), { beta: true });
+  const saving = settings.set('alpha', false);
+  assert.deepEqual(acknowledged.mutations[1].mutation.initialize, { beta: true });
+  acknowledged.mutations[1].accept();
+  await saving;
+  assert.deepEqual(acknowledged.dump()[accountKey], { alpha: false, beta: true });
+});
+
+test('a malformed live account record re-arms shared inheritance before the next edit', async () => {
+  const account = '615000000000024';
+  const accountKey = storageKeyFor(account);
+  const acknowledged = createAcknowledgedStorage({
+    settings: { beta: true },
+    [accountKey]: { alpha: false },
+  });
+  const settings = createSettings({
+    storage: acknowledged.storage,
+    features,
+    account,
+    migrations: [],
+  });
+
+  acknowledged.remote(accountKey, 'bad');
+  assert.equal(settings.get('alpha'), true);
+  assert.equal(settings.get('beta'), true);
+
+  const saving = settings.set('alpha', false);
+  assert.deepEqual(acknowledged.mutations[0].mutation.initialize, { beta: true });
+  acknowledged.mutations[0].accept({ alpha: false, beta: true });
+  await saving;
+  assert.deepEqual(acknowledged.dump()[accountKey], { alpha: false, beta: true });
+});
+
+test('a draft queued before account deletion reinitializes when it flushes afterward', async () => {
+  const account = '615000000000026';
+  const accountKey = storageKeyFor(account);
+  const acknowledged = createAcknowledgedStorage({
+    settings: { 'beta.words': 'shared' },
+    [accountKey]: { alpha: false },
+  });
+  const settings = createSettings({
+    storage: acknowledged.storage,
+    features,
+    account,
+    migrations: [],
+  });
+
+  const first = settings.set('alpha', true);
+  const second = settings.set('beta', true);
+  acknowledged.remote(accountKey, undefined);
+  acknowledged.mutations[0].accept(undefined);
+  await first;
+
+  assert.deepEqual(acknowledged.mutations[1].mutation.initialize, { 'beta.words': 'shared' });
+  assert.deepEqual(acknowledged.mutations[1].mutation.set, { beta: true });
+  acknowledged.mutations[1].accept();
+  await second;
+  assert.deepEqual(acknowledged.dump()[accountKey], { beta: true, 'beta.words': 'shared' });
+});
+
+test('retry after account deletion reinitializes a retained failed draft', async () => {
+  const account = '615000000000027';
+  const accountKey = storageKeyFor(account);
+  const acknowledged = createAcknowledgedStorage({
+    settings: { beta: true },
+    [accountKey]: { alpha: false },
+  });
+  const settings = createSettings({
+    storage: acknowledged.storage,
+    features,
+    account,
+    migrations: [],
+  });
+
+  const saving = settings.set('alpha', true);
+  const rejected = assert.rejects(saving, /disconnected/);
+  acknowledged.mutations[0].reject(new Error('disconnected'));
+  await rejected;
+  acknowledged.remote(accountKey, undefined);
+
+  const retrying = settings.retry();
+  assert.deepEqual(acknowledged.mutations[1].mutation.initialize, { beta: true });
+  acknowledged.mutations[1].accept();
+  await retrying;
+  assert.deepEqual(acknowledged.dump()[accountKey], { beta: true });
+});
+
+test('a stale migration conflict after account deletion rederives from shared settings', async () => {
+  const account = '615000000000028';
+  const accountKey = storageKeyFor(account);
+  const acknowledged = createAcknowledgedStorage({
+    settings: { beta: true },
+    [accountKey]: { alpha: false },
+    [`${accountKey}.migrated`]: [],
+  });
+  acknowledged.storage.getAtLoad = acknowledged.storage.get;
+  acknowledged.storage.whenReady = (run) => run();
+  const settings = createSettings({
+    storage: acknowledged.storage,
+    features,
+    account,
+    migrations: [{ id: 'one', run: (raw) => { raw['beta.words'] = 'migrated'; } }],
+  });
+
+  acknowledged.remote(accountKey, undefined);
+  const conflict = new Error('changed while saving');
+  conflict.code = 'STORAGE_MIGRATION_CONFLICT';
+  conflict.current = { alpha: false };
+  conflict.receipt = [];
+  conflict.copyAll = false;
+  acknowledged.mutations[0].reject(conflict);
+  await Promise.resolve();
+
+  assert.deepEqual(settings.snapshot(), { beta: true });
+  assert.deepEqual(acknowledged.mutations[1].mutation.initialize, { beta: true });
+  acknowledged.mutations[1].accept({ beta: true, 'beta.words': 'migrated' });
+  await Promise.resolve();
+  assert.equal(acknowledged.mutations[2].key, `${accountKey}.migrated`);
+  acknowledged.mutations[2].accept(['one']);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(settings.snapshot(), { beta: true, 'beta.words': 'migrated' });
+});
+
+test('manual Retry resets an exhausted migration conflict budget', async () => {
+  const acknowledged = createAcknowledgedStorage({ settings: {}, 'settings.migrated': [] });
+  acknowledged.storage.getAtLoad = acknowledged.storage.get;
+  acknowledged.storage.whenReady = (run) => run();
+  const settings = createSettings({
+    storage: acknowledged.storage,
+    features,
+    migrations: [{ id: 'one', run: (raw) => { raw['beta.words'] = 'migrated'; } }],
+  });
+  const rejectConflict = async (index, current) => {
+    const conflict = new Error('changed while saving');
+    conflict.code = 'STORAGE_MIGRATION_CONFLICT';
+    conflict.current = current;
+    conflict.receipt = [];
+    acknowledged.mutations[index].reject(conflict);
+    await Promise.resolve();
+  };
+
+  for (let index = 0; index < 4; index++) {
+    await rejectConflict(index, index % 2 ? { beta: true } : {});
+  }
+  assert.equal(settings.saveStatus().state, 'error');
+  assert.equal(acknowledged.mutations.length, 4);
+
+  const retrying = settings.retry();
+  await rejectConflict(4, { beta: true });
+  acknowledged.mutations[5].accept({ beta: true, 'beta.words': 'migrated' });
+  await Promise.resolve();
+  acknowledged.mutations[6].accept(['one']);
+  await retrying;
+
+  assert.deepEqual(settings.snapshot(), { beta: true, 'beta.words': 'migrated' });
+  assert.deepEqual(settings.saveStatus(), { state: 'idle', error: null, pending: [] });
+});
+
+test('canceling a rejected draft with the committed value notifies consumers and clears recovery', async () => {
+  const acknowledged = createAcknowledgedStorage({ settings: {} });
+  const settings = createSettings({ storage: acknowledged.storage, features, migrations: [] });
+  const heard = [];
+  settings.subscribe((change) => heard.push(change.keys));
+
+  const saving = settings.set('beta', true);
+  const rejected = assert.rejects(saving, /disconnected/);
+  acknowledged.mutations[0].reject(new Error('disconnected'));
+  await rejected;
+  assert.equal(settings.display('beta'), true);
+
+  settings.set('beta', false);
+  assert.equal(settings.display('beta'), false);
+  assert.deepEqual(settings.saveStatus(), { state: 'idle', error: null, pending: [] });
+  assert.deepEqual(heard, [['beta']], 'the explicit committed-value choice still carries account authority');
+});
+
+test('rejected acknowledged saves retain committed choices and drafts until retry succeeds', async () => {
+  const acknowledged = createAcknowledgedStorage({ settings: { beta: true } });
+  const errors = [];
+  const settings = createSettings({
+    storage: acknowledged.storage,
+    features,
+    migrations: [],
+    log: { error: (message, error) => errors.push([message, error]) },
+  });
+  const states = [];
+  settings.onSaveStatus((status) => states.push(status.state));
+
+  const saving = settings.set('alpha', false);
+  assert.equal(settings.get('alpha'), true, 'running behavior stays on the acknowledged value');
+  assert.equal(settings.display('alpha'), false, 'the unsaved draft remains visible');
+  assert.deepEqual(settings.saveStatus().pending, ['alpha']);
+  assert.equal(settings.saveStatus().state, 'saving');
+  const rejected = assert.rejects(saving, /Quota exceeded/);
+  acknowledged.mutations[0].reject(new Error('Quota exceeded'));
+  await rejected;
+
+  assert.deepEqual(settings.snapshot(), { beta: true });
+  assert.equal(settings.display('alpha'), false);
+  assert.equal(settings.saveStatus().state, 'error');
+  assert.equal(errors.length, 1);
+
+  const retry = settings.retry();
+  assert.equal(settings.saveStatus().state, 'saving');
+  assert.deepEqual(acknowledged.mutations[1].mutation, { set: { alpha: false }, remove: [] });
+  acknowledged.mutations[1].accept();
+  await retry;
+
+  assert.equal(settings.get('alpha'), false);
+  assert.equal(settings.display('alpha'), false);
+  assert.deepEqual(settings.saveStatus(), { state: 'idle', error: null, pending: [] });
+  assert.equal(createSettings({ storage: acknowledged.storage, features }).get('alpha'), false, 'reload sees the last acknowledgement');
+  assert.deepEqual(states, ['idle', 'saving', 'error', 'saving', 'idle']);
+});
+
+test('field mutations remove defaults and merge remote updates without losing a pending draft', async () => {
+  const acknowledged = createAcknowledgedStorage({ settings: { beta: true } });
+  const settings = createSettings({ storage: acknowledged.storage, features, migrations: [] });
+
+  const remove = settings.set('beta', false);
+  assert.deepEqual(acknowledged.mutations[0].mutation, { set: {}, remove: ['beta'] });
+  acknowledged.remote('settings', { alpha: false, beta: true });
+  assert.equal(settings.get('alpha'), false, 'the unrelated remote field is committed immediately');
+  assert.equal(settings.get('beta'), true, 'the pending field is not committed before acknowledgement');
+  assert.equal(settings.display('beta'), false, 'the local draft survives the remote record');
+  acknowledged.mutations[0].accept({ alpha: false });
+  await remove;
+
+  assert.equal(settings.get('beta'), false);
+  assert.equal(settings.get('alpha'), false);
+  const set = settings.set('beta', true);
+  assert.deepEqual(acknowledged.mutations[1].mutation, { set: { beta: true }, remove: [] });
+  acknowledged.mutations[1].accept({ alpha: false, beta: true });
+  await set;
+  assert.deepEqual(settings.snapshot(), { alpha: false, beta: true });
+});
+
+test('a newer acknowledged deletion wins over an older local response', async () => {
+  const acknowledged = createAcknowledgedStorage({ settings: {} });
+  const settings = createSettings({ storage: acknowledged.storage, features, migrations: [] });
+
+  const saving = settings.set('beta', true);
+  acknowledged.remote('settings', undefined);
+  acknowledged.mutations[0].accept(undefined);
+  await saving;
+
+  assert.equal(settings.get('beta'), false);
+  assert.equal(settings.display('beta'), false);
+  assert.deepEqual(settings.snapshot(), {});
+  assert.deepEqual(settings.saveStatus(), { state: 'idle', error: null, pending: [] });
+});
+
+test('concurrent preference calls settle with their own browser acknowledgement', async () => {
+  const acknowledged = createAcknowledgedStorage({ settings: {} });
+  const settings = createSettings({ storage: acknowledged.storage, features, migrations: [] });
+
+  const first = settings.set('alpha', false);
+  const second = settings.set('beta', true);
+  assert.notEqual(first, second);
+  acknowledged.mutations[0].accept({ alpha: false });
+  await first;
+  assert.equal(settings.get('alpha'), false);
+  assert.equal(acknowledged.mutations.length, 2);
+
+  const rejected = assert.rejects(second, /quota/i);
+  acknowledged.mutations[1].reject(new Error('quota exceeded'));
+  await rejected;
+  assert.equal(settings.get('alpha'), false, 'the acknowledged first operation stays committed');
+  assert.equal(settings.get('beta'), false);
+  assert.equal(settings.display('beta'), true, 'only the rejected second operation remains a draft');
+});
+
+test('a failed mutation rejects callers queued behind it and keeps one retryable draft batch', async () => {
+  const acknowledged = createAcknowledgedStorage({ settings: {} });
+  const settings = createSettings({ storage: acknowledged.storage, features, migrations: [] });
+
+  const first = settings.set('alpha', false);
+  const second = settings.set('beta', true);
+  const firstRejected = assert.rejects(first, /quota/i);
+  const secondRejected = assert.rejects(second, /quota/i);
+  acknowledged.mutations[0].reject(new Error('quota exceeded'));
+  await Promise.all([firstRejected, secondRejected]);
+
+  assert.equal(acknowledged.mutations.length, 1, 'a failed operation does not start another save behind the error');
+  assert.equal(settings.saveStatus().state, 'error');
+  assert.match(settings.saveStatus().error.message, /quota/i);
+  assert.deepEqual(settings.saveStatus().pending, ['alpha', 'beta']);
+
+  const retry = settings.retry();
+  assert.deepEqual(acknowledged.mutations[1].mutation, { set: { alpha: false, beta: true }, remove: [] });
+  acknowledged.mutations[1].accept({ alpha: false, beta: true });
+  await retry;
+  assert.deepEqual(settings.snapshot(), { alpha: false, beta: true });
+});
+
+test('reset and complete restore each publish one replacement record and resolve after acknowledgement', async () => {
+  const acknowledged = createAcknowledgedStorage({ settings: { beta: true } });
+  const settings = createSettings({ storage: acknowledged.storage, features, version: '0.0.1', migrations: [] });
+
+  const reset = settings.reset();
+  assert.equal(acknowledged.mutations.length, 1);
+  assert.deepEqual(acknowledged.mutations[0].mutation, { replace: {} });
+  assert.deepEqual(settings.snapshot(), { beta: true });
+  acknowledged.mutations[0].accept();
+  assert.deepEqual(await reset, { beta: true });
+  assert.deepEqual(settings.snapshot(), {});
+
+  const restore = settings.importJson(JSON.stringify({
+    app: 'HushFacebook Web', schema: EXPORT_SCHEMA, version: '0.0.1', settings: { alpha: false, beta: true },
+  }));
+  assert.equal(acknowledged.mutations.length, 2);
+  assert.deepEqual(acknowledged.mutations[1].mutation, { replace: { alpha: false, beta: true } });
+  assert.deepEqual(settings.snapshot(), {}, 'the restore is not reported as committed early');
+  acknowledged.mutations[1].accept();
+  assert.deepEqual(await restore, { applied: ['alpha', 'beta'], skipped: [] });
+  assert.deepEqual(settings.snapshot(), { alpha: false, beta: true });
+});
+
+test('canceling one field of a rejected replacement keeps it in the retried record', async () => {
+  const replacementFeatures = [
+    { id: 'alpha', title: 'Alpha', default: false },
+    { id: 'beta', title: 'Beta', default: false },
+  ];
+  const acknowledged = createAcknowledgedStorage({ settings: { alpha: true, beta: true } });
+  const settings = createSettings({ storage: acknowledged.storage, features: replacementFeatures, migrations: [] });
+
+  const reset = settings.reset();
+  const rejected = assert.rejects(reset, /disconnected/);
+  acknowledged.mutations[0].reject(new Error('disconnected'));
+  await rejected;
+
+  const keepAlpha = settings.set('alpha', true);
+  assert.deepEqual(acknowledged.mutations[1].mutation, { replace: { alpha: true } });
+  acknowledged.mutations[1].accept({ alpha: true });
+  await keepAlpha;
+
+  assert.equal(settings.get('alpha'), true);
+  assert.equal(settings.get('beta'), false);
+  assert.deepEqual(settings.snapshot(), { alpha: true });
 });
 
 test('backup envelopes reject foreign apps and unsupported schemas without changing preferences', () => {
@@ -308,10 +964,12 @@ test('olderThan compares release numbers and refuses anything else', () => {
   assert.equal(olderThan(undefined, '0.0.2'), false);
 });
 
-test('a stored migration record that is not a list is treated as empty', () => {
-  const storage = createMemoryStorage({ settings: { hideSponsoredPosts: false }, 'settings.migrated': 'junk' });
-  assert.equal(createSettings({ storage, features: adSwitches }).get('hideSponsoredSearch'), false);
-  assert.deepEqual(storage.dump()['settings.migrated'], ['split-ad-switch']);
+test('a malformed stored migration receipt is treated as empty', () => {
+  for (const receipt of ['junk', [7]]) {
+    const storage = createMemoryStorage({ settings: { hideSponsoredPosts: false }, 'settings.migrated': receipt });
+    assert.equal(createSettings({ storage, features: adSwitches }).get('hideSponsoredSearch'), false);
+    assert.deepEqual(storage.dump()['settings.migrated'], ['split-ad-switch']);
+  }
 });
 
 test('isValid knows every setting type', () => {

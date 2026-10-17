@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Extension settings now wait for browser storage before reporting success. Changes from different tabs merge instead of replacing each other, while two changes to the same setting use the order the extension accepts them. A failed save keeps the last confirmed choice running, leaves the draft visible and puts a Retry row in General. Reset, restore and Quick setups wait for the same confirmation.
 * The extension now holds bridge requests until its storage side is ready, so saved choices load in either startup order. Newer changes and deletions win over an older startup snapshot. Filtering and storage-backed housekeeping wait for confirmation. If storage can't be reached, General keeps a Retry notice instead of treating default choices as loaded.
 * General now has Quiet and Privacy Quick setups, plus Back to defaults. Each one says exactly how many settings changed. Find a setting covers General and nested choices too, and those controls work in the results even when their parent switch is off.
 * Report a problem now sits above Ko-fi in General. It opens GitHub with the script, browser, userscript manager and checked switches filled in, while leaving out account ids and private values. The report stays under 6,000 characters and leaves space to describe what happened and what was expected.
@@ -23,7 +24,6 @@
 * Show comments as written covers posts too. An automatically translated post keeps Facebook's layout, and the words it draws are the ones the post was written in, taken from the post itself.
 * Show full post dates leaves posts a week old or more alone. Facebook already writes their date out ("September 29 at 5:13 PM") instead of "6 days ago", so the script's date said the same thing twice. The cutoff is the one Facebook's own code uses.
 * Hide tab badges now hides the Messenger button's unread count. Facebook tucks a line for screen readers ("1 Unread Chats") inside the red pill, so the pill's text wasn't the count alone and the script passed it by. Live, the count was gone and the title had no "(1)", and the button still tells a screen reader how many chats are unread.
-* Failed settings writes now leave the saved choices and running features unchanged. A failed toggle returns to its saved position, invalid fields keep your text with an explanation, and unfinished edits survive a refresh.
 * Restoring a full backup now restores defaults too. Backups from another app, unsupported formats and files over 1 MB are rejected before changes are applied. Older plain settings files still work as partial imports.
 * Settings actions show when they're working, ignore repeated clicks and report failures. Restore and report copying return to their usual state when they finish.
 * v0.0.4 adds an experimental Block Instant Games ads switch. It uses the game's no-ad response, stays off by default and follows changes from Facebook through manager storage. Games that require an ad for a reward won't give that reward. Live game acceptance is still open.

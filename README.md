@@ -49,6 +49,8 @@ Press and hold the Facebook logo at the top left to open settings. You can also 
 
 General has Quiet and Privacy Quick setups, and each one reports how many settings changed. Back to defaults resets everything in one click. You can also back up or restore a settings file up to 1 MB, open a filled problem report on GitHub, or use the Ko-fi link. Each Facebook account gets its own set of settings. If the extension can't reach its saved settings, General keeps a Retry notice visible until they load.
 
+The extension waits for the browser to confirm each settings change. If a save fails, the last saved choice keeps running while your new choice stays visible as a draft, and General offers Retry. Changes from two tabs merge by setting. When both tabs change the same setting, the request the extension accepts last wins.
+
 <p>
   <img src="assets/screenshots/panel-feed.jpg" width="49%" alt="News feed settings with an icon sidebar, grouped rows and lavender switches">
   <img src="assets/screenshots/panel-general.jpg" width="49%" alt="General settings with Quick setups, backup and problem report rows">

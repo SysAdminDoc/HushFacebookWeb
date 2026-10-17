@@ -136,6 +136,9 @@ a.button { display: inline-flex; align-items: center; text-decoration: none; col
 .button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 .button.primary:hover { filter: brightness(1.08); }
 footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 24px; border-top: 1px solid var(--border); color: var(--subtext); font-size: 12px; }
+.save-state[data-state="saving"] { color: var(--peach); }
+.save-state[data-state="error"] { color: var(--red); font-weight: 600; }
+.save-recovery .title { color: var(--red); }
 .diagnostic-summary { padding: 22px; background: var(--surface0); border: 1px solid var(--border); border-radius: 10px; }
 .summary-title { margin: 0 0 14px; font-size: 16px; line-height: 22px; font-weight: 600; }
 dl { display: grid; grid-template-columns: minmax(160px, 0.8fr) minmax(0, 1.2fr); gap: 8px 24px; margin: 0; font-size: 14px; line-height: 21px; }

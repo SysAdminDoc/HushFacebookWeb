@@ -10,7 +10,7 @@ import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider } from '../src/core/dom/hide.js';
 import { createLog } from '../src/core/log.js';
 import { createSettings } from '../src/core/settings.js';
-import { createMemoryStorage } from '../src/core/storage.js';
+import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
 import { features as allFeatures } from '../src/features/index.js';
 import { mountPanel } from '../src/ui/panel.js';
 import { QUICK_SETUPS } from '../src/ui/quick-setups.js';
@@ -37,7 +37,7 @@ function lendGlobals(win) {
   });
 }
 
-function setup({ features = [], actions = null, unavailable = new Set(), storage = createMemoryStorage(), update, environment = {}, beforeMount } = {}) {
+function setup({ features = [], actions = null, unavailable = new Set(), storage = createMemoryStorage(), update, environment = {}, beforeMount, migrations } = {}) {
   const win = new Window({ url: 'https://www.facebook.com/' });
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
@@ -51,7 +51,7 @@ function setup({ features = [], actions = null, unavailable = new Set(), storage
   };
   win.document.body.innerHTML = '<div role="main"><div class="feed"><div aria-posinset="1"><div>Post</div></div></div></div>';
   const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
-  const settings = createSettings({ storage, features, log });
+  const settings = createSettings({ storage, features, log, migrations });
   beforeMount?.(settings);
   const hider = createHider({ doc: win.document, log });
   const diagnostics = createDiagnostics();
@@ -224,6 +224,10 @@ test('Quick setups wait for extension storage and preserve unrelated saved choic
   shadow.querySelector('[data-key="quick:quiet"]').click();
   assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), 'true');
   assert.equal(settings.get('cleanUpReels'), false, 'the setup has not used unloaded defaults');
+  const laterToggle = shadow.querySelector('[data-key="ui.hiddenNote"]');
+  assert.equal(laterToggle.disabled, true, 'later preference actions wait behind the deferred setup');
+  laterToggle.click();
+  assert.equal(settings.get('ui.hiddenNote'), false);
 
   data.set('settings', { forceDarkMode: true });
   atLoad.set('settings', { forceDarkMode: true });
@@ -233,7 +237,51 @@ test('Quick setups wait for extension storage and preserve unrelated saved choic
   assert.ok(quiet.keys.every((key) => settings.get(key) === true));
   assert.equal(data.get('settings').forceDarkMode, true);
   assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), null);
+  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').disabled, false);
   assert.match(shadow.querySelector('.toast:last-child').textContent, /^Changed \d+ settings$/);
+});
+
+test('a Quick setup waiting on failed startup storage leaves Retry available', async () => {
+  const data = new Map();
+  const atLoad = new Map();
+  const ready = [];
+  const statusListeners = new Set();
+  let state = 'loading';
+  const storage = {
+    kind: 'extension',
+    get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    getAtLoad: (key, fallback) => (atLoad.has(key) ? structuredClone(atLoad.get(key)) : fallback),
+    set: (key, value) => void data.set(key, structuredClone(value)),
+    remove: (key) => void data.delete(key),
+    onChange() {},
+    whenReady: (run) => ready.push(run),
+    status: () => ({ state, error: state === 'error' ? new Error('bridge unavailable') : null }),
+    onStatus(listener) {
+      statusListeners.add(listener);
+      listener(this.status());
+    },
+    async retry() {
+      state = 'loading';
+      for (const listener of statusListeners) listener(this.status());
+      for (const run of ready.splice(0)) run();
+      state = 'ready';
+      for (const listener of statusListeners) listener(this.status());
+      return true;
+    },
+  };
+  const { shadow, panel } = setup({ features: allFeatures, storage, environment: { storage } });
+  panel.open('general');
+  shadow.querySelector('[data-key="quick:privacy"]').click();
+
+  state = 'error';
+  for (const listener of statusListeners) listener(storage.status());
+  const retry = shadow.querySelector('[data-key="storage:retry"]');
+  assert.equal(retry.disabled, false);
+  retry.click();
+  await tick();
+
+  assert.equal(shadow.querySelector('[data-key="storage-recovery"]'), null);
+  assert.equal(shadow.querySelector('[data-key="quick:privacy"]').getAttribute('aria-busy'), null);
 });
 
 test('a reload-required change shows the top row and remembers its settings page through reload', () => {
@@ -324,7 +372,7 @@ test('reload distinguishes the Search section from finding a setting', () => {
   assert.equal(values.size, 0);
 });
 
-test('a reload-required change made before extension storage is ready keeps the startup baseline', () => {
+test('a reload-required change waits for acknowledgement and keeps the startup baseline', () => {
   const feature = { id: 'restartMe', section: 'feed', title: 'Restart me', description: 'Needs a reload.', default: false, reload: true, setup() {} };
   const data = new Map();
   const ready = [];
@@ -339,7 +387,8 @@ test('a reload-required change made before extension storage is ready keeps the 
   const { panel, settings, shadow } = setup({ features: [feature], storage, environment: { sessionStorage: null } });
   panel.open('feed');
   settings.set('restartMe', true);
-  assert.ok(shadow.querySelector('[data-key="reload-facebook"]'));
+  assert.equal(shadow.querySelector('[data-key="reload-facebook"]'), null, 'an unsaved draft is not presented as active');
+  assert.match(shadow.querySelector('[data-key="save-state"]').textContent, /Saving/);
   for (const run of ready.splice(0)) run();
   assert.equal(settings.pageLoadValue('restartMe'), false);
   assert.ok(shadow.querySelector('[data-key="reload-facebook"]'), 'storage readiness does not absorb the change');
@@ -510,6 +559,39 @@ test('reset and Undo preserve settings and a reachable focus target', async () =
   assert.equal(shadow.activeElement, reset());
 });
 
+test('Reset stays busy until extension settings load and Undo receives the saved snapshot', async () => {
+  const data = new Map([['settings', { 'ui.hiddenNote': true }]]);
+  const ready = [];
+  const storage = {
+    kind: 'extension',
+    get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    getAtLoad: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    whenReady: (run) => ready.push(run),
+    onChange() {},
+    mutate(key, mutation) {
+      const value = applyObjectMutation(data.get(key), mutation);
+      data.set(key, structuredClone(value));
+      return Promise.resolve(structuredClone(value));
+    },
+    set: (key, value) => data.set(key, structuredClone(value)),
+  };
+  const { shadow, panel, settings } = setup({ storage });
+  panel.open('general');
+  shadow.querySelector('[data-key="reset"]').click();
+  assert.equal(shadow.querySelector('[data-key="reset"]').textContent, 'Resetting...');
+  assert.deepEqual(data.get('settings'), { 'ui.hiddenNote': true });
+
+  for (const run of [...ready]) run();
+  await tick();
+  assert.deepEqual(data.get('settings'), {});
+  const undo = [...shadow.querySelectorAll('.toast button')].find((button) => button.textContent === 'Undo');
+  assert.ok(undo);
+  undo.click();
+  await tick();
+  assert.equal(settings.get('ui.hiddenNote'), true);
+  assert.deepEqual(data.get('settings'), { 'ui.hiddenNote': true });
+});
+
 test('an unavailable section request keeps the existing settings page usable', () => {
   const { shadow, panel } = setup();
   panel.open('missing');
@@ -517,9 +599,10 @@ test('an unavailable section request keeps the existing settings page usable', (
   assert.equal(shadow.querySelector('dialog').open, true);
 });
 
-test('a failed toggle save restores the visible switch and gives recovery feedback', () => {
+test('a synchronous manager save failure rolls the switch back and reports it', async () => {
   const storage = createMemoryStorage();
   const { win, shadow, panel, settings } = setup({ storage });
+  const save = storage.set;
   storage.set = () => { throw new Error('Disk full'); };
   panel.open('general');
   const input = shadow.querySelector('[data-key="ui.hiddenNote"]');
@@ -527,7 +610,76 @@ test('a failed toggle save restores the visible switch and gives recovery feedba
   input.dispatchEvent(new win.Event('change'));
   assert.equal(settings.get('ui.hiddenNote'), false);
   assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').checked, false);
+  assert.equal(shadow.querySelector('[data-key="save-recovery"]'), null);
+  assert.equal(shadow.querySelector('[data-key="save-state"]').textContent, 'Changes apply as you go.');
   assert.match(shadow.querySelector('.toast.error').textContent, /save|storage/i);
+  storage.set = save;
+});
+
+test('a synchronous Undo failure is reported without changing the reset settings', async () => {
+  const storage = createMemoryStorage();
+  const { shadow, panel, settings } = setup({ storage });
+  settings.set('ui.hiddenNote', true);
+  panel.open('general');
+  shadow.querySelector('[data-key="reset"]').click();
+  storage.set = () => { throw new Error('Disk full'); };
+  [...shadow.querySelectorAll('.toast button')].find((button) => button.textContent === 'Undo').click();
+  await tick();
+  assert.equal(settings.get('ui.hiddenNote'), false);
+  assert.match(shadow.querySelector('.toast.error').textContent, /undo|save|storage/i);
+});
+
+test('an extension save shows pending state, keeps a rejected draft and commits it on retry', async () => {
+  const data = new Map();
+  const mutations = [];
+  const storage = {
+    kind: 'extension',
+    get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    set: (key, value) => void data.set(key, structuredClone(value)),
+    remove: (key) => void data.delete(key),
+    mutate(key, mutation) {
+      let resolve;
+      let reject;
+      const promise = new Promise((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+      mutations.push({
+        mutation: structuredClone(mutation),
+        accept() {
+          const next = applyObjectMutation(data.get(key), mutation);
+          data.set(key, structuredClone(next));
+          resolve(structuredClone(next));
+        },
+        reject,
+      });
+      return promise;
+    },
+    onChange() {},
+  };
+  const { win, shadow, panel, settings } = setup({ storage, migrations: [] });
+  panel.open('general');
+  const input = shadow.querySelector('[data-key="ui.hiddenNote"]');
+  input.checked = true;
+  input.dispatchEvent(new win.Event('change'));
+
+  assert.equal(settings.get('ui.hiddenNote'), false);
+  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').checked, true);
+  assert.equal(shadow.querySelector('[data-key="save-state"]').textContent, 'Saving changes...');
+  mutations[0].reject(new Error('Extension context disconnected'));
+  await tick();
+
+  assert.equal(settings.get('ui.hiddenNote'), false);
+  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').checked, true);
+  assert.ok(shadow.querySelector('[data-key="save-recovery"]'));
+  shadow.querySelector('[data-key="settings:retry"]').click();
+  assert.equal(shadow.querySelector('[data-key="save-state"]').textContent, 'Saving changes...');
+  mutations[1].accept();
+  await tick();
+
+  assert.equal(settings.get('ui.hiddenNote'), true);
+  assert.equal(shadow.querySelector('[data-key="save-recovery"]'), null);
+  assert.equal(shadow.querySelector('[data-key="save-state"]').textContent, 'Changes apply as you go.');
 });
 
 test('invalid numeric edits stay in the field with an associated error and can be corrected', () => {

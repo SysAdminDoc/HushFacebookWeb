@@ -8,6 +8,897 @@ const SAVABLE = /(^|\.)(fbcdn\.net|facebook\.com)$/;
 // The worker answers by then even when a large file is still coming, so it never outlives the
 // browser's limit on one event. The download carries on either way.
 const ANSWER_WITHIN = 20000;
+const STORAGE_REVISIONS_KEY = 'hushfacebookWeb.storageRevisions';
+const STORAGE_REVISION_EPOCH_KEY = '__epoch';
+const STORAGE_REVISION_ORDER_KEY = '__order';
+const PREFERENCE_KEY = /^settings(?:@[a-z0-9]+)?(?:\.migrated)?$/;
+const PENDING_RECOVERY_KEY = 'hushfacebookWeb.pendingPreferenceRecovery';
+const DIRECT_STORAGE_RETRY_DELAYS = [50, 150];
+let storageMutationTail = Promise.resolve();
+const pendingStorageWrites = [];
+const pendingStorageRemovals = new Set();
+const pendingDirectRecoveries = new Map();
+const deferredDirectChanges = new Map();
+let pendingDirectRecoveriesLoad = null;
+
+function validStorageRevisions(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const epoch = value[STORAGE_REVISION_EPOCH_KEY];
+  const order = value[STORAGE_REVISION_ORDER_KEY];
+  if (typeof epoch !== 'string' || !epoch || !Number.isSafeInteger(order) || order < 0) return false;
+  return Object.entries(value).every(([name, revision]) => (
+    name === STORAGE_REVISION_EPOCH_KEY
+      ? typeof revision === 'string' && revision.length > 0
+      : name === STORAGE_REVISION_ORDER_KEY
+        ? Number.isSafeInteger(revision) && revision >= 0
+        : Number.isSafeInteger(revision) && revision >= 0 && revision <= order
+  ));
+}
+
+function sameStorageRevisions(left, right) {
+  if (left === undefined || right === undefined) return left === right;
+  try {
+    const names = (value) => Object.keys(value).sort().map((name) => [name, value[name]]);
+    return JSON.stringify(names(left)) === JSON.stringify(names(right));
+  } catch {
+    return false;
+  }
+}
+
+function sameStorageValue(left, right) {
+  if (left === undefined || right === undefined) return left === right;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+function isStorageRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+async function loadPendingDirectRecoveries() {
+  if (pendingDirectRecoveriesLoad) return pendingDirectRecoveriesLoad;
+  pendingDirectRecoveriesLoad = (async () => {
+    if (!chrome.storage.session?.get) return;
+    const saved = await chrome.storage.session.get(PENDING_RECOVERY_KEY);
+    const record = saved?.[PENDING_RECOVERY_KEY];
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return;
+    for (const [key, entry] of Object.entries(record)) {
+      if (
+        !PREFERENCE_KEY.test(key)
+        || !entry
+        || typeof entry !== 'object'
+        || Array.isArray(entry)
+        || !entry.mutation
+        || typeof entry.mutation !== 'object'
+        || Array.isArray(entry.mutation)
+      ) continue;
+      pendingDirectRecoveries.set(key, {
+        expected: entry.missing === true ? undefined : structuredClone(entry.expected),
+        mutation: structuredClone(entry.mutation),
+      });
+    }
+  })().catch((error) => {
+    pendingDirectRecoveriesLoad = null;
+    throw error;
+  });
+  return pendingDirectRecoveriesLoad;
+}
+
+async function persistPendingDirectRecoveries() {
+  if (!chrome.storage.session?.set) return;
+  const record = {};
+  for (const [key, entry] of pendingDirectRecoveries) {
+    record[key] = {
+      missing: entry.expected === undefined,
+      expected: entry.expected === undefined ? null : structuredClone(entry.expected),
+      mutation: structuredClone(entry.mutation),
+    };
+  }
+  await chrome.storage.session.set({ [PENDING_RECOVERY_KEY]: record });
+}
+
+async function rememberDirectRecovery(key, expected, mutation) {
+  if (!PREFERENCE_KEY.test(key) || !mutation) return;
+  await loadPendingDirectRecoveries();
+  await replayDeferredDirectChanges();
+  const previous = pendingDirectRecoveries.get(key);
+  const retainedMutation = Object.hasOwn(mutation, 'union') && Object.hasOwn(previous?.mutation ?? {}, 'union')
+    ? { union: [...new Set([...previous.mutation.union, ...mutation.union])] }
+    : structuredClone(mutation);
+  pendingDirectRecoveries.set(key, {
+    expected: structuredClone(expected),
+    mutation: retainedMutation,
+  });
+  await persistPendingDirectRecoveries();
+}
+
+async function pendingRecoveryFor(key, current) {
+  await loadPendingDirectRecoveries();
+  await replayDeferredDirectChanges();
+  const recovery = pendingDirectRecoveries.get(key);
+  if (!recovery) return { value: current, recovery: null };
+  if (!Object.hasOwn(recovery.mutation, 'union') && !sameStorageValue(current, recovery.expected)) {
+    pendingDirectRecoveries.delete(key);
+    try {
+      await persistPendingDirectRecoveries();
+    } catch (error) {
+      pendingDirectRecoveries.set(key, recovery);
+      throw error;
+    }
+    return { value: current, recovery: null };
+  }
+  if (recovery.mutation.removeRecord === true) {
+    return { value: undefined, recovery, removed: true };
+  }
+  const mutation = Object.hasOwn(recovery.mutation, 'union')
+    ? structuredClone(recovery.mutation)
+    : { ...structuredClone(recovery.mutation), expected: structuredClone(recovery.expected) };
+  return { value: applyStorageMutation(current, mutation), recovery, removed: false };
+}
+
+async function finishDirectRecovery(key, recovery) {
+  if (!recovery || pendingDirectRecoveries.get(key) !== recovery) return;
+  pendingDirectRecoveries.delete(key);
+  try {
+    await persistPendingDirectRecoveries();
+  } catch (error) {
+    pendingDirectRecoveries.set(key, recovery);
+    throw error;
+  }
+}
+
+function storageRevisionsRegressed(current, base) {
+  if (!validStorageRevisions(current) || !validStorageRevisions(base)) return false;
+  if (current[STORAGE_REVISION_EPOCH_KEY] !== base[STORAGE_REVISION_EPOCH_KEY]) return false;
+  if (current[STORAGE_REVISION_ORDER_KEY] < base[STORAGE_REVISION_ORDER_KEY]) return true;
+  return Object.entries(base).some(([name, revision]) => (
+    name !== STORAGE_REVISION_EPOCH_KEY
+    && name !== STORAGE_REVISION_ORDER_KEY
+    && (!Number.isSafeInteger(current[name]) || current[name] < revision)
+  ));
+}
+
+function applyStorageMutation(current, mutation) {
+  if (!mutation || typeof mutation !== 'object' || Array.isArray(mutation)) throw new TypeError('invalid storage mutation');
+  for (const conditions of [mutation.conditions, mutation.guard]) {
+    if (conditions !== undefined && (!conditions || typeof conditions !== 'object' || Array.isArray(conditions))) {
+      throw new TypeError('invalid storage conditions');
+    }
+    for (const condition of Object.values(conditions ?? {})) {
+      if (!condition || typeof condition !== 'object' || Array.isArray(condition) || typeof condition.exists !== 'boolean') {
+        throw new TypeError('invalid storage condition');
+      }
+    }
+  }
+  if (mutation.guarded !== undefined && (!Array.isArray(mutation.guarded) || mutation.guarded.some((name) => typeof name !== 'string'))) {
+    throw new TypeError('invalid guarded storage fields');
+  }
+  if (
+    mutation.migrationOwners !== undefined
+    && (
+      !mutation.migrationOwners
+      || typeof mutation.migrationOwners !== 'object'
+      || Array.isArray(mutation.migrationOwners)
+      || Object.values(mutation.migrationOwners).some((id) => typeof id !== 'string')
+    )
+  ) throw new TypeError('invalid migration field owners');
+  if (Object.hasOwn(mutation, 'expected') && !sameStorageValue(current, mutation.expected)) {
+    return structuredClone(current);
+  }
+  const replacement = Object.hasOwn(mutation, 'replace');
+  if (replacement) return structuredClone(mutation.replace);
+  if (Object.hasOwn(mutation, 'union')) {
+    if (!Array.isArray(mutation.union) || mutation.union.some((id) => typeof id !== 'string')) {
+      throw new TypeError('union mutations require string ids');
+    }
+    const existing = Array.isArray(current) ? current.filter((id) => typeof id === 'string') : [];
+    return [...new Set([...structuredClone(existing), ...structuredClone(mutation.union)])];
+  }
+  if (
+    mutation.initialize !== undefined
+    && (!mutation.initialize || typeof mutation.initialize !== 'object' || Array.isArray(mutation.initialize))
+  ) throw new TypeError('invalid initial storage fields');
+  const source = current === undefined && Object.hasOwn(mutation, 'initialize') ? mutation.initialize : current ?? {};
+  if (!source || typeof source !== 'object' || Array.isArray(source)) throw new TypeError('storage records must be objects');
+  const next = structuredClone(source);
+  if (mutation.set !== undefined && (!mutation.set || typeof mutation.set !== 'object' || Array.isArray(mutation.set))) throw new TypeError('invalid storage fields');
+  if (mutation.remove !== undefined && (!Array.isArray(mutation.remove) || mutation.remove.some((name) => typeof name !== 'string'))) throw new TypeError('invalid removed fields');
+  const allowed = (name) => {
+    const condition = mutation.conditions?.[name];
+    if (!condition) return true;
+    const exists = Object.hasOwn(source, name);
+    return exists === condition.exists && (!exists || sameStorageValue(source[name], condition.value));
+  };
+  for (const name of mutation.remove ?? []) {
+    if (allowed(name)) delete next[name];
+  }
+  for (const [name, value] of Object.entries(mutation.set ?? {})) {
+    if (allowed(name)) next[name] = structuredClone(value);
+  }
+  return next;
+}
+
+function withoutConditionalFields(mutation) {
+  const conditional = new Set(Object.keys(mutation?.conditions ?? {}));
+  if (!conditional.size) return mutation;
+  const set = Object.fromEntries(Object.entries(mutation.set ?? {}).filter(([name]) => !conditional.has(name)));
+  const remove = (mutation.remove ?? []).filter((name) => !conditional.has(name));
+  return {
+    ...(Object.hasOwn(mutation, 'initialize') ? { initialize: structuredClone(mutation.initialize) } : {}),
+    set,
+    remove,
+  };
+}
+
+function withoutCompletedMigrationFields(mutation, pending) {
+  const owners = mutation?.migrationOwners;
+  if (!owners || typeof owners !== 'object' || Array.isArray(owners)) return mutation;
+  const completed = Object.entries(owners)
+    .filter(([, migration]) => !pending.includes(migration))
+    .map(([name]) => name);
+  if (!completed.length) return mutation;
+  const next = structuredClone(mutation);
+  for (const name of completed) {
+    if (next.set) delete next.set[name];
+    if (next.conditions) delete next.conditions[name];
+    if (next.migrationOwners) delete next.migrationOwners[name];
+  }
+  if (next.remove) next.remove = next.remove.filter((name) => !completed.includes(name));
+  if (next.guarded) next.guarded = next.guarded.filter((name) => !completed.includes(name));
+  return next;
+}
+
+function storageConditionsMatch(current, conditions) {
+  const source = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+  return Object.entries(conditions ?? {}).every(([name, condition]) => {
+    const exists = Object.hasOwn(source, name);
+    return exists === condition.exists && (!exists || sameStorageValue(source[name], condition.value));
+  });
+}
+
+function nextStorageRevision(saved, keys, generation, baseRevisions) {
+  const storedRevisions = saved[STORAGE_REVISIONS_KEY];
+  const storedValid = validStorageRevisions(storedRevisions);
+  const requestedGeneration = typeof generation === 'string' && generation ? generation : null;
+  const resetMatchesStorage = requestedGeneration
+    && requestedGeneration !== storedRevisions?.[STORAGE_REVISION_EPOCH_KEY]
+    && sameStorageRevisions(storedRevisions, baseRevisions);
+  const resetPrecededRequest = storageRevisionsRegressed(storedRevisions, baseRevisions);
+  const overflowed = storedValid && storedRevisions[STORAGE_REVISION_ORDER_KEY] >= Number.MAX_SAFE_INTEGER;
+  const continuing = storedValid && !overflowed && !resetMatchesStorage && !resetPrecededRequest;
+  const epoch = continuing
+    ? storedRevisions[STORAGE_REVISION_EPOCH_KEY]
+    : resetMatchesStorage ? requestedGeneration : crypto.randomUUID();
+  const revisions = continuing ? structuredClone(storedRevisions) : {
+    [STORAGE_REVISION_EPOCH_KEY]: epoch,
+    [STORAGE_REVISION_ORDER_KEY]: 0,
+  };
+  const order = revisions[STORAGE_REVISION_ORDER_KEY] + 1;
+  revisions[STORAGE_REVISION_ORDER_KEY] = order;
+  for (const key of keys) revisions[key] = order;
+  return { epoch, order, revisions };
+}
+
+async function writeStorageCommit(values, revisions) {
+  const expected = { values: structuredClone(values), revisions: structuredClone(revisions) };
+  pendingStorageWrites.push(expected);
+  if (pendingStorageWrites.length > 64) pendingStorageWrites.splice(0, pendingStorageWrites.length - 64);
+  try {
+    await chrome.storage.local.set({ ...values, [STORAGE_REVISIONS_KEY]: revisions });
+  } catch (error) {
+    const index = pendingStorageWrites.indexOf(expected);
+    if (index >= 0) pendingStorageWrites.splice(index, 1);
+    throw error;
+  }
+}
+
+function queueStorageTask(run) {
+  const result = storageMutationTail.then(run, run);
+  storageMutationTail = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+// Every tab sends field mutations here. One worker queue makes the read, merge and write order
+// authoritative across tabs. Independent fields survive; for one field, the accepted request
+// that reaches this queue last wins.
+async function commitStorageMutation({ key, mutation, generation = null, baseRevisions }, { recoverPending = true } = {}) {
+  const saved = await chrome.storage.local.get([key, STORAGE_REVISIONS_KEY]);
+  const recovered = recoverPending
+    ? await pendingRecoveryFor(key, saved[key])
+    : { value: saved[key], recovery: null, removed: false };
+  const malformedPreference = PREFERENCE_KEY.test(key)
+    && !key.endsWith('.migrated')
+    && recovered.value !== undefined
+    && !isStorageRecord(recovered.value);
+  const conditionalRecovery = Object.hasOwn(mutation ?? {}, 'expected');
+  const current = malformedPreference && !conditionalRecovery ? undefined : recovered.value;
+  const previous = structuredClone(current);
+  const completedRemoval = mutation?.removeRecord === true && current === undefined;
+  if (
+    Object.hasOwn(mutation ?? {}, 'expected')
+    && !sameStorageValue(current, mutation.expected)
+    && !completedRemoval
+  ) {
+    const revisions = saved[STORAGE_REVISIONS_KEY];
+    return {
+      value: structuredClone(current),
+      previous,
+      revision: validStorageRevisions(revisions) ? revisions[key] : null,
+      epoch: validStorageRevisions(revisions) ? revisions[STORAGE_REVISION_EPOCH_KEY] : null,
+      revisions,
+      committed: false,
+    };
+  }
+  if (mutation?.removeRecord === true) {
+    if (Object.keys(mutation).some((name) => name !== 'removeRecord' && name !== 'expected')) {
+      throw new TypeError('invalid record removal');
+    }
+    const { epoch, order, revisions } = nextStorageRevision(saved, [key], generation, baseRevisions);
+    if (Object.hasOwn(saved, key)) {
+      pendingStorageRemovals.add(key);
+      try {
+        await chrome.storage.local.remove(key);
+      } catch (error) {
+        pendingStorageRemovals.delete(key);
+        throw error;
+      }
+    }
+    await writeStorageCommit({}, revisions);
+    await finishDirectRecovery(key, recovered.recovery);
+    return { value: undefined, previous, revision: order, epoch, revisions, committed: true };
+  }
+  const next = applyStorageMutation(current, mutation);
+  const { epoch, order, revisions } = nextStorageRevision(saved, [key], generation, baseRevisions);
+  // The record and its accepted-order marker change together, so every tab can reject a
+  // delayed push or response without guessing from delivery order.
+  await writeStorageCommit({ [key]: next }, revisions);
+  await finishDirectRecovery(key, recovered.recovery);
+  return { value: next, previous, revision: order, epoch, revisions, committed: true };
+}
+
+async function commitPendingDirectRecovery(key, { keepOnMismatch = false } = {}) {
+  await loadPendingDirectRecoveries();
+  await replayDeferredDirectChanges();
+  const recovery = pendingDirectRecoveries.get(key);
+  if (!recovery) return null;
+  const mutation = Object.hasOwn(recovery.mutation, 'union')
+    ? structuredClone(recovery.mutation)
+    : { ...structuredClone(recovery.mutation), expected: structuredClone(recovery.expected) };
+  const result = await commitStorageMutation({ key, mutation }, { recoverPending: false });
+  if (result.committed !== false || !keepOnMismatch) await finishDirectRecovery(key, recovery);
+  return result;
+}
+
+function mutateStorage(request) {
+  if (typeof request?.key !== 'string' || !request.key) return Promise.reject(new TypeError('invalid storage key'));
+  return queueStorageTask(() => commitStorageMutation(request));
+}
+
+function migrateStorage({
+  key,
+  doneKey,
+  mutation,
+  receipt,
+  sourceKey = null,
+  sourceDoneKey = null,
+  generation = null,
+  baseRevisions,
+}) {
+  if (typeof key !== 'string' || !key || typeof doneKey !== 'string' || !doneKey) {
+    return Promise.reject(new TypeError('invalid migration storage keys'));
+  }
+  if (!Array.isArray(receipt) || receipt.some((id) => typeof id !== 'string')) {
+    return Promise.reject(new TypeError('invalid migration receipt'));
+  }
+  if (
+    (sourceKey !== null && (typeof sourceKey !== 'string' || !sourceKey))
+    || (sourceDoneKey !== null && (typeof sourceDoneKey !== 'string' || !sourceDoneKey))
+  ) return Promise.reject(new TypeError('invalid migration source keys'));
+  const run = async () => {
+    let recoveredDependency = false;
+    for (const dependency of [...new Set([key, doneKey, sourceKey, sourceDoneKey].filter(Boolean))]) {
+      const recovered = await commitPendingDirectRecovery(dependency);
+      if (recovered?.committed === true) recoveredDependency = true;
+    }
+    const saved = await chrome.storage.local.get([
+      key,
+      doneKey,
+      ...(sourceKey ? [sourceKey] : []),
+      ...(sourceDoneKey ? [sourceDoneKey] : []),
+      STORAGE_REVISIONS_KEY,
+    ]);
+    const recovered = await pendingRecoveryFor(key, saved[key]);
+    const recoveredTarget = recovered.value;
+    const targetMissing = saved[key] === undefined
+      || recovered.removed === true
+      || !isStorageRecord(recoveredTarget);
+    const target = targetMissing ? undefined : recoveredTarget;
+    const copiesSource = targetMissing && sourceKey && sourceKey !== key;
+    const rawSource = copiesSource ? saved[sourceKey] : target;
+    const source = isStorageRecord(rawSource) ? rawSource : {};
+    const previous = structuredClone(source);
+    const targetDone = Array.isArray(saved[doneKey]) ? saved[doneKey].filter((id) => typeof id === 'string') : [];
+    const sourceDone = copiesSource && Array.isArray(saved[sourceDoneKey])
+      ? saved[sourceDoneKey].filter((id) => typeof id === 'string')
+      : [];
+    const done = [...new Set([...structuredClone(targetDone), ...structuredClone(sourceDone)])];
+    const pending = receipt.filter((id) => !done.includes(id));
+    const initializes = targetMissing && Object.hasOwn(mutation ?? {}, 'initialize');
+    const filteredMutation = pending.length
+      ? withoutCompletedMigrationFields(mutation, pending)
+      : withoutConditionalFields(mutation);
+    if (pending.length && !storageConditionsMatch(source, filteredMutation?.guard)) {
+      const revisions = saved[STORAGE_REVISIONS_KEY];
+      return {
+        value: source,
+        previous,
+        receipt: done,
+        completedBefore: done,
+        revision: validStorageRevisions(revisions) ? revisions[key] : null,
+        epoch: validStorageRevisions(revisions) ? revisions[STORAGE_REVISION_EPOCH_KEY] : null,
+        revisions,
+        committed: false,
+        conflict: true,
+        copyAll: copiesSource,
+      };
+    }
+    const effectiveMutation = initializes
+      ? { ...filteredMutation, initialize: structuredClone(source ?? {}) }
+      : filteredMutation;
+    const next = applyStorageMutation(target, effectiveMutation);
+    const nextDone = [...new Set([...structuredClone(done), ...structuredClone(receipt)])];
+    if (!pending.length && sameStorageValue(next, saved[key])) {
+      const revisions = saved[STORAGE_REVISIONS_KEY];
+      return {
+        value: previous,
+        previous,
+        receipt: done,
+        completedBefore: done,
+        revision: validStorageRevisions(revisions) ? revisions[key] : null,
+        epoch: validStorageRevisions(revisions) ? revisions[STORAGE_REVISION_EPOCH_KEY] : null,
+        revisions,
+        committed: recoveredDependency,
+      };
+    }
+    const state = nextStorageRevision(saved, [key, doneKey], generation, baseRevisions);
+    await writeStorageCommit({ [key]: next, [doneKey]: nextDone }, state.revisions);
+    await finishDirectRecovery(key, recovered.recovery);
+    return {
+      value: next,
+      previous,
+      receipt: nextDone,
+      completedBefore: done,
+      revision: state.order,
+      epoch: state.epoch,
+      revisions: state.revisions,
+      committed: true,
+    };
+  };
+  return queueStorageTask(run);
+}
+
+function directPreferenceMutation(key, change) {
+  if (!/^settings(?:@[a-z0-9]+)?(?:\.migrated)?$/.test(key)) return null;
+  if (key.endsWith('.migrated')) {
+    const malformedNew = change.newValue !== undefined && (
+      !Array.isArray(change.newValue)
+      || change.newValue.some((id) => typeof id !== 'string')
+    );
+    if (change.oldValue === undefined && malformedNew) {
+      return { removeRecord: true, expected: structuredClone(change.newValue) };
+    }
+    const before = Array.isArray(change.oldValue) ? change.oldValue.filter((id) => typeof id === 'string') : [];
+    const after = Array.isArray(change.newValue) ? change.newValue.filter((id) => typeof id === 'string') : [];
+    if (change.newValue === undefined && before.length === 0) return { removeRecord: true };
+    return { union: [...new Set([...structuredClone(before), ...structuredClone(after)])] };
+  }
+  const before = change.oldValue;
+  const after = change.newValue;
+  const validBefore = isStorageRecord(before);
+  const validAfter = isStorageRecord(after);
+  const oldRecord = validBefore ? before : {};
+  if (after !== undefined && (!after || typeof after !== 'object' || Array.isArray(after))) {
+    if (before === undefined) return { removeRecord: true, expected: structuredClone(after) };
+    return { replace: structuredClone(oldRecord), expected: structuredClone(after) };
+  }
+  if (after === undefined && before !== undefined) return { removeRecord: true };
+  const newRecord = validAfter ? after : {};
+  const set = {};
+  const remove = [];
+  for (const [name, value] of Object.entries(newRecord)) {
+    if (!Object.hasOwn(oldRecord, name) || !sameStorageValue(oldRecord[name], value)) {
+      set[name] = structuredClone(value);
+    }
+  }
+  for (const name of Object.keys(oldRecord)) {
+    if (!Object.hasOwn(newRecord, name)) remove.push(name);
+  }
+  if (Object.keys(set).length || remove.length) return { set, remove };
+  return !validBefore && validAfter ? { replace: structuredClone(newRecord) } : null;
+}
+
+function applyDirectMutation(current, mutation) {
+  if (!mutation) return structuredClone(current);
+  if (mutation.removeRecord === true) return undefined;
+  if (current === undefined && Array.isArray(mutation.union) && mutation.union.length === 0) return undefined;
+  const effective = structuredClone(mutation);
+  delete effective.expected;
+  return applyStorageMutation(current, effective);
+}
+
+function deferredRecordMutation(change, mutation) {
+  const beforeRecord = isStorageRecord(change.oldValue);
+  const afterRecord = isStorageRecord(change.newValue);
+  if (change.newValue !== undefined && !afterRecord) {
+    return change.oldValue === undefined ? { removeRecord: true } : null;
+  }
+  if (
+    afterRecord
+    && change.oldValue !== undefined
+    && !beforeRecord
+    && Object.keys(change.newValue).length === 0
+  ) return null;
+  return mutation ? structuredClone(mutation) : null;
+}
+
+function mergeDeferredRecordMutations(previous, next) {
+  if (!next) return previous ? structuredClone(previous) : null;
+  if (next.removeRecord === true || Object.hasOwn(next, 'replace')) return structuredClone(next);
+  if (!previous) return structuredClone(next);
+  if (previous.removeRecord === true || Object.hasOwn(previous, 'replace')) {
+    const base = previous.removeRecord === true ? undefined : previous.replace;
+    const desired = applyDirectMutation(base, next);
+    return desired === undefined ? { removeRecord: true } : { replace: structuredClone(desired) };
+  }
+  const set = structuredClone(previous.set ?? {});
+  const remove = new Set(previous.remove ?? []);
+  for (const [name, value] of Object.entries(next.set ?? {})) {
+    set[name] = structuredClone(value);
+    remove.delete(name);
+  }
+  for (const name of next.remove ?? []) {
+    delete set[name];
+    remove.add(name);
+  }
+  return Object.keys(set).length || remove.size ? { set, remove: [...remove] } : null;
+}
+
+function deferDirectChange(key, change, mutation, current) {
+  const previous = deferredDirectChanges.get(key);
+  if (key.endsWith('.migrated')) {
+    const deferred = previous?.kind === 'receipt' ? previous : {
+      kind: 'receipt',
+      firstValue: structuredClone(change.oldValue),
+      expected: structuredClone(change.newValue),
+      ids: [],
+      present: Array.isArray(change.newValue)
+        && change.newValue.every((id) => typeof id === 'string'),
+      authoritative: false,
+    };
+    deferred.ids = [...new Set([
+      ...deferred.ids,
+      ...(Array.isArray(mutation?.union) ? mutation.union : []),
+    ])];
+    if (!deferred.authoritative || current) {
+      deferred.expected = structuredClone(change.newValue);
+      deferred.present = Array.isArray(change.newValue)
+        && change.newValue.every((id) => typeof id === 'string');
+    }
+    deferred.authoritative ||= current;
+    deferredDirectChanges.set(key, deferred);
+    return;
+  }
+
+  const step = deferredRecordMutation(change, mutation);
+  const contiguous = previous?.kind === 'record'
+    && sameStorageValue(previous.lastValue, change.oldValue);
+  if (previous?.kind === 'record' && !contiguous && !current) return;
+  const deferred = previous?.kind === 'record' && contiguous ? previous : {
+    kind: 'record',
+    firstValue: structuredClone(change.oldValue),
+    lastValue: structuredClone(change.oldValue),
+    mutation: null,
+    authoritative: false,
+  };
+  deferred.lastValue = structuredClone(change.newValue);
+  deferred.mutation = mergeDeferredRecordMutations(deferred.mutation, step);
+  deferred.authoritative ||= current;
+  deferredDirectChanges.set(key, deferred);
+}
+
+async function composeDirectRecovery(key, change, mutation, {
+  create = false,
+  current = false,
+  observed,
+  loaded = false,
+} = {}) {
+  if (!loaded) {
+    try {
+      await loadPendingDirectRecoveries();
+      await replayDeferredDirectChanges();
+    } catch (error) {
+      if (mutation) deferDirectChange(key, change, mutation, current);
+      throw error;
+    }
+  }
+  const previous = pendingDirectRecoveries.get(key);
+  if (Array.isArray(previous?.mutation?.union)) {
+    const incoming = Array.isArray(mutation?.union) ? mutation.union : [];
+    const union = [...new Set([...previous.mutation.union, ...incoming])];
+    const recovery = union.length === previous.mutation.union.length
+      ? previous
+      : { expected: structuredClone(change.newValue), mutation: { union: structuredClone(union) } };
+    if (recovery !== previous) pendingDirectRecoveries.set(key, recovery);
+    if (recovery !== previous) await persistPendingDirectRecoveries();
+    return recovery;
+  }
+  const validReceiptAfter = key.endsWith('.migrated')
+    && Array.isArray(change.newValue)
+    && change.newValue.every((id) => typeof id === 'string');
+  const continues = previous
+    && !Object.hasOwn(previous.mutation, 'union')
+    && sameStorageValue(change.oldValue, previous.expected);
+  if (
+    previous
+    && !Object.hasOwn(previous.mutation, 'union')
+    && !continues
+    && Array.isArray(mutation?.union)
+  ) {
+    if (mutation.union.length === 0) {
+      if (!current || !validReceiptAfter) return previous;
+      const recovery = {
+        expected: structuredClone(observed),
+        mutation: { replace: structuredClone(change.newValue) },
+      };
+      pendingDirectRecoveries.set(key, recovery);
+      await persistPendingDirectRecoveries();
+      return recovery;
+    }
+    const base = applyDirectMutation(previous.expected, previous.mutation);
+    const desired = applyDirectMutation(base, mutation);
+    const recovery = {
+      expected: structuredClone(current ? observed : previous.expected),
+      mutation: { union: structuredClone(desired) },
+    };
+    pendingDirectRecoveries.set(key, recovery);
+    await persistPendingDirectRecoveries();
+    return recovery;
+  }
+  if (
+    previous
+    && !Object.hasOwn(previous.mutation, 'union')
+    && !continues
+    && (!current || sameStorageValue(observed, previous.expected))
+  ) return previous;
+  if (!continues && !create) return null;
+  const base = continues
+    ? applyDirectMutation(change.oldValue, previous.mutation)
+    : structuredClone(change.oldValue);
+  const malformedRecordSuccessor = continues
+    && !key.endsWith('.migrated')
+    && change.oldValue !== undefined
+    && !isStorageRecord(change.oldValue)
+    && change.newValue !== undefined
+    && (
+      !isStorageRecord(change.newValue)
+      || Object.keys(change.newValue).length === 0
+    );
+  const desired = malformedRecordSuccessor
+    ? base
+    : continues && validReceiptAfter && mutation?.union?.length === 0
+      ? structuredClone(change.newValue)
+      : applyDirectMutation(base, mutation);
+  const recovery = {
+    expected: structuredClone(change.newValue),
+    mutation: desired === undefined
+      ? { removeRecord: true }
+      : { replace: structuredClone(desired) },
+  };
+  pendingDirectRecoveries.set(key, recovery);
+  await persistPendingDirectRecoveries();
+  return recovery;
+}
+
+async function replayDeferredDirectChanges() {
+  if (!deferredDirectChanges.size) return;
+  for (const [key, deferred] of [...deferredDirectChanges]) {
+    const previous = pendingDirectRecoveries.get(key);
+    let recovery;
+    if (deferred.kind === 'receipt') {
+      const ids = new Set(deferred.ids);
+      if (previous) {
+        const retained = Object.hasOwn(previous.mutation, 'union')
+          ? previous.mutation.union
+          : applyDirectMutation(previous.expected, previous.mutation);
+        if (Array.isArray(retained)) {
+          for (const id of retained) if (typeof id === 'string') ids.add(id);
+        }
+      }
+      recovery = ids.size
+        ? { expected: structuredClone(deferred.expected), mutation: { union: [...ids] } }
+        : deferred.present
+          ? { expected: structuredClone(deferred.expected), mutation: { replace: [] } }
+          : previous && !deferred.authoritative && !sameStorageValue(deferred.firstValue, previous.expected)
+            ? previous
+            : { expected: structuredClone(deferred.expected), mutation: { removeRecord: true } };
+    } else {
+      let base = isStorageRecord(deferred.firstValue)
+        ? structuredClone(deferred.firstValue)
+        : deferred.firstValue === undefined ? undefined : {};
+      if (previous && !Object.hasOwn(previous.mutation, 'union')) {
+        if (sameStorageValue(deferred.firstValue, previous.expected)) {
+          base = applyDirectMutation(deferred.firstValue, previous.mutation);
+        } else if (!deferred.authoritative) {
+          deferredDirectChanges.delete(key);
+          continue;
+        }
+      }
+      const desired = applyDirectMutation(base, deferred.mutation);
+      recovery = {
+        expected: structuredClone(deferred.lastValue),
+        mutation: desired === undefined
+          ? { removeRecord: true }
+          : { replace: structuredClone(desired) },
+      };
+    }
+    pendingDirectRecoveries.set(key, recovery);
+    deferredDirectChanges.delete(key);
+  }
+  await persistPendingDirectRecoveries();
+}
+
+const pause = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
+
+async function reportDirectStorageFailure(error) {
+  const detail = String(error?.message ?? error ?? '') || 'the browser could not verify a storage change';
+  console.error('Could not reconcile a direct storage change', error);
+  try {
+    const tabs = await chrome.tabs.query?.({}) ?? [];
+    await Promise.allSettled(tabs.map((tab) => (
+      chrome.tabs.sendMessage(tab.id, { type: 'storage-error', error: detail }, { frameId: 0 })
+    )));
+  } catch {
+    // A later page or preference write will retry against the value still in storage.
+  }
+}
+
+function recoverDirectPreferences() {
+  return queueStorageTask(async () => {
+    await loadPendingDirectRecoveries();
+    await replayDeferredDirectChanges();
+    const results = [];
+    for (const key of [...pendingDirectRecoveries.keys()]) {
+      results.push(await commitPendingDirectRecovery(key));
+    }
+    return results;
+  });
+}
+
+async function verifyDirectPreference(key, expected) {
+  let lastError;
+  for (let attempt = 0; attempt <= DIRECT_STORAGE_RETRY_DELAYS.length; attempt++) {
+    let saved;
+    try {
+      saved = await chrome.storage.local.get([key]);
+    } catch (error) {
+      lastError = error;
+      if (attempt < DIRECT_STORAGE_RETRY_DELAYS.length) {
+        await pause(DIRECT_STORAGE_RETRY_DELAYS[attempt]);
+        continue;
+      }
+      throw lastError;
+    }
+    if (sameStorageValue(saved[key], expected)) return { current: true, value: saved[key] };
+    if (lastError) {
+      throw new Error('the storage value changed before the direct preference write could be verified', { cause: lastError });
+    }
+    return { current: false, value: saved[key] };
+  }
+  throw lastError;
+}
+
+function reconcileDirectPreference(key, change) {
+  // Start this read while the event's physical value is still current. The worker task reserves
+  // its queue position now, then reapplies the verified delta after any older commit finishes.
+  const mutation = directPreferenceMutation(key, change);
+  const verified = verifyDirectPreference(key, change.newValue);
+  return queueStorageTask(async () => {
+    let current = false;
+    let observed;
+    let verificationError = null;
+    try {
+      const verification = await verified;
+      current = verification.current;
+      observed = verification.value;
+    } catch (error) {
+      verificationError = error;
+    }
+    const monotonic = Object.hasOwn(mutation ?? {}, 'union');
+    let chained;
+    try {
+      chained = await composeDirectRecovery(key, change, mutation, { current, observed });
+    } catch (error) {
+      await reportDirectStorageFailure(error);
+      return;
+    }
+    if (!mutation && !chained) {
+      if (verificationError) await reportDirectStorageFailure(verificationError);
+      return;
+    }
+    if (monotonic && verificationError) {
+      if (!chained) {
+        try {
+          await rememberDirectRecovery(key, change.newValue, mutation);
+        } catch (error) {
+          verificationError = error;
+        }
+      }
+      await reportDirectStorageFailure(verificationError);
+      return;
+    }
+    if (!current) {
+      if (!chained && !monotonic) {
+        try {
+          await composeDirectRecovery(key, change, mutation, { create: true, current, observed });
+        } catch (error) {
+          await reportDirectStorageFailure(error);
+          return;
+        }
+      }
+      if (verificationError) await reportDirectStorageFailure(verificationError);
+      if (!monotonic) return;
+    }
+    let lastError = verificationError;
+    for (let attempt = 0; attempt <= DIRECT_STORAGE_RETRY_DELAYS.length; attempt++) {
+      try {
+        if (chained) {
+          const result = await commitPendingDirectRecovery(key, { keepOnMismatch: true });
+          if (result?.committed === false) return;
+        } else {
+          await commitStorageMutation({ key, mutation });
+        }
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < DIRECT_STORAGE_RETRY_DELAYS.length) await pause(DIRECT_STORAGE_RETRY_DELAYS[attempt]);
+      }
+    }
+    try {
+      if (monotonic) await rememberDirectRecovery(key, change.newValue, mutation);
+      else await composeDirectRecovery(key, change, mutation, { create: true, current, observed });
+    } catch (error) {
+      lastError = error;
+    }
+    await reportDirectStorageFailure(lastError);
+  });
+}
+
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (area !== 'local') return;
+  const visibleChanges = Object.fromEntries(Object.entries(changes).filter(([key, change]) => {
+    if (change.newValue !== undefined || !pendingStorageRemovals.delete(key)) return true;
+    return false;
+  }));
+  if (!Object.keys(visibleChanges).length) return;
+  const changedRevisions = visibleChanges[STORAGE_REVISIONS_KEY]?.newValue;
+  const own = pendingStorageWrites.findIndex((expected) => (
+    sameStorageRevisions(expected.revisions, changedRevisions)
+    && Object.entries(expected.values).every(([key, value]) => (
+      !visibleChanges[key] || sameStorageValue(visibleChanges[key].newValue, value)
+    ))
+  ));
+  if (own >= 0) {
+    pendingStorageWrites.splice(own, 1);
+    return;
+  }
+  for (const [key, change] of Object.entries(visibleChanges)) {
+    if (!/^settings(?:@[a-z0-9]+)?(?:\.migrated)?$/.test(key)) continue;
+    void reconcileDirectPreference(key, change);
+  }
+});
 
 function hostOf(url) {
   try {
@@ -123,9 +1014,19 @@ chrome.alarms.get('update-check').then((alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (message?.type !== 'download' || !sender.tab) return false;
-  save(message).then(
-    () => respond({ ok: true }),
+  if (!sender.tab) return false;
+  const task = message?.type === 'download'
+    ? save(message)
+    : message?.type === 'storage:mutate'
+      ? mutateStorage(message)
+      : message?.type === 'storage:migrate'
+        ? migrateStorage(message)
+        : message?.type === 'storage:recover'
+          ? recoverDirectPreferences()
+      : null;
+  if (!task) return false;
+  task.then(
+    (result) => respond({ ok: true, result: result ?? null }),
     (error) => respond({ ok: false, error: String(error?.message ?? error) }),
   );
   return true;

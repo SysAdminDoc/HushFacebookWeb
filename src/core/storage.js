@@ -7,6 +7,49 @@
 
 import { extensionHost } from './extension.js';
 
+const sameStoredValue = (left, right) => {
+  if (left === undefined || right === undefined) return left === right;
+  return JSON.stringify(left) === JSON.stringify(right);
+};
+
+export function applyObjectMutation(current, mutation = {}) {
+  const replacement = Object.hasOwn(mutation, 'replace');
+  if (replacement) return structuredClone(mutation.replace);
+  if (Object.hasOwn(mutation, 'union')) {
+    if (!Array.isArray(mutation.union) || mutation.union.some((id) => typeof id !== 'string')) {
+      throw new TypeError('union mutations require string ids');
+    }
+    const existing = Array.isArray(current) ? current.filter((id) => typeof id === 'string') : [];
+    return [...new Set([...structuredClone(existing), ...structuredClone(mutation.union)])];
+  }
+  const initial = current === undefined && Object.hasOwn(mutation, 'initialize') ? mutation.initialize : current;
+  const next = initial && typeof initial === 'object' && !Array.isArray(initial) ? structuredClone(initial) : {};
+  const allowed = (name) => {
+    const condition = mutation.conditions?.[name];
+    if (!condition) return true;
+    const exists = Object.hasOwn(initial ?? {}, name);
+    return exists === condition.exists && (!exists || sameStoredValue(initial[name], condition.value));
+  };
+  for (const name of mutation.remove ?? []) {
+    if (allowed(name)) delete next[name];
+  }
+  for (const [name, value] of Object.entries(mutation.set ?? {})) {
+    if (allowed(name)) next[name] = structuredClone(value);
+  }
+  return next;
+}
+
+function mutateObjectDetailed(storage, key, mutation) {
+  const previous = storage.get(key, undefined);
+  const next = applyObjectMutation(previous, mutation);
+  storage.set(key, next);
+  return { value: structuredClone(next), previous: structuredClone(previous) };
+}
+
+function mutateObject(storage, key, mutation) {
+  return mutateObjectDetailed(storage, key, mutation).value;
+}
+
 // Whether settings outlive the page: the manager's storage or the extension's.
 export const keepsSettings = (storage) => storage.kind === 'gm' || storage.kind === 'extension';
 
@@ -16,7 +59,7 @@ export function createGmStorage({ log } = {}) {
   if (typeof GM_getValue !== 'function' || typeof GM_setValue !== 'function') {
     return createLocalStorage();
   }
-  return {
+  const storage = {
     kind: 'gm',
     get: (key, fallback) => GM_getValue(key, fallback),
     set: (key, value) => GM_setValue(key, value),
@@ -28,6 +71,9 @@ export function createGmStorage({ log } = {}) {
       });
     },
   };
+  storage.mutate = (key, mutation) => mutateObject(storage, key, mutation);
+  storage.mutateDetailed = (key, mutation) => mutateObjectDetailed(storage, key, mutation);
+  return storage;
 }
 
 // Fallback for managers without GM storage. It can't keep much on Facebook: the page's
@@ -38,7 +84,7 @@ export function createGmStorage({ log } = {}) {
 export const UNKEPT_SETTINGS = "Your userscript manager doesn't give HushFacebook Web storage of its own, so your settings are kept in Facebook's page, which clears them within seconds. Tampermonkey and Violentmonkey keep them.";
 
 export function createLocalStorage(prefix = 'hfw:') {
-  return {
+  const storage = {
     kind: 'localStorage',
     get(key, fallback) {
       try {
@@ -61,11 +107,14 @@ export function createLocalStorage(prefix = 'hfw:') {
       });
     },
   };
+  storage.mutate = (key, mutation) => mutateObject(storage, key, mutation);
+  storage.mutateDetailed = (key, mutation) => mutateObjectDetailed(storage, key, mutation);
+  return storage;
 }
 
 export function createMemoryStorage(initial = {}) {
   const data = new Map(Object.entries(structuredClone(initial)));
-  return {
+  const storage = {
     kind: 'memory',
     get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
     set: (key, value) => void data.set(key, structuredClone(value)),
@@ -73,4 +122,7 @@ export function createMemoryStorage(initial = {}) {
     onChange() {},
     dump: () => Object.fromEntries(data),
   };
+  storage.mutate = (key, mutation) => mutateObject(storage, key, mutation);
+  storage.mutateDetailed = (key, mutation) => mutateObjectDetailed(storage, key, mutation);
+  return storage;
 }

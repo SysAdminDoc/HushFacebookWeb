@@ -11,6 +11,27 @@
 
 export const HELLO_MAIN = 'hushfacebook-web:hello-main';
 export const HELLO_ISOLATED = 'hushfacebook-web:hello-isolated';
+export const STORAGE_REVISIONS_KEY = 'hushfacebookWeb.storageRevisions';
+export const STORAGE_REVISION_EPOCH_KEY = '__epoch';
+export const STORAGE_REVISION_ORDER_KEY = '__order';
+export const validStorageRevisions = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const epoch = value[STORAGE_REVISION_EPOCH_KEY];
+  const order = value[STORAGE_REVISION_ORDER_KEY];
+  if (typeof epoch !== 'string' || !epoch || !Number.isSafeInteger(order) || order < 0) return false;
+  return Object.entries(value).every(([key, revision]) => (
+    key === STORAGE_REVISION_EPOCH_KEY
+      ? typeof revision === 'string' && revision.length > 0
+      : key === STORAGE_REVISION_ORDER_KEY
+        ? Number.isSafeInteger(revision) && revision >= 0
+        : Number.isSafeInteger(revision) && revision >= 0 && revision <= order
+  ));
+};
+export const storageRevisionEpoch = (value) => (
+  validStorageRevisions(value) && typeof value[STORAGE_REVISION_EPOCH_KEY] === 'string'
+    ? value[STORAGE_REVISION_EPOCH_KEY]
+    : null
+);
 export const channelNames = (secret) => ({ toIsolated: `hushfacebook-web:${secret}:in`, toMain: `hushfacebook-web:${secret}:out` });
 
 const TIMEOUT = 15000;
@@ -66,7 +87,7 @@ export function connectBridge({ doc = globalThis.document, win = globalThis, sec
     }
     for (const listener of pushes.get(message?.push) ?? []) {
       try {
-        listener(message.data);
+        listener(message.data, message.meta);
       } catch {
         // One listener failing leaves the others.
       }
@@ -111,6 +132,11 @@ export function createBridgeStorage(bridge, { log } = {}) {
   const written = new Set();
   const queuedWrites = new Map();
   const remoteChanges = new Map();
+  const keyVersions = new Map();
+  const acceptedRevisions = new Map();
+  const appliedRevisions = new Map();
+  const retiredStorageEpochs = new Set();
+  const latestMutation = new Map();
   const listeners = new Map();
   const statusListeners = new Set();
   const waiting = [];
@@ -120,6 +146,11 @@ export function createBridgeStorage(bridge, { log } = {}) {
   let state = 'loading';
   let lastError = null;
   let loadPromise = null;
+  let nextMutation = 0;
+  let revisionEpoch = 0;
+  let storageEpoch = null;
+  let loadPending = false;
+  let storageFailureRevision = 0;
   const copy = (value) => (value === undefined ? undefined : structuredClone(value));
   const same = (a, b) => stringify(a) === stringify(b);
   const tell = (key, value, source = 'remote') => {
@@ -162,26 +193,83 @@ export function createBridgeStorage(bridge, { log } = {}) {
   };
   const load = () => {
     if (state === 'ready') return Promise.resolve(true);
-    if (loadPromise && state === 'loading') return loadPromise;
+    if (loadPromise && loadPending) return loadPromise;
+    const recovering = loaded && state === 'error';
     const startedAt = revision;
+    const startedEpoch = revisionEpoch;
+    const startedFailureRevision = storageFailureRevision;
+    loadPending = true;
     setStatus('loading');
     loadPromise = bridge.request('storage:load').then((saved) => {
-      const snapshot = new Map(Object.entries(saved ?? {}));
+      if (storageFailureRevision !== startedFailureRevision) return false;
+      const stored = { ...(saved ?? {}) };
+      const savedRevisions = stored[STORAGE_REVISIONS_KEY];
+      const savedRevisionsValid = validStorageRevisions(savedRevisions);
+      const savedStorageEpoch = storageRevisionEpoch(savedRevisions);
+      const uncontested = revisionEpoch === startedEpoch && revision === startedAt;
+      delete stored[STORAGE_REVISIONS_KEY];
+      if (uncontested && recovering && savedRevisionsValid && savedStorageEpoch) {
+        if (storageEpoch && storageEpoch !== savedStorageEpoch) retiredStorageEpochs.add(storageEpoch);
+        retiredStorageEpochs.delete(savedStorageEpoch);
+        acceptedRevisions.clear();
+        appliedRevisions.clear();
+        revisionEpoch++;
+        storageEpoch = savedStorageEpoch;
+      }
+      if (
+        uncontested
+        && savedRevisionsValid
+        && (!storageEpoch || !savedStorageEpoch || storageEpoch === savedStorageEpoch)
+      ) {
+        if (savedStorageEpoch) storageEpoch = savedStorageEpoch;
+        for (const [key, value] of Object.entries(savedRevisions)) {
+          if (key === STORAGE_REVISION_EPOCH_KEY || key === STORAGE_REVISION_ORDER_KEY) continue;
+          if (Number.isSafeInteger(value) && value >= 0) {
+            acceptedRevisions.set(key, Math.max(acceptedRevisions.get(key) ?? 0, value));
+          }
+        }
+      }
+      const snapshot = new Map(Object.entries(stored));
+      const savedRevisionFor = (key) => (savedRevisionsValid && Number.isSafeInteger(savedRevisions[key]) ? savedRevisions[key] : null);
+      const newerRemote = (key) => {
+        const change = remoteChanges.get(key);
+        if (!change || change.revision <= startedAt || change.epoch !== revisionEpoch) return false;
+        if (revisionEpoch !== startedEpoch) return true;
+        const savedRevision = savedRevisionFor(key);
+        if (Number.isSafeInteger(change.storageRevision)) {
+          return savedRevision === null || change.storageRevision > savedRevision;
+        }
+        if (Number.isSafeInteger(change.barrier) && savedRevision !== null) return change.barrier >= savedRevision;
+        return true;
+      };
       pageLoadData.clear();
       for (const [key, value] of snapshot) pageLoadData.set(key, copy(value));
       for (const [key, change] of remoteChanges) {
-        if (change.revision > startedAt) pageLoadData.set(key, copy(change.value));
+        if (newerRemote(key)) pageLoadData.set(key, copy(change.value));
       }
 
       for (const key of data.keys()) {
-        if (snapshot.has(key) || written.has(key) || (remoteChanges.get(key)?.revision ?? 0) > startedAt) continue;
+        if (snapshot.has(key) || written.has(key) || newerRemote(key)) continue;
         data.delete(key);
         tell(key, undefined, 'load');
       }
       for (const [key, value] of snapshot) {
-        if (written.has(key) || (remoteChanges.get(key)?.revision ?? 0) > startedAt || same(data.get(key), value)) continue;
+        if (written.has(key) || newerRemote(key) || same(data.get(key), value)) continue;
         data.set(key, copy(value));
         tell(key, value, 'load');
+      }
+      if (savedRevisionsValid && savedStorageEpoch === storageEpoch) {
+        for (const key of snapshot.keys()) {
+          if (written.has(key) || newerRemote(key)) continue;
+          const savedRevision = savedRevisionFor(key);
+          if (savedRevision !== null) appliedRevisions.set(key, savedRevision);
+        }
+      } else if (revisionEpoch !== startedEpoch) {
+        for (const key of snapshot.keys()) {
+          if (written.has(key) || newerRemote(key)) continue;
+          const accepted = acceptedRevisions.get(key);
+          if (Number.isSafeInteger(accepted)) appliedRevisions.set(key, accepted);
+        }
       }
       finish();
       return true;
@@ -189,20 +277,88 @@ export function createBridgeStorage(bridge, { log } = {}) {
       log?.error("The extension's saved settings couldn't be read", error);
       setStatus('error', error);
       return false;
-    });
+    }).finally(() => { loadPending = false; });
     return loadPromise;
   };
-  bridge.on('storage', (changes) => {
-    for (const [key, value] of Object.entries(changes ?? {})) {
+  bridge.on('storage', (changes, meta) => {
+    if (meta && Object.hasOwn(meta, 'error')) {
+      storageFailureRevision++;
+      const error = new Error(String(meta.error) || 'the browser could not verify a storage change');
+      log?.error("A storage change couldn't be verified", error);
+      setStatus('error', error);
+      return;
+    }
+    const incoming = { ...(changes ?? {}) };
+    if (meta?.snapshot) {
+      for (const key of data.keys()) {
+        if (!Object.hasOwn(incoming, key)) incoming[key] = null;
+      }
+    }
+    const pushedEpoch = typeof meta?.epoch === 'string' && meta.epoch ? meta.epoch : null;
+    const pushedState = validStorageRevisions(meta?.state)
+      && storageRevisionEpoch(meta.state) === pushedEpoch ? meta.state : null;
+    const reactivatesPushedEpoch = pushedEpoch && meta?.reactivatedEpoch === pushedEpoch;
+    if (pushedEpoch && retiredStorageEpochs.has(pushedEpoch) && !reactivatesPushedEpoch) return;
+    if (pushedEpoch && storageEpoch && pushedEpoch !== storageEpoch && !meta?.resetRevisions) return;
+    const changesEpoch = Boolean(meta?.resetRevisions && (!storageEpoch || pushedEpoch !== storageEpoch));
+    if (changesEpoch || (meta?.resetRevisions && pushedEpoch === storageEpoch)) {
+      if (reactivatesPushedEpoch) retiredStorageEpochs.delete(pushedEpoch);
+      if (storageEpoch && storageEpoch !== pushedEpoch) retiredStorageEpochs.add(storageEpoch);
+      acceptedRevisions.clear();
+      appliedRevisions.clear();
+      revisionEpoch++;
+      storageEpoch = pushedEpoch;
+    } else if (pushedEpoch) {
+      storageEpoch = pushedEpoch;
+    }
+    const changedKeys = new Set(Object.keys(incoming));
+    if (pushedState) {
+      for (const [key, value] of Object.entries(pushedState)) {
+        if (key === STORAGE_REVISION_EPOCH_KEY || key === STORAGE_REVISION_ORDER_KEY) continue;
+        acceptedRevisions.set(key, Math.max(acceptedRevisions.get(key) ?? 0, value));
+      }
+      if (meta?.resetRevisions) {
+        for (const [key, value] of acceptedRevisions) {
+          if (data.has(key) && !changedKeys.has(key)) appliedRevisions.set(key, value);
+        }
+      }
+    }
+    for (const [key, value] of Object.entries(incoming)) {
       const next = value === undefined || value === null ? undefined : copy(value);
+      const accepted = meta?.revisions?.[key];
+      const barrier = meta?.barriers?.[key];
+      if (Number.isSafeInteger(accepted) && accepted >= 0) {
+        const floor = acceptedRevisions.get(key) ?? accepted;
+        acceptedRevisions.set(key, Math.max(floor, accepted));
+        if (
+          accepted !== acceptedRevisions.get(key)
+          || (!meta?.snapshot && accepted <= (appliedRevisions.get(key) ?? 0))
+        ) continue;
+        appliedRevisions.set(key, accepted);
+      } else {
+        if (Number.isSafeInteger(barrier) && barrier >= 0) {
+          const floor = acceptedRevisions.get(key) ?? 0;
+          if (barrier < floor) continue;
+          acceptedRevisions.set(key, Math.max(floor, barrier));
+          appliedRevisions.set(key, Math.max(appliedRevisions.get(key) ?? 0, barrier));
+        }
+        keyVersions.set(key, (keyVersions.get(key) ?? 0) + 1);
+      }
       // This tab's own writes come back too, already in the copy.
       const ownEcho = written.has(key) && same(data.get(key), next);
-      if (!loaded && !ownEcho) {
-        remoteChanges.set(key, { revision: ++revision, value: next });
+      const newerRemote = (!loaded || loadPending) && !ownEcho;
+      if (newerRemote) {
+        remoteChanges.set(key, {
+          revision: ++revision,
+          epoch: revisionEpoch,
+          storageRevision: Number.isSafeInteger(accepted) ? accepted : null,
+          barrier: Number.isSafeInteger(barrier) ? barrier : null,
+          value: next,
+        });
         queuedWrites.delete(key);
         written.delete(key);
       }
-      if (same(data.get(key), next)) continue;
+      if (same(data.get(key), next) && !newerRemote) continue;
       if (next === undefined) data.delete(key);
       else data.set(key, next);
       tell(key, next);
@@ -217,6 +373,82 @@ export function createBridgeStorage(bridge, { log } = {}) {
     else save(type, payload);
   };
 
+  const commitMutation = (type, key, payload, { detailed = false } = {}) => {
+    const order = ++nextMutation;
+    const version = keyVersions.get(key) ?? 0;
+    latestMutation.set(key, order);
+    return bridge.request(type, payload).then((answer) => {
+      const envelope = Boolean(
+        answer
+        && typeof answer === 'object'
+        && !Array.isArray(answer)
+        && Object.hasOwn(answer, 'value')
+        && (
+          Object.hasOwn(answer, 'revision')
+          || Object.hasOwn(answer, 'committed')
+          || Object.hasOwn(answer, 'previous')
+        )
+      );
+      const answerEpoch = typeof answer?.epoch === 'string' && answer.epoch ? answer.epoch : null;
+      const versioned = Boolean(
+        envelope
+        && answerEpoch
+        && Number.isSafeInteger(answer?.revision)
+        && answer.revision >= 0
+      );
+      const committed = envelope ? answer.value : answer;
+      let superseded;
+      if (versioned) {
+        if (!storageEpoch) {
+          revisionEpoch++;
+          acceptedRevisions.clear();
+          appliedRevisions.clear();
+          storageEpoch = answerEpoch;
+        }
+        superseded = retiredStorageEpochs.has(answerEpoch) || storageEpoch !== answerEpoch;
+        const answerState = validStorageRevisions(answer?.revisions)
+          && storageRevisionEpoch(answer.revisions) === answerEpoch ? answer.revisions : null;
+        if (!superseded && answerState) {
+          for (const [name, accepted] of Object.entries(answerState)) {
+            if (name === STORAGE_REVISION_EPOCH_KEY || name === STORAGE_REVISION_ORDER_KEY) continue;
+            acceptedRevisions.set(name, Math.max(acceptedRevisions.get(name) ?? 0, accepted));
+          }
+        }
+        if (!superseded) {
+          acceptedRevisions.set(key, Math.max(acceptedRevisions.get(key) ?? 0, answer.revision));
+          superseded = acceptedRevisions.get(key) !== answer.revision
+            || (appliedRevisions.get(key) ?? 0) >= answer.revision;
+        }
+      } else {
+        superseded = latestMutation.get(key) !== order || (keyVersions.get(key) ?? 0) > version;
+      }
+      if (!superseded) {
+        const next = committed === undefined || committed === null ? undefined : copy(committed);
+        if (next === undefined) data.delete(key);
+        else data.set(key, next);
+        if (versioned) appliedRevisions.set(key, answer.revision);
+        tell(key, next, 'ack');
+      }
+      const value = superseded ? (data.has(key) ? copy(data.get(key)) : undefined) : copy(committed);
+      if (answer?.conflict === true) {
+        const error = new Error('saved settings changed while their migration was being prepared');
+        error.code = 'STORAGE_MIGRATION_CONFLICT';
+        error.current = copy(value);
+        error.receipt = copy(answer.receipt);
+        error.copyAll = answer.copyAll === true;
+        throw error;
+      }
+      return detailed ? {
+        value,
+        previous: envelope ? copy(answer.previous) : undefined,
+        completedBefore: envelope ? copy(answer.completedBefore) : undefined,
+      } : value;
+    }, (error) => {
+      log?.error("A setting couldn't be saved in the extension", error);
+      throw error;
+    });
+  };
+
   return {
     kind: 'extension',
     get: (key, fallback) => (data.has(key) ? copy(data.get(key)) : fallback),
@@ -228,6 +460,14 @@ export function createBridgeStorage(bridge, { log } = {}) {
       return () => statusListeners.delete(listener);
     },
     retry: load,
+    mutate: (key, mutation) => commitMutation('storage:mutate', key, { key, mutation }),
+    mutateDetailed: (key, mutation) => commitMutation('storage:mutate', key, { key, mutation }, { detailed: true }),
+    migrate: (key, mutation, doneKey, receipt, options = {}) => (
+      commitMutation('storage:migrate', key, { key, mutation, doneKey, receipt, ...options })
+    ),
+    migrateDetailed: (key, mutation, doneKey, receipt, options = {}) => (
+      commitMutation('storage:migrate', key, { key, mutation, doneKey, receipt, ...options }, { detailed: true })
+    ),
     set(key, value) {
       const stored = copy(value);
       written.add(key);
