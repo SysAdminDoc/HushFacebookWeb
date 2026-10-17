@@ -6,6 +6,7 @@ import noWatchHistory from '../src/features/reels/no-watch-history.js';
 import holdBackLogs from '../src/features/privacy/usage-logs.js';
 import hideCommentTyping from '../src/features/comments/hide-comment-typing.js';
 import sanitizeLinks from '../src/features/links/sanitize-links.js';
+import { DROP } from '../src/core/net/payload.js';
 
 const quietLog = { error() {}, warn() {}, info() {}, debug() {} };
 const graphqlBody = (name, extra = '') => new URLSearchParams({
@@ -43,7 +44,7 @@ function startupControl(options = {}) {
   };
 }
 
-function fakeWindow() {
+function fakeWindow({ respond = () => 'native' } = {}) {
   const calls = [];
   const beacons = [];
   const xhrCalls = [];
@@ -59,25 +60,29 @@ function fakeWindow() {
       this.aborted = 0;
     }
 
+    // Like a browser, open() announces OPENED only when the state changes, and abort() on a
+    // request that was never sent leaves it OPENED.
     open(method, url, async = true) {
       this.method = method;
       this.url = url;
       this.async = async;
+      if (this.readyState === 1) return;
       this.readyState = 1;
+      this.dispatchEvent(new Event('readystatechange'));
     }
 
     setRequestHeader() {}
 
     send(body) {
       xhrCalls.push({ xhr: this, method: this.method, url: this.url, body });
-      this._responseText = 'native';
+      this._responseText = respond(this.url);
       this.readyState = 4;
       this.status = 204;
     }
 
     abort() {
       this.aborted++;
-      this.readyState = 0;
+      if (this.readyState === 4) this.readyState = 0;
     }
   }
   Object.defineProperties(FakeXhr.prototype, {
@@ -85,7 +90,7 @@ function fakeWindow() {
     response: { configurable: true, get() { return this._responseText; } },
   });
   const win = {
-    Request, Response, Headers, ReadableStream, Promise, Event, DOMException,
+    Request, Response, Headers, ReadableStream, Promise, Event, DOMException, TextEncoder, Blob,
     ProgressEvent: FakeProgressEvent,
     XMLHttpRequest: FakeXhr,
     JSON: { parse: JSON.parse, stringify: JSON.stringify },
@@ -320,6 +325,190 @@ test('XHR startup handling defers asynchronous requests, honors abort and fails 
   unknown.open('POST', '/api/graphql/', false);
   unknown.send({ opaque: true });
   assert.equal(syncWindow.xhrCalls.length, 1, 'an uninspectable unknown body passes through');
+});
+
+test('a reused XHR shows only its current request, whatever the last one was', async () => {
+  const setup = () => {
+    const window = fakeWindow({ respond: (url) => (url === '/api/graphql/' ? '{"ad":1}\n{"n":1}' : '{"ad":2}') });
+    const net = installNetworkHooks({ win: window.win, log: quietLog, startup: startupControl({ state: 'ready' }).startup });
+    requestRule(net);
+    net.transformResponses({
+      id: 'drop-ad', enabled: () => true, match: (ctx) => ctx.path === '/api/graphql/',
+      transform: (doc) => ('ad' in doc ? DROP : undefined),
+    });
+    const xhr = new window.win.XMLHttpRequest();
+    const events = [];
+    for (const type of ['readystatechange', 'load', 'abort', 'loadend']) {
+      xhr.addEventListener(type, () => events.push(`${type}@${xhr.readyState}/${xhr.status}`));
+    }
+    return { ...window, xhr, events };
+  };
+  const ownGetter = (xhr, key) => Object.getOwnPropertyDescriptor(xhr, key)?.get;
+
+  const transformed = setup();
+  transformed.xhr.open('POST', '/api/graphql/');
+  transformed.xhr.send(graphqlBody('Feed'));
+  assert.equal(transformed.xhr.responseText, '{"n":1}');
+  transformed.xhr.open('POST', '/ajax/plain');
+  assert.equal(ownGetter(transformed.xhr, 'responseText'), undefined, 'reopening removes the transform getters');
+  transformed.xhr.send(graphqlBody('Feed'));
+  assert.equal(transformed.xhr.responseText, '{"ad":2}');
+  assert.equal(transformed.xhr.response, '{"ad":2}');
+
+  const blocked = setup();
+  blocked.xhr.open('POST', '/api/graphql/');
+  blocked.xhr.send(graphqlBody('PrivateMutation'));
+  assert.equal(blocked.xhr.readyState, 1, 'a held answer is still loading until its events run');
+  await tick();
+  assert.deepEqual(blocked.events, ['readystatechange@1/0', 'readystatechange@4/200', 'load@4/200', 'loadend@4/200']);
+  assert.equal(blocked.xhr.responseURL, 'https://www.facebook.com/api/graphql/');
+  blocked.events.length = 0;
+  blocked.xhr.open('POST', '/ajax/plain');
+  assert.equal(blocked.xhr.readyState, 1);
+  assert.equal(blocked.xhr.status, 0);
+  blocked.xhr.send(graphqlBody('UnknownMutation'));
+  await tick();
+  assert.equal(blocked.xhr.status, 204);
+  assert.equal(blocked.xhr.responseText, '{"ad":2}');
+  assert.equal(blocked.xhr.responseURL, undefined, 'the stand-in has no responseURL of its own');
+  assert.deepEqual(blocked.events, ['readystatechange@1/0'], 'reopening a finished answer announces OPENED, as a real one does');
+  assert.deepEqual(blocked.xhrCalls.map(({ url }) => url), ['/ajax/plain']);
+
+  const aborted = setup();
+  aborted.xhr.open('POST', '/api/graphql/');
+  aborted.xhr.send(graphqlBody('PrivateMutation'));
+  aborted.events.length = 0;
+  aborted.xhr.abort();
+  assert.deepEqual(aborted.events, ['readystatechange@4/0', 'abort@4/0', 'loadend@4/0']);
+  assert.equal(aborted.xhr.readyState, 0);
+  assert.equal(aborted.xhr.responseText, '');
+  aborted.xhr.abort();
+  assert.equal(aborted.xhr.readyState, 0, 'aborting an unsent request leaves it unsent');
+  await tick();
+  assert.equal(aborted.events.length, 3, 'an aborted answer never completes');
+  aborted.events.length = 0;
+  aborted.xhr.open('POST', '/ajax/plain');
+  assert.equal(aborted.xhr.readyState, 1);
+  assert.equal(ownGetter(aborted.xhr, 'readyState'), undefined);
+  aborted.xhr.send(graphqlBody('UnknownMutation'));
+  assert.equal(aborted.xhr.status, 204);
+  assert.equal(aborted.xhr.responseText, '{"ad":2}');
+  assert.deepEqual(aborted.events, ['readystatechange@1/0'], 'reopening an aborted answer announces OPENED, as a real one does');
+
+  const done = setup();
+  done.xhr.open('POST', '/api/graphql/');
+  done.xhr.send(graphqlBody('PrivateMutation'));
+  await tick();
+  done.events.length = 0;
+  done.xhr.abort();
+  assert.deepEqual(done.events, [], 'aborting a finished request fires nothing');
+  assert.equal(done.xhr.readyState, 0);
+  assert.equal(done.xhr.status, 0);
+
+  const heldControl = startupControl();
+  const heldWindow = fakeWindow();
+  const heldNet = installNetworkHooks({ win: heldWindow.win, log: quietLog, startup: heldControl.startup });
+  requestRule(heldNet);
+  const waiting = new heldWindow.win.XMLHttpRequest();
+  const heldEvents = [];
+  waiting.addEventListener('abort', () => heldEvents.push(`abort@${waiting.readyState}`));
+  waiting.addEventListener('load', () => heldEvents.push('load'));
+  waiting.open('POST', '/api/graphql/');
+  waiting.send(graphqlBody('PrivateMutation'));
+  waiting.abort();
+  heldControl.set('ready');
+  await tick();
+  assert.deepEqual(heldEvents, ['abort@4'], 'a request held for saved choices fails like a real abort');
+  assert.equal(heldWindow.xhrCalls.length, 0);
+
+  const reentrant = setup();
+  let reopened = false;
+  reentrant.xhr.addEventListener('readystatechange', () => {
+    if (reopened || reentrant.xhr.readyState !== 4) return;
+    reopened = true;
+    reentrant.xhr.open('POST', '/ajax/plain');
+  });
+  reentrant.xhr.open('POST', '/api/graphql/', false);
+  reentrant.events.length = 0;
+  reentrant.xhr.send(graphqlBody('PrivateMutation'));
+  assert.deepEqual(reentrant.events, ['readystatechange@4/200', 'readystatechange@1/0'], 'reopening from readystatechange stops load, as in Chromium');
+  assert.equal(reentrant.xhr.readyState, 1);
+  assert.equal(reentrant.xhr.status, 0);
+
+  // Measured in Chromium 155 and Firefox 156: once abort or load has fired, loadend follows
+  // whatever the handler did, and reads the state the handler left.
+  const handlers = async (type, act, abortAtSend) => {
+    const { xhr, events } = setup();
+    xhr.open('POST', '/api/graphql/');
+    xhr.send(graphqlBody('PrivateMutation'));
+    xhr.addEventListener(type, () => act(xhr), { once: true });
+    events.length = 0;
+    if (abortAtSend) xhr.abort();
+    await tick();
+    return { events, readyState: xhr.readyState };
+  };
+  const reopen = (xhr) => xhr.open('POST', '/ajax/plain');
+  assert.deepEqual(await handlers('abort', reopen, true), {
+    events: ['readystatechange@4/0', 'abort@4/0', 'readystatechange@1/0', 'loadend@1/0'], readyState: 1,
+  });
+  assert.deepEqual(await handlers('readystatechange', reopen, true), {
+    events: ['readystatechange@4/0', 'readystatechange@1/0', 'abort@1/0', 'loadend@1/0'], readyState: 1,
+  });
+  assert.deepEqual(await handlers('load', reopen, false), {
+    events: ['readystatechange@4/200', 'load@4/200', 'readystatechange@1/0', 'loadend@1/0'], readyState: 1,
+  });
+  assert.deepEqual(await handlers('load', (xhr) => xhr.abort(), false), {
+    events: ['readystatechange@4/200', 'load@4/200', 'loadend@0/0'], readyState: 0,
+  });
+});
+
+test('a held-back XHR answer reads the way its responseType asks', async () => {
+  const { win } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog, startup: startupControl({ state: 'ready' }).startup });
+  requestRule(net);
+  const answer = async (responseType) => {
+    const xhr = new win.XMLHttpRequest();
+    xhr.open('POST', '/api/graphql/');
+    xhr.responseType = responseType;
+    xhr.send(graphqlBody('PrivateMutation'));
+    await tick();
+    return xhr;
+  };
+
+  const json = await answer('json');
+  assert.deepEqual(json.response, { held: true });
+  assert.equal(json.response, json.response, 'the parsed answer is one object, as the XHR spec has it');
+  assert.throws(() => json.responseText, (error) => error.name === 'InvalidStateError');
+  const buffer = await answer('arraybuffer');
+  assert.ok(buffer.response instanceof ArrayBuffer);
+  assert.equal(new TextDecoder().decode(buffer.response), '{"held":true}');
+  const blob = await answer('blob');
+  assert.equal(await blob.response.text(), '{"held":true}');
+  assert.equal((await answer('document')).response, null);
+  assert.equal((await answer('text')).response, '{"held":true}');
+  assert.equal((await answer('')).responseText, '{"held":true}');
+
+  const pageDefined = new win.XMLHttpRequest();
+  Object.defineProperty(pageDefined, 'responseURL', { configurable: true, writable: true, value: 'page-defined' });
+  pageDefined.open('POST', '/api/graphql/');
+  pageDefined.send(graphqlBody('PrivateMutation'));
+  await tick();
+  assert.equal(pageDefined.responseURL, 'https://www.facebook.com/api/graphql/');
+  Object.defineProperty(pageDefined, 'statusText', { configurable: true, value: 'page-replaced' });
+  pageDefined.open('POST', '/ajax/plain');
+  assert.equal(pageDefined.responseURL, 'page-defined', "reopening puts back the page's own property");
+  assert.equal(pageDefined.statusText, 'page-replaced', "a property the page replaced stays the page's");
+
+  const locked = new win.XMLHttpRequest();
+  Object.defineProperty(locked, 'statusText', { configurable: false, value: 'page-locked' });
+  const loads = [];
+  locked.addEventListener('load', () => loads.push(locked.status));
+  locked.open('POST', '/api/graphql/');
+  locked.send(graphqlBody('PrivateMutation'));
+  await tick();
+  assert.deepEqual(loads, [200], 'a property the page locked for good does not stop the answer');
+  assert.equal(locked.statusText, 'page-locked');
+  assert.equal(locked.responseText, '{"held":true}');
 });
 
 test('sendBeacon drops only recognized privacy traffic until choices are confirmed', () => {

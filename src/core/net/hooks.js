@@ -392,14 +392,43 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
   const { open, send, setRequestHeader, abort } = proto;
   const textGetter = Object.getOwnPropertyDescriptor(proto, 'responseText').get;
   const responseGetter = Object.getOwnPropertyDescriptor(proto, 'response').get;
+  // Taken before patchJsonParse wraps it: the browser's json responseType doesn't go
+  // through the page's JSON.parse either.
+  const json = win.JSON ?? JSON;
+  const jsonParse = json.parse;
+  const parse = (text) => jsonParse.call(json, text);
   const state = new WeakMap();
+  const overrides = xhrOverrides();
+
+  // Ends what this hook started for the instance's last request: a held send, a synthetic
+  // completion still to run and every property it put on the instance. Bumping the epoch
+  // tells an abort already dispatching events that the page has moved on.
+  const settle = (xhr) => {
+    const entry = state.get(xhr);
+    if (entry) {
+      entry.epoch++;
+      entry.deferred?.cancel();
+      entry.deferred = null;
+      entry.fake?.cancel();
+      entry.fake = null;
+    }
+    overrides.release(xhr);
+    return entry;
+  };
 
   proto.open = function (method, url, async = true) {
-    const previous = state.get(this);
-    previous?.deferred?.cancel();
-    previous?.fakeCleanup?.();
-    state.set(this, { method, url, async: Boolean(async), headers: {}, deferred: null, fakeCleanup: null, sent: false });
-    return open.apply(this, arguments);
+    const shown = this.readyState;
+    settle(this);
+    // A held or answered request never left the browser's OPENED state, and open() only
+    // announces OPENED when the state changes, so the page's DONE or UNSENT request would
+    // reopen without the readystatechange a real one fires.
+    const silent = shown !== 1 && this.readyState === 1;
+    state.set(this, {
+      method, url, async: Boolean(async), headers: {}, deferred: null, fake: null, sent: false, synthetic: false, epoch: 0,
+    });
+    const result = open.apply(this, arguments);
+    if (silent) this.dispatchEvent(new win.Event('readystatechange'));
+    return result;
   };
 
   proto.setRequestHeader = function (name, value) {
@@ -411,26 +440,24 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
   proto.send = function (body) {
     const entry = state.get(this);
     if (!entry) return send.apply(this, arguments);
-    if (entry.sent) {
-      const error = typeof win.DOMException === 'function'
-        ? new win.DOMException("Failed to execute 'send': the request has already been sent.", 'InvalidStateError')
-        : Object.assign(new Error("Failed to execute 'send': the request has already been sent."), { name: 'InvalidStateError' });
-      throw error;
-    }
+    if (entry.sent) throw invalidState(win, "Failed to execute 'send': the request has already been sent.");
     entry.sent = true;
     const ctx = describeRequest({ transport: 'xhr', url: entry.url, method: entry.method, body, headers: entry.headers, base: win.location.href });
     const xhr = this;
     const fakeSuccess = (text, synchronous = false) => {
-      entry.fakeCleanup?.();
-      entry.fakeCleanup = fakeXhrSuccess(win, xhr, ctx, text, synchronous);
+      entry.fake?.cancel();
+      entry.synthetic = true;
+      entry.fake = fakeXhrSuccess(win, xhr, { url: ctx.url, text, parse, synchronous, overrides });
+      entry.fake.start();
     };
 
     const sendRequest = (requestBody) => {
       const blocker = blockingRule(ctx);
       if (blocker) return fakeSuccess(fakeAnswer(blocker, ctx), !entry.async);
 
+      entry.synthetic = false;
       const rules = active(responseRules, ctx);
-      if (rules.length) attachTextTransform(xhr, lineTransformer(rules, ctx), textGetter, responseGetter);
+      if (rules.length) attachTextTransform(xhr, lineTransformer(rules, ctx), textGetter, responseGetter, overrides);
       return send.call(xhr, requestBody);
     };
 
@@ -441,6 +468,7 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
     const bytes = bodyBytes(body);
     const queuedBody = bytes === null ? body : snapshotXhrBody(body);
     ctx.body = undefined;
+    entry.synthetic = true;
 
     const resume = () => {
       if (state.get(xhr) !== entry) return;
@@ -468,21 +496,108 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
 
   if (typeof abort === 'function') {
     proto.abort = function () {
-      const entry = state.get(this);
-      entry?.deferred?.cancel();
-      entry?.fakeCleanup?.();
-      if (entry) {
-        entry.deferred = null;
-        entry.fakeCleanup = null;
+      const before = state.get(this);
+      const inFlight = Boolean(before?.deferred || before?.fake?.pending);
+      const entry = settle(this);
+      const result = abort.apply(this, arguments);
+      // The browser never sent a held or answered request, so its own abort changes nothing
+      // and the page has to see what a real one shows: an in-flight request fails with
+      // readystatechange, abort and loadend at DONE, and every request ends UNSENT.
+      if (!entry?.synthetic) return result;
+      const epoch = entry.epoch;
+      const current = () => state.get(this) === entry && entry.epoch === epoch;
+      if (inFlight) {
+        overrides.define(this, xhrResult(win, this, { readyState: 4, status: 0, statusText: '', url: '', text: null }));
+        // Chromium and Firefox fire all three even when a handler reopens or aborts again.
+        this.dispatchEvent(new win.Event('readystatechange'));
+        this.dispatchEvent(new win.ProgressEvent('abort'));
+        this.dispatchEvent(new win.ProgressEvent('loadend'));
+        if (!current()) return result;
       }
-      return abort.apply(this, arguments);
+      overrides.define(this, xhrResult(win, this, { readyState: 0, status: 0, statusText: '', url: '', text: null }));
+      return result;
     };
   }
 }
 
+// The properties this hook puts on one XHR instance, all accessors. Releasing removes only
+// those still holding the getter this hook set, and puts back whatever the page had defined
+// on the instance before.
+function xhrOverrides() {
+  const owned = new WeakMap();
+  return {
+    define(xhr, getters) {
+      let props = owned.get(xhr);
+      if (!props) owned.set(xhr, (props = new Map()));
+      for (const [key, get] of Object.entries(getters)) {
+        const current = Object.getOwnPropertyDescriptor(xhr, key);
+        if (current && !current.configurable) continue; // The page fixed this one for good.
+        const mine = props.get(key);
+        const previous = mine && current?.get === mine.get ? mine.previous : current;
+        Object.defineProperty(xhr, key, { configurable: true, enumerable: true, get });
+        props.set(key, { get, previous });
+      }
+    },
+    release(xhr) {
+      const props = owned.get(xhr);
+      if (!props) return;
+      owned.delete(xhr);
+      for (const [key, { get, previous }] of props) {
+        if (Object.getOwnPropertyDescriptor(xhr, key)?.get !== get) continue;
+        if (previous) Object.defineProperty(xhr, key, previous);
+        else delete xhr[key];
+      }
+    },
+  };
+}
+
+function invalidState(win, message) {
+  return typeof win.DOMException === 'function'
+    ? new win.DOMException(message, 'InvalidStateError')
+    : Object.assign(new Error(message), { name: 'InvalidStateError' });
+}
+
+// What a request the browser never sent shows the page. text is the answer, or null for a
+// failed request, and each read follows responseType the way the browser's own getters do.
+function xhrResult(win, xhr, { readyState, status, statusText, url, text, parse }) {
+  const textual = () => xhr.responseType === '' || xhr.responseType === 'text';
+  let typed = null;
+  const typedResponse = () => {
+    const type = xhr.responseType;
+    if (typed?.type !== type) typed = { type, value: text === null ? null : decodeAs(win, type, text, parse) };
+    return typed.value;
+  };
+  return {
+    readyState: () => readyState,
+    status: () => status,
+    statusText: () => statusText,
+    responseURL: () => url,
+    responseText: () => {
+      if (!textual()) {
+        throw invalidState(win, `Failed to read the 'responseText' property from 'XMLHttpRequest': The value is only accessible if the object's 'responseType' is '' or 'text' (was '${xhr.responseType}').`);
+      }
+      return text ?? '';
+    },
+    response: () => (textual() ? text ?? '' : typedResponse()),
+  };
+}
+
+function decodeAs(win, type, text, parse) {
+  if (type === 'json') {
+    try {
+      return parse(text);
+    } catch {
+      return null; // The browser's json response is null when the body doesn't parse.
+    }
+  }
+  if (type === 'arraybuffer' && typeof win.TextEncoder === 'function') return new win.TextEncoder().encode(text).buffer;
+  if (type === 'blob' && typeof win.Blob === 'function') return new win.Blob([text]);
+  return null;
+}
+
 // Facebook reads responseText while the body is still arriving. Each read returns the
 // transformed text of every complete line so far, which only ever grows.
-function attachTextTransform(xhr, transformLine, textGetter, responseGetter) {
+function attachTextTransform(xhr, transformLine, textGetter, responseGetter, overrides) {
   const stream = createLineStream(transformLine);
   let seen = 0;
   let output = '';
@@ -501,32 +616,44 @@ function attachTextTransform(xhr, transformLine, textGetter, responseGetter) {
     return output;
   };
 
-  Object.defineProperty(xhr, 'responseText', { configurable: true, get: read });
-  Object.defineProperty(xhr, 'response', {
-    configurable: true,
-    get: () => (xhr.responseType === '' || xhr.responseType === 'text' ? read() : responseGetter.call(xhr)),
+  overrides.define(xhr, {
+    responseText: read,
+    response: () => (xhr.responseType === '' || xhr.responseType === 'text' ? read() : responseGetter.call(xhr)),
   });
 }
 
-function fakeXhrSuccess(win, xhr, ctx, text, synchronous = false) {
-  const values = { readyState: 4, status: 200, statusText: 'OK', responseText: text, response: text, responseURL: ctx.url };
-  for (const [key, value] of Object.entries(values)) Object.defineProperty(xhr, key, { configurable: true, value });
+// Completes a request the browser never sent. Until then the page sees the opened request.
+// Like Chromium, a reopen or abort from the readystatechange handler stops load, but once
+// load has fired, loadend follows whatever its handlers did, as in Chromium and Firefox.
+function fakeXhrSuccess(win, xhr, { url, text, parse, synchronous, overrides }) {
   let active = true;
   let timer = null;
   const complete = () => {
+    timer = null;
     if (!active) return;
+    fake.pending = false;
+    overrides.define(xhr, xhrResult(win, xhr, { readyState: 4, status: 200, statusText: 'OK', url, text, parse }));
     xhr.dispatchEvent(new win.Event('readystatechange'));
+    if (!active) return;
     xhr.dispatchEvent(new win.ProgressEvent('load'));
     xhr.dispatchEvent(new win.ProgressEvent('loadend'));
   };
-  if (synchronous) complete();
-  else timer = win.setTimeout(complete, 0);
-  return () => {
-    if (!active) return;
-    active = false;
-    if (timer !== null) win.clearTimeout(timer);
-    for (const key of Object.keys(values)) delete xhr[key];
+  // Started only once the caller holds the handle, so a synchronous completion's handlers
+  // can already cancel it.
+  const fake = {
+    pending: true,
+    start() {
+      if (synchronous) complete();
+      else timer = win.setTimeout(complete, 0);
+    },
+    cancel() {
+      active = false;
+      fake.pending = false;
+      if (timer !== null) win.clearTimeout(timer);
+      timer = null;
+    },
   };
+  return fake;
 }
 
 // Facebook calls JSON.parse constantly, so the marker check (a substring search) runs
