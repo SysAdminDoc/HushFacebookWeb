@@ -1,9 +1,9 @@
 // The settings panel in happy-dom. The panel reads browser globals (document, Node, CSS,
-// requestAnimationFrame, navigator, setTimeout), so each test lends it a happy-dom window's and puts the
+// requestAnimationFrame, navigator, setTimeout, clearTimeout), so each test lends it a happy-dom window's and puts the
 // originals back afterwards. Its shadow root is closed, so attachShadow is wrapped to keep it.
 
 import assert from 'node:assert/strict';
-import { afterEach, test } from 'node:test';
+import { afterEach, mock, test } from 'node:test';
 import { Window } from 'happy-dom';
 import { createActions } from '../src/core/actions.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
@@ -16,7 +16,7 @@ import { mountPanel } from '../src/ui/panel.js';
 import { QUICK_SETUPS } from '../src/ui/quick-setups.js';
 import menuEntry from '../src/features/menu/menu-entry.js';
 
-const GLOBALS = ['document', 'Node', 'CSS', 'requestAnimationFrame', 'navigator', 'setTimeout'];
+const GLOBALS = ['document', 'Node', 'CSS', 'requestAnimationFrame', 'navigator', 'setTimeout', 'clearTimeout'];
 const nodeSetTimeout = globalThis.setTimeout;
 const cleanups = [];
 afterEach(async () => {
@@ -627,6 +627,165 @@ test('a synchronous Undo failure is reported without changing the reset settings
   await tick();
   assert.equal(settings.get('ui.hiddenNote'), false);
   assert.match(shadow.querySelector('.toast.error').textContent, /undo|save|storage/i);
+  assert.ok(shadow.querySelector('[data-key="reset:undo"]'), 'General keeps the Undo for another try');
+});
+
+// An extension-like store: saves land a moment later, the next few can be made to fail, and a
+// change from another tab arrives through onChange.
+function laterStorage(initial) {
+  const data = new Map([['settings', structuredClone(initial)]]);
+  const heard = new Map();
+  const control = { failures: 0 };
+  const storage = {
+    kind: 'extension',
+    get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    getAtLoad: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    whenReady: (run) => run(),
+    onChange: (key, listener) => heard.set(key, listener),
+    mutate(key, mutation) {
+      if (control.failures > 0) {
+        control.failures--;
+        return Promise.reject(new Error('Storage is full'));
+      }
+      const value = applyObjectMutation(data.get(key), mutation);
+      data.set(key, structuredClone(value));
+      return Promise.resolve(structuredClone(value));
+    },
+    set: (key, value) => data.set(key, structuredClone(value)),
+  };
+  control.remote = (value) => {
+    data.set('settings', structuredClone(value));
+    heard.get('settings')?.(structuredClone(value), { source: 'remote' });
+  };
+  return { storage, data, control };
+}
+
+const button = (shadow, text) => [...shadow.querySelectorAll('button')].find((candidate) => candidate.textContent === text);
+
+test('Undo outlives the notice in General and still works from the keyboard much later', async () => {
+  const { shadow, panel, settings } = setup();
+  settings.set('ui.hiddenNote', true);
+  panel.open('general');
+  mock.timers.enable({ apis: ['setTimeout'] });
+  cleanups.push(() => mock.timers.reset());
+  shadow.querySelector('[data-key="reset"]').click();
+  assert.match(shadow.querySelector('.toast').textContent, /Undo stays in General until you change a setting or leave this page/);
+  mock.timers.tick(60000);
+  assert.equal(shadow.querySelector('.toast'), null, 'an untouched notice still times out');
+  const card = shadow.querySelector('[data-key="reset-undo"]');
+  assert.match(card.textContent, /until you dismiss it or change a setting, and it's gone once you leave or reload this page/);
+  assert.equal(card.closest('dialog').open, true);
+  const undo = shadow.querySelector('[data-key="reset:undo"]');
+  undo.focus();
+  undo.click();
+  await tick();
+  assert.equal(settings.get('ui.hiddenNote'), true);
+  assert.equal(shadow.querySelector('[data-key="reset-undo"]'), null, 'a finished Undo leaves General');
+  assert.equal(shadow.activeElement, shadow.querySelector('[data-key="reset"]'));
+  assert.ok([...shadow.querySelectorAll('.toast span')].some((span) => span.textContent === 'Your settings from before the reset are back.'));
+});
+
+test('a notice under the pointer or holding focus stays until both leave', async () => {
+  const { win, shadow, panel, settings } = setup();
+  settings.set('ui.hiddenNote', true);
+  panel.open('general');
+  mock.timers.enable({ apis: ['setTimeout'] });
+  cleanups.push(() => mock.timers.reset());
+  shadow.querySelector('[data-key="reset"]').click();
+  const notice = shadow.querySelector('.toast');
+  notice.dispatchEvent(new win.Event('pointerenter'));
+  mock.timers.tick(60000);
+  assert.ok(notice.isConnected, 'hovered');
+  notice.querySelector('button').focus();
+  notice.dispatchEvent(new win.Event('pointerleave'));
+  mock.timers.tick(60000);
+  assert.ok(notice.isConnected, 'focused');
+  shadow.querySelector('[data-key="reset"]').focus();
+  mock.timers.tick(6999);
+  assert.ok(notice.isConnected, 'gets its full time again');
+  mock.timers.tick(1);
+  assert.equal(notice.isConnected, false);
+  assert.equal(settings.get('ui.hiddenNote'), false);
+});
+
+test('a failed Undo keeps the earlier choices until a retry saves them', async () => {
+  const { storage, data, control } = laterStorage({ 'ui.hiddenNote': true, 'ui.launcher': false });
+  const { shadow, panel, settings } = setup({ storage });
+  panel.open('general');
+  shadow.querySelector('[data-key="reset"]').click();
+  await tick();
+  assert.deepEqual(data.get('settings'), {});
+  control.failures = 1;
+  shadow.querySelector('[data-key="reset:undo"]').click();
+  await tick();
+  assert.deepEqual(data.get('settings'), {});
+  assert.equal(settings.get('ui.hiddenNote'), false);
+  assert.match(shadow.querySelector('.toast.error').textContent, /save|undo/i);
+  assert.ok(shadow.querySelector('[data-key="reset-undo"]'), 'the Undo is still offered');
+  // The waiting choices are the Undo's own, so another failed save through Retry keeps it.
+  control.failures = 1;
+  shadow.querySelector('[data-key="settings:retry"]').click();
+  await tick();
+  assert.deepEqual(data.get('settings'), {});
+  assert.ok(shadow.querySelector('[data-key="reset-undo"]'), 'still offered after a failed Retry');
+  shadow.querySelector('[data-key="reset:undo"]').click();
+  await tick();
+  assert.deepEqual(data.get('settings'), { 'ui.hiddenNote': true, 'ui.launcher': false });
+  assert.equal(settings.get('ui.hiddenNote'), true);
+  assert.equal(shadow.querySelector('[data-key="reset-undo"]'), null);
+});
+
+test('a change here or in another tab ends the Undo, and the notice says so', async () => {
+  for (const change of ['local', 'remote']) {
+    const { storage, data, control } = laterStorage({ 'ui.hiddenNote': true });
+    const { shadow, panel, settings } = setup({ storage });
+    panel.open('general');
+    shadow.querySelector('[data-key="reset"]').click();
+    await tick();
+    assert.ok(shadow.querySelector('[data-key="reset-undo"]'), change);
+    if (change === 'local') settings.set('ui.launcher', false);
+    else control.remote({ 'ui.launcher': false });
+    await tick();
+    assert.equal(shadow.querySelector('[data-key="reset-undo"]'), null, change);
+    button(shadow, 'Undo').click();
+    await tick();
+    assert.deepEqual(data.get('settings'), { 'ui.launcher': false }, `${change} change is kept`);
+    assert.equal(settings.get('ui.hiddenNote'), false, change);
+    assert.ok([...shadow.querySelectorAll('.toast span')].some((span) => /isn't available any more/.test(span.textContent)), change);
+  }
+});
+
+test('the Undo belongs to the account that reset, and Dismiss ends it', async () => {
+  let account = 'A';
+  const { shadow, panel, settings } = setup({ environment: { accountMatches: () => account === 'A' } });
+  settings.set('ui.hiddenNote', true);
+  panel.open('general');
+  shadow.querySelector('[data-key="reset"]').click();
+  assert.ok(shadow.querySelector('[data-key="reset-undo"]'));
+  account = 'B';
+  panel.open('general');
+  assert.equal(shadow.querySelector('[data-key="reset-undo"]'), null);
+  account = 'A';
+  button(shadow, 'Undo').click();
+  await tick();
+  assert.equal(settings.get('ui.hiddenNote'), false, 'seeing another account ends it for good');
+
+  settings.set('ui.hiddenNote', true);
+  shadow.querySelector('[data-key="reset"]').click();
+  await tick();
+  shadow.querySelector('[data-key="reset:dismiss"]').click();
+  assert.equal(shadow.querySelector('[data-key="reset-undo"]'), null);
+  assert.equal(shadow.activeElement, shadow.querySelector('[data-key="reset"]'));
+  assert.equal(settings.get('ui.hiddenNote'), false);
+});
+
+test('resetting settings already at their defaults offers nothing to undo', async () => {
+  const { shadow, panel } = setup();
+  panel.open('general');
+  shadow.querySelector('[data-key="reset"]').click();
+  await tick();
+  assert.equal(shadow.querySelector('.toast').textContent, 'Settings are back to their defaults.');
+  assert.equal(shadow.querySelector('[data-key="reset-undo"]'), null);
 });
 
 test('an extension save shows pending state, keeps a rejected draft and commits it on retry', async () => {

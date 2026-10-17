@@ -77,6 +77,25 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   let reloadBaseline = new Map(reloadKeys.map((key) => [key, reloadValueAtLoad(key)]));
   let reloadPending = reloadKeys.some((key) => settings.get(key) !== reloadBaseline.get(key));
 
+  // The choices from before the last reset, held in memory for this page and account until
+  // Undo puts them back, the person dismisses it, or a later change here or in another tab
+  // supersedes the reset. after is the committed reset record it undoes.
+  let resetUndo = null;
+  const accountMatches = () => environment.accountMatches?.() ?? true;
+  const recordValue = (record, key) => (Object.hasOwn(record, key) ? record[key] : settings.schema.get(key).default);
+  const sameAs = (read, record) => [...settings.schema.keys()].every((key) => JSON.stringify(read(key)) === JSON.stringify(recordValue(record, key)));
+  const currentUndo = () => {
+    if (resetUndo && !resetUndo.restoring && !accountMatches()) resetUndo = null;
+    return resetUndo;
+  };
+  // A failed Undo leaves its choices waiting to save, so showing them still counts as the reset's.
+  // Once they're saved (a Retry got them through) the Undo is done.
+  const supersedeUndo = () => {
+    if (!resetUndo || resetUndo.restoring) return;
+    const { previous, after } = resetUndo;
+    if (sameAs(settings.get, previous) || (!sameAs(settingValue, after) && !sameAs(settingValue, previous))) resetUndo = null;
+  };
+
   const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
   const launcher = h(
     'button',
@@ -159,7 +178,25 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       h('span', { text: message }),
       action ? h('button', { type: 'button', text: action.label, onclick: () => { el.remove(); action.run(); } }) : null);
     toasts.append(el);
-    setTimeout(() => el.remove(), duration ?? (action ? 7000 : 4000));
+    // A notice the pointer is over, or that holds focus, stays until both move off it, then
+    // gets its full time again.
+    let hovered = false;
+    let focused = false;
+    let timer = null;
+    const wait = duration ?? (action ? 7000 : 4000);
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { if (!hovered && !focused) el.remove(); }, wait);
+    };
+    el.addEventListener('pointerenter', () => { hovered = true; });
+    el.addEventListener('pointerleave', () => { hovered = false; schedule(); });
+    el.addEventListener('focusin', () => { focused = true; });
+    el.addEventListener('focusout', (event) => {
+      if (el.contains(event.relatedTarget)) return;
+      focused = false;
+      schedule();
+    });
+    schedule();
   }
 
   // ---- views ----
@@ -419,6 +456,15 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       }, { primary: true, busyLabel: 'Retrying...' })));
   }
 
+  function resetUndoCard() {
+    return h('div', { class: 'card reset-undo', dataset: { key: 'reset-undo' } },
+      h('div', { class: 'title', text: 'Settings were reset' }),
+      h('div', { class: 'desc', text: "Undo puts back the choices you had before the reset. It stays here until you dismiss it or change a setting, and it's gone once you leave or reload this page." }),
+      h('div', { class: 'actions' },
+        actionButton('reset:undo', 'Undo reset', undoReset, { primary: true, busyLabel: 'Undoing...' }),
+        h('button', { class: 'button', type: 'button', text: 'Dismiss', dataset: { key: 'reset:dismiss' }, disabled: pending.has('reset:undo'), onclick: dismissUndo })));
+  }
+
   function generalRows() {
     const update = environment.update?.();
     const storageState = environment.storage?.status?.().state;
@@ -432,6 +478,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         id: 'save-recovery', section: 'general', title: "Changes couldn't be saved",
         description: 'Retry unsaved choices without losing the draft.', options: [{ label: 'Retry' }], focusKey: 'settings:retry',
         render: saveRecoveryCard,
+      }] : []),
+      ...(currentUndo() ? [{
+        id: 'reset-undo', section: 'general', title: 'Undo the settings reset',
+        description: 'Put back the choices you had before the reset, until you change a setting or leave this page.',
+        options: [{ label: 'Undo reset' }, { label: 'Dismiss' }], focusKey: 'reset:undo', render: resetUndoCard,
       }] : []),
       ...(update ? [{
         id: 'update', section: 'general', title: `HushFacebook Web ${update.version} is out`,
@@ -594,18 +645,61 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const succeeded = (previous) => {
       drafts.clear();
       fieldErrors.clear();
+      const after = settings.snapshot();
+      // Resetting settings that were already at their defaults keeps any earlier Undo.
+      if (!sameAs((key) => recordValue(previous, key), after)) resetUndo = { previous, after, restoring: false };
       render();
-      toast('Settings are back to their defaults.', { action: { label: 'Undo', run: () => {
-        Promise.resolve().then(() => settings.restore(previous)).then(
-          () => {
-            if (dialog.open) root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
-          },
-          (error) => log.error("Couldn't undo the settings reset. Try again", error),
-        );
-      } } });
+      if (resetUndo) {
+        toast('Settings are back to their defaults. Undo stays in General until you change a setting or leave this page.', { action: { label: 'Undo', run: startUndo } });
+      } else toast('Settings are back to their defaults.');
     };
     const saved = settings.reset();
     return saved && typeof saved.then === 'function' ? saved.then(succeeded) : succeeded(saved);
+  }
+
+  // Puts back the choices from before the reset once storage has saved them. A failure keeps
+  // the Undo in General for another try.
+  function undoReset() {
+    const undo = currentUndo();
+    if (!undo) {
+      toast("Undo isn't available any more. A setting changed, or another Facebook account signed in.");
+      if (dialog.open) render();
+      return undefined;
+    }
+    undo.restoring = true;
+    return Promise.resolve().then(() => settings.restore(undo.previous)).then(
+      () => {
+        undo.restoring = false;
+        if (resetUndo === undo) resetUndo = null;
+        toast('Your settings from before the reset are back.');
+        if (dialog.open) {
+          render();
+          root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
+        }
+      },
+      (error) => {
+        undo.restoring = false;
+        log.error("Couldn't undo the settings reset. Undo is still in General", error);
+      },
+    );
+  }
+
+  // The notice's Undo, sharing the General row's busy state so the two can't both run.
+  function startUndo() {
+    if (pending.has('reset:undo')) return;
+    pending.add('reset:undo');
+    if (dialog.open) render();
+    Promise.resolve(undoReset()).finally(() => {
+      pending.delete('reset:undo');
+      if (dialog.open) render();
+    });
+  }
+
+  function dismissUndo() {
+    resetUndo = null;
+    render();
+    root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
+    toast('Undo dismissed.');
   }
 
   function reloadFacebook() {
@@ -695,6 +789,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   settings.subscribe(() => {
+    supersedeUndo();
     refreshChrome();
     reloadPending = reloadKeys.some((key) => settings.get(key) !== reloadBaseline.get(key));
     if (dialog.open) render();
@@ -706,6 +801,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   });
   settings.onSaveStatus?.((status) => {
     preferenceSave = status;
+    supersedeUndo();
     refreshSaveState();
     refreshChrome();
     if (dialog.open) render();

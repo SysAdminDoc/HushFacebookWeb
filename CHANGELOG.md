@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Undo after Reset no longer vanishes with its notice. It waits in General until you dismiss it, change a setting or leave the page, and works from the keyboard there. A notice you're pointing at or have focused stays until you move off it. Undo belongs to the account that reset, a failed Undo keeps its choices for Retry, and resetting settings that were already at their defaults offers nothing to undo.
 * The extension's page script now gets only what it needs from the extension. Facebook's code shares the page with that script, so the extension checks every request against the keys and value shapes the script really uses. Settings are tied to the account signed in on that tab, which the extension reads for itself. Other accounts' settings and the extension's own bookkeeping no longer reach the page, and a game frame sees just the Instant Games ads switch. Requests have size and rate limits (downloads stop at eight in ten seconds), and the background only answers Facebook's top frame. It needs no new permissions.
 * A photo or video whose name would come out as a Windows device name like CON now saves as "Facebook CON" instead of failing.
 * The extension now applies saved privacy choices before recognized startup requests leave the page. Story views, watch reports, usage logs, read receipts and typing signals wait briefly for storage. If storage fails, the account changes or a request can't be held safely, the operation gets a local success instead of being sent. Unknown traffic isn't delayed, and General keeps Retry available.

@@ -152,7 +152,10 @@ function boot() {
   }
 
   whenBodyReady(() => {
-    panel = mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment: { version, ...managerInfo(), update, storage } });
+    panel = mountPanel({
+      settings, features, log, hider, diagnostics, actions, unavailable,
+      environment: { version, ...managerInfo(), update, storage, accountMatches: () => settings.startup.matchesAccount(signedInAccount()) },
+    });
     for (const [message, options] of waiting.splice(0)) panel.toast(message, options);
     if (pendingSettingsOpen) {
       panel.open(pendingSettingsSection);

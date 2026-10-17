@@ -139,6 +139,7 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 .save-state[data-state="saving"] { color: var(--peach); }
 .save-state[data-state="error"] { color: var(--red); font-weight: 600; }
 .save-recovery .title { color: var(--red); }
+.reset-undo { border-color: var(--accent); }
 .diagnostic-summary { padding: 22px; background: var(--surface0); border: 1px solid var(--border); border-radius: 10px; }
 .summary-title { margin: 0 0 14px; font-size: 16px; line-height: 22px; font-weight: 600; }
 dl { display: grid; grid-template-columns: minmax(160px, 0.8fr) minmax(0, 1.2fr); gap: 8px 24px; margin: 0; font-size: 14px; line-height: 21px; }
