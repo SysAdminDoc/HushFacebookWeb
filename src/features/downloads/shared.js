@@ -6,6 +6,7 @@ import { createDownloadButton } from './button.js';
 import { findMedia, planSave } from './find.js';
 import { startSave } from '../../core/download.js';
 import { gmApi } from '../../core/env.js';
+import { t } from '../../core/i18n.js';
 import { createMediaIndex, MEDIA_MARKERS } from '../../core/media-index.js';
 
 const instances = new WeakMap();
@@ -47,7 +48,7 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
     const settings = switches.get(found.feature);
     const plan = planSave(found, { quality: settings?.quality?.() });
     if (plan.error) {
-      toast?.(plan.error, { tone: 'error' });
+      toast?.(t(plan.error), { tone: 'error' });
       return;
     }
     const save = startSave({ url: plan.url, name: plan.name, api, doc, win, container });
@@ -55,22 +56,22 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
     // which stays until the save ends.
     let notice = null;
     const later = setTimeout(() => {
-      notice = toast?.(`Saving ${plan.name}`, { action: { label: 'Cancel', run: () => save.cancel() }, duration: Infinity });
+      notice = toast?.(t('Saving {name}', { name: plan.name }), { action: { label: 'Cancel', run: () => save.cancel() }, duration: Infinity });
     }, NOTICE_AFTER);
     try {
       await save.done;
       saved++;
-      toast?.(`Saved ${plan.name}`);
+      toast?.(t('Saved {name}', { name: plan.name }));
     } catch (error) {
       if (error.cancelled) {
-        toast?.(`Cancelled ${plan.name}`);
+        toast?.(t('Cancelled {name}', { name: plan.name }));
         return;
       }
       failed++;
       // The file name carries the poster's name, so it stays out of the message. A warning,
       // since the panel gives every error a notice of its own and this one already says why.
       log?.warn("Couldn't save a photo or video", error);
-      toast?.(`Couldn't save it: ${error.message}.`, { tone: 'error' });
+      toast?.(t("Couldn't save it: {reason}.", { reason: t(error.message) }), { tone: 'error' });
     } finally {
       clearTimeout(later);
       notice?.dismiss?.();
@@ -80,7 +81,7 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
 
   const button = createDownloadButton({
     doc, win, log, run, active: anyOn,
-    onMissing: () => toast?.("There's nothing to save there now. Go back to the photo or video and try again."),
+    onMissing: () => toast?.(t("There's nothing to save there now. Go back to the photo or video and try again.")),
     find(element) {
       const found = findMedia(element, { href: router?.current()?.href ?? win.location.href, index });
       return found && switches.get(found.feature)?.enabled() ? found : null;

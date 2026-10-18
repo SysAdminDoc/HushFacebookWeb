@@ -6,6 +6,7 @@ import { createActions } from './core/actions.js';
 import { ACCOUNT_CHANGED, createActivityStorage } from './core/activity.js';
 import { availableUpdate, extensionHost, UPDATE_KEY, UPDATE_TOLD_KEY, updateStatus } from './core/extension.js';
 import { createDiagnostics, hideListener } from './core/diagnostics.js';
+import { setLanguage, t } from './core/i18n.js';
 import { createHider, hideCss } from './core/dom/hide.js';
 import { createPostTracker, postIdOf } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
@@ -43,6 +44,10 @@ function boot() {
   const storage = createGmStorage({ log });
   const account = signedInAccount();
   const settings = createSettings({ storage, features, log, version, account });
+  // Before any feature's own listeners, so the notices they raise come in the chosen language.
+  const followLanguage = () => setLanguage(settings.get('ui.language'));
+  settings.whenLoaded(followLanguage);
+  settings.subscribe(followLanguage);
   const net = pageAccess === 'page' ? installNetworkHooks({
     win: pageWindow,
     log,
@@ -116,7 +121,7 @@ function boot() {
     storage, account, currentAccount: signedInAccount, log,
     onSwitch: () => {
       panel?.refresh();
-      toast(`${ACCOUNT_CHANGED}.`, { action: { label: 'Reload', run: () => pageWindow.location.reload() }, duration: 20000 });
+      toast(() => `${t(ACCOUNT_CHANGED)}.`, { action: { label: 'Reload', run: () => pageWindow.location.reload() }, duration: 20000 });
     },
   });
   activity.watch({ router, doc: document });
@@ -131,7 +136,7 @@ function boot() {
   if (net) keepOutOfStorageReport({ win: pageWindow, log, diagnostics });
   if (!keepsSettings(storage)) {
     log.warn(UNKEPT_SETTINGS);
-    toast(UNKEPT_SETTINGS, { tone: 'error' });
+    toast(() => t(UNKEPT_SETTINGS), { tone: 'error' });
   }
 
   startFeatures({
@@ -170,7 +175,7 @@ function boot() {
       const found = availableUpdate(storage, version);
       if (!found || storage.get(UPDATE_TOLD_KEY, null) === found.version) return;
       storage.set(UPDATE_TOLD_KEY, found.version);
-      toast(`HushFacebook Web ${found.version} is out.`, { action: { label: 'How to update', run: () => whenBodyReady(() => panel?.open('general')) } });
+      toast(() => t('HushFacebook Web {version} is out.', { version: found.version }), { action: { label: 'How to update', run: () => whenBodyReady(() => panel?.open('general')) } });
     });
   }
 

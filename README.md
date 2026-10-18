@@ -63,6 +63,8 @@ The extension waits for the browser to confirm each settings change. If a save f
 
 During extension startup, recognized story views, watch reports, usage logs, read receipts and typing signals wait briefly for saved privacy choices. If storage can't be confirmed, those operations stay on the device and General shows Retry. Unrelated traffic isn't delayed.
 
+Settings are in English for now. General has a Language choice that's ready for translations, plus two test layouts. One stretches every phrase so text that gets cut off stands out, and the other mirrors the panel right to left. Facebook's own language doesn't change it, and Reset to defaults keeps it. The log and Copy report stay in English, so a report reads the same whoever gets it. If you'd like to help translate, open an issue.
+
 <p>
   <img src="assets/screenshots/panel-feed.jpg" width="49%" alt="News feed settings with an icon sidebar, grouped rows and lavender switches">
   <img src="assets/screenshots/panel-general.jpg" width="49%" alt="General settings with Quick setups, backup and problem report rows">

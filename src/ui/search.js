@@ -1,6 +1,10 @@
 // Finding a setting by its words: a feature matches when every word typed appears somewhere in its
 // title, description, section name, option labels, choice names or the few extra words a General
-// row lists (backup for Back up). Only the script's own text is searched, nothing from Facebook.
+// row lists (backup for Back up). Each counts in the language shown and in English, so the
+// English words keep finding a setting in any language. A General row's {name} words come from
+// its vars. Only the script's own text is searched, nothing from Facebook.
+
+import { english, t } from '../core/i18n.js';
 
 const fold = (text) => String(text ?? '')
   .toLowerCase()
@@ -12,12 +16,19 @@ const fold = (text) => String(text ?? '')
   .trim();
 
 const wordsOf = (query) => fold(query).split(' ').filter(Boolean);
-const optionText = (option) => [option.label, ...(option.keywords ?? [])];
+const both = (text, vars) => {
+  if (typeof text !== 'string' || !text) return [];
+  const plain = english(text, vars);
+  const shown = t(text, vars);
+  return shown === plain ? [plain] : [shown, plain];
+};
+const optionText = (option) => [option.label, ...(option.keywords ?? [])].flatMap((text) => both(text));
 
 export function searchText(feature, sections) {
   const section = sections.find((entry) => entry.id === feature.section)?.title ?? '';
-  const options = (feature.options ?? []).flatMap((option) => [...optionText(option), ...(option.choices ?? []).map((choice) => choice.label)]);
-  return fold([feature.title, feature.description, section, ...(feature.keywords ?? []), ...options].join(' '));
+  const options = (feature.options ?? []).flatMap((option) => [...optionText(option), ...(option.choices ?? []).flatMap((choice) => both(choice.label))]);
+  const own = [feature.title, feature.description].flatMap((text) => both(text, feature.vars));
+  return fold([...own, ...both(section), ...(feature.keywords ?? []).flatMap((text) => both(text)), ...options].join(' '));
 }
 
 export function findFeatures(features, sections, query) {

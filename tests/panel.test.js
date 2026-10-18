@@ -9,6 +9,7 @@ import { createActions } from '../src/core/actions.js';
 import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider } from '../src/core/dom/hide.js';
+import { setLanguage, t } from '../src/core/i18n.js';
 import { createLog } from '../src/core/log.js';
 import { createSettings } from '../src/core/settings.js';
 import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
@@ -128,6 +129,53 @@ test('General has the switch for leaving a note where a post was hidden', () => 
   toggle.checked = true;
   toggle.dispatchEvent(new toggle.ownerDocument.defaultView.Event('change'));
   assert.equal(settings.get('ui.hiddenNote'), true);
+});
+
+test('the language under General redraws the panel in it, mirrors it for right to left and keeps the report English', async () => {
+  const { win, shadow, panel, settings, copied } = setup({ features: allFeatures });
+  cleanups.push(() => setLanguage('en'));
+  panel.open('general');
+  const root = shadow.querySelector('.root');
+  const choose = (value) => {
+    const select = shadow.querySelector('select[data-key="ui.language"]');
+    select.value = value;
+    select.dispatchEvent(new win.Event('change'));
+  };
+  const titleOf = () => shadow.querySelector('select[data-key="ui.language"]').closest('.card').querySelector('.title').textContent;
+  assert.deepEqual([root.getAttribute('lang'), root.getAttribute('dir')], ['en', 'ltr']);
+  assert.equal(titleOf(), 'Language');
+  choose('long-test');
+  assert.equal(settings.get('ui.language'), 'long-test');
+  assert.equal(titleOf(), `${t('Language')} (Language)`, 'the English name stays next to the shown one');
+  assert.match(titleOf(), /^\[\S+ /);
+  assert.deepEqual([...shadow.querySelector('select[data-key="ui.language"]').options].map((option) => option.textContent), ['English', 'Test: long text', 'Test: right to left'], 'each language keeps its own name');
+  assert.equal(shadow.querySelector('[data-key="search"]').placeholder, t('Find a setting'));
+  assert.equal(shadow.querySelector('nav').getAttribute('aria-label'), t('Settings sections'));
+  panel.toast(() => t('Saved {name}', { name: 'photo.jpg' }));
+  assert.match(shadow.querySelector('.toast span').textContent, /^\[\S+ photo\.jpg .+\]$/, 'a notice made as a function is worded when it shows');
+
+  const search = shadow.querySelector('[data-key="search"]');
+  search.value = 'locale';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.ok(shadow.querySelector('select[data-key="ui.language"]'), 'its English words still find the row');
+  search.value = '';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+
+  panel.open('diagnostics');
+  const labels = [...shadow.querySelectorAll('dt')].map((dt) => dt.textContent);
+  assert.ok(labels.length && labels.every((label) => label.startsWith('[')), 'every Diagnostics label is shown in the language');
+  assert.ok([...shadow.querySelectorAll('.log')].every((box) => box.getAttribute('dir') === 'ltr'), 'the log reads left to right');
+  [...shadow.querySelectorAll('button')].find((button) => button.textContent === t('Copy report')).click();
+  await tick();
+  assert.equal(copied.length, 1);
+  assert.doesNotMatch(copied[0], /[À-ɏḀ-ỿ]/, 'Copy report stays in English');
+
+  panel.open('general');
+  choose('rtl-test');
+  assert.deepEqual([root.getAttribute('lang'), root.getAttribute('dir')], ['en', 'rtl']);
+  assert.equal(titleOf(), 'Language', 'right to left keeps the English');
+  choose('en');
+  assert.deepEqual([root.getAttribute('dir'), titleOf()], ['ltr', 'Language']);
 });
 
 test('General ends with the Ko-fi row', () => {

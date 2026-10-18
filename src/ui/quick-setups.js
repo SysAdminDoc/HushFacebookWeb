@@ -1,3 +1,5 @@
+import { KEPT_ON_RESET } from '../core/settings.js';
+
 export const QUICK_SETUPS = Object.freeze([
   Object.freeze({
     id: 'quiet',
@@ -46,7 +48,7 @@ export function applyQuickSetup(settings, id) {
   const afterSave = (saved, changed) => saved && typeof saved.then === 'function' ? saved.then(() => changed) : changed;
 
   if (setup.reset) {
-    const changed = [...settings.schema].filter(([key, spec]) => (
+    const changed = [...settings.schema].filter(([key, spec]) => !KEPT_ON_RESET.includes(key) && (
       settings.get(key) !== spec.default || (settings.display?.(key) ?? settings.get(key)) !== spec.default
     )).length;
     const pending = settings.saveStatus?.().pending.length ?? 0;

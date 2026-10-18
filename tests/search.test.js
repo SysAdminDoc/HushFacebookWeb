@@ -2,6 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { setLanguage } from '../src/core/i18n.js';
 import { features } from '../src/features/index.js';
 import { SECTIONS } from '../src/features/sections.js';
 import { findFeatures, matchingAction, searchText } from '../src/ui/search.js';
@@ -40,4 +41,20 @@ test("a row's extra words and button words are searched, and the words typed pic
   assert.equal(matchingAction(row, 'settings'), 'backup', 'is passed over for the next one that matches');
   assert.equal(matchingAction(row, '  '), null);
   assert.equal(matchingAction({ id: 'speedy', options: [{ key: 'step', label: 'Speed step' }] }, 'speed'), null, "a feature's options leave its switch focused");
+});
+
+test('in another language the words shown and the English words both find a setting', (t) => {
+  t.after(() => setLanguage('en'));
+  setLanguage('long-test');
+  const row = { id: 'update', section: 'general', title: 'Version {version}', description: 'Installed {current}.', vars: { version: '9.8.7', current: 'today' }, options: [
+    { label: 'Check now', focusKey: 'check', keywords: ['refresh'] },
+  ] };
+  const found = (query) => findFeatures([row], SECTIONS, query).length;
+  assert.equal(found('version 9.8.7'), 1, 'English, with its words filled in');
+  assert.equal(found('véršîöñ'), 1, 'accented words fold to the letters typed');
+  assert.equal(found('one two'), 1, 'words only the shown text has');
+  assert.equal(found('{current}'), 0, 'placeholders are never searched as typed');
+  assert.equal(matchingAction(row, 'refresh'), 'check');
+  assert.equal(matchingAction(row, 'three'), 'check', "a button's shown words pick it too");
+  assert.ok(ids('volume').includes('keepVolume'), 'the real list keeps its English words');
 });

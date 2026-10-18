@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { setLanguage } from '../src/core/i18n.js';
 import { createLog } from '../src/core/log.js';
 import {
   accountFromCookie, accountTag, buildSchema, claimFor, createSettings, EXPORT_SCHEMA, isValid,
@@ -7,6 +8,7 @@ import {
 } from '../src/core/settings.js';
 import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
 import { buildDiagnosticReport } from '../src/ui/diagnostic-report.js';
+import { applyQuickSetup } from '../src/ui/quick-setups.js';
 
 const features = [
   { id: 'alpha', title: 'Alpha', default: true },
@@ -135,6 +137,22 @@ test('export and import round-trip', () => {
   assert.equal(second.get('beta.words'), 'politics\ncrypto');
 });
 
+test('a backup keeps the language as its value, never the words it shows', (t) => {
+  t.after(() => setLanguage('en'));
+  const first = make().settings;
+  first.set('ui.language', 'long-test');
+  setLanguage('long-test');
+  const backup = first.exportJson(new Date('2026-10-18T00:00:00Z'));
+  assert.equal(JSON.parse(backup).settings['ui.language'], 'long-test');
+  assert.doesNotMatch(backup, /[À-ɏḀ-ỿ]/, 'nothing in it went through a translation');
+  const second = make().settings;
+  assert.deepEqual(second.importJson(backup).applied, ['ui.language']);
+  assert.equal(second.get('ui.language'), 'long-test');
+  assert.deepEqual(second.importJson('{"ui.language":"klingon","alpha":false}'), { applied: ['alpha'], skipped: ['ui.language'] }, 'a language this version lacks is skipped');
+  assert.equal(second.get('ui.language'), 'long-test');
+  assert.throws(() => second.set('ui.language', 'klingon'), TypeError);
+});
+
 test('import skips what it does not know and refuses non-settings', () => {
   const { settings } = make();
   assert.deepEqual(settings.importJson('{"alpha":false,"zeta":true,"beta.days":0}'), { applied: ['alpha'], skipped: ['zeta', 'beta.days'] });
@@ -150,6 +168,21 @@ test('reset hands back what it cleared so Undo can restore it', () => {
   assert.equal(settings.get('beta'), false);
   settings.restore(previous);
   assert.equal(settings.get('beta'), true);
+});
+
+test('a reset keeps the language and leaves it out of the Quick setup count', () => {
+  const { storage, settings } = make();
+  settings.set('ui.language', 'rtl-test');
+  settings.set('beta', true);
+  assert.equal(applyQuickSetup(settings, 'defaults'), 1, 'only the choice that goes back counts');
+  assert.equal(settings.get('beta'), false);
+  assert.equal(settings.get('ui.language'), 'rtl-test');
+  assert.deepEqual(storage.dump().settings, { 'ui.language': 'rtl-test' });
+  assert.equal(applyQuickSetup(settings, 'defaults'), 0, 'nothing left to put back');
+  const previous = settings.reset();
+  settings.set('ui.language', 'en');
+  settings.restore(previous);
+  assert.equal(settings.get('ui.language'), 'rtl-test', 'Undo puts the language back with the rest');
 });
 
 test('failed writes leave saved and running preferences unchanged and can be retried', () => {

@@ -15,7 +15,11 @@ export const panelCss = `
   color-scheme: dark;
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
+  --flip: 1;
 }
+/* Right to left: start and end swap sides, and a switch's knob slides the other way. The
+   launcher stays in Facebook's bottom-left corner. */
+.root[dir="rtl"] { --flip: -1; }
 button, input, select, textarea { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -51,31 +55,32 @@ header h2 { margin: 0; font-size: 24px; line-height: 30px; font-weight: 650; let
 .chip { flex: none; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--surface0); color: var(--subtext); }
 .header-actions { flex: none; display: flex; align-items: center; gap: 14px; }
 .power-state { font-size: 13px; min-width: 18px; }
-.icon-button { border: 1px solid var(--surface1); background: transparent; width: 38px; height: 38px; margin-left: 8px; border-radius: 8px; display: grid; place-items: center; }
+.icon-button { border: 1px solid var(--surface1); background: transparent; width: 38px; height: 38px; margin-inline-start: 8px; border-radius: 8px; display: grid; place-items: center; }
 .icon-button:hover { background: var(--surface0); }
 .icon-button svg { width: 20px; height: 20px; color: var(--subtext); }
 .body { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 0; }
-nav { padding: 20px 12px 16px; background: var(--mantle); border-right: 1px solid var(--border); overflow: auto; overscroll-behavior: contain; }
+nav { padding: 20px 12px 16px; background: var(--mantle); border-inline-end: 1px solid var(--border); overflow: auto; overscroll-behavior: contain; }
 .nav-label { margin: 18px 10px 8px; color: var(--subtext); font-size: 10px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; }
 .nav-icon { width: 22px; height: 22px; }
 nav button {
-  position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 34px; text-align: left;
+  position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 34px; text-align: start;
   border: 0; background: transparent; padding: 6px 10px; margin-block: 2px;
   border-radius: 6px; color: var(--subtext); font-size: 15px; line-height: 22px;
   transition: background 0.15s ease, color 0.15s ease;
 }
 nav button:hover { background: var(--surface0); color: var(--text); }
 nav button[aria-current="page"] { background: var(--selected); color: var(--text); font-weight: 600; }
-nav button[aria-current="page"]::before { content: ""; position: absolute; inset: 8px auto 8px -12px; width: 3px; border-radius: 0 4px 4px 0; background: var(--accent); }
+nav button[aria-current="page"]::before { content: ""; position: absolute; inset-block: 8px; inset-inline: -12px auto; width: 3px; border-radius: 0; border-start-end-radius: 4px; border-end-end-radius: 4px; background: var(--accent); }
 nav button:focus-visible { outline-offset: -3px; }
 nav hr { border: 0; border-top: 1px solid var(--border); margin: 14px 10px 10px; }
 .search-field { position: relative; }
-.search-field .nav-icon { position: absolute; left: 10px; top: 11px; pointer-events: none; color: var(--subtext); width: 16px; height: 16px; }
+.search-field .nav-icon { position: absolute; inset-inline-start: 10px; top: 11px; pointer-events: none; color: var(--subtext); width: 16px; height: 16px; }
 .search {
-  display: block; box-sizing: border-box; width: 100%; margin: 0; padding: 9px 10px 9px 34px;
+  display: block; box-sizing: border-box; width: 100%; margin: 0; padding-block: 9px; padding-inline: 34px 10px;
   background: var(--crust); border: 1px solid var(--control); border-radius: 6px; font-size: 13px; line-height: 18px;
+  text-overflow: ellipsis;
 }
-.search::placeholder { color: var(--subtext); opacity: 0.85; }
+.search::placeholder { color: var(--subtext); opacity: 0.85; text-overflow: ellipsis; }
 .result { padding: 18px 0; border-top: 1px solid var(--border); }
 .result:first-child { border-top: 0; }
 .result > .card { border: 0; padding: 12px 0 0; }
@@ -105,7 +110,7 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .desc { color: var(--subtext); font-size: 15px; line-height: 22px; margin-top: 5px; }
 .note { color: var(--peach); font-size: 13px; line-height: 20px; margin-top: 8px; }
 .unavailable .title { color: var(--subtext); }
-.options { margin: 16px 0 0; padding: 2px 0 2px 16px; border-left: 2px solid var(--border); display: grid; gap: 14px; }
+.options { margin: 16px 0 0; padding-block: 2px; padding-inline: 16px 0; border-inline-start: 2px solid var(--border); display: grid; gap: 14px; }
 .options label { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; min-width: 0; color: var(--subtext); font-size: 13px; line-height: 21px; }
 .options .option-toggle { flex-wrap: nowrap; justify-content: space-between; gap: 14px; }
 .option-toggle .switch { order: 1; }
@@ -127,9 +132,9 @@ a.card { display: block; color: inherit; text-decoration: none; }
 /* Edges and knobs keep 3:1 against what's behind them: --control on the cards, a dark knob on
    the accent. */
 .switch { appearance: none; flex: none; width: 54px; height: 30px; margin: 2px 0 0; border: 1px solid var(--control); border-radius: 6px; background: var(--surface1); position: relative; cursor: pointer; transition: background 0.15s ease; }
-.switch::after { content: ""; position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 4px; background: var(--subtext); transition: transform 0.15s ease; }
+.switch::after { content: ""; position: absolute; top: 4px; inset-inline-start: 4px; width: 20px; height: 20px; border-radius: 4px; background: var(--subtext); transition: transform 0.15s ease; }
 .switch:checked { background: var(--accent); border-color: var(--accent); }
-.switch:checked::after { transform: translateX(24px); background: var(--accent-ink); }
+.switch:checked::after { transform: translateX(calc(var(--flip) * 24px)); background: var(--accent-ink); }
 .switch:disabled, .switch[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
@@ -181,16 +186,21 @@ nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surfac
   .chip { display: none; }
   .header-actions { gap: 10px; }
   .power-state { display: none; }
-  .icon-button { width: 36px; height: 36px; margin-left: 0; }
+  .icon-button { width: 36px; height: 36px; margin-inline-start: 0; }
   .header-actions .switch { width: 40px; height: 24px; }
-  .header-actions .switch::after { top: 3px; left: 3px; width: 16px; height: 16px; }
-  .header-actions .switch:checked::after { transform: translateX(16px); }
+  .header-actions .switch::after { top: 3px; inset-inline-start: 3px; width: 16px; height: 16px; }
+  .header-actions .switch:checked::after { transform: translateX(calc(var(--flip) * 16px)); }
   .body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  nav { display: flex; align-items: center; gap: 4px; padding: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  nav { display: flex; align-items: center; gap: 4px; padding: 8px; overflow-x: auto; border-inline-end: 0; border-bottom: 1px solid var(--border); }
   .nav-label { display: none; }
-  .search-field { flex: none; width: 160px; margin-right: 4px; }
+  .search-field { flex: none; width: 160px; margin-inline-end: 4px; }
   .search-field .nav-icon { top: 11px; }
-  .search { width: 100%; padding: 9px 10px 9px 32px; font-size: 12px; }
+  .search { width: 100%; padding-block: 9px; padding-inline: 32px 10px; font-size: 12px; }
+  /* In the sideways-scrolling row the box can grow to fit a longer phrase than English. */
+  @supports (field-sizing: content) {
+    .search-field { width: auto; }
+    .search { width: auto; field-sizing: content; min-width: 160px; max-width: 280px; }
+  }
   nav button { flex: none; gap: 8px; white-space: nowrap; width: auto; min-height: 38px; padding: 7px 12px; border-radius: 6px; font-size: 13px; }
   nav button[aria-current="page"]::before { inset: auto 10px 0; width: auto; height: 2px; }
   nav hr { display: none; }
@@ -204,10 +214,10 @@ nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surfac
   .row { gap: 14px; }
   .title { font-size: 15px; line-height: 22px; }
   .desc { font-size: 13px; line-height: 20px; }
-  .options { margin-left: 0; padding-left: 12px; }
+  .options { margin-inline-start: 0; padding-inline-start: 12px; }
   .switch { width: 44px; height: 28px; }
-  .switch::after { top: 3px; left: 3px; }
-  .switch:checked::after { transform: translateX(16px); }
+  .switch::after { top: 3px; inset-inline-start: 3px; }
+  .switch:checked::after { transform: translateX(calc(var(--flip) * 16px)); }
   .options label { font-size: 13px; }
   .options select, .options input[type="text"] { width: 100%; }
   .actions { gap: 8px; }

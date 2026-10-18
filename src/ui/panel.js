@@ -1,8 +1,13 @@
 // The settings panel lives in a closed shadow root so Facebook's CSS and scripts can't
 // reach it. Changes apply at once with a toast; there are no confirmation dialogs, and
 // Reset offers Undo instead of asking first.
+//
+// Words come in English and go through t() where they're drawn (core/i18n.js): feature titles,
+// descriptions, labels and choices, action and Diagnostics row labels, and the label of a
+// toast's button. A toast's message comes already in the language shown.
 
 import { decisionLine } from '../core/diagnostics.js';
+import { language, LANGUAGES, plural, setLanguage, t } from '../core/i18n.js';
 import { MAX_BACKUP_BYTES } from '../core/settings.js';
 import { TARGET } from '../core/target.js';
 import { SECTIONS } from '../features/sections.js';
@@ -48,7 +53,8 @@ const UNAVAILABLE_NOTES = {
   failed: "This one couldn't start on this page, or stopped working. The log in Diagnostics says why.",
 };
 const UNAVAILABLE_SHORT = { page: 'needs page access', api: 'missing from this browser or manager', failed: 'see the log' };
-const searchCount = (count) => (count === 0 ? 'No setting matches.' : count === 1 ? '1 setting matches.' : `${count} settings match.`);
+const searchCount = (count) => (count === 0 ? t('No setting matches.') : plural(count, '{count} setting matches.', '{count} settings match.'));
+const LANGUAGE_NOTE = "The language for these settings and the script's notices. Facebook's own language doesn't change it, and Reset to defaults keeps it. The two tests stretch every phrase or mirror the panel, to show how a translation will fit.";
 const SEARCH_SETTLE_MS = 600;
 
 export function mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment }) {
@@ -108,17 +114,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   };
 
   const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
-  const launcher = h(
-    'button',
-    { class: 'launcher', type: 'button', 'aria-label': 'Open HushFacebook Web settings', title: 'HushFacebook Web settings', onclick: () => open() },
-    icon(SLIDERS_ICON),
-  );
-  const nav = h('nav', { 'aria-label': 'Settings sections' });
+  const launcher = h('button', { class: 'launcher', type: 'button', onclick: () => open() }, icon(SLIDERS_ICON));
+  const nav = h('nav');
   const main = h('main', { 'aria-labelledby': 'hfw-section-title' });
   // One element for the life of the panel, so typing keeps its place across redraws.
   const search = h('input', {
-    class: 'search', type: 'search', placeholder: 'Find a setting', 'aria-label': 'Find a setting',
-    autocomplete: 'off', spellcheck: 'false', dataset: { key: 'search' },
+    class: 'search', type: 'search', autocomplete: 'off', spellcheck: 'false', dataset: { key: 'search' },
     oninput: (event) => { query = event.target.value; main.scrollTop = 0; render(); },
   });
   const searchField = h('div', { class: 'search-field' }, navigationIcon('search'), search);
@@ -130,10 +131,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   let searchStatusTimer = null;
   // Checked means running, so the switch agrees with the "On" chip beside it.
   const power = h('input', {
-    class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'HushFacebook Web on', dataset: { key: 'power' },
+    class: 'switch', type: 'checkbox', role: 'switch', dataset: { key: 'power' },
     onchange: (event) => apply('paused', !event.target.checked),
   });
-  const closeButton = h('button', { class: 'icon-button', type: 'button', 'aria-label': 'Close settings', dataset: { key: 'close' }, onclick: () => close() }, navigationIcon('close'));
+  const closeButton = h('button', { class: 'icon-button', type: 'button', dataset: { key: 'close' }, onclick: () => close() }, navigationIcon('close'));
+  const subtitle = h('span', { class: 'brand-subtitle' });
   const dialog = h(
     'dialog',
     { class: 'dialog', 'aria-labelledby': 'hfw-title' },
@@ -142,7 +144,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('span', { class: 'brand-icon' }, icon(SLIDERS_ICON)),
         h('div', { class: 'brand-copy' },
           h('h2', { id: 'hfw-title', text: 'HushFacebook Web' }),
-          h('span', { class: 'brand-subtitle', text: 'Settings' })),
+          subtitle),
         h('span', { class: 'chip', text: `v${environment.version}` })),
       h('div', { class: 'header-actions' }, pauseState, power, closeButton)),
     h('div', { class: 'body' }, nav, main),
@@ -168,13 +170,31 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   root.append(launcher, dialog, toasts);
   document.body.append(host);
 
+  // The language chosen under General, for the panel and every toast after it. The parts drawn
+  // once get their words again here; render() redraws the rest.
+  function syncLanguage() {
+    setLanguage(settingValue('ui.language'));
+    const shown = language();
+    root.setAttribute('lang', shown.lang);
+    root.setAttribute('dir', shown.dir);
+    launcher.setAttribute('aria-label', t('Open HushFacebook Web settings'));
+    launcher.title = t('HushFacebook Web settings');
+    nav.setAttribute('aria-label', t('Settings sections'));
+    search.placeholder = t('Find a setting');
+    search.setAttribute('aria-label', t('Find a setting'));
+    power.setAttribute('aria-label', t('HushFacebook Web on'));
+    closeButton.setAttribute('aria-label', t('Close settings'));
+    subtitle.textContent = t('Settings');
+  }
+  syncLanguage();
+
   async function apply(key, value, control) {
     if (quickSetupPending()) return;
     const draft = control?.value;
     try {
       if (control && !control.validity.valid) {
         const spec = settings.schema.get(key);
-        throw new TypeError(spec.type === 'number' ? `Enter a number from ${spec.min} to ${spec.max}.` : 'Check this value and try again.');
+        throw new TypeError(spec.type === 'number' ? t('Enter a number from {min} to {max}.', { min: spec.min, max: spec.max }) : t('Check this value and try again.'));
       }
       drafts.delete(key);
       fieldErrors.delete(key);
@@ -191,10 +211,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   // duration Infinity keeps the notice until dismiss() on what this returns, or its action.
+  // message can be a function, read as the notice goes up, so one that waited for the panel
+  // comes in the language chosen by then.
   function toast(message, { tone = 'info', action, duration } = {}) {
     const el = h('div', { class: `toast ${tone}`, role: tone === 'error' ? 'alert' : null },
-      h('span', { text: message }),
-      action ? h('button', { type: 'button', text: action.label, onclick: () => { el.remove(); action.run(); } }) : null);
+      h('span', { text: typeof message === 'function' ? message() : message }),
+      action ? h('button', { type: 'button', text: t(action.label), onclick: () => { el.remove(); action.run(); } }) : null);
     toasts.append(el);
     // A notice the pointer is over, or that holds focus, stays until both move off it, then
     // gets its full time again.
@@ -232,7 +254,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const on = settingValue(key) === true;
     const stuck = locked && !on;
     return h('input', {
-      class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': label,
+      class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': t(label),
       'aria-describedby': describedBy, 'aria-disabled': stuck ? 'true' : null,
       checked: on, disabled: quickSetupPending(), dataset: { key },
       onclick: stuck ? (event) => event.preventDefault() : undefined,
@@ -250,14 +272,14 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       disabled: quickSetupPending(),
       oninput: (event) => drafts.set(key, event.target.value),
     };
-    const field = (control) => h('div', { class: 'field' }, h('label', null, option.label, control),
+    const field = (control) => h('div', { class: 'field' }, h('label', null, t(option.label), control),
       fieldErrors.has(key) ? h('p', { class: 'field-error', id: errorId, role: 'alert', text: fieldErrors.get(key) }) : null);
     switch (option.type) {
       case 'toggle':
-        return h('label', { class: 'option-toggle' }, toggle(key, option.label), h('span', { text: option.label }));
+        return h('label', { class: 'option-toggle' }, toggle(key, option.label), h('span', { text: t(option.label) }));
       case 'select':
         return field(h('select', { ...props, onchange: (event) => apply(key, option.choices.find((choice) => String(choice.value) === event.target.value)?.value, event.target) },
-            option.choices.map((choice) => h('option', { value: String(choice.value), selected: choice.value === value, text: choice.label }))));
+            option.choices.map((choice) => h('option', { value: String(choice.value), selected: choice.value === value, text: t(choice.label) }))));
       case 'number':
         return field(h('input', { ...props, type: 'number', value: String(value), required: true, min: option.min, max: option.max, onchange: (event) => apply(key, Number(event.target.value), event.target) }));
       default:
@@ -268,7 +290,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         return field(
           h('textarea', {
             ...props,
-            rows: option.rows ?? 3, class: option.code ? 'code' : undefined, spellcheck: option.code ? 'false' : undefined,
+            // Code reads left to right in every language.
+            rows: option.rows ?? 3, class: option.code ? 'code' : undefined, spellcheck: option.code ? 'false' : undefined, dir: option.code ? 'ltr' : undefined,
             // The browser stops a paste at the setting's limit, rather than the save failing
             // and the text being lost on the next redraw.
             maxLength: option.maxLength,
@@ -284,10 +307,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return h('div', { class: 'actions' }, list.map(({ label, run }, index) => actionButton(`action:${feature.id}:${index}`, label, run)));
   }
 
+  // label and busyLabel in English: the log keeps the English, the button shows t().
   function actionButton(key, label, run, { primary = false, busyLabel = 'Working...' } = {}) {
     const locked = quickSetupPending() && !pending.has(key) && key !== 'storage:retry';
     return h('button', {
-      class: `button${primary ? ' primary' : ''}`, type: 'button', text: pending.has(key) ? busyLabel : label,
+      class: `button${primary ? ' primary' : ''}`, type: 'button', text: t(pending.has(key) ? busyLabel : label),
       dataset: { key }, disabled: locked, 'aria-disabled': pending.has(key) ? 'true' : null, 'aria-busy': pending.has(key) ? 'true' : null,
       onclick: async () => {
         if (pending.has(key)) return;
@@ -316,11 +340,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return h('div', { class: `card${blocked ? ' unavailable' : ''}` },
       h('div', { class: 'row' },
         h('div', { class: 'text' },
-          h('div', { class: 'title', text: feature.title }),
-          h('div', { class: 'desc', id: ids.desc, text: feature.description }),
-          blocked ? h('div', { class: 'note', id: ids.note, text: `${UNAVAILABLE_NOTES[reason] ?? UNAVAILABLE_NOTES.failed}${on ? ' You can still turn it off.' : ''}` }) : null,
-          feature.reload ? h('div', { class: 'note', id: ids.reload, text: 'Applies after Facebook reloads.' }) : null,
-          status === undefined ? null : h('div', { class: 'note', 'data-status-for': feature.id, role: 'status', hidden: status === null, text: status ?? '' })),
+          h('div', { class: 'title', text: t(feature.title) }),
+          h('div', { class: 'desc', id: ids.desc, text: t(feature.description) }),
+          blocked ? h('div', { class: 'note', id: ids.note, text: `${t(UNAVAILABLE_NOTES[reason] ?? UNAVAILABLE_NOTES.failed)}${on ? ` ${t('You can still turn it off.')}` : ''}` }) : null,
+          feature.reload ? h('div', { class: 'note', id: ids.reload, text: t('Applies after Facebook reloads.') }) : null,
+          status === undefined ? null : h('div', { class: 'note', 'data-status-for': feature.id, role: 'status', hidden: status === null, text: t(status ?? '') })),
         toggle(feature.id, feature.title, { locked: blocked, describedBy })),
       (on || showOptions) && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option))) : null,
       on ? featureActions(feature) : null);
@@ -349,32 +373,35 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function resultsView(found) {
-    if (!found.length) return [h('p', { class: 'empty', text: `No setting matches "${query.trim()}". Try a shorter word, or pick a section.` })];
+    if (!found.length) return [h('p', { class: 'empty', text: t('No setting matches "{query}". Try a shorter word, or pick a section.', { query: query.trim() }) })];
     return [h('div', { class: 'settings-group results' }, found.map((setting) => {
       const section = sections.find((entry) => entry.id === setting.section);
       return h('div', { class: 'result' },
-        h('button', { class: 'result-section', type: 'button', text: `In ${section.title}`, dataset: { key: `show:${setting.id}` }, onclick: () => showSetting(setting) }),
+        h('button', { class: 'result-section', type: 'button', text: t('In {section}', { section: t(section.title) }), dataset: { key: `show:${setting.id}` }, onclick: () => showSetting(setting) }),
         setting.render ? setting.render() : featureCard(setting, { showOptions: true }));
     }))];
   }
 
   // How the extension's release check went (environment.update, extension only, from
   // src/core/extension.js updateStatus), with the newer release when there is one.
-  const when = (time) => new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  // English keeps the browser's own date format, a translation its language's.
+  const dateLocale = () => (language().value === 'en' || language().test ? undefined : language().lang);
+  const when = (time) => new Date(time).toLocaleString(dateLocale(), { dateStyle: 'medium', timeStyle: 'short' });
   function updateLine(status) {
-    if (status.checking) return 'Checking GitHub now.';
-    const checked = status.checkedAt === null ? '' : `Checked ${when(status.checkedAt)}.`;
-    const lastWorked = status.checkedAt === null ? 'No check has worked yet.' : `The last one that worked was ${when(status.checkedAt)}.`;
-    const tried = status.triedAt === null ? 'The last check' : `The check on ${when(status.triedAt)}`;
-    if (status.state === 'current') return `You have the newest release. ${checked}`.trim();
+    if (status.checking) return t('Checking GitHub now.');
+    const checked = status.checkedAt === null ? '' : t('Checked {time}.', { time: when(status.checkedAt) });
+    const lastWorked = status.checkedAt === null ? t('No check has worked yet.') : t('The last one that worked was {time}.', { time: when(status.checkedAt) });
+    const tried = status.triedAt === null ? null : { time: when(status.triedAt) };
+    const again = t('It tries again on its own.');
+    if (status.state === 'current') return `${t('You have the newest release.')} ${checked}`.trim();
     if (status.state === 'newer') return checked;
-    if (status.state === 'offline') return `${tried} couldn't reach GitHub. ${lastWorked} It tries again on its own.`;
-    if (status.state === 'failed') return `GitHub's answer to ${tried.toLowerCase()} didn't make sense. ${lastWorked} It tries again on its own.`;
+    if (status.state === 'offline') return `${tried ? t("The check on {time} couldn't reach GitHub.", tried) : t("The last check couldn't reach GitHub.")} ${lastWorked} ${again}`;
+    if (status.state === 'failed') return `${tried ? t("GitHub's answer to the check on {time} didn't make sense.", tried) : t("GitHub's answer to the last check didn't make sense.")} ${lastWorked} ${again}`;
     if (status.state === 'rate-limited') {
-      const until = status.nextAt === null ? 'GitHub asked for a pause before the next check.' : `GitHub asked for a pause, so the next check waits until ${when(status.nextAt)}.`;
+      const until = status.nextAt === null ? t('GitHub asked for a pause before the next check.') : t('GitHub asked for a pause, so the next check waits until {time}.', { time: when(status.nextAt) });
       return `${until} ${lastWorked}`;
     }
-    return 'No check has finished for this version yet. It checks GitHub once a day.';
+    return t('No check has finished for this version yet. It checks GitHub once a day.');
   }
 
   async function checkForUpdateNow() {
@@ -382,8 +409,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (answer?.asked !== false) return;
     const status = environment.update?.();
     toast(status?.state === 'rate-limited' && status.nextAt > Date.now()
-      ? `GitHub asked for a pause. The next check is after ${when(status.nextAt)}.`
-      : 'It checked a moment ago. Try again in a couple of minutes.');
+      ? t('GitHub asked for a pause. The next check is after {time}.', { time: when(status.nextAt) })
+      : t('It checked a moment ago. Try again in a couple of minutes.'));
   }
 
   function updateCard(status = environment.update?.()) {
@@ -391,20 +418,23 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const { update } = status;
     const line = updateLine(status);
     return h('div', { class: 'card', dataset: { key: 'update' } },
-      h('div', { class: 'title', text: update ? `HushFacebook Web ${update.version} is out` : 'Updates' }),
-      update ? h('div', { class: 'desc', text: `You have ${environment.version}. Download hushfacebook-web-extension.zip from the release and unzip it over the folder you loaded. Then click Reload on HushFacebook Web in your browser's extensions page. Your settings stay.` }) : null,
+      h('div', { class: 'title', text: update ? t('HushFacebook Web {version} is out', { version: update.version }) : t('Updates') }),
+      update ? h('div', { class: 'desc', text: t("You have {version}. Download hushfacebook-web-extension.zip from the release and unzip it over the folder you loaded. Then click Reload on HushFacebook Web in your browser's extensions page. Your settings stay.", { version: environment.version }) }) : null,
       line ? h('div', { class: 'desc', text: line, dataset: { key: 'update:status' } }) : null,
       h('div', { class: 'actions' },
-        update ? h('a', { class: 'button primary', href: update.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open the release' }) : null,
+        update ? h('a', { class: 'button primary', href: update.url, target: '_blank', rel: 'noopener noreferrer', text: t('Open the release') }) : null,
         environment.checkForUpdate ? actionButton('update:check', 'Check now', checkForUpdateNow, { primary: !update, busyLabel: 'Checking...' }) : null));
   }
 
+  // A General row's title and description are English, with {name} words from vars, so search
+  // can match them as shown and in English.
   function updateRow(status) {
     const check = environment.checkForUpdate ? [{ label: 'Check now', focusKey: 'update:check' }] : [];
     if (status.update) {
       return {
-        id: 'update', section: 'general', title: `HushFacebook Web ${status.update.version} is out`,
-        description: `You have ${environment.version}. Download the new extension files, then reload HushFacebook Web in your browser.`,
+        id: 'update', section: 'general', title: 'HushFacebook Web {version} is out',
+        description: 'You have {current}. Download the new extension files, then reload HushFacebook Web in your browser.',
+        vars: { version: status.update.version, current: environment.version },
         options: [{ label: 'Open the release' }, ...check], focusKey: 'update', render: () => updateCard(status),
       };
     }
@@ -418,8 +448,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function reloadCard() {
     return h('div', { class: 'reload-card', dataset: { key: 'reload-facebook' } },
       h('div', { class: 'text' },
-        h('div', { class: 'title', text: 'Reload Facebook to apply this change' })),
-      h('button', { class: 'button primary', type: 'button', text: 'Reload', onclick: reloadFacebook }));
+        h('div', { class: 'title', text: t('Reload Facebook to apply this change') })),
+      h('button', { class: 'button primary', type: 'button', text: t('Reload'), onclick: reloadFacebook }));
   }
 
   function applySetup(id) {
@@ -438,7 +468,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           fieldErrors.clear();
           render();
         }
-        toast(`Changed ${changed} settings`);
+        toast(plural(changed, 'Changed {count} setting', 'Changed {count} settings'));
       };
       const failed = (error) => log.error("Couldn't apply the Quick setup. Try again", error);
       try {
@@ -458,12 +488,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function quickSetupsCard() {
     return h('div', { class: 'card', dataset: { key: 'quick-setups' } },
-      h('div', { class: 'title', text: 'Quick setups' }),
-      h('div', { class: 'desc', text: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.' }),
+      h('div', { class: 'title', text: t('Quick setups') }),
+      h('div', { class: 'desc', text: t('Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.') }),
       h('div', { class: 'actions' }, QUICK_SETUPS.map((setup) => {
         const key = `quick:${setup.id}`;
         return h('button', {
-          class: 'button', type: 'button', text: pending.has(key) ? 'Waiting...' : setup.label, dataset: { key },
+          class: 'button', type: 'button', text: t(pending.has(key) ? 'Waiting...' : setup.label), dataset: { key },
           disabled: quickSetupPending(), 'aria-busy': pending.has(key) ? 'true' : null,
           onclick: () => applySetup(setup.id),
         });
@@ -474,8 +504,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return h('div', { class: 'card' },
         h('div', { class: 'row' },
           h('div', { class: 'text' },
-            h('div', { class: 'title', text: 'Show the settings button' }),
-            h('div', { class: 'desc', id: 'hfw-ui.launcher-desc', text: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.` })),
+            h('div', { class: 'title', text: t('Show the settings button') }),
+            h('div', { class: 'desc', id: 'hfw-ui.launcher-desc', text: t("The sliders button in Facebook's bottom-left corner. {opener} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.", { opener: t(ALWAYS_OPENS) }) })),
           toggle('ui.launcher', 'Show the settings button', { describedBy: 'hfw-ui.launcher-desc' })));
   }
 
@@ -483,17 +513,34 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return h('div', { class: 'card' },
         h('div', { class: 'row' },
           h('div', { class: 'text' },
-            h('div', { class: 'title', text: 'Leave a note where a post was hidden' }),
-            h('div', { class: 'desc', id: 'hfw-ui.hiddenNote-desc', text: 'A short line that says why a post was hidden. Click it to see the post.' })),
+            h('div', { class: 'title', text: t('Leave a note where a post was hidden') }),
+            h('div', { class: 'desc', id: 'hfw-ui.hiddenNote-desc', text: t('A short line that says why a post was hidden. Click it to see the post.') })),
           toggle('ui.hiddenNote', 'Leave a note where a post was hidden', { describedBy: 'hfw-ui.hiddenNote-desc' })));
+  }
+
+  // Each language keeps its own name, never translated, so English can always be found again,
+  // and the title keeps the English word beside the translated one.
+  function languageCard() {
+    const value = settingValue('ui.language');
+    const title = t('Language');
+    return h('div', { class: 'card', dataset: { key: 'language' } },
+      h('div', { class: 'title', text: title === 'Language' ? title : `${title} (Language)` }),
+      h('div', { class: 'desc', id: 'hfw-ui.language-desc', text: t(LANGUAGE_NOTE) }),
+      h('div', { class: 'options' },
+        h('div', { class: 'field' },
+          h('label', null, title,
+            h('select', {
+              dataset: { key: 'ui.language' }, 'aria-describedby': 'hfw-ui.language-desc', disabled: quickSetupPending(),
+              onchange: (event) => apply('ui.language', event.target.value, event.target),
+            }, LANGUAGES.map((entry) => h('option', { value: entry.value, lang: entry.lang, selected: entry.value === value, text: entry.label })))))));
   }
 
   function backupCard() {
     return h('div', { class: 'card', dataset: { key: 'backup-restore' } },
-        h('div', { class: 'title', text: 'Back up and restore' }),
-        h('div', { class: 'desc', text: 'Save your choices to a file and load them in another browser, or move them between the userscript and the extension. Seen posts, video spots, speed and volume stay behind.' }),
+        h('div', { class: 'title', text: t('Back up and restore') }),
+        h('div', { class: 'desc', text: t('Save your choices to a file and load them in another browser, or move them between the userscript and the extension. Seen posts, video spots, speed and volume stay behind.') }),
         h('div', { class: 'actions' },
-          h('button', { class: 'button primary', type: 'button', text: 'Back up settings', dataset: { key: 'backup' }, disabled: quickSetupPending(), onclick: exportSettings }),
+          h('button', { class: 'button primary', type: 'button', text: t('Back up settings'), dataset: { key: 'backup' }, disabled: quickSetupPending(), onclick: exportSettings }),
           actionButton('restore', 'Restore from a file', () => fileInput.click(), { busyLabel: 'Restoring...' }),
           actionButton('reset', 'Reset to defaults', resetSettings, { busyLabel: 'Resetting...' })));
   }
@@ -508,47 +555,47 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       settings,
     });
     return h('a', { class: 'card link-card', href: report.url, target: '_blank', rel: 'noopener noreferrer', dataset: { key: 'report-problem' } },
-      h('div', { class: 'title', text: 'Report a problem' }),
-      h('div', { class: 'desc', text: 'Opens a GitHub report with your versions and settings filled in. Add what happened.' }));
+      h('div', { class: 'title', text: t('Report a problem') }),
+      h('div', { class: 'desc', text: t('Opens a GitHub report with your versions and settings filled in. Add what happened.') }));
   }
 
   function kofiCard() {
     return h('a', { class: 'card link-card', href: KOFI_URL, target: '_blank', rel: 'noopener', dataset: { key: 'kofi' } },
-      h('div', { class: 'title', text: 'Buy me a coffee' }),
-      h('div', { class: 'desc', text: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.' }));
+      h('div', { class: 'title', text: t('Buy me a coffee') }),
+      h('div', { class: 'desc', text: t('Hush is free. A coffee on Ko-fi helps me keep testing patches.') }));
   }
 
   function storageRecoveryCard(state) {
     const loading = state === 'loading';
     return h('div', { class: 'card', dataset: { key: 'storage-recovery' } },
-      h('div', { class: 'title', text: loading ? 'Loading saved settings' : "Saved settings aren't available" }),
-      h('div', { class: 'desc', text: loading
+      h('div', { class: 'title', text: t(loading ? 'Loading saved settings' : "Saved settings aren't available") }),
+      h('div', { class: 'desc', text: t(loading
         ? 'Recognized privacy requests wait while the extension confirms your saved choices.'
-        : "Privacy choices aren't confirmed. Recognized requests are held back until you retry the connection." }),
+        : "Privacy choices aren't confirmed. Recognized requests are held back until you retry the connection.") }),
       loading ? null : h('div', { class: 'actions' }, actionButton('storage:retry', 'Retry', async () => {
         const loaded = await environment.storage.retry();
         if (!loaded) throw environment.storage.status().error ?? new Error("Saved settings still aren't available");
-        toast('Saved settings loaded.');
+        toast(t('Saved settings loaded.'));
       }, { primary: true, busyLabel: 'Retrying...' })));
   }
 
   function saveRecoveryCard() {
     return h('div', { class: 'card save-recovery', dataset: { key: 'save-recovery' } },
-      h('div', { class: 'title', text: "Changes couldn't be saved" }),
-      h('div', { class: 'desc', text: 'Your latest choices are still shown here. Retry to save them without losing the draft.' }),
+      h('div', { class: 'title', text: t("Changes couldn't be saved") }),
+      h('div', { class: 'desc', text: t('Your latest choices are still shown here. Retry to save them without losing the draft.') }),
       h('div', { class: 'actions' }, actionButton('settings:retry', 'Retry', async () => {
         await settings.retry();
-        toast('Changes saved.');
+        toast(t('Changes saved.'));
       }, { primary: true, busyLabel: 'Retrying...' })));
   }
 
   function resetUndoCard() {
     return h('div', { class: 'card reset-undo', dataset: { key: 'reset-undo' } },
-      h('div', { class: 'title', text: 'Settings were reset' }),
-      h('div', { class: 'desc', text: "Undo puts back the choices you had before the reset. It stays here until you dismiss it or change a setting, and it's gone once you leave or reload this page." }),
+      h('div', { class: 'title', text: t('Settings were reset') }),
+      h('div', { class: 'desc', text: t("Undo puts back the choices you had before the reset. It stays here until you dismiss it or change a setting, and it's gone once you leave or reload this page.") }),
       h('div', { class: 'actions' },
         actionButton('reset:undo', 'Undo reset', undoReset, { primary: true, busyLabel: 'Undoing...' }),
-        h('button', { class: 'button', type: 'button', text: 'Dismiss', dataset: { key: 'reset:dismiss' }, disabled: pending.has('reset:undo'), onclick: dismissUndo })));
+        h('button', { class: 'button', type: 'button', text: t('Dismiss'), dataset: { key: 'reset:dismiss' }, disabled: pending.has('reset:undo'), onclick: dismissUndo })));
   }
 
   // Seen posts and playback state from before each account kept its own (core/activity.js).
@@ -556,24 +603,27 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function legacyActivityCard(found) {
     const activity = environment.activity;
     const parts = [
-      found.seen ? `${found.seen} seen ${found.seen === 1 ? 'post' : 'posts'}` : null,
-      found.spots ? `${found.spots} video ${found.spots === 1 ? 'spot' : 'spots'}` : null,
-      found.speed ? 'a kept video speed' : null,
-      found.volume ? 'a kept volume' : null,
+      found.seen ? plural(found.seen, '{count} seen post', '{count} seen posts') : null,
+      found.spots ? plural(found.spots, '{count} video spot', '{count} video spots') : null,
+      found.speed ? t('a kept video speed') : null,
+      found.volume ? t('a kept volume') : null,
     ].filter(Boolean);
-    const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
-    const target = activity.perAccount ? "the account you're signed in to" : 'signed-out browsing';
+    const list = parts.length > 1 ? t('{list} and {last}', { list: parts.slice(0, -1).join(', '), last: parts.at(-1) }) : parts[0];
     return h('div', { class: 'card', dataset: { key: 'legacy-activity' } },
-      h('div', { class: 'title', text: 'Activity from before accounts were kept apart' }),
-      h('div', { class: 'desc', text: `This browser still has ${list} from before each Facebook account kept its own. They aren't tied to any account. Add them to ${target}, or delete them.` }),
+      h('div', { class: 'title', text: t('Activity from before accounts were kept apart') }),
+      h('div', { class: 'desc', text: activity.perAccount
+        ? t("This browser still has {list} from before each Facebook account kept its own. They aren't tied to any account. Add them to the account you're signed in to, or delete them.", { list })
+        : t("This browser still has {list} from before each Facebook account kept its own. They aren't tied to any account. Add them to signed-out browsing, or delete them.", { list }) }),
       h('div', { class: 'actions' },
         actionButton('legacy:add', activity.perAccount ? 'Add to this account' : 'Use while signed out', () => {
           activity.addLegacy();
-          toast(`Added to ${target}. The shared copy stays until you delete it.`);
+          toast(activity.perAccount
+            ? t("Added to the account you're signed in to. The shared copy stays until you delete it.")
+            : t('Added to signed-out browsing. The shared copy stays until you delete it.'));
         }, { primary: true, busyLabel: 'Adding...' }),
         actionButton('legacy:delete', 'Delete them', () => {
           const undo = activity.clearLegacy();
-          toast('Deleted the activity from before accounts were kept apart.', { action: { label: 'Undo', run: () => {
+          toast(t('Deleted the activity from before accounts were kept apart.'), { action: { label: 'Undo', run: () => {
             undo();
             if (dialog.open) render();
           } } });
@@ -586,6 +636,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     // Once the account changed, here or in another tab, nothing goes to any account until a reload.
     const legacy = environment.activity?.check() ? environment.activity.legacy() : null;
     return [
+      // Titles, descriptions and labels in English, as in a feature (see updateRow).
       ...(storageState && storageState !== 'ready' ? [{
         id: 'storage-recovery', section: 'general', title: storageState === 'loading' ? 'Loading saved settings' : "Saved settings aren't available",
         description: 'Retry extension storage without treating defaults as loaded choices.', options: [{ label: 'Retry' }], focusKey: 'storage:retry',
@@ -604,12 +655,15 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       ...(update?.update ? [updateRow(update)] : []),
       ...(legacy ? [{
         id: 'legacy-activity', section: 'general', title: 'Activity from before accounts were kept apart',
-        description: `Seen posts and video spots shared by everyone on this browser. ${environment.activity.perAccount ? 'Add them to this account' : 'Use them while signed out'} or delete them.`,
+        description: environment.activity.perAccount
+          ? 'Seen posts and video spots shared by everyone on this browser. Add them to this account or delete them.'
+          : 'Seen posts and video spots shared by everyone on this browser. Use them while signed out or delete them.',
         options: [{ label: environment.activity.perAccount ? 'Add to this account' : 'Use while signed out', focusKey: 'legacy:add' }, { label: 'Delete them', focusKey: 'legacy:delete' }], focusKey: 'legacy:add', render: () => legacyActivityCard(legacy),
       }] : []),
       { id: 'quick-setups', section: 'general', title: 'Quick setups', description: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.', options: QUICK_SETUPS.map((setup) => ({ label: setup.label, focusKey: `quick:${setup.id}`, keywords: setup.reset ? ['reset'] : [] })), focusKey: 'quick:quiet', render: quickSetupsCard },
-      { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too.`, render: launcherCard },
+      { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: "The sliders button in Facebook's bottom-left corner. {opener} always opens settings too.", vars: { opener: t(ALWAYS_OPENS) }, render: launcherCard },
       { id: 'ui.hiddenNote', section: 'general', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post.', render: hiddenNoteCard },
+      { id: 'ui.language', section: 'general', title: 'Language', description: LANGUAGE_NOTE, options: LANGUAGES.map((entry) => ({ label: entry.label })), keywords: ['translation', 'locale', 'right to left'], focusKey: 'ui.language', render: languageCard },
       { id: 'backup-restore', section: 'general', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.',
         options: [
           { label: 'Back up settings', focusKey: 'backup', keywords: ['backup', 'export'] },
@@ -628,39 +682,40 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function hiddenSummary() {
     const counts = Object.entries(hider?.counts() ?? {});
-    return counts.length ? counts.map(([reason, count]) => `${reason} ${count}`).join(', ') : 'None yet';
+    return counts.length ? counts.map(([reason, count]) => `${reason} ${count}`).join(', ') : t('None yet');
   }
 
   const featureRows = () => diagnostics?.rows() ?? [];
   const decisions = () => diagnostics?.decisions?.() ?? [];
 
+  // The values, the hide decisions and the log stay in English, as Copy report has them.
   function diagnosticsView() {
     const entries = log.entries().slice(-150);
     const blocked = features.filter((feature) => unavailable.has(feature.id))
-      .map((feature) => `${feature.title} (${UNAVAILABLE_SHORT[unavailable.get(feature.id)] ?? UNAVAILABLE_SHORT.failed})`);
+      .map((feature) => `${t(feature.title)} (${t(UNAVAILABLE_SHORT[unavailable.get(feature.id)] ?? UNAVAILABLE_SHORT.failed)})`);
     return [
       h('div', { class: 'diagnostic-summary' },
-        h('h3', { class: 'summary-title', text: 'Environment' }),
+        h('h3', { class: 'summary-title', text: t('Environment') }),
         h('dl', null,
-        h('dt', { text: 'Version' }), h('dd', { text: environment.version }),
-        h('dt', { text: 'Userscript manager' }), h('dd', { text: `${environment.manager} ${environment.managerVersion}` }),
-        h('dt', { text: 'Injection mode' }), h('dd', { text: environment.mode }),
-        h('dt', { text: 'Page access' }), h('dd', { text: environment.pageAccess === 'page' ? 'Yes' : 'No. Network and playback features are off. In Violentmonkey, set this script to inject into the page.' }),
-        h('dt', { text: "Features that didn't start" }), h('dd', { text: blocked.length ? blocked.join(', ') : 'None' }),
-        h('dt', { text: 'Posts hidden since the page loaded' }), h('dd', { text: hiddenSummary() }),
-        ...featureRows().flatMap(({ label, value }) => [h('dt', { text: label }), h('dd', { text: value })])),
+        h('dt', { text: t('Version') }), h('dd', { text: environment.version }),
+        h('dt', { text: t('Userscript manager') }), h('dd', { text: `${environment.manager} ${environment.managerVersion}` }),
+        h('dt', { text: t('Injection mode') }), h('dd', { text: environment.mode }),
+        h('dt', { text: t('Page access') }), h('dd', { text: t(environment.pageAccess === 'page' ? 'Yes' : 'No. Network and playback features are off. In Violentmonkey, set this script to inject into the page.') }),
+        h('dt', { text: t("Features that didn't start") }), h('dd', { text: blocked.length ? blocked.join(', ') : t('None') }),
+        h('dt', { text: t('Posts hidden since the page loaded') }), h('dd', { text: hiddenSummary() }),
+        ...featureRows().flatMap(({ label, value }) => [h('dt', { text: t(label) }), h('dd', { text: value })])),
       h('div', { class: 'actions' }, actionButton('copy-report', 'Copy report', copyReport, { primary: true, busyLabel: 'Copying...' }))),
       h('section', { class: 'diagnostic-group' },
-      h('h3', { class: 'subheading', text: 'Why posts were hidden' }),
-      h('p', { class: 'desc', text: "The last 50, newest first. data means it came out of Facebook's data before it was drawn, page means it was hidden on the page. Each post has a short tag instead of its id." }),
+      h('h3', { class: 'subheading', text: t('Why posts were hidden') }),
+      h('p', { class: 'desc', text: t("The last 50, newest first. data means it came out of Facebook's data before it was drawn, page means it was hidden on the page. Each post has a short tag instead of its id.") }),
       decisions().length
-        ? h('div', { class: 'log' }, decisions().slice().reverse().map((decision) => h('div', { text: decisionLine(decision) })))
-        : h('p', { class: 'empty', text: 'Nothing hidden yet.' })),
+        ? h('div', { class: 'log', dir: 'ltr' }, decisions().slice().reverse().map((decision) => h('div', { text: decisionLine(decision) })))
+        : h('p', { class: 'empty', text: t('Nothing hidden yet.') })),
       h('section', { class: 'diagnostic-group' },
-      h('h3', { class: 'subheading', text: 'Recent log' }),
+      h('h3', { class: 'subheading', text: t('Recent log') }),
       entries.length
-        ? h('div', { class: 'log' }, entries.map((entry) => h('div', { class: entry.level, text: `${entry.time.slice(11, 19)} ${entry.level.padEnd(5)} ${entry.message}${entry.detail ? `\n    ${entry.detail}` : ''}` })))
-        : h('p', { class: 'empty', text: 'Nothing logged yet.' })),
+        ? h('div', { class: 'log', dir: 'ltr' }, entries.map((entry) => h('div', { class: entry.level, text: `${entry.time.slice(11, 19)} ${entry.level.padEnd(5)} ${entry.message}${entry.detail ? `\n    ${entry.detail}` : ''}` })))
+        : h('p', { class: 'empty', text: t('Nothing logged yet.') })),
     ];
   }
 
@@ -672,20 +727,20 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const navScroll = [nav.scrollLeft, nav.scrollTop];
     const searching = query.trim() !== '';
     power.disabled = quickSetupPending();
-    nav.replaceChildren(searchField, h('div', { class: 'nav-label', text: 'Settings' }), ...sections.flatMap((section) => [
+    nav.replaceChildren(searchField, h('div', { class: 'nav-label', text: t('Settings') }), ...sections.flatMap((section) => [
       section.divider ? h('hr') : null,
       h('button', {
         type: 'button', dataset: { key: `nav:${section.id}` },
         'aria-current': !searching && section.id === current ? 'page' : null,
         onclick: () => { clearSearch(); current = section.id; main.scrollTop = 0; render(); },
-      }, navigationIcon(section.id), h('span', { text: section.title })),
+      }, navigationIcon(section.id), h('span', { text: t(section.title) })),
     ]).filter(Boolean));
     if (searching) {
       const found = findFeatures([...features, ...generalRows()], sections, query);
       main.replaceChildren(
         h('div', { class: 'page-heading' },
-          h('div', { class: 'eyebrow', text: 'Find a setting' }),
-          h('h3', { id: 'hfw-section-title', text: 'Search' }),
+          h('div', { class: 'eyebrow', text: t('Find a setting') }),
+          h('h3', { id: 'hfw-section-title', text: t('Search') }),
           h('p', { text: searchCount(found.length) })),
         ...(reloadPending ? [reloadCard()] : []),
         ...resultsView(found));
@@ -696,10 +751,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       const count = current === 'general' ? generalRows().length : features.filter((feature) => feature.section === current).length;
       main.replaceChildren(
         h('div', { class: 'page-heading' },
-          h('div', { class: 'eyebrow', text: 'Settings' }),
-          h('h3', { id: 'hfw-section-title', text: section.title }),
-          h('p', { text: SECTION_DESCRIPTIONS[current] ?? '' }),
-          count ? h('span', { class: 'setting-count', text: `${count} ${count === 1 ? 'setting' : 'settings'}` }) : null),
+          h('div', { class: 'eyebrow', text: t('Settings') }),
+          h('h3', { id: 'hfw-section-title', text: t(section.title) }),
+          h('p', { text: t(SECTION_DESCRIPTIONS[current] ?? '') }),
+          count ? h('span', { class: 'setting-count', text: plural(count, '{count} setting', '{count} settings') }) : null),
         ...(reloadPending ? [reloadCard()] : []),
         ...(current === 'diagnostics' ? diagnosticsView() : [h('div', { class: 'settings-group' }, ...(current === 'general' ? generalView() : sectionView(section)))]));
     }
@@ -729,7 +784,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function refreshChrome() {
     const paused = settingValue('paused') === true;
     power.checked = !paused;
-    pauseState.textContent = paused ? 'Paused' : 'On';
+    pauseState.textContent = t(paused ? 'Paused' : 'On');
     // Settings in your account menu can stand in for the button, unless it couldn't start or
     // stopped working.
     const inMenu = hasMenuEntry && settings.enabled('menuEntry') && settings.get('menuEntry.hideButton') === true && !unavailable.has('menuEntry');
@@ -738,11 +793,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function refreshSaveState() {
     saveState.dataset.state = preferenceSave.state;
-    saveState.textContent = preferenceSave.state === 'saving'
+    saveState.textContent = t(preferenceSave.state === 'saving'
       ? 'Saving changes...'
       : preferenceSave.state === 'error'
         ? "Changes couldn't be saved. Open General to retry."
-        : 'Changes apply as you go.';
+        : 'Changes apply as you go.');
   }
 
   // ---- actions ----
@@ -754,7 +809,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    toast('Settings saved to a file.');
+    toast(t('Settings saved to a file.'));
   }
 
   async function importSettings() {
@@ -770,8 +825,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       const { applied, skipped } = await settings.importJson(await file.text());
       drafts.clear();
       fieldErrors.clear();
-      const extra = skipped.length ? `, and skipped ${skipped.length} this version can't use` : '';
-      toast(`Restored ${applied.length} settings${extra}.`);
+      toast(skipped.length
+        ? plural(applied.length, "Restored {count} setting, and skipped {skipped} this version can't use.", "Restored {count} settings, and skipped {skipped} this version can't use.", { skipped: skipped.length })
+        : plural(applied.length, 'Restored {count} setting.', 'Restored {count} settings.'));
     } catch (error) {
       log.error(error instanceof TypeError ? error.message : "Couldn't restore settings. Choose a valid backup and try again", error);
     } finally {
@@ -790,8 +846,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       if (!sameAs((key) => recordValue(previous, key), after)) resetUndo = { previous, after, restoring: false };
       render();
       if (resetUndo) {
-        toast('Settings are back to their defaults. Undo stays in General until you change a setting or leave this page.', { action: { label: 'Undo', run: startUndo } });
-      } else toast('Settings are back to their defaults.');
+        toast(t('Settings are back to their defaults. Undo stays in General until you change a setting or leave this page.'), { action: { label: 'Undo', run: startUndo } });
+      } else toast(t('Settings are back to their defaults.'));
     };
     const saved = settings.reset();
     return saved && typeof saved.then === 'function' ? saved.then(succeeded) : succeeded(saved);
@@ -802,7 +858,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function undoReset() {
     const undo = currentUndo();
     if (!undo) {
-      toast("Undo isn't available any more. A setting changed, or another Facebook account signed in.");
+      toast(t("Undo isn't available any more. A setting changed, or another Facebook account signed in."));
       if (dialog.open) render();
       return undefined;
     }
@@ -811,7 +867,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       () => {
         undo.restoring = false;
         if (resetUndo === undo) resetUndo = null;
-        toast('Your settings from before the reset are back.');
+        toast(t('Your settings from before the reset are back.'));
         if (dialog.open) {
           render();
           root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
@@ -839,7 +895,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     resetUndo = null;
     render();
     root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
-    toast('Undo dismissed.');
+    toast(t('Undo dismissed.'));
   }
 
   function reloadFacebook() {
@@ -898,7 +954,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     });
     try {
       await navigator.clipboard.writeText(report);
-      toast('Report copied. Paste it into a GitHub issue.');
+      toast(t('Report copied. Paste it into a GitHub issue.'));
     } catch (error) {
       log.error("Couldn't copy the report", error);
     }
@@ -930,11 +986,16 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   settings.subscribe(() => {
     supersedeUndo();
+    syncLanguage();
+    refreshSaveState();
     refreshChrome();
     reloadPending = reloadKeys.some((key) => settings.get(key) !== reloadBaseline.get(key));
     if (dialog.open) render();
   });
   settings.whenLoaded(() => {
+    syncLanguage();
+    refreshSaveState();
+    refreshChrome();
     reloadBaseline = new Map(reloadKeys.map((key) => [key, reloadValueAtLoad(key)]));
     reloadPending = reloadKeys.some((key) => settings.get(key) !== reloadBaseline.get(key));
     if (dialog.open) render();
@@ -951,7 +1012,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const announceError = (entry) => {
     if (Date.now() - lastErrorToast < ERROR_TOAST_GAP_MS) return;
     lastErrorToast = Date.now();
-    toast(`${entry.message}. Details are in Diagnostics.`, { tone: 'error', action: { label: 'Open', run: () => open('diagnostics') } });
+    // The log keeps the English. The notice shows it translated where the catalog has it.
+    toast(t('{message}. Details are in Diagnostics.', { message: t(entry.message) }), { tone: 'error', action: { label: 'Open', run: () => open('diagnostics') } });
   };
   let renderQueued = false;
   let statusQueued = false;
@@ -962,9 +1024,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     requestAnimationFrame(() => {
       statusQueued = false;
       for (const node of root.querySelectorAll('[data-status-for]')) {
-        const text = diagnostics.statusOf(node.getAttribute('data-status-for'));
-        node.hidden = text === null;
-        if (node.textContent !== (text ?? '')) node.textContent = text ?? '';
+        const text = t(diagnostics.statusOf(node.getAttribute('data-status-for')) ?? '');
+        node.hidden = text === '';
+        if (node.textContent !== text) node.textContent = text;
       }
     });
   };

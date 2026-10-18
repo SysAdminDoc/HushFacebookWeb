@@ -7,6 +7,7 @@
 // the settings everyone shared before, so nothing is lost on upgrade. Signed out, the shared
 // settings are used.
 
+import { LANGUAGES } from './i18n.js';
 import { sha256Hex } from './sha256.js';
 
 const STORAGE_KEY = 'settings';
@@ -86,7 +87,13 @@ const GLOBAL_SETTINGS = [
   { key: 'paused', type: 'toggle', default: false, label: 'Pause HushFacebook Web' },
   { key: 'ui.launcher', type: 'toggle', default: true, label: 'Show the settings button on Facebook' },
   { key: 'ui.hiddenNote', type: 'toggle', default: false, label: 'Leave a note where a post was hidden' },
+  { key: 'ui.language', type: 'select', default: 'en', label: 'Language', choices: LANGUAGES.map(({ value, label }) => ({ value, label })) },
 ];
+
+// How the panel reads rather than what the script does to Facebook, so Reset to defaults keeps
+// it: someone who reads another language can still find their way back after a reset. A
+// complete backup still replaces it.
+export const KEPT_ON_RESET = Object.freeze(['ui.language']);
 
 export function buildSchema(features) {
   const schema = new Map();
@@ -1050,7 +1057,8 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     },
     reset() {
       const previous = structuredClone(values);
-      return queueReplace({}, { returnPrevious: true, fallbackPrevious: previous });
+      const kept = Object.fromEntries(KEPT_ON_RESET.filter((key) => Object.hasOwn(values, key)).map((key) => [key, values[key]]));
+      return queueReplace(kept, { returnPrevious: true, fallbackPrevious: previous });
     },
     exportJson(now = new Date()) {
       return JSON.stringify({ app: 'HushFacebook Web', schema: EXPORT_SCHEMA, version, exported: now.toISOString(), settings: values }, null, 2);

@@ -9,6 +9,8 @@
 // broadcasts keep their own pace, and so does a reel while it's held for 2x. Works in content
 // mode.
 
+import { t } from '../../core/i18n.js';
+
 export const SPEED_KEY = 'keepSpeed.rate';
 // Set on a video while Hold a reel for 2x speeds it up, so that change isn't kept.
 export const HOLDING = Symbol.for('hushfacebook-web.holding-speed');
@@ -113,7 +115,7 @@ export default {
     diagnostics?.add('Video speed kept', () => speedLabel(keeper.kept()));
     actions?.add('Back to normal speed', () => {
       keeper.reset();
-      toast?.('New videos play at normal speed again');
+      toast?.(t('New videos play at normal speed again'));
     });
   },
 };

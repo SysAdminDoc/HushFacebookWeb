@@ -20,6 +20,8 @@
 // click or key press gives the playing video its sound. The script never starts a video, so Tap
 // to play still decides that.
 
+import { t } from '../../core/i18n.js';
+
 export const VOLUME_KEY = 'keepVolume.state';
 const INPUT_WINDOW = 2000; // ms after a click or key press
 const SETTLED = 0.5; // seconds into a video before a change can be yours
@@ -294,7 +296,7 @@ export default {
     diagnostics?.add('Volume kept', () => volumeLabel(keeper.kept()));
     actions?.add('Forget my volume', () => {
       keeper.reset();
-      toast?.('New videos start the way Facebook sets them again');
+      toast?.(t('New videos start the way Facebook sets them again'));
     });
   },
 };

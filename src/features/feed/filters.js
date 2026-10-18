@@ -28,6 +28,7 @@ import { storyFields } from '../../core/filters/story.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { inScope } from './ad-markers.js';
 import { looksLikeCss } from '../../core/css-text.js';
+import { t } from '../../core/i18n.js';
 import { later } from '../../core/net/payload.js';
 
 export const CSS_WARNING = "Those filter lines look like CSS. Hide posts by words matches words in posts, so put CSS in Custom CSS under Appearance instead.";
@@ -37,16 +38,16 @@ const SITES_WARNED_KEY = 'hidePostsByWords.sitesWarned';
 
 // The toast for pattern lines the filter skips (engine.js says why for each).
 export function skipNotice(errors) {
-  if (errors.length === 1) return `Filter line ${errors[0].line} is skipped because it ${errors[0].reason}.`;
+  if (errors.length === 1) return t('Filter line {line} is skipped because it {reason}.', { line: errors[0].line, reason: t(errors[0].reason) });
   const lines = errors.map((error) => error.line);
-  const named = lines.length > 4 ? [...lines.slice(0, 3), `${lines.length - 3} more`] : lines;
-  return `Filter lines ${named.slice(0, -1).join(', ')} and ${named.at(-1)} are skipped. Diagnostics says why.`;
+  const named = lines.length > 4 ? [...lines.slice(0, 3), t('{count} more', { count: lines.length - 3 })] : lines;
+  return t('Filter lines {lines} and {last} are skipped. Diagnostics says why.', { lines: named.slice(0, -1).join(', '), last: named.at(-1) });
 }
 
 // The toast for site list lines that aren't site names.
 export function siteNotice(errors) {
-  if (errors.length === 1) return `Line ${errors[0].line} of the ${errors[0].list} list isn't a site name, so it's skipped.`;
-  return `${errors.length} lines in your site lists aren't site names, so they're skipped. Diagnostics names them.`;
+  if (errors.length === 1) return t("Line {line} of the {list} list isn't a site name, so it's skipped.", { line: errors[0].line, list: t(errors[0].list) });
+  return t("{count} lines in your site lists aren't site names, so they're skipped. Diagnostics names them.", { count: errors.length });
 }
 
 // The lines that are words, without the re: patterns and "# " notes (engine.js).
@@ -275,7 +276,7 @@ export default {
       if (storage?.get(CSS_WARNED_KEY, null) === print) return;
       storage?.set(CSS_WARNED_KEY, print);
       log?.warn(CSS_WARNING);
-      toast?.(CSS_WARNING, { tone: 'error' });
+      toast?.(t(CSS_WARNING), { tone: 'error' });
     };
     const hits = new Map();
     const route = () => router?.current();

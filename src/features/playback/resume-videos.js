@@ -13,6 +13,7 @@
 // showed up. Its next moment of playback starts tracking. Within its first few seconds it still
 // jumps to its spot. Further in, it's kept from where it is and never sent to an older spot.
 
+import { t } from '../../core/i18n.js';
 import { pageTarget, videoTarget } from '../downloads/find.js';
 
 export const POSITIONS_KEY = 'resumeVideos.positions';
@@ -166,14 +167,14 @@ export default {
     const resumer = createResumer({
       doc, storage, enabled,
       minSeconds: () => Number(option('minutes') ?? 5) * 60,
-      onResume: (seconds) => toast?.(`Picked up where you left off, at ${clock(seconds)}`),
+      onResume: (seconds) => toast?.(t('Picked up where you left off, at {time}', { time: clock(seconds) })),
     });
     resumer.start();
     diagnostics?.add('Video spots kept', () => String(resumer.count()));
     diagnostics?.add('Videos picked up', () => String(resumer.resumes()));
     actions?.add('Forget every spot', () => {
       resumer.forget();
-      toast?.('Forgot every video spot');
+      toast?.(t('Forgot every video spot'));
     });
   },
 };
