@@ -1786,7 +1786,7 @@ test("the page reads the release check's record as the worker saves it now and a
 });
 
 test("the word filter's told-you records load and save, so each warning comes once and not on every page load", async () => {
-  const keys = ['hidePostsByWords.cssWarned', 'hidePostsByWords.skipWarned'];
+  const keys = ['hidePostsByWords.cssWarned', 'hidePostsByWords.skipWarned', 'hidePostsByWords.sitesWarned'];
   const saved = Object.fromEntries(keys.map((key) => [key, '12:abc']));
   const first = page();
   await startIsolated(first, fakeChrome(saved));

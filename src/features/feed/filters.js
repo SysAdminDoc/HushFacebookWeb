@@ -7,6 +7,11 @@
 // core/filters/page.js) for posts that got drawn anyway, and in content mode. Both run on
 // Home, the groups feed and group pages, never on a post you opened by its link.
 //
+// The word list matches all of a post's fields at once, as it always has. The people and site
+// lists (core/filters/lists.js) each match only their own field, and the two always-show lists
+// win over everything this feature hides by. They never reach the other features, so a sponsored
+// post by someone on an always-show list still goes.
+//
 // Preview runs the same checks and hides nothing. A read-only rule looks at the stories the
 // page gets and the page check looks at each post as it fills in, and each one counts the
 // posts it saw and which lines and kinds match them. Story ids in the data and post links on
@@ -17,6 +22,7 @@
 
 import { walk, SKIP } from '../../core/json-walk.js';
 import { filterCache, firstMatch, matchingRules } from '../../core/filters/engine.js';
+import { compileNames, compileSites, matchingNames, matchingSites } from '../../core/filters/lists.js';
 import { postFields } from '../../core/filters/page.js';
 import { storyFields } from '../../core/filters/story.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
@@ -27,6 +33,7 @@ import { later } from '../../core/net/payload.js';
 export const CSS_WARNING = "Those filter lines look like CSS. Hide posts by words matches words in posts, so put CSS in Custom CSS under Appearance instead.";
 const CSS_WARNED_KEY = 'hidePostsByWords.cssWarned';
 const SKIP_WARNED_KEY = 'hidePostsByWords.skipWarned';
+const SITES_WARNED_KEY = 'hidePostsByWords.sitesWarned';
 
 // The toast for pattern lines the filter skips (engine.js says why for each).
 export function skipNotice(errors) {
@@ -34,6 +41,12 @@ export function skipNotice(errors) {
   const lines = errors.map((error) => error.line);
   const named = lines.length > 4 ? [...lines.slice(0, 3), `${lines.length - 3} more`] : lines;
   return `Filter lines ${named.slice(0, -1).join(', ')} and ${named.at(-1)} are skipped. Diagnostics says why.`;
+}
+
+// The toast for site list lines that aren't site names.
+export function siteNotice(errors) {
+  if (errors.length === 1) return `Line ${errors[0].line} of the ${errors[0].list} list isn't a site name, so it's skipped.`;
+  return `${errors.length} lines in your site lists aren't site names, so they're skipped. Diagnostics names them.`;
 }
 
 // The lines that are words, without the re: patterns and "# " notes (engine.js).
@@ -60,18 +73,41 @@ export const FILTERED = {
 
 const valuesOf = (fields) => [...fields.text, ...fields.authors, ...fields.alt, ...fields.sites];
 
+// How preview names a line: 'line 3' in the word list, 'people line 2', 'sites line 1'.
+const lineId = (list, entry) => `${list === 'words' ? '' : `${list} `}line ${entry.line}`;
+
+// A filter is { rules, kinds } from the word list and switches, plus optional people, sites,
+// showPeople and showSites lists (compileNames / compileSites).
+const shown = ({ showPeople = [], showSites = [] }, fields) => matchingNames(showPeople, fields.authors).length > 0 || matchingSites(showSites, fields.sites).length > 0;
+
 // What hides this post, as the text after "Filter: ", or null.
-export function filterVerdict({ rules, kinds }, fields) {
+export function filterVerdict(filter, fields) {
+  if (shown(filter, fields)) return null;
+  const { rules, kinds, people = [], sites = [] } = filter;
   for (const { kind, label } of KINDS) if (kinds.has(kind) && fields.kinds.has(kind)) return label;
-  return firstMatch(rules, valuesOf(fields))?.phrase ?? null;
+  const match = matchingNames(people, fields.authors)[0] ?? matchingSites(sites, fields.sites)[0] ?? firstMatch(rules, valuesOf(fields));
+  return match?.phrase ?? null;
 }
 
-// Every kind and line that matches this post, by id ('photo posts', 'line 3'), for the preview.
-// It's empty exactly when filterVerdict is null.
-export function filterMatches({ rules, kinds }, fields) {
-  const kindIds = KINDS.filter(({ kind }) => kinds.has(kind) && fields.kinds.has(kind)).map(({ label }) => label);
-  return [...kindIds, ...matchingRules(rules, valuesOf(fields)).map((rule) => `line ${rule.line}`)];
+// Every kind and line that matches this post, by id ('photo posts', 'line 3', 'sites line 1'),
+// for the preview. It's empty exactly when filterVerdict is null.
+export function filterMatches(filter, fields) {
+  if (shown(filter, fields)) return [];
+  const { rules, kinds, people = [], sites = [] } = filter;
+  return [
+    ...KINDS.filter(({ kind }) => kinds.has(kind) && fields.kinds.has(kind)).map(({ label }) => label),
+    ...matchingNames(people, fields.authors).map((entry) => lineId('people', entry)),
+    ...matchingSites(sites, fields.sites).map((entry) => lineId('sites', entry)),
+    ...matchingRules(rules, valuesOf(fields)).map((rule) => lineId('words', rule)),
+  ];
 }
+
+// Each line id with the line as written, for the card.
+const phrasesOf = ({ rules, people = [], sites = [] }) => new Map([
+  ...rules.map((rule) => [lineId('words', rule), rule.phrase]),
+  ...people.map((entry) => [lineId('people', entry), entry.phrase]),
+  ...sites.map((entry) => [lineId('sites', entry), entry.phrase]),
+]);
 
 // Calls visit(edge) for each feed story edge in doc: an object with a cursor and a story node.
 function eachStory(doc, visit) {
@@ -152,9 +188,10 @@ function layerText(summary, [one, many], phraseOf) {
 }
 
 // The card's status line while previewing.
-export function previewStatus({ data, page, rules, active }) {
-  if (!active) return 'Preview is on. Add a word or turn on a kind of post to see what it would hide.';
-  const phraseOf = (id) => rules.find((rule) => `line ${rule.line}` === id)?.phrase ?? null;
+export function previewStatus({ data, page, filter, active }) {
+  if (!active) return 'Preview is on. Add a line to a list or turn on a kind of post to see what it would hide.';
+  const phrases = phrasesOf(filter);
+  const phraseOf = (id) => phrases.get(id) ?? null;
   const parts = [];
   if (data) parts.push(`In Facebook's data, ${layerText(data, STORIES, phraseOf)}.`);
   if (page) parts.push(`On the page, ${layerText(page, POSTS, phraseOf)}.`);
@@ -170,7 +207,29 @@ export function previewReport({ data, page }) {
   return [data ? `data: ${layerText(data, STORIES, none)}` : null, page ? `page: ${layerText(page, POSTS, none)}` : null].filter(Boolean).join(', ');
 }
 
+const OPTIONS = [
+  { key: 'words', type: 'text', label: 'One word, name or site per line. Start a line with re: to use a regular expression.', default: '', maxLength: 20000 },
+  { key: 'people', type: 'text', label: "Hide posts by these people, Pages or groups. One name per line, written the way Facebook shows it. A name only matches who posted, and names aren't unique, so it hides everyone who goes by it.", default: '', maxLength: 20000 },
+  { key: 'sites', type: 'text', label: 'Hide posts that link to these sites. One site per line, like news.example. Its subdomains count too.', default: '', maxLength: 20000 },
+  { key: 'showPeople', type: 'text', label: 'Always show posts by these people, Pages or groups, even when something here would hide them. One name per line.', default: '', maxLength: 20000 },
+  { key: 'showSites', type: 'text', label: 'Always show posts that link to these sites, even when something here would hide them. One site per line.', default: '', maxLength: 20000 },
+  ...KINDS.map(({ key, label }) => ({ key, type: 'toggle', label: `Hide all ${label}`, default: false })),
+  { key: 'preview', type: 'toggle', label: 'Preview: count what each line would hide, and hide nothing', default: false },
+];
+
 const tally = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
+// Builds once per distinct text.
+function memo(build) {
+  let text = null;
+  let value = null;
+  return (next) => {
+    if (next !== text) {
+      text = next;
+      value = build(next);
+    }
+    return value;
+  };
+}
 const summary = (map) => (map.size ? [...map].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, n]) => `${name} ${n}`).join(', ') : 'None yet');
 
 export default {
@@ -180,11 +239,7 @@ export default {
   title: 'Hide posts by words',
   description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups. Posts you open by their link always show.',
   default: false,
-  options: [
-    { key: 'words', type: 'text', label: 'One word, name or site per line. Start a line with re: to use a regular expression.', default: '', maxLength: 20000 },
-    ...KINDS.map(({ key, label }) => ({ key, type: 'toggle', label: `Hide all ${label}`, default: false })),
-    { key: 'preview', type: 'toggle', label: 'Preview: count what each line would hide, and hide nothing', default: false },
-  ],
+  options: OPTIONS,
 
   setup({ net, router, posts, hider, log, toast, storage, settings, diagnostics, enabled, option }) {
     const compile = filterCache();
@@ -193,8 +248,20 @@ export default {
     // it) each get a toast once per list, remembered across page loads. Pattern and note lines
     // are left out of the CSS check, since "re:not( ?sponsored)" is a fine pattern.
     let checked = null;
+    let checkedSites = null;
+    const checkSites = () => {
+      const text = JSON.stringify([option('sites') ?? '', option('showSites') ?? '']);
+      if (text === checkedSites) return;
+      checkedSites = text;
+      const { siteErrors } = current();
+      const print = fingerprint(text);
+      if (!siteErrors.length || storage?.get(SITES_WARNED_KEY, null) === print) return;
+      storage?.set(SITES_WARNED_KEY, print);
+      toast?.(siteNotice(siteErrors), { tone: 'error' });
+    };
     const checkList = () => {
       if (!enabled()) return;
+      checkSites();
       const words = option('words') ?? '';
       if (words === checked) return;
       checked = words;
@@ -214,6 +281,12 @@ export default {
     const route = () => router?.current();
     const changed = () => diagnostics?.changed();
 
+    const lists = {
+      people: memo(compileNames),
+      showPeople: memo(compileNames),
+      sites: memo(compileSites),
+      showSites: memo(compileSites),
+    };
     function current() {
       const { rules, errors } = compile(option('words') ?? '');
       for (const error of errors) {
@@ -221,10 +294,25 @@ export default {
         warned.add(error.phrase);
         log?.warn(`Filter line ${error.line} is skipped because it ${error.reason}. It stays in your list as you wrote it`, error.message);
       }
+      const sites = lists.sites(option('sites') ?? '');
+      const showSites = lists.showSites(option('showSites') ?? '');
+      const siteErrors = [...sites.errors.map((error) => ({ ...error, list: 'sites' })), ...showSites.errors.map((error) => ({ ...error, list: 'always-show sites' }))];
+      for (const error of siteErrors) {
+        const seen = `${error.list}\n${error.phrase}`;
+        if (warned.has(seen)) continue;
+        warned.add(seen);
+        log?.warn(`Line ${error.line} of the ${error.list} list is skipped because it ${error.reason}`);
+      }
       const kinds = new Set(KINDS.filter(({ key }) => option(key) === true).map(({ kind }) => kind));
-      return { rules, kinds, errors };
+      return {
+        rules, kinds, errors, siteErrors,
+        people: lists.people(option('people') ?? ''),
+        sites: sites.sites,
+        showPeople: lists.showPeople(option('showPeople') ?? ''),
+        showSites: showSites.sites,
+      };
     }
-    const active = (filter) => filter.rules.length > 0 || filter.kinds.size > 0;
+    const active = (filter) => filter.rules.length > 0 || filter.kinds.size > 0 || filter.people.length > 0 || filter.sites.length > 0;
     const previewing = () => option('preview') === true;
     const preview = { data: net ? createPreviewTally() : null, page: posts && hider ? createPreviewTally() : null };
     const summaries = () => ({ data: preview.data?.summary() ?? null, page: preview.page?.summary() ?? null });
@@ -276,19 +364,20 @@ export default {
     settings?.subscribe(checkList);
     diagnostics?.add('Posts hidden by your filters', () => summary(hits));
     diagnostics?.add("Filter lines that aren't valid", () => {
-      const { errors } = current();
-      return errors.length ? errors.map((error) => `line ${error.line} (${error.reason})`).join(', ') : 'None';
+      const { errors, siteErrors } = current();
+      const named = [...errors.map((error) => `line ${error.line} (${error.reason})`), ...siteErrors.map((error) => `${error.list} line ${error.line} (${error.reason})`)];
+      return named.length ? named.join(', ') : 'None';
     });
     diagnostics?.add('Filter preview', () => (enabled() && previewing() ? previewReport(summaries()) || 'Nothing to count here' : 'Off'), { shareable: true });
     diagnostics?.status?.('hidePostsByWords', () => {
       if (!enabled() || !previewing()) return null;
       const filter = current();
-      return previewStatus({ ...summaries(), rules: filter.rules, active: active(filter) });
+      return previewStatus({ ...summaries(), filter, active: active(filter) });
     });
 
-    // Any change to the list or the switches starts the preview counting again, and takes a
+    // Any change to the lists or the switches starts the preview counting again, and takes a
     // fresh look at the posts on the page (recheck, once the page check is set up).
-    const state = () => JSON.stringify([enabled(), option('words'), option('preview'), ...KINDS.map(({ key }) => option(key))]);
+    const state = () => JSON.stringify([enabled(), ...OPTIONS.map(({ key }) => option(key))]);
     let last = state();
     let recheck = null;
     settings?.subscribe(() => {

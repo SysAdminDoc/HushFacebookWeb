@@ -9,11 +9,13 @@ import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
 import { compileFilters, filterCache, firstMatch, matchingRules } from '../src/core/filters/engine.js';
+import { compileNames, compileSites, matchingNames, matchingSites } from '../src/core/filters/lists.js';
 import { postFields } from '../src/core/filters/page.js';
 import { storyFields } from '../src/core/filters/story.js';
 import { parseRoute } from '../src/core/route.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
-import hidePostsByWords, { createPreviewTally, filterMatches, filterVerdict, previewReport, pruneFiltered, skipNotice } from '../src/features/feed/filters.js';
+import { adRule } from '../src/features/feed/ad-markers.js';
+import hidePostsByWords, { createPreviewTally, filterMatches, filterVerdict, previewReport, pruneFiltered, siteNotice, skipNotice } from '../src/features/feed/filters.js';
 import { createSettings, EXPORT_SCHEMA } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 
@@ -271,9 +273,9 @@ test('page fields: text, author, alt, sites and kind, without the comments', () 
   assert.deepEqual([...fields.kinds].sort(), ['link', 'photo']);
 });
 
-function setupFeature(win, { words = '', kinds = {}, preview = false, net = null, href, toast, storage } = {}) {
+function setupFeature(win, { words = '', lists = {}, kinds = {}, preview = false, net = null, href, toast, storage } = {}) {
   const doc = win.document;
-  const values = { words, preview, ...kinds };
+  const values = { words, preview, ...lists, ...kinds };
   const subscribers = [];
   const posts = createPostTracker({ doc });
   const hider = createHider({ doc, posts });
@@ -421,7 +423,7 @@ test('preview tells nothing checked yet apart from nothing matching, and an empt
   assert.equal(status(quiet.diagnostics), "Preview is on, so nothing is hidden. In Facebook's data, no stories checked yet. On the page, no matches in 1 post.", 'a new list starts counting again, and the post on the page is looked at again');
   quiet.posts.stop();
   const blank = setupFeature(page(post(1)), { words: '', preview: true });
-  assert.equal(status(blank.diagnostics), 'Preview is on. Add a word or turn on a kind of post to see what it would hide.');
+  assert.equal(status(blank.diagnostics), 'Preview is on. Add a line to a list or turn on a kind of post to see what it would hide.');
   blank.posts.stop();
 });
 
@@ -434,4 +436,151 @@ test('preview counts stop at their limit and say so', () => {
   assert.equal(summary.full, true);
   assert.deepEqual(summary.counts, [['line 1', 2], ['line 2', 1]]);
   assert.equal(previewReport({ data: summary, page: null }), 'data: 2 of 3+ stories match (line 1 2, line 2 1)');
+});
+
+const shim = (url) => `https://l.facebook.com/l.php?u=${encodeURIComponent(url)}`;
+const linkTo = (url) => `<a href="${shim(url)}">link</a>`;
+const linkedStory = (url, extra = {}) => story({ message: { ranges: [{ entity: { external_url: shim(url) } }] }, ...extra });
+
+test('a name line matches a whole author name in any case or spacing, and nothing shorter or longer', () => {
+  const people = compileNames('# people\nPat Example\n\n  garden   swap GROUP \nPat\nZoé Example');
+  assert.deepEqual(people.map(({ line, phrase }) => [line, phrase]), [[2, 'Pat Example'], [4, 'garden swap GROUP'], [5, 'Pat'], [6, 'Zoé Example']]);
+  const hit = (authors) => matchingNames(people, authors).map((entry) => entry.line);
+  assert.deepEqual(hit(['PAT  EXAMPLE']), [2]);
+  assert.deepEqual(hit(['Pat']), [5]);
+  assert.deepEqual(hit(['Pat Examples', 'Example', 'Pat Example Jr']), []);
+  assert.deepEqual(hit(['Garden Swap Group']), [4]);
+  assert.deepEqual(hit(['Zoé Example']), [6], 'an accent typed either way');
+  assert.deepEqual(hit([]), [], "a post whose author can't be read");
+});
+
+test('a site line matches that site and its subdomains on a dot, and a link is cut down to its site', () => {
+  const { sites, errors } = compileSites('example.com\nhttps://www.News.Example.org/story?id=1\n*.shop.example\nnews\ntwo words\n127.0.0.1\nbücher.example\n# a note');
+  assert.deepEqual(sites.map(({ line, key }) => [line, key]), [[1, 'example.com'], [2, 'news.example.org'], [3, 'shop.example'], [7, 'xn--bcher-kva.example']]);
+  assert.deepEqual(errors.map(({ line, reason }) => [line, reason]), [[4, "isn't a site name"], [5, "isn't a site name"], [6, "isn't a site name"]]);
+  const hit = (hosts) => matchingSites(sites, hosts).map((entry) => entry.line);
+  assert.deepEqual(hit(['example.com']), [1]);
+  assert.deepEqual(hit(['news.example.com']), [1]);
+  assert.deepEqual(hit(['badexample.com', 'example.com.evil.net', 'example.co']), []);
+  assert.deepEqual(hit(['NEWS.example.org']), [2]);
+  assert.deepEqual(hit(['example.org']), [], "a subdomain line doesn't reach the site above it");
+  assert.deepEqual(hit(['a.shop.example']), [3]);
+  assert.deepEqual(storyFields(linkedStory('https://bücher.example/x')).sites, ['xn--bcher-kva.example'], 'the data reader gives other alphabets the same way');
+  assert.deepEqual(hit(storyFields(linkedStory('https://bücher.example/x')).sites), [7]);
+});
+
+test('the people and site lists find the same lines in the data as on the page, each in its own field only', () => {
+  const text = 'Bread from Nobody Here, see other.example';
+  const data = linkedStory('https://www.news.example/a', { comet_sections: { message_container: { story: { message: { text } } } } });
+  const win = page(`<div><div aria-posinset="1">
+    <h4><a href="/p1">Pat Example</a> <a href="/groups/1">Garden Swap Group</a></h4><a href="/p1/posts/pfbid0P1">2h</a>
+    <div data-ad-rendering-role="story_message"><div>${text}</div></div>${linkTo('https://www.news.example/a')}
+  </div></div>`);
+  const filter = {
+    ...compileFilters(''), kinds: new Set(),
+    people: compileNames('garden swap group\nNobody Here\nPat'),
+    sites: compileSites('news.example\nother.example').sites,
+  };
+  const fromData = filterMatches(filter, storyFields(data));
+  assert.deepEqual(fromData, ['people line 1', 'sites line 1'], 'a name or site in the text counts for neither list');
+  assert.deepEqual(filterMatches(filter, postFields(win.document.querySelector('[aria-posinset]'))), fromData);
+  assert.equal(filterVerdict(filter, storyFields(data)), 'garden swap group');
+});
+
+test('an always-show line keeps a post that every list and kind here would hide, and only that post', () => {
+  const fields = storyFields(linkedStory('https://sub.news.example/a'));
+  const base = { ...compileFilters('bread'), kinds: new Set(['photo']), people: compileNames('Pat Example'), sites: compileSites('news.example').sites };
+  assert.equal(filterVerdict(base, fields), 'photo posts');
+  for (const show of [{ showPeople: compileNames('garden swap group') }, { showSites: compileSites('news.example').sites }]) {
+    assert.equal(filterVerdict({ ...base, ...show }, fields), null, JSON.stringify(show));
+    assert.deepEqual(filterMatches({ ...base, ...show }, fields), []);
+  }
+  const elsewhere = { ...base, showPeople: compileNames('Someone Else'), showSites: compileSites('other.example').sites };
+  assert.equal(filterVerdict(elsewhere, fields), 'photo posts');
+
+  const win = page(post(1, { author: 'Pat Example', text: 'bread' }) + post(2, { text: 'bread' }));
+  const { doc, posts } = setupFeature(win, { words: 'bread', lists: { showPeople: 'Pat Example' } });
+  assert.deepEqual([...doc.querySelectorAll('[aria-posinset]')].map((p) => Boolean(p.querySelector(`[${MARK}]`))), [false, true]);
+  posts.stop();
+});
+
+test("an always-show line doesn't keep a sponsored post, which the ad switch still removes", () => {
+  const rules = [];
+  const { posts } = setupFeature(page(''), { words: 'bread', lists: { showPeople: 'Pat Example' }, net: { transformResponses: (rule) => rules.push(rule) } });
+  const friend = { content: { story: { actors: [{ __typename: 'User', name: 'Friend' }], comet_sections: { message_container: { story: { message: { text: 'bread again' } } } } } } };
+  const line = feedLine(story(), { ...story(), id: 'ad', th_dat_spo: { is_demo_ad: false } }, { ...story(), id: 's3', comet_sections: friend });
+  const out = JSON.parse(transformDocumentLine(line, [...rules, adRule('hideSponsoredPosts', () => true)], FEED));
+  assert.deepEqual(out.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null), ['s1', null, null]);
+  posts.stop();
+});
+
+test('on the page the people and site lists go by who posted and where it links, and a bad site line is told once', () => {
+  const win = page(
+    post(1, { author: 'Loud Page' })
+    + post(2, { extra: linkTo('https://www.shop.example/x') })
+    + post(3, { text: 'Loud Page is great, shop.example too' })
+    + post(4, { author: 'Loud Page', extra: linkTo('https://good.example/') })
+    + '<div><div aria-posinset="5"><div data-ad-rendering-role="story_message"><div>Loud Page</div></div></div></div>',
+  );
+  const toasts = [];
+  const storage = createMemoryStorage();
+  const lists = { people: 'Loud Page', sites: 'shop.example\nnews', showSites: 'good.example\ntwo words' };
+  const { doc, posts, diagnostics, warnings, set } = setupFeature(win, { lists, toast: (message) => toasts.push(message), storage });
+  const notes = () => [...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+  assert.deepEqual(notes(), ['Hidden: Filter: Loud Page. Show', 'Hidden: Filter: shop.example. Show', null, null, null]);
+  const row = () => diagnostics.rows().find(({ label }) => label === "Filter lines that aren't valid").value;
+  assert.equal(row(), "sites line 2 (isn't a site name), always-show sites line 2 (isn't a site name)");
+  assert.deepEqual(warnings, ["Line 2 of the sites list is skipped because it isn't a site name", "Line 2 of the always-show sites list is skipped because it isn't a site name"]);
+  assert.deepEqual(toasts, ["2 lines in your site lists aren't site names, so they're skipped. Diagnostics names them."]);
+  set('words', 'nothing here');
+  assert.equal(toasts.length, 1, 'a change elsewhere tells nothing new');
+  set('showSites', 'good.example');
+  assert.deepEqual(toasts.slice(1), ["Line 2 of the sites list isn't a site name, so it's skipped."]);
+  set('people', '');
+  assert.deepEqual(notes(), [null, 'Hidden: Filter: shop.example. Show', null, null, null], 'a changed list applies at once');
+  set('words', '');
+  set('sites', '');
+  set('people', 'Loud Page');
+  assert.deepEqual(notes(), ['Hidden: Filter: Loud Page. Show', null, null, null, null], 'the people list works alone');
+  set('people', '');
+  set('sites', 'shop.example');
+  assert.deepEqual(notes(), [null, 'Hidden: Filter: shop.example. Show', null, null, null], 'and so does the site list');
+  posts.stop();
+  const again = setupFeature(page(post(1)), { lists: { ...lists, showSites: 'good.example' }, toast: (message) => toasts.push(message), storage });
+  assert.equal(toasts.length, 2, 'the next page load remembers it was told');
+  again.posts.stop();
+  assert.equal(siteNotice([{ line: 3, list: 'always-show sites' }]), "Line 3 of the always-show sites list isn't a site name, so it's skipped.");
+});
+
+test('preview names people and site lines by their list, with the line itself only on the card', () => {
+  const win = page(post(1, { author: 'Loud Page' }) + post(2, { extra: linkTo('https://shop.example/x') }) + post(3, { text: 'Loud Page' }));
+  const { doc, posts, diagnostics } = setupFeature(win, { preview: true, lists: { people: 'Loud Page', sites: 'shop.example' } });
+  assert.equal(doc.querySelector(`[${MARK}]`), null);
+  assert.equal(diagnostics.statusOf('hidePostsByWords'), 'Preview is on, so nothing is hidden. On the page, 2 of 3 posts match (people line 1 "Loud Page" 1, sites line 1 "shop.example" 1). Turn Preview off to hide them.');
+  assert.equal(diagnostics.rows().find(({ label }) => label === 'Filter preview').value, 'page: 2 of 3 posts match (people line 1 1, sites line 1 1)');
+  posts.stop();
+});
+
+test('a list saved before the new lists keeps matching as it did, and backups keep all five lists', async () => {
+  const features = [hidePostsByWords];
+  const mixed = 'Pat Example\nnews.example\nbread';
+  const old = createSettings({ storage: createMemoryStorage({ settings: { hidePostsByWords: true, 'hidePostsByWords.words': mixed } }), features, migrations: [] });
+  assert.equal(old.get('hidePostsByWords.words'), mixed);
+  for (const key of ['people', 'sites', 'showPeople', 'showSites']) assert.equal(old.get(`hidePostsByWords.${key}`), '', key);
+  const filter = { ...compileFilters(old.get('hidePostsByWords.words')), kinds: new Set() };
+  const fields = (part) => ({ text: [], authors: [], alt: [], sites: [], kinds: new Set(), ...part });
+  assert.equal(filterVerdict(filter, fields({ authors: ['Pat Example'] })), 'Pat Example');
+  assert.equal(filterVerdict(filter, fields({ sites: ['news.example'] })), 'news.example');
+  assert.equal(filterVerdict(filter, fields({ text: ['Pat Example sent bread'] })), 'Pat Example', 'the old list still reads every field at once');
+
+  const lists = { words: mixed, people: 'Loud Page', sites: 'shop.example', showPeople: 'Garden Swap Group', showSites: 'good.example' };
+  const settings = Object.fromEntries(Object.entries(lists).map(([key, value]) => [`hidePostsByWords.${key}`, value]));
+  const saved = createSettings({ storage: createMemoryStorage({ settings: { hidePostsByWords: true, ...settings } }), features, migrations: [] });
+  const exported = JSON.parse(saved.exportJson()).settings;
+  const restored = createSettings({ storage: createMemoryStorage(), features, migrations: [] });
+  const { applied } = await restored.importJson(JSON.stringify({ app: 'HushFacebook Web', schema: EXPORT_SCHEMA, version: '0.0.1', settings: exported }));
+  for (const [key, value] of Object.entries(settings)) {
+    assert.equal(restored.get(key), value, key);
+    assert.ok(applied.includes(key), key);
+  }
 });
