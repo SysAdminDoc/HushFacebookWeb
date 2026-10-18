@@ -1191,11 +1191,43 @@ test('search covers every kind of General row', () => {
     ['privacy defaults', 'quick-setups'],
     ['back up restore', 'backup-restore'],
     ['report problem', 'report-problem'],
+    ['bug', 'report-problem'],
     ['coffee kofi', 'kofi'],
+    ['donate', 'kofi'],
   ]) {
     find(query);
     assert.ok(shadow.querySelector(`.result [data-key="${key}"]`), query);
   }
+});
+
+test("General's switches and backup actions come up by their own words, and the link focuses the control named", () => {
+  const { shadow, panel, win } = setup();
+  panel.open('feed');
+  const search = shadow.querySelector('[data-key="search"]');
+  const find = (query) => {
+    search.value = query;
+    search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  };
+  for (const [query, row, focused] of [
+    ['Leave a note', 'ui.hiddenNote', 'ui.hiddenNote'],
+    ['Backup', 'backup-restore', 'backup'],
+    ['export', 'backup-restore', 'backup'],
+    ['Restore', 'backup-restore', 'restore'],
+    ['restore from a file', 'backup-restore', 'restore'],
+    ['Reset', 'backup-restore', 'reset'],
+    ['Reset', 'quick-setups', 'quick:defaults'],
+    ['back up restore', 'backup-restore', 'backup'],
+  ]) {
+    find(query);
+    const link = shadow.querySelector(`[data-key="show:${row}"]`);
+    assert.ok(link, `${query} finds ${row}`);
+    link.click();
+    assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'General', query);
+    assert.equal(shadow.activeElement?.dataset.key, focused, `${query} lands on ${focused}`);
+    assert.equal(search.value, '', query);
+  }
+  find('injection mode');
+  assert.match(shadow.querySelector('main .empty').textContent, /No setting matches/, "Diagnostics' own text stays out of search");
 });
 
 // What src/core/extension.js updateStatus gives General.

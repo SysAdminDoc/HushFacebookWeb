@@ -12,7 +12,7 @@ import { navigationIcon } from './navigation-icons.js';
 import { buildDiagnosticReport } from './diagnostic-report.js';
 import { buildProblemReport } from './problem-report.js';
 import { applyQuickSetup, QUICK_SETUPS } from './quick-setups.js';
-import { findFeatures } from './search.js';
+import { findFeatures, matchingAction } from './search.js';
 import { panelCss } from './styles.js';
 
 const ALWAYS_OPENS = TARGET === 'extension' ? "The extension's toolbar button" : "Your userscript manager's menu";
@@ -335,13 +335,15 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     search.value = '';
   }
 
-  // A search result's section link: opens the section with that row's control focused.
+  // A search result's section link: opens the section with that row's control focused, or the
+  // row's button the words typed name (Reset, Restore).
   function showSetting(setting) {
+    const focusKey = matchingAction(setting, query) ?? setting.focusKey ?? setting.id;
     clearSearch();
     current = setting.section;
     main.scrollTop = 0;
     render();
-    const control = main.querySelector(`[data-key="${CSS.escape(setting.focusKey ?? setting.id)}"]`);
+    const control = main.querySelector(`[data-key="${CSS.escape(focusKey)}"]`);
     control?.scrollIntoView?.({ block: 'center' });
     control?.focus({ preventScroll: true });
   }
@@ -398,7 +400,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function updateRow(status) {
-    const check = environment.checkForUpdate ? [{ label: 'Check now' }] : [];
+    const check = environment.checkForUpdate ? [{ label: 'Check now', focusKey: 'update:check' }] : [];
     if (status.update) {
       return {
         id: 'update', section: 'general', title: `HushFacebook Web ${status.update.version} is out`,
@@ -597,21 +599,26 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       ...(currentUndo() ? [{
         id: 'reset-undo', section: 'general', title: 'Undo the settings reset',
         description: 'Put back the choices you had before the reset, until you change a setting or leave this page.',
-        options: [{ label: 'Undo reset' }, { label: 'Dismiss' }], focusKey: 'reset:undo', render: resetUndoCard,
+        options: [{ label: 'Undo reset', focusKey: 'reset:undo' }, { label: 'Dismiss', focusKey: 'reset:dismiss' }], focusKey: 'reset:undo', render: resetUndoCard,
       }] : []),
       ...(update?.update ? [updateRow(update)] : []),
       ...(legacy ? [{
         id: 'legacy-activity', section: 'general', title: 'Activity from before accounts were kept apart',
         description: `Seen posts and video spots shared by everyone on this browser. ${environment.activity.perAccount ? 'Add them to this account' : 'Use them while signed out'} or delete them.`,
-        options: [{ label: environment.activity.perAccount ? 'Add to this account' : 'Use while signed out' }, { label: 'Delete them' }], focusKey: 'legacy:add', render: () => legacyActivityCard(legacy),
+        options: [{ label: environment.activity.perAccount ? 'Add to this account' : 'Use while signed out', focusKey: 'legacy:add' }, { label: 'Delete them', focusKey: 'legacy:delete' }], focusKey: 'legacy:add', render: () => legacyActivityCard(legacy),
       }] : []),
-      { id: 'quick-setups', section: 'general', title: 'Quick setups', description: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.', options: QUICK_SETUPS.map((setup) => ({ label: setup.label })), focusKey: 'quick:quiet', render: quickSetupsCard },
+      { id: 'quick-setups', section: 'general', title: 'Quick setups', description: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.', options: QUICK_SETUPS.map((setup) => ({ label: setup.label, focusKey: `quick:${setup.id}`, keywords: setup.reset ? ['reset'] : [] })), focusKey: 'quick:quiet', render: quickSetupsCard },
       { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too.`, render: launcherCard },
       { id: 'ui.hiddenNote', section: 'general', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post.', render: hiddenNoteCard },
-      { id: 'backup-restore', section: 'general', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.', focusKey: 'backup', render: backupCard },
+      { id: 'backup-restore', section: 'general', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.',
+        options: [
+          { label: 'Back up settings', focusKey: 'backup', keywords: ['backup', 'export'] },
+          { label: 'Restore from a file', focusKey: 'restore', keywords: ['import', 'load'] },
+          { label: 'Reset to defaults', focusKey: 'reset' },
+        ], focusKey: 'backup', render: backupCard },
       ...(update && !update.update ? [updateRow(update)] : []),
-      { id: 'report-problem', section: 'general', title: 'Report a problem', description: 'Opens a GitHub report with your versions and settings filled in. Add what happened.', render: reportProblemCard },
-      { id: 'kofi', section: 'general', title: 'Buy me a coffee', description: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.', render: kofiCard },
+      { id: 'report-problem', section: 'general', title: 'Report a problem', description: 'Opens a GitHub report with your versions and settings filled in. Add what happened.', keywords: ['bug', 'issue'], render: reportProblemCard },
+      { id: 'kofi', section: 'general', title: 'Buy me a coffee', description: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.', keywords: ['donate'], render: kofiCard },
     ];
   }
 
