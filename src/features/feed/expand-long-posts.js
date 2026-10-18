@@ -4,6 +4,9 @@
 // [data-ad-preview="message"], but posts with other layouts have the same shape outside it). That
 // shape finds it in any language. The script clicks it as it comes near the screen, once each,
 // so posts open as you scroll to them rather than all at once. Works in content mode.
+//
+// A button that comes near the screen while the switch is off or the script is paused is
+// looked at again once it's back on, and opens then if it's still cut off.
 
 import { whenBodyReady } from '../../core/env.js';
 
@@ -28,32 +31,46 @@ export function isSeeMore(button) {
 }
 
 export function createExpander({ doc, enabled, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
-  const seen = new WeakSet();
+  // Buttons waiting to come near the screen, and buttons already clicked. One that couldn't be
+  // opened when it came near leaves the first without joining the second, so the next look
+  // watches it again.
+  const watched = new Set();
+  const clicked = new WeakSet();
   let opened = 0;
   let timer = null;
   const Observer = doc.defaultView?.IntersectionObserver ?? globalThis.IntersectionObserver;
   const open = (button) => {
     if (!enabled() || !button.isConnected || !isSeeMore(button)) return;
+    clicked.add(button);
     opened++;
     button.click();
   };
   const near = Observer
     ? new Observer((entries) => {
       for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        near.unobserve(entry.target);
+        if (!entry.isIntersecting || !watched.has(entry.target)) continue;
+        stopWatching(entry.target);
         open(entry.target);
       }
     }, { rootMargin: NEAR })
     : null;
+  function stopWatching(button) {
+    near.unobserve(button);
+    watched.delete(button);
+  }
   const sync = () => {
     timer = null;
+    // A button taken off the page is let go. If Facebook puts it back, it's watched again.
+    for (const button of watched) if (!button.isConnected) stopWatching(button);
     if (!enabled()) return;
     for (const button of doc.querySelectorAll(CANDIDATES)) {
-      if (seen.has(button) || !isSeeMore(button)) continue;
-      seen.add(button);
-      if (near) near.observe(button);
-      else open(button);
+      if (watched.has(button) || clicked.has(button) || !isSeeMore(button)) continue;
+      if (!near) {
+        open(button);
+        continue;
+      }
+      watched.add(button);
+      near.observe(button);
     }
   };
   const schedule = () => {
