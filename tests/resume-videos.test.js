@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import resumeVideos, { DONE_WITHIN, POSITIONS_KEY, START_AFTER, STEP_BACK, clock, createResumer, videoId } from '../src/features/playback/resume-videos.js';
 
@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 function page(href = `${FB}/`, html = '') {
-  const win = new Window({ url: href });
+  const win = testWindow(href);
   windows.push(win);
   win.document.body.innerHTML = html;
   return win;

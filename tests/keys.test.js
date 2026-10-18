@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { keepKeysInPanel } from '../src/ui/keys.js';
 
 const windows = [];
@@ -11,7 +11,7 @@ afterEach(async () => {
 });
 
 test("a key aimed at the panel stops before the page's listeners; other keys go through", () => {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   keepKeysInPanel(win);
   // Facebook's shortcuts, added after the script's listener, as they are on a real page.

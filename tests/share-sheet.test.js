@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import shareSheet, { createShareSheetMarker, linkHost, MARK, markShareSheets, shareSheetCss, TARGETS, targetOf } from '../src/features/links/share-sheet.js';
 
 const contact = (name) => `<div role="listitem"><div role="button" aria-label="Send to ${name} via Messenger"><span>${name}</span></div></div>`;
@@ -39,7 +39,7 @@ const SHEET = (labels = {}) => `
   </div>`;
 
 function page(html) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   win.document.body.innerHTML = html;
   return win.document;
 }

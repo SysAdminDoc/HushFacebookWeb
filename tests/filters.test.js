@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
@@ -238,7 +238,7 @@ test('the captured Home page: a story goes by its author, its cursor stays, the 
 });
 
 function page(html, href = 'https://www.facebook.com/') {
-  const win = new Window({ url: href });
+  const win = testWindow(href);
   windows.push(win);
   win.document.body.innerHTML = `<div role="main"><div class="feed">${html}</div></div>`;
   return win;

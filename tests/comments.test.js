@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 import commentOrder, { createOrderDriver } from '../src/features/comments/comment-order.js';
 import { createOrderTitles, ORDERS } from '../src/features/comments/orders.js';
@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 function page(html, href = 'https://www.facebook.com/') {
-  const win = new Window({ url: href });
+  const win = testWindow(href);
   windows.push(win);
   win.document.body.innerHTML = html;
   return win;

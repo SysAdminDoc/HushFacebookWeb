@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import hideFollowButtons, { MARK, createFollowHider, labelName, markFollowButtons } from '../src/features/feed/hide-follow-buttons.js';
 import { features } from '../src/features/index.js';
 
@@ -14,7 +14,7 @@ afterEach(async () => {
 const dotted = (verb, label) => `<span dir="auto"><span><span>&nbsp;</span><span aria-hidden="true"> · </span></span><div aria-label="${label}" role="button" tabindex="0">${verb}</div></span>`;
 
 function page(body) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.body.innerHTML = body;
   return win;

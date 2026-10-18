@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { classifyCandidate, createPostTracker, postIdFromHrefs, postIdOf } from '../src/core/dom/posts.js';
 
 const windows = [];
@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 function page(html) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.body.innerHTML = html;
   return win;
@@ -68,7 +68,7 @@ test('a permalink post that holds comments is still a post', () => {
 // none of its own links carry comment_id, and its comments sit inside it as role=article. So the
 // post is never taken for a comment, and the comments are left to it.
 test('a post opened from a link to one of its comments is still a post', () => {
-  const win = new Window({ url: 'https://www.facebook.com/NASA/posts/pfbid0Post7?comment_id=Y29tbWVudDox' });
+  const win = testWindow('https://www.facebook.com/NASA/posts/pfbid0Post7?comment_id=Y29tbWVudDox');
   windows.push(win);
   win.document.body.innerHTML = `<div role="dialog">${post(7)
     .replace('</div>\n', '</div><div role="article" aria-label="Comment by Sam"><a href="/NASA/posts/pfbid0Post7?comment_id=999">5m</a>Nice</div>\n')}</div>`;

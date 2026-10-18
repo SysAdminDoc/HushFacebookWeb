@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import stopStoryAdvance, { END_MARGIN, asksToPlay, createStoryHold, inStoryViewer } from '../src/features/stories/stop-advance.js';
 
 const STORY = 'https://www.facebook.com/stories/100000000000001/UzpfSVNDOjE1NzUzNTE3ODcyMTk0NDg=/';
@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 function page(href = STORY) {
-  const win = new Window({ url: href });
+  const win = testWindow(href);
   windows.push(win);
   return win;
 }

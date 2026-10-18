@@ -102,6 +102,8 @@ npm run build
 
 Then install `dist/hushfacebook-web.user.js` in Violentmonkey or Tampermonkey and try the feature on facebook.com. Note what you checked in the pull request.
 
+A test that needs a page gets it from `testWindow(url)` in `tests/helpers/dom.js`, never from `new Window()`. Those pages load no stylesheets, iframes, images or scripts, a change of address doesn't navigate, and every fetch or XHR gets an error answer, so a fixture full of facebook.com addresses never reaches the network. `tests/dom-isolation.test.js` checks that against a local server, and it fails when a test file makes its own Window. If a test really needs a request to go out, pass happy-dom's setting for it as the second argument, like `testWindow(url, { fetch: { interceptor: null } })`, and say why in a comment next to it. This keeps the tests to themselves. The script and the extension never run in happy-dom.
+
 The extension is the same bundle built with `__HFW_TARGET__` set to `extension`. In the page, `core/extension.js` stands in for the manager, and storage reads come from a copy in memory that fills from `chrome.storage` a few milliseconds after the page starts. Anything decided once as the page loads, like a redirect, goes through `settings.whenLoaded` so it sees the saved choices rather than the defaults. To try it, load `dist/extension` with Load unpacked. `dist/extension-firefox` holds the same files with Firefox's manifest (see `scripts/manifest.mjs`), which runs `background.js` as an event page because Firefox has no extension service workers. Load its `manifest.json` from `about:debugging` with Load Temporary Add-on.
 
 ## Releasing

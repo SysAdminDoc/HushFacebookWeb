@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import hideStoriesTray, { COMPOSER_MARK, COMPOSER_SELECTORS, composerBlock, TRAY_SELECTORS } from '../src/features/feed/hide-stories-tray.js';
 
 const windows = [];
@@ -26,7 +26,7 @@ const TOP = (feed = FEED) => `
   </div></div></div>`;
 
 function page(html, route = 'home') {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.documentElement.dataset.hfwRoute = route;
   win.document.body.innerHTML = html;

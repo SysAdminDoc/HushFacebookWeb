@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import hideNotificationKinds, { GROUPS, KIND_MARK, createKindMarker, groupOf, hideKindsCss, notifType, parseKinds, rowOf } from '../src/features/notifications/hide-kinds.js';
 
 const FB = 'https://www.facebook.com';
@@ -29,7 +29,7 @@ const PAGE = `
 </div></div>`;
 
 function page(html = PAGE) {
-  const win = new Window({ url: `${FB}/notifications/` });
+  const win = testWindow(`${FB}/notifications/`);
   windows.push(win);
   win.document.body.innerHTML = html;
   return win;

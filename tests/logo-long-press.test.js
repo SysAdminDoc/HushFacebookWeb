@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { installLogoLongPress } from '../src/ui/logo-long-press.js';
 
 const windows = [];
@@ -9,7 +9,7 @@ afterEach(async () => {
 });
 
 function page(markup = '<div role="banner"><a href="/" aria-label="Facebook"><svg><path></path></svg></a></div>') {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.body.innerHTML = markup;
   return { win, doc: win.document, logo: win.document.querySelector('a') };

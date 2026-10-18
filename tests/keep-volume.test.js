@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import keepVolume, { VOLUME_KEY, createVolumeKeeper, inPlayer, muteToggle, readVolume, volumeLabel, volumeSlider } from '../src/features/playback/keep-volume.js';
 
@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 function page() {
-  const win = new Window({ url: 'https://www.facebook.com/reel/1234567890' });
+  const win = testWindow('https://www.facebook.com/reel/1234567890');
   windows.push(win);
   win.document.body.innerHTML = '<div id="elsewhere"><div role="button" aria-label="Like">Like</div></div>';
   return win;

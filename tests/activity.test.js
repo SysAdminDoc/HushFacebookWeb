@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { ACCOUNT_CHANGED, ACTIVITY_KEYS, activityKeyFor, createActivityStorage, mergePositions, mergeSeen } from '../src/core/activity.js';
 import { CLEARED_KEY, createSeenStore, MAX_ENTRIES, SEEN_KEY } from '../src/core/seen-store.js';
 import { accountTag } from '../src/core/settings.js';
@@ -110,7 +110,7 @@ test('accounts A and B and signed out each keep their own lists and hear only th
 
 // A page shaped enough like Facebook's for the three playback keepers.
 function playbackPage() {
-  const win = new Window({ url: `${FB}/watch/?v=2234567890` });
+  const win = testWindow(`${FB}/watch/?v=2234567890`);
   windows.push(win);
   win.document.body.innerHTML = '<div class="player"><div><video class="feed"></video></div><div role="slider" aria-label="Change volume" aria-valuemax="1"></div></div>';
   return win;
@@ -251,7 +251,7 @@ test("what the page holds for A in memory never plays or hides anything for B", 
 });
 
 test('a page change or coming back to the tab notices the switch without any read or write', () => {
-  const win = new Window({ url: `${FB}/` });
+  const win = testWindow(`${FB}/`);
   windows.push(win);
   for (const way of ['page change', 'visible again']) {
     let signedIn = A;

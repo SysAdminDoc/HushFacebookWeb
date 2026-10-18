@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import hideCommentStickers, { MARK, createStickerHider, isCommentForm, markStickerButtons } from '../src/features/comments/hide-comment-stickers.js';
 
 const windows = [];
@@ -27,7 +27,7 @@ const commentBox = (label = 'Write a comment…') => `
 </div></div></form>`;
 
 function page(html) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.body.innerHTML = html;
   return win;

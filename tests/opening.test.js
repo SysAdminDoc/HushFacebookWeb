@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import followingFeed from '../src/features/opening/following-feed.js';
 import marketplaceOnly, { BOUNCE_MS, LOOP_MARK, MARKETPLACE_ONLY_CSS, STOP_MS, mayRedirect } from '../src/features/opening/marketplace-only.js';
 import openOnTab, { TABS, startPath } from '../src/features/opening/open-on-tab.js';
@@ -170,7 +170,7 @@ const TOP_BAR = `
 </div>`;
 
 test('the top bar keeps the logo and Marketplace, and the other tabs and Find friends go', () => {
-  const win = new Window({ url: `${FB}/marketplace/` });
+  const win = testWindow(`${FB}/marketplace/`);
   windows.push(win);
   win.document.body.innerHTML = TOP_BAR;
   const rule = MARKETPLACE_ONLY_CSS.split('\n').filter((line) => !line.startsWith('html[')).join('\n');
@@ -185,7 +185,7 @@ test('Marketplace only stops sending Home away when Marketplace keeps sending th
   const warnings = [];
   const loads = [];
   for (let i = 0; i < 6; i++) {
-    const happy = new Window({ url: `${FB}/` });
+    const happy = testWindow(`${FB}/`);
     windows.push(happy);
     const win = { ...fakeWin('/', { store }), document: happy.document };
     marketplaceOnly.setup({ win, router: null, enabled: () => true, log: { warn: (message) => warnings.push(message) } });
@@ -211,7 +211,7 @@ test('a slow loop still stops, and a Home visit long after the last send starts 
 });
 
 test('input made by a script does not hide a loop, and leaving Home takes the mark away', () => {
-  const happy = new Window({ url: `${FB}/marketplace/` });
+  const happy = testWindow(`${FB}/marketplace/`);
   windows.push(happy);
   const listeners = {};
   const win = {
@@ -243,7 +243,7 @@ test('a person using the page starts the bounce count over', () => {
   let sends = 0;
   for (let i = 0; i < 8; i++) {
     // A Marketplace page where the person clicks, then Home again.
-    const page = { ...fakeWin('/marketplace/', { store }), document: new Window({ url: `${FB}/marketplace/` }).document };
+    const page = { ...fakeWin('/marketplace/', { store }), document: testWindow(`${FB}/marketplace/`).document };
     windows.push(page.document.defaultView);
     const listeners = listenersOn(page);
     const router = { listeners: [], subscribe(fn) { this.listeners.push(fn); } };
@@ -256,7 +256,7 @@ test('a person using the page starts the bounce count over', () => {
 });
 
 test('Marketplace only stops following Facebook back to Home in a loop, and warns once', () => {
-  const happy = new Window({ url: `${FB}/marketplace/` });
+  const happy = testWindow(`${FB}/marketplace/`);
   windows.push(happy);
   const win = { ...fakeWin('/marketplace/'), document: happy.document };
   const router = { listeners: [], subscribe(fn) { this.listeners.push(fn); } };
@@ -275,7 +275,7 @@ test('without session storage, Marketplace only always goes', () => {
 
 test('a click on the logo or Home goes to Marketplace in the page, or by address without a Marketplace link', () => {
   const page = (html) => {
-    const happy = new Window({ url: `${FB}/marketplace/item/1/` });
+    const happy = testWindow(`${FB}/marketplace/item/1/`);
     windows.push(happy);
     happy.document.body.innerHTML = html;
     // Every click that reaches the document is cancelled, so happy-dom never follows a link,

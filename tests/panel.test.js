@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, mock, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { createActions } from '../src/core/actions.js';
 import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
@@ -40,7 +40,7 @@ function lendGlobals(win) {
 }
 
 function setup({ features = [], actions = null, unavailable = new Map(), storage = createMemoryStorage(), update, environment = {}, beforeMount, migrations } = {}) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
   const copied = [];

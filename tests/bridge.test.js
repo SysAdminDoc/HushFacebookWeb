@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import {
   BRIDGE_MAX_DOWNLOADS_PER_WINDOW,
   BRIDGE_MAX_MESSAGE_BYTES,
@@ -255,7 +255,7 @@ async function startIsolated(win, chrome) {
 // The isolated half picks the settings record from Facebook's c_user cookie, so an account the
 // page script names has to be the one signed in.
 function page(account, url = 'https://www.facebook.com/') {
-  const win = new Window({ url });
+  const win = testWindow(url);
   if (account) win.document.cookie = `c_user=${account}; path=/`;
   cleanups.push(() => win.happyDOM.close());
   return win;

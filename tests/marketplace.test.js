@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import sellerProfileLink, { LABEL, MARK, MAX_ADDS, addProfileLink, createSellerLinks, isListing, nameLinks, sellerId } from '../src/features/marketplace/seller-profile.js';
 
 const FB = 'https://www.facebook.com';
@@ -25,7 +25,7 @@ const sellerBox = (id = '100000000000001', name = 'Pat Example') => `
 </div>`;
 
 function page(html = sellerBox(), href = LISTING) {
-  const win = new Window({ url: href });
+  const win = testWindow(href);
   windows.push(win);
   win.document.body.innerHTML = html;
   return win;

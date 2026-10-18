@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { fixtureLines } from './helpers/fixtures.js';
 import { readAdSignals } from '../src/features/feed/sponsored-dom.js';
 
@@ -20,7 +20,7 @@ const rectOf = (element) => {
 
 // One post on a page of its own. With layout, each element reports the box it had live.
 async function read(html, { layout, change } = {}) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   try {
     if (layout) {
       win.Element.prototype.getBoundingClientRect = function () {

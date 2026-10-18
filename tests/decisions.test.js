@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { createDiagnostics, DECISIONS, decisionLine, postTag } from '../src/core/diagnostics.js';
 import { createHider } from '../src/core/dom/hide.js';
 import { adRule } from '../src/features/feed/ad-markers.js';
@@ -46,7 +46,7 @@ test('only the last 50 decisions are kept, oldest first, each telling listeners'
 });
 
 test('the hider reports each new reason on a post once, with its signal or detail', () => {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.body.innerHTML = '<div aria-posinset="1"><div><a href="/a/posts/111">1h</a>Post</div></div>';
   const post = win.document.querySelector('[aria-posinset]');

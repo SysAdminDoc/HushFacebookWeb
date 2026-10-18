@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import keepSpeed, { HOLDING, SPEED_KEY, createSpeedKeeper, speedLabel } from '../src/features/playback/keep-speed.js';
 import holdForSpeed, { FAST, HOLD_MS, createHold, reelAt } from '../src/features/playback/hold-for-speed.js';
@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 function page(href = `${FB}/watch/?v=1234567890`, html = '') {
-  const win = new Window({ url: href });
+  const win = testWindow(href);
   windows.push(win);
   win.document.body.innerHTML = html;
   return win;

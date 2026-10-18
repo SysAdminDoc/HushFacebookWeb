@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import hideTabs, { tabsCss } from '../src/features/appearance/hide-tabs.js';
 import hideTabBadges, { BADGE_MARK, badgeBox, cleanTitle, createBadgeHider, markBadges } from '../src/features/appearance/hide-tab-badges.js';
 import hideMenuPromotions, { promotionsCss } from '../src/features/menu/hide-menu-promotions.js';
@@ -69,7 +69,7 @@ const HOME = `
 </div>`;
 
 function page(html = HOME) {
-  const win = new Window({ url: `${FB}/` });
+  const win = testWindow(`${FB}/`);
   windows.push(win);
   win.document.body.innerHTML = html;
   return win;

@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 import keepPostDates, { DATE_MARK, MARKERS, RELATIVE_FOR, createTimeBook, formatTime, indexTimes, showDate, shownAsRelative, timeLinkOf } from '../src/features/feed/post-dates.js';
 import { storyKeys } from '../src/core/seen-keys.js';
@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 function page(html) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.documentElement.lang = 'en';
   win.document.body.innerHTML = html;

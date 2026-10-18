@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import expandLongPosts, { createExpander, isSeeMore } from '../src/features/feed/expand-long-posts.js';
 import { features } from '../src/features/index.js';
 
@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 function page(body) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.body.innerHTML = body;
   return win;

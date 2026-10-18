@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import menuEntry, { LABEL, ROW_MARK, accountMenuList, addRow, buildRow, closeMenu, createMenuEntry } from '../src/features/menu/menu-entry.js';
 
 const windows = [];
@@ -48,7 +48,7 @@ const BANNER = `
 const FACEBOOK_MENU = `<div role="dialog" aria-label="Menu"><div role="list">${row('Events')}${row('Memories')}</div></div>`;
 
 function page(body = BANNER) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.body.innerHTML = body;
   return { win, doc: win.document };

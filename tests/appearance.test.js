@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import forceDarkMode, { createDarkKeeper, DARK, LIGHT } from '../src/features/appearance/force-dark.js';
 import amoledTheme, { AMOLED_VARS } from '../src/features/appearance/amoled.js';
 import accentColor, { accentCss, ACCENTS, chosenColor, FILTERS_MARK, palette, parseHex, toHex, toHsl } from '../src/features/appearance/accent.js';
@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 function page(html = '', htmlClass = `_9dls ${LIGHT}`) {
-  const win = new Window({ url: 'https://www.facebook.com/' });
+  const win = testWindow('https://www.facebook.com/');
   windows.push(win);
   win.document.documentElement.className = htmlClass;
   win.document.body.innerHTML = html;

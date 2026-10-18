@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import { createActions } from '../src/core/actions.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
@@ -153,7 +153,7 @@ test('media ids come from photo, reel, video and watch links, never from a post 
 const TEXT = 'Sunset over the jetty tonight, the water was so calm';
 
 function page(html, href = 'https://www.facebook.com/') {
-  const win = new Window({ url: href });
+  const win = testWindow(href);
   windows.push(win);
   win.document.body.innerHTML = `<div role="main"><div class="feed">${html}</div></div>`;
   return win;

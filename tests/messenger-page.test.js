@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import messengerPage, { MESSAGES_PATH, messengerTarget } from '../src/features/opening/messenger-page.js';
 
 // The account controls as captured, with Facebook's own click handler on the root standing in
@@ -21,7 +21,7 @@ const TOP_BAR = `
   </div>`;
 
 function page(on = true) {
-  const window = new Window({ url: 'https://www.facebook.com/' });
+  const window = testWindow('https://www.facebook.com/');
   const doc = window.document;
   doc.body.innerHTML = TOP_BAR;
   const opened = [];

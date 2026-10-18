@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Window } from 'happy-dom';
+import { testWindow } from './helpers/dom.js';
 import cleanUpReels, { CLEAN_REELS_CSS, createReelCleaner, MARK, markReels } from '../src/features/reels/clean-up-reels.js';
 
 const REEL = (follow = 'Follow Pat Example Page') => `
@@ -29,7 +29,7 @@ const REEL = (follow = 'Follow Pat Example Page') => `
 const styleOf = (element) => ({ position: element.style?.position ?? '' });
 
 function page(html) {
-  const win = new Window({ url: 'https://www.facebook.com/reel/1' });
+  const win = testWindow('https://www.facebook.com/reel/1');
   win.document.body.innerHTML = html;
   return win.document;
 }
