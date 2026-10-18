@@ -29,6 +29,17 @@ export function claimHomeRedirect(win, id) {
 
 export const homeRedirectClaim = (win) => win[CLAIM] ?? null;
 
+// The link a click opens in this tab, or null when the click asks for something else: another
+// button or a modifier key (a new tab or window, a download), a target other than _self, or a
+// download link. Only a click like that may be sent somewhere other than where the link goes.
+export function sameTabLink(event) {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return null;
+  const anchor = event.composedPath().find((node) => node?.tagName === 'A' && node.hasAttribute?.('href'));
+  if (!anchor || anchor.hasAttribute('download')) return null;
+  const target = anchor.getAttribute('target')?.trim().toLowerCase();
+  return !target || target === '_self' ? anchor : null;
+}
+
 // Whether this page is the first Facebook page in the browser tab, opened fresh rather than by
 // a reload or Back. The answer is the same for every feature that asks during one page load,
 // and the next load in the tab is never a start. A tab Facebook opened from one of its own

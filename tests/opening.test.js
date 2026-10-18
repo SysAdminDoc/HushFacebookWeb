@@ -276,6 +276,60 @@ test('without session storage, Marketplace only always goes', () => {
   for (let i = 0; i < 6; i++) assert.equal(mayRedirect(win), true);
 });
 
+test('only a plain click on Home, in this tab, is sent on, by Marketplace only and by Following feed', () => {
+  const cases = [
+    ['no target', {}, {}, true],
+    ['_self', { target: '_self' }, {}, true],
+    ['_self written loosely', { target: ' _Self ' }, {}, true],
+    ['an empty target', { target: '' }, {}, true],
+    ['_blank', { target: '_blank' }, {}, false],
+    ['a named window', { target: 'fbHelp' }, {}, false],
+    ['_top', { target: '_top' }, {}, false],
+    ['a download', { download: '' }, {}, false],
+    ['a download in this tab', { download: 'home.html', target: '_self' }, {}, false],
+    ['Ctrl', {}, { ctrlKey: true }, false],
+    ['Cmd', {}, { metaKey: true }, false],
+    ['Shift', {}, { shiftKey: true }, false],
+    ['Alt', {}, { altKey: true }, false],
+    ['Shift on a _self link', { target: '_self' }, { shiftKey: true }, false],
+    ['the middle button', {}, { button: 1 }, false],
+  ];
+  for (const [feature, goes] of [[marketplaceOnly, '/marketplace/'], [followingFeed, '/?filter=all&sk=h_chr']]) {
+    const happy = testWindow(`${FB}/groups/feed/`);
+    windows.push(happy);
+    happy.document.body.innerHTML = '<div role="banner"><a aria-label="Home" href="/"></a></div>';
+    // Clicks are cancelled at the document so happy-dom never follows a link.
+    let prevented;
+    happy.document.addEventListener('click', (event) => {
+      prevented = event.defaultPrevented;
+      event.preventDefault();
+    });
+    const sent = [];
+    const win = {
+      ...fakeWin('/groups/feed/'),
+      document: happy.document,
+      location: { href: happy.location.href, replace: (to) => sent.push(to), assign: (to) => sent.push(to) },
+      addEventListener: (...args) => happy.addEventListener(...args),
+    };
+    feature.setup({ win, router: null, enabled: () => true, option: () => 'all', log: { info() {}, warn() {} } });
+    const home = happy.document.querySelector('a');
+    for (const [name, attributes, init, sendsOn] of cases) {
+      for (const attribute of ['target', 'download']) home.removeAttribute(attribute);
+      for (const [attribute, value] of Object.entries(attributes)) home.setAttribute(attribute, value);
+      prevented = null;
+      home.dispatchEvent(new happy.MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ...init }));
+      const label = `${feature.id}: ${name}`;
+      if (sendsOn) {
+        assert.equal(prevented, null, `${label} stops at the script`);
+        assert.deepEqual(sent.splice(0), [goes], label);
+      } else {
+        assert.equal(prevented, false, `${label} reaches the page as it was`);
+        assert.deepEqual(sent.splice(0), [], label);
+      }
+    }
+  }
+});
+
 // A loaded page with the opening features started the way main.js starts them, on the real
 // settings store. remote() is another tab saving its settings.
 // late holds the saved settings back until arrive(), as the extension's storage does.

@@ -12,7 +12,7 @@
 
 import { parseRoute } from '../../core/route.js';
 import { FIND_FRIENDS, HOSTS, TAB_ROWS, hide, place } from '../appearance/declutter-table.js';
-import { claimHomeRedirect, onceLoaded } from './start.js';
+import { claimHomeRedirect, onceLoaded, sameTabLink } from './start.js';
 
 export const MARKETPLACE = '/marketplace/';
 const MARKETPLACE_LINKS = ['[role="banner"] a[href="/marketplace/"]', ...HOSTS.map((host) => `[role="navigation"] a[href^="${host}/marketplace/"]`)].join(', ');
@@ -142,11 +142,9 @@ export default {
     // Before Following feed's own Home click handler, which it keeps from running. A link meant
     // for a new tab or window opens there, and that page's own load goes to Marketplace.
     win.addEventListener('click', (event) => {
-      if (!enabled() || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      const anchor = event.composedPath().find((node) => node?.tagName === 'A' && node.hasAttribute?.('href'));
+      if (!enabled()) return;
+      const anchor = sameTabLink(event);
       if (!anchor || !isHome(anchor.href)) return;
-      const target = anchor.getAttribute('target');
-      if ((target && target !== '_self') || anchor.hasAttribute('download')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       goToMarketplace(win);

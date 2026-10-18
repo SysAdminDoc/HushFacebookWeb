@@ -5,7 +5,7 @@
 // Confidence: ?sk=h_chr and the filter= values were documented working in 2025-02. They
 // need a check on today's Facebook.
 
-import { claimHomeRedirect, isPlainHome, onceLoaded } from './start.js';
+import { claimHomeRedirect, isPlainHome, onceLoaded, sameTabLink } from './start.js';
 
 export { isPlainHome };
 
@@ -57,11 +57,12 @@ export default {
       else win.location.replace(target());
     });
 
+    // A Home link meant for a new tab, a named window or a download is left to do that.
     win.addEventListener(
       'click',
       (event) => {
-        if (!enabled() || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-        const anchor = event.composedPath().find((node) => node?.tagName === 'A' && node.hasAttribute?.('href'));
+        if (!enabled()) return;
+        const anchor = sameTabLink(event);
         if (!anchor || !isPlainHome(anchor.href)) return;
         event.preventDefault();
         event.stopImmediatePropagation();
