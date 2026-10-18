@@ -1017,6 +1017,9 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
         else next[key] = value;
         applied.push(key);
       }
+      // A complete backup replaces every choice, so one with nothing this version can use would
+      // put them all back to their defaults.
+      if (applied.length === 0 && skipped.length > 0) throw new TypeError('None of the settings in that file work in this version, so nothing changed');
       const saved = wrapped ? queueReplace(sanitize(next)) : queuePatch(sanitize(next), applied);
       const result = { applied, skipped };
       return isPromise(saved) ? saved.then(() => result) : result;

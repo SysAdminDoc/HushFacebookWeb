@@ -24,7 +24,7 @@ import {
 import { activityKeyFor } from '../src/core/activity.js';
 import { createSettings, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
-import { applyObjectMutation } from '../src/core/storage.js';
+import { applyObjectMutation, createGmStorage } from '../src/core/storage.js';
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 const deferred = () => {
@@ -2205,6 +2205,57 @@ test('a first-seen account rereads shared settings through the worker without mi
   const copy = chrome.sent.find((message) => message.type === 'storage:migrate' && message.key === accountKey);
   assert.deepEqual(copy.receipt, []);
   assert.equal(copy.sourceKey, 'settings');
+});
+
+test("a userscript backup restores into the extension's record for that account, seen posts and video speed stay behind, and one this version can't use changes nothing", async () => {
+  const account = '615000000000031';
+  const features = [
+    { id: 'hideSponsoredPosts', title: 'Feed ads', default: true },
+    { id: 'keepSpeed', title: 'Keep speed', default: false },
+  ];
+  // The userscript, on its manager's storage.
+  const gm = new Map();
+  Object.assign(globalThis, {
+    GM_getValue: (key, fallback) => (gm.has(key) ? structuredClone(gm.get(key)) : fallback),
+    GM_setValue: (key, value) => gm.set(key, structuredClone(value)),
+    GM_deleteValue: (key) => gm.delete(key),
+  });
+  let backup;
+  try {
+    const manager = createGmStorage();
+    assert.equal(manager.kind, 'gm');
+    const userscript = createSettings({ storage: manager, features, account, migrations: [] });
+    userscript.set('hideSponsoredPosts', false);
+    userscript.set('keepSpeed', true);
+    manager.set(activityKeyFor('keepSpeed.rate', account), 1.5);
+    manager.set(activityKeyFor(SEEN_KEY, account), { post: Date.now() });
+    backup = userscript.exportJson();
+  } finally {
+    for (const name of ['GM_getValue', 'GM_setValue', 'GM_deleteValue']) delete globalThis[name];
+  }
+  assert.deepEqual(gm.get(storageKeyFor(account)), { hideSponsoredPosts: false, keepSpeed: true });
+  assert.equal(backup.includes('keepSpeed.rate') || backup.includes(SEEN_KEY), false, 'a backup holds settings, not activity');
+
+  const win = page(account);
+  const chrome = fakeChrome({});
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  const extension = createSettings({ storage, features, account, migrations: [] });
+  await settle();
+  const { applied, skipped } = await extension.importJson(backup);
+  assert.deepEqual([...applied].sort(), ['hideSponsoredPosts', 'keepSpeed']);
+  assert.equal(skipped.length, 0);
+  assert.deepEqual({ ...chrome.data[storageKeyFor(account)] }, { hideSponsoredPosts: false, keepSpeed: true });
+  assert.equal(extension.get('keepSpeed'), true);
+  assert.deepEqual(Object.keys(chrome.data).filter((key) => key.startsWith('keepSpeed.rate') || key.startsWith(SEEN_KEY)), []);
+
+  const saved = structuredClone(chrome.data);
+  const exported = extension.exportJson(new Date('2026-10-18T00:00:00Z'));
+  const future = JSON.stringify({ app: 'HushFacebook Web', schema: 1, version: '9.0.0', settings: { somethingNew: true } });
+  assert.throws(() => extension.importJson(future), /nothing changed/);
+  await settle();
+  assert.deepEqual(structuredClone(chrome.data), saved);
+  assert.equal(extension.exportJson(new Date('2026-10-18T00:00:00Z')), exported, 'a backup made now is the same as before');
 });
 
 // A page script that learned the event names: it says hello first and sends whatever it likes.

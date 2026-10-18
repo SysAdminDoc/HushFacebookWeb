@@ -487,7 +487,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function backupCard() {
     return h('div', { class: 'card', dataset: { key: 'backup-restore' } },
         h('div', { class: 'title', text: 'Back up and restore' }),
-        h('div', { class: 'desc', text: 'Save your choices to a file, or load them from one on another browser.' }),
+        h('div', { class: 'desc', text: 'Save your choices to a file and load them in another browser, or move them between the userscript and the extension. Seen posts, video spots, speed and volume stay behind.' }),
         h('div', { class: 'actions' },
           h('button', { class: 'button primary', type: 'button', text: 'Back up settings', dataset: { key: 'backup' }, disabled: quickSetupPending(), onclick: exportSettings }),
           actionButton('restore', 'Restore from a file', () => fileInput.click(), { busyLabel: 'Restoring...' }),

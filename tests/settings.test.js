@@ -786,17 +786,24 @@ test('canceling one field of a rejected replacement keeps it in the retried reco
 });
 
 test('backup envelopes reject foreign apps and unsupported schemas without changing preferences', () => {
-  const { settings } = make({ beta: true });
+  const { settings, storage } = make({ beta: true });
+  const before = settings.exportJson(new Date('2026-10-18T00:00:00Z'));
   for (const value of [
     { app: 'Another app', schema: 1, settings: { beta: false } },
     { app: 'HushFacebook Web', schema: 2, settings: { beta: false } },
     { app: 'HushFacebook Web', schema: 1, settings: [] },
     { settings: { beta: false } },
     { app: 'HushFacebook Web', schema: 1 },
+    // Nothing in it this version knows, which would otherwise put every choice back to default.
+    { app: 'HushFacebook Web', schema: 1, version: '9.0.0', settings: { zeta: true, 'beta.order': 'sideways' } },
   ]) {
     assert.throws(() => settings.importJson(JSON.stringify(value)), TypeError);
     assert.deepEqual(settings.snapshot(), { beta: true });
+    assert.deepEqual(storage.get('settings'), { beta: true });
+    assert.equal(settings.exportJson(new Date('2026-10-18T00:00:00Z')), before, 'a backup made now is the same as before');
   }
+  assert.throws(() => settings.importJson('{"zeta":true}'), /nothing changed/);
+  assert.deepEqual(settings.importJson('{}'), { applied: [], skipped: [] }, 'an empty partial import changes nothing and says so');
 });
 
 test('direct imports reject oversized UTF-8 text before parsing', () => {
