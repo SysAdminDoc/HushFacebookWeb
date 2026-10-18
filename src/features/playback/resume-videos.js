@@ -7,6 +7,11 @@
 // A spot is only kept for a video that has played with sound, so a feed video playing muted
 // on its own while you scroll past doesn't leave one behind. Going back to the first half
 // minute of a video you were watching forgets its spot, since you started it over.
+//
+// Tracking can reach a video already under way: the switch turned on (or Pause turned off)
+// partway through, a shorter length picked, or a feed video named only once its post link
+// showed up. Its next moment of playback starts tracking. Within its first few seconds it still
+// jumps to its spot. Further in, it's kept from where it is and never sent to an older spot.
 
 import { pageTarget, videoTarget } from '../downloads/find.js';
 
@@ -18,6 +23,7 @@ export const START_AFTER = 30; // seconds; before this there's nothing worth pic
 export const DONE_WITHIN = 20; // seconds from the end counts as watched
 export const STEP_BACK = 3; // seconds played again before the spot, to find your place
 const SAME_LENGTH = 2; // seconds of difference allowed between two loads of one video
+export const JOIN_WITHIN = 5; // seconds in when tracking starts late that still count as the start
 
 const isVideo = (node) => node?.tagName === 'VIDEO';
 
@@ -39,7 +45,7 @@ export function clock(seconds) {
 }
 
 export function createResumer({ doc, storage, enabled, minSeconds, href = () => doc.location.href, now = () => Date.now(), onResume }) {
-  const tracked = new WeakMap(); // video -> { id, resumed, saved, done }
+  const tracked = new WeakMap(); // video -> { id, joined, heard, saved, done, cleared }
   let resumes = 0;
 
   const kept = () => storage.get(POSITIONS_KEY, {}) ?? {};
@@ -64,7 +70,7 @@ export function createResumer({ doc, storage, enabled, minSeconds, href = () => 
     const id = videoId(video, href());
     let found = tracked.get(video);
     if (!found || found.id !== id) {
-      found = { id, resumed: false, heard: false, saved: Number.NEGATIVE_INFINITY, done: false, cleared: false };
+      found = { id, joined: false, heard: false, saved: Number.NEGATIVE_INFINITY, done: false, cleared: false };
       tracked.set(video, found);
     }
     return found;
@@ -74,24 +80,35 @@ export function createResumer({ doc, storage, enabled, minSeconds, href = () => 
   const watching = (event) => isVideo(event.target) && enabled() && long(event.target);
   const audible = (video) => !video.muted && video.volume > 0;
 
-  function onPlaying(event) {
-    if (!watching(event)) return;
-    const video = event.target;
-    const found = entry(video);
-    if (!found.id || found.resumed) return;
-    found.resumed = true;
+  // The first time tracking reaches a video this load, usually as it starts playing. Near its
+  // start it jumps to the video's spot, which is always forward since spots are past the first
+  // half minute. Further in, the video was already being watched, so it stays where it is.
+  function join(video, found) {
+    found.joined = true;
+    if (video.currentTime > JOIN_WITHIN) return;
     const spot = kept()[found.id];
     if (!spot || Math.abs(spot.d - video.duration) > SAME_LENGTH) return;
-    if (spot.t < START_AFTER || spot.t > video.duration - DONE_WITHIN || video.currentTime >= spot.t) return;
+    if (spot.t < START_AFTER || spot.t > video.duration - DONE_WITHIN) return;
     // Never back into the first half minute, which would read as starting over.
     video.currentTime = Math.max(START_AFTER, spot.t - STEP_BACK);
     resumes++;
     onResume?.(spot.t);
   }
 
+  function onPlaying(event) {
+    if (!watching(event)) return;
+    const found = entry(event.target);
+    if (found.id && !found.joined) join(event.target, found);
+  }
+
   function remember(video, force) {
     const found = entry(video);
-    if (!found.id || !found.resumed) return;
+    if (!found.id) return;
+    if (!found.joined) {
+      // A timeupdate while paused is a seek, and a pause is no sign of watching either.
+      if (video.paused) return;
+      join(video, found);
+    }
     if (!found.heard) {
       if (!audible(video)) return;
       found.heard = true;

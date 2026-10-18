@@ -4,8 +4,10 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
+import { createSettings } from '../src/core/settings.js';
+import { startFeatures } from '../src/core/start-features.js';
 import { createMemoryStorage } from '../src/core/storage.js';
-import resumeVideos, { DONE_WITHIN, POSITIONS_KEY, START_AFTER, STEP_BACK, clock, createResumer, videoId } from '../src/features/playback/resume-videos.js';
+import resumeVideos, { DONE_WITHIN, JOIN_WITHIN, POSITIONS_KEY, START_AFTER, STEP_BACK, clock, createResumer, videoId } from '../src/features/playback/resume-videos.js';
 
 const FB = 'https://www.facebook.com';
 const windows = [];
@@ -27,17 +29,19 @@ function longVideo(win, parent, { duration = 1800 } = {}) {
   const video = win.document.createElement('video');
   let time = 0;
   let length = duration;
+  let stopped = true;
   Object.defineProperties(video, {
     duration: { get: () => length, configurable: true },
     currentTime: { get: () => time, set: (value) => { time = value; }, configurable: true },
+    paused: { get: () => stopped, configurable: true },
   });
   (parent ?? win.document.body).append(video);
   const fire = (type) => video.dispatchEvent(new win.Event(type));
   return {
     video,
-    play() { fire('playing'); },
+    play() { stopped = false; fire('playing'); },
     at(seconds) { time = seconds; fire('timeupdate'); },
-    pause() { fire('pause'); },
+    pause() { stopped = true; fire('pause'); },
     load(newLength) { length = newLength; time = 0; },
   };
 }
@@ -237,6 +241,135 @@ test('a video element reused for another video follows the new one', () => {
   video.play();
   assert.equal(video.video.currentTime, 600 - STEP_BACK);
   assert.deepEqual(Object.keys(storage.get(POSITIONS_KEY)).sort(), ['2234567890', '3334567890']);
+});
+
+// Settings and the feature started the way main.js starts them, so the switch, Pause and the
+// length come from the real settings store.
+function startLikeMain(win, positions, settings) {
+  startFeatures({
+    features: [resumeVideos], settings, log: { error() {} }, unavailable: new Map(),
+    context: () => ({ win, doc: win.document, storage: positions, toast() {} }),
+  });
+}
+
+const freshSettings = () => createSettings({ storage: createMemoryStorage(), features: [resumeVideos], migrations: [] });
+
+test('switched on partway through a video, the rest of it is kept from there and picked up after a reload', async () => {
+  const positions = createMemoryStorage({ [POSITIONS_KEY]: {
+    2234567890: { t: 600, d: 1800, at: 1 }, 3234567890: { t: 600, d: 1800, at: 1 }, 4234567890: { t: 900, d: 1800, at: 1 },
+  } });
+  const settings = freshSettings();
+  const win = page(`${FB}/`, POST('2234567890') + POST('3234567890') + POST('4234567890'));
+  startLikeMain(win, positions, settings);
+  const [playing, stopped, starting] = [...win.document.querySelectorAll('.player')].map((player) => longVideo(win, player));
+  playing.play();
+  playing.at(100);
+  stopped.play();
+  stopped.at(120);
+  stopped.pause();
+  starting.play();
+  starting.at(1);
+
+  await settings.set('resumeVideos', true);
+  assert.equal(settings.enabled('resumeVideos'), true);
+  playing.at(150);
+  assert.equal(playing.video.currentTime, 150, 'not sent forward to the old spot');
+  assert.equal(positions.get(POSITIONS_KEY)['2234567890'].t, 150);
+  playing.at(203.4);
+  playing.pause();
+  assert.equal(positions.get(POSITIONS_KEY)['2234567890'].t, 203);
+  stopped.at(130);
+  assert.equal(positions.get(POSITIONS_KEY)['3234567890'].t, 600, 'a seek while paused is not watching');
+  stopped.play();
+  assert.equal(stopped.video.currentTime, 130, 'playing on from a pause stays put');
+  stopped.at(140);
+  assert.equal(positions.get(POSITIONS_KEY)['3234567890'].t, 140);
+  starting.at(JOIN_WITHIN - 1);
+  assert.equal(starting.video.currentTime, 900 - STEP_BACK, 'still at its start, it picks up its spot');
+
+  const again = page(`${FB}/watch/?v=2234567890`);
+  startLikeMain(again, positions, settings);
+  const reloaded = longVideo(again);
+  reloaded.play();
+  assert.equal(reloaded.video.currentTime, 203 - STEP_BACK);
+});
+
+test('turning Pause off or picking a shorter length partway through counts the same as switching it on', async () => {
+  for (const [name, before, change] of [
+    ['Pause off', { resumeVideos: true, paused: true }, ['paused', false]],
+    ['a shorter length', { resumeVideos: true, 'resumeVideos.minutes': 20 }, ['resumeVideos.minutes', 5]],
+  ]) {
+    const positions = createMemoryStorage({ [POSITIONS_KEY]: { 2234567890: { t: 600, d: 900, at: 1 } } });
+    const settings = freshSettings();
+    await settings.setMany(before);
+    const win = page(`${FB}/watch/?v=2234567890`);
+    startLikeMain(win, positions, settings);
+    const video = longVideo(win, null, { duration: 900 });
+    video.play();
+    video.at(120);
+    assert.equal(positions.get(POSITIONS_KEY)['2234567890'].t, 600, `${name}: nothing kept before`);
+    await settings.set(...change);
+    video.at(125);
+    assert.equal(video.video.currentTime, 125, name);
+    assert.equal(positions.get(POSITIONS_KEY)['2234567890'].t, 125, name);
+  }
+});
+
+test('a feed video named only once it is playing is kept from there, and near its start still picks up its spot', () => {
+  const storage = createMemoryStorage({ [POSITIONS_KEY]: { 2234567890: { t: 600, d: 1800, at: 1 }, 3234567890: { t: 900, d: 1800, at: 1 } } });
+  const win = page(`${FB}/`, '<div aria-posinset="1"><div class="player"></div></div><div aria-posinset="2"><div class="player"></div></div>');
+  const { keeper, resumed } = resumer(win, storage);
+  const posts = [...win.document.querySelectorAll('[aria-posinset]')];
+  const [early, late] = [...win.document.querySelectorAll('.player')].map((player) => longVideo(win, player));
+  early.play();
+  early.at(1);
+  late.play();
+  late.at(100);
+  assert.deepEqual(resumed, [], 'nothing to go on before the links');
+
+  const link = (id) => Object.assign(win.document.createElement('a'), { href: `${FB}/examplepage/videos/${id}/`, textContent: '3h' });
+  posts[0].prepend(link('2234567890'));
+  posts[1].prepend(link('3234567890'));
+  early.at(2);
+  assert.equal(early.video.currentTime, 600 - STEP_BACK);
+  late.at(101);
+  assert.equal(late.video.currentTime, 101, 'an older spot never takes over a video being watched');
+  assert.equal(storage.get(POSITIONS_KEY)['3234567890'].t, 101);
+  late.at(140);
+  assert.equal(storage.get(POSITIONS_KEY)['3234567890'].t, 140);
+  assert.deepEqual(resumed, [600]);
+  assert.equal(keeper.resumes(), 1);
+});
+
+test('reels, stories, short videos and muted ones are still left alone when tracking starts late', async () => {
+  const before = { 2234567890: { t: 600, d: 1800, at: 1 }, 3234567890: { t: 600, d: 1800, at: 1 } };
+  const positions = createMemoryStorage({ [POSITIONS_KEY]: before });
+  const settings = freshSettings();
+  const started = (href, { duration, muted = false, at = 1 } = {}) => {
+    const win = page(href);
+    startLikeMain(win, positions, settings);
+    const video = longVideo(win, null, { duration });
+    video.video.muted = muted;
+    video.play();
+    video.at(at);
+    return video;
+  };
+  const left = [
+    started(`${FB}/reel/2234567890`),
+    started(`${FB}/stories/1/UzpfSVNDOjE=/`),
+    started(`${FB}/watch/?v=2234567890`, { duration: 200 }),
+  ];
+  // A muted feed video playing on its own, well into it.
+  const quiet = started(`${FB}/watch/?v=3234567890`, { muted: true, at: 100 });
+  await settings.set('resumeVideos', true);
+  for (const video of left) video.at(3);
+  assert.deepEqual(left.map((video) => video.video.currentTime), [3, 3, 3]);
+  for (const video of [...left, quiet]) {
+    video.at(150);
+    video.pause();
+  }
+  assert.equal(quiet.video.currentTime, 150);
+  assert.deepEqual(positions.get(POSITIONS_KEY), before);
 });
 
 test('only the 200 most recent spots are kept', () => {
