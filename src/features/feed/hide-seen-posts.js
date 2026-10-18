@@ -128,8 +128,9 @@ export default {
     });
 
     let watcher = null;
+    let seenWatch = null;
     if (posts && win) {
-      watchSeen({
+      seenWatch = watchSeen({
         posts,
         win,
         active: () => enabled() && FILTERED.routes(route()),
@@ -165,6 +166,8 @@ export default {
     // Coming back to Home from another page counts what you saw since as seen.
     let inFeed = FILTERED.routes(route());
     router?.subscribe?.((current) => {
+      // Leaving Home counts the posts that already had their second, and nothing after.
+      seenWatch?.update();
       const inside = FILTERED.routes(current);
       if (inside && !inFeed) {
         refresh();
@@ -194,6 +197,7 @@ export default {
     const state = () => JSON.stringify([enabled(), days()]);
     let last = state();
     settings?.subscribe(() => {
+      seenWatch?.update();
       const next = state();
       if (next === last) return;
       last = next;

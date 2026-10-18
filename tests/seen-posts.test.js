@@ -305,6 +305,98 @@ test('a post counts as seen after a second on screen, when it leaves or the page
   assert.deepEqual(seen, ['a', 'd', 'b']);
 });
 
+// A window whose tab can go to the background and back.
+function tabWin(clock) {
+  const win = fakeWin(clock);
+  const listeners = [];
+  win.document = {
+    visibilityState: 'visible',
+    addEventListener: (type, fn) => type === 'visibilitychange' && listeners.push(fn),
+    removeEventListener() {},
+  };
+  win.setVisible = (visible) => {
+    win.document.visibilityState = visible ? 'visible' : 'hidden';
+    listeners.forEach((fn) => fn());
+  };
+  return win;
+}
+
+test('time with the feature off, or the tab in the background, never counts toward a second', () => {
+  const clock = { now: 0 };
+  const win = tabWin(clock);
+  const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((id) => ({ id }));
+  const posts = fakePosts([a, b, c, d]);
+  const seen = [];
+  let active = true;
+  const watch = watchSeen({ posts, win, active: () => active, onSeen: (post) => seen.push(post.element.id) });
+  const io = FakeObserver.last;
+
+  // A tenth of a second, then a minute with the feature off, then gone at once.
+  io.show(a, 300);
+  clock.now = 100;
+  active = false;
+  watch.update();
+  clock.now = 60100;
+  active = true;
+  watch.update();
+  clock.now = 60150;
+  io.show(a, 0);
+  // Turned off without update() hearing: a leave then can't tell what counted.
+  io.show(b, 300);
+  active = false;
+  clock.now = 120000;
+  io.show(b, 0);
+  assert.deepEqual(seen, []);
+
+  // The same tenth of a second, then a minute in the background.
+  active = true;
+  io.show(c, 300);
+  clock.now += 100;
+  win.setVisible(false);
+  clock.now += 60000;
+  win.setVisible(true);
+  clock.now += 100;
+  assert.deepEqual(seen, []);
+  // Still showing after the tab came back, it gets a fresh second.
+  clock.now += 1000;
+  io.show(c, 0);
+  assert.deepEqual(seen, ['c']);
+
+  // A post that had its second before the tab went away counts then, and only once.
+  io.show(d, 300);
+  clock.now += 1500;
+  win.setVisible(false);
+  assert.deepEqual(seen, ['c', 'd']);
+  io.show(d, 0);
+  win.setVisible(true);
+  clock.now += 5000;
+  win.setVisible(false);
+  assert.deepEqual(seen, ['c', 'd'], "d left while the tab was away, so it isn't timed again");
+  watch.stop();
+});
+
+test('a post that had its second still counts when you leave Home for another page', () => {
+  const clock = { now: 0 };
+  const win = tabWin(clock);
+  const [a, b] = ['a', 'b'].map((id) => ({ id }));
+  const posts = fakePosts([a, b]);
+  const seen = [];
+  let active = true;
+  const watch = watchSeen({ posts, win, active: () => active, onSeen: (post) => seen.push(post.element.id) });
+  const io = FakeObserver.last;
+  io.show(a, 300);
+  clock.now = 1200;
+  io.show(b, 300);
+  clock.now = 1500;
+  // The address changes before Facebook takes the feed away.
+  active = false;
+  watch.update();
+  posts.remove(posts.records[0]);
+  posts.remove(posts.records[1]);
+  assert.deepEqual(seen, ['a']);
+  watch.stop();
+});
+
 test('a post up to 25 screens tall still gets a callback while half the screen shows it', () => {
   for (let tall = 1; tall <= 25; tall += 0.25) {
     // The observer calls back when the share of the post showing crosses a threshold. The
@@ -635,6 +727,35 @@ test("after the account changes, the old account's seen posts aren't hidden on t
   assert.equal(early.rule.enabled(), false);
   assert.equal(note(lateWin.document, 1), null);
   early.posts.stop();
+});
+
+test('on the page, leaving Home counts posts that had their second, and time with the switch off never counts', () => {
+  const now = 50 * DAY;
+  const storage = createMemoryStorage({ settings: { hideSeenPosts: true }, 'settings.migrated': [] });
+  const win = page(post(1) + post(2) + post(3));
+  const { settings, posts, io, rows, navigate, clock } = startLikeMain(win, storage, { clock: { now } });
+  const element = (n) => win.document.querySelector(`[aria-posinset="${n}"]`);
+
+  // Post 3 shows for a tenth of a second, then the switch is off for a minute.
+  io.show(element(3), 300);
+  clock.now += 100;
+  settings.set('hideSeenPosts', false);
+  clock.now += 60000;
+  settings.set('hideSeenPosts', true);
+  io.show(element(3), 0);
+  assert.equal(rows()['Seen posts remembered'], '0');
+
+  io.show(element(1), 300);
+  clock.now += 1200;
+  io.show(element(2), 300);
+  clock.now += 300;
+  win.history.pushState({}, '', '/marketplace/');
+  navigate();
+  assert.equal(rows()['Seen posts remembered'], '1', 'post 1 had its second, post 2 had 300 ms');
+  io.show(element(2), 0);
+  io.show(element(1), 0);
+  assert.equal(rows()['Seen posts remembered'], '1');
+  posts.stop();
 });
 
 test('when another tab forgets the seen posts, the ones hidden here come back', () => {
