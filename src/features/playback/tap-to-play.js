@@ -1,6 +1,6 @@
 // Media waits for a tap. Rather than chase Facebook's player markup, this gates
 // HTMLMediaElement.play(): a call goes through when the user just pressed on that media
-// (or the element is one they already started), anything else is refused the same way a
+// (or the element still has the file they started on it), anything else is refused the same way a
 // browser's own autoplay block refuses it.
 //
 // A fresh gesture alone isn't enough. Live (2026-10-10) Chrome reported one right after a
@@ -19,6 +19,9 @@
 // viewer plays after it opens (Facebook swaps /reel/?s=tab for the first reel's own address
 // as it opens, so this goes by time, not address). A start with neither, like Facebook
 // resuming a reel when you come back to the tab or a story moving on by itself, still waits.
+//
+// A start counts for the file the element was playing then, not for the element. Facebook
+// reuses one video element for another video, and that next video waits like any other.
 
 const NEARBY_LEVELS = 4;
 export const VIEWER_INPUT_MS = 5000;
@@ -34,6 +37,15 @@ export function shouldAllowPlay({ activationActive, aimedAtMedia, userStarted, i
 export function pointInside(rect, point) {
   return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
 }
+
+// What an element is set to play: its src, its <source> children or a stream object.
+// Seeking, looping and trying again leave it the same.
+export function resourceOf(media) {
+  const sources = [...(media.children ?? [])].filter((child) => child.tagName === 'SOURCE').map((child) => child.getAttribute('src'));
+  return { src: media.getAttribute('src'), sources: JSON.stringify(sources), object: media.srcObject ?? null };
+}
+
+export const sameResource = (a, b) => Boolean(a && b) && a.src === b.src && a.sources === b.sources && a.object === b.object;
 
 function isNear(media, target) {
   for (let node = media, level = 0; node && level < NEARBY_LEVELS; node = node.parentElement, level++) {
@@ -54,7 +66,7 @@ export default {
     const proto = win.HTMLMediaElement?.prototype;
     const play = proto?.play;
     if (typeof play !== 'function') return;
-    const started = new WeakSet();
+    const started = new WeakMap(); // element -> what it was playing when it was allowed to start
     let lastPress = null;
     let lastInput = -Infinity;
     // The viewer that's open, when it opened, and whether its first start has played yet.
@@ -95,10 +107,11 @@ export default {
       const activationActive = win.navigator.userActivation?.isActive === true;
       const inViewer = isViewer(route());
       const first = inViewer && opened && !opened.played && now() - opened.at <= VIEWER_OPEN_MS ? opened : null;
+      const resource = resourceOf(this);
       const allowed = shouldAllowPlay({
         activationActive,
         aimedAtMedia: aimedAt(this),
-        userStarted: started.has(this),
+        userStarted: sameResource(started.get(this), resource),
         inViewer,
         sinceInput: now() - lastInput,
         openedHere: Boolean(first),
@@ -107,7 +120,7 @@ export default {
         log.debug('Held back autoplay');
         return win.Promise.reject(new win.DOMException('Waiting for a tap (HushFacebook Web)', 'NotAllowedError'));
       }
-      started.add(this);
+      started.set(this, resource);
       const result = play.apply(this, arguments);
       // Once something in the viewer plays, its first start is used. A start Facebook drops
       // (a reel swapped for another copy of itself) leaves it for the next one.

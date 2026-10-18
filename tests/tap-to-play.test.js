@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import tapToPlay, { VIEWER_INPUT_MS, VIEWER_OPEN_MS, isViewer, pointInside, shouldAllowPlay } from '../src/features/playback/tap-to-play.js';
+import tapToPlay, { VIEWER_INPUT_MS, VIEWER_OPEN_MS, isViewer, pointInside, sameResource, shouldAllowPlay } from '../src/features/playback/tap-to-play.js';
 
 const REFUSED = { name: 'NotAllowedError' };
 
@@ -33,8 +33,14 @@ test('pointInside counts the edges of the box', () => {
 
 function harness({ route = { type: 'home', path: '/' } } = {}) {
   class FakeMedia {
-    constructor() {
+    constructor(src = null) {
       this.parentElement = null;
+      this.attributes = { src };
+      this.children = [];
+      this.srcObject = null;
+    }
+    getAttribute(name) {
+      return this.attributes[name] ?? null;
     }
     getBoundingClientRect() {
       return { left: 0, top: 0, right: 100, bottom: 100 };
@@ -177,4 +183,81 @@ test('a key pressed on a control next to the video starts it', async () => {
   listeners.keydown({ isTrusted: true, target: button });
   await video.play();
   assert.equal(video.plays, 1);
+});
+
+const pressOnVideo = (listeners, activation) => {
+  activation.isActive = true;
+  listeners.pointerdown({ isTrusted: true, clientX: 50, clientY: 50 });
+};
+
+test('a start counts for the file it played, so a reused video element waits for a new press', async () => {
+  const { FakeMedia, listeners, activation } = harness();
+  const video = new FakeMedia('blob:first');
+  pressOnVideo(listeners, activation);
+  await video.play();
+  // The press is long gone. Trying again, seeking and looping keep the same file.
+  activation.isActive = false;
+  listeners.pointerdown({ isTrusted: true, clientX: 500, clientY: 500 });
+  await video.play();
+  video.currentTime = 90;
+  await video.play();
+  assert.equal(video.plays, 3);
+
+  // Facebook puts another video in the same element, with no click anywhere.
+  video.attributes.src = 'blob:second';
+  await assert.rejects(video.play(), REFUSED);
+  assert.equal(video.plays, 3);
+  pressOnVideo(listeners, activation);
+  await video.play();
+  activation.isActive = false;
+  await video.play();
+  assert.equal(video.plays, 5);
+});
+
+test('a different <source> or stream on the element counts as another file too', async () => {
+  const { FakeMedia, listeners, activation } = harness();
+  const child = (tagName, src) => ({ tagName, getAttribute: (name) => (name === 'src' ? src : null) });
+  const video = new FakeMedia();
+  video.children = [child('SOURCE', 'first.mp4'), child('TRACK', 'captions.vtt')];
+  pressOnVideo(listeners, activation);
+  await video.play();
+  activation.isActive = false;
+  // Captions aren't the file.
+  video.children = [child('SOURCE', 'first.mp4'), child('TRACK', 'other.vtt')];
+  await video.play();
+  video.children = [child('SOURCE', 'second.mp4')];
+  await assert.rejects(video.play(), REFUSED);
+
+  const live = new FakeMedia();
+  const stream = {};
+  live.srcObject = stream;
+  pressOnVideo(listeners, activation);
+  await live.play();
+  activation.isActive = false;
+  await live.play();
+  live.srcObject = {};
+  await assert.rejects(live.play(), REFUSED);
+  assert.equal(live.plays, 2);
+  assert.equal(sameResource(undefined, { src: null, sources: '[]', object: null }), false);
+});
+
+test('in Reels a reused element waits when the next reel starts by itself, and plays after the Next arrow', async () => {
+  const { FakeMedia, listeners, clock, go } = harness();
+  go(REEL(1));
+  const player = new FakeMedia('blob:reel-1');
+  await player.play();
+  await settle();
+  clock.now += VIEWER_INPUT_MS + 1;
+  await player.play();
+
+  // The reel ends and Facebook puts the next one in the same element.
+  go(REEL(2));
+  player.attributes.src = 'blob:reel-2';
+  await assert.rejects(player.play(), REFUSED);
+
+  listeners.pointerdown({ isTrusted: true, clientX: 1563, clientY: 560 });
+  go(REEL(3));
+  player.attributes.src = 'blob:reel-3';
+  await player.play();
+  assert.equal(player.plays, 3);
 });
