@@ -604,6 +604,29 @@ test('logical account recovery inherits the current shared record', async () => 
   assert.deepEqual(data[doneKey], ['one']);
 });
 
+test("an account copied from its v0.0.2 record keeps that record's migrations but not who claimed it", async () => {
+  const tag = 'a'.repeat(32);
+  const accountKey = `settings@${tag}`;
+  const legacy = 'settings@1z141z3';
+  const claims = ['one', `claimed-by-${tag}`, `claimed-by-${'b'.repeat(32)}`];
+  const current = worker({ saved: { settings: { shared: true }, [legacy]: { beta: false }, [`${legacy}.migrated`]: claims } });
+  const answer = await ask(current, {
+    type: 'storage:migrate',
+    key: accountKey,
+    doneKey: `${accountKey}.migrated`,
+    sourceKey: legacy,
+    sourceDoneKey: `${legacy}.migrated`,
+    receipt: [],
+    mutation: { initialize: {}, set: {}, remove: [] },
+  });
+
+  assert.equal(answer.ok, true, answer.error);
+  assert.deepEqual(current.data[accountKey], { beta: false });
+  assert.deepEqual(current.data[`${accountKey}.migrated`], ['one']);
+  assert.deepEqual(current.data[legacy], { beta: false }, 'the old record stays for anyone else who had that tag');
+  assert.deepEqual(current.data[`${legacy}.migrated`], claims);
+});
+
 test('commit-order overflow starts a fresh generation with a safe first revision', async () => {
   const oldEpoch = 'full-generation';
   const { context, data } = worker({
@@ -1782,6 +1805,9 @@ test('the worker refuses request shapes, keys and file names it does not know', 
     { type: 'storage:mutate', key: 'settings', mutation: { set: { css: 'x'.repeat(70000) } } },
     { type: 'storage:mutate', key: 'settings.migrated', mutation: { union: ['Bad id'] } },
     { type: 'storage:migrate', key: 'settings@abc', doneKey: 'settings@abc.migrated', mutation: { set: {} }, receipt: [], sourceKey: 'other', sourceDoneKey: 'settings.migrated' },
+    // Only a v0.0.2 account record (seven characters at most) can be copied, never another account's current one.
+    { type: 'storage:migrate', key: 'settings@abc', doneKey: 'settings@abc.migrated', mutation: { set: {} }, receipt: [], sourceKey: `settings@${'a'.repeat(32)}`, sourceDoneKey: `settings@${'a'.repeat(32)}.migrated` },
+    { type: 'storage:migrate', key: 'settings@abc', doneKey: 'settings@abc.migrated', mutation: { set: {} }, receipt: [], sourceKey: 'settings@1z141z3', sourceDoneKey: 'settings.migrated' },
     { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: '../a.jpg', key: KEY },
     { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'CON.jpg', key: KEY },
     { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'flag \u{e0067}\u{e0062}.jpg', key: KEY },

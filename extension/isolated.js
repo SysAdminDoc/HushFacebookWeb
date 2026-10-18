@@ -23,7 +23,7 @@ import {
   validStorageRevisions,
 } from '../src/core/bridge.js';
 import { ACTIVITY_KEYS, activityKeyFor } from '../src/core/activity.js';
-import { accountFromCookie, storageKeyFor } from '../src/core/settings.js';
+import { accountFromCookie, claimFor, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 
 const SECRET = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const REVISION_WAIT = 5000;
@@ -171,11 +171,20 @@ function storageAccessFor(doc) {
   const account = accountFromCookie(doc.cookie);
   const settingsKey = storageKeyFor(account);
   const receiptKey = `${settingsKey}.migrated`;
+  // The record v0.0.2 kept for this account under its old tag, which the page copies from the
+  // first time it sees the account. It's read-only here, apart from the page marking it as
+  // taken by this account (claimFor).
+  const legacyKey = legacyStorageKeyFor(account);
+  const legacyReceiptKey = legacyKey && `${legacyKey}.migrated`;
   const values = new Map(FACEBOOK_VALUES);
   values.set('settings', settingsRecord);
   values.set('settings.migrated', migrationReceipt);
   values.set(settingsKey, settingsRecord);
   values.set(receiptKey, migrationReceipt);
+  if (legacyKey) {
+    values.set(legacyKey, settingsRecord);
+    values.set(legacyReceiptKey, migrationReceipt);
+  }
   const writable = new Set([...FACEBOOK_VALUES.keys()].filter((key) => key !== READ_ONLY_KEY));
   writable.add(settingsKey);
   writable.add(receiptKey);
@@ -187,7 +196,16 @@ function storageAccessFor(doc) {
     values.set(scoped, FACEBOOK_VALUES.get(key));
     writable.add(scoped);
   }
-  return { kind: 'facebook', values, writable, settingsKey, receiptKey };
+  return {
+    kind: 'facebook',
+    values,
+    writable,
+    settingsKey,
+    receiptKey,
+    legacyKey,
+    legacyReceiptKey,
+    claim: account ? claimFor(account) : null,
+  };
 }
 
 const storageAccess = storageAccessFor(document);
@@ -273,7 +291,15 @@ const validStorageRequest = (type, payload) => {
     return onlyKeys(payload, ['key']) && directWrite(payload.key);
   }
   if (type === 'storage:mutate') {
-    if (!onlyKeys(payload, ['key', 'mutation']) || !storageAccess.writable.has(payload.key)) return false;
+    if (!onlyKeys(payload, ['key', 'mutation'])) return false;
+    // The one change the page may make to the old record: saying this account took it.
+    if (storageAccess.legacyReceiptKey && payload.key === storageAccess.legacyReceiptKey) {
+      return onlyKeys(payload.mutation, ['union'])
+        && Array.isArray(payload.mutation.union)
+        && payload.mutation.union.length === 1
+        && payload.mutation.union[0] === storageAccess.claim;
+    }
+    if (!storageAccess.writable.has(payload.key)) return false;
     if (payload.key === storageAccess.settingsKey) return settingsMutation(payload.mutation);
     if (payload.key === storageAccess.receiptKey) return receiptMutation(payload.mutation);
     return false;
@@ -287,7 +313,8 @@ const validStorageRequest = (type, payload) => {
       && migrationReceipt(payload.receipt)
       && (
         accountScoped
-          ? payload.sourceKey === 'settings' && payload.sourceDoneKey === 'settings.migrated'
+          ? (payload.sourceKey === 'settings' && payload.sourceDoneKey === 'settings.migrated')
+            || (payload.sourceKey === storageAccess.legacyKey && payload.sourceDoneKey === storageAccess.legacyReceiptKey)
           : payload.sourceKey === undefined && payload.sourceDoneKey === undefined
       );
   }

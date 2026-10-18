@@ -17,6 +17,10 @@ const STORAGE_REVISION_EPOCH_KEY = '__epoch';
 const STORAGE_REVISION_ORDER_KEY = '__order';
 const PREFERENCE_KEY = /^settings(?:@[a-z0-9]+)?(?:\.migrated)?$/;
 const SETTINGS_KEY = /^settings(?:@[a-z0-9]+)?$/;
+const LEGACY_ACCOUNT_KEY = /^settings@[a-z0-9]{1,7}$/;
+// What an account adds to the v0.0.2 record's receipt once it took that record (claimFor in
+// settings.js). It isn't a migration, so it isn't copied into the account's own receipt.
+const CLAIM_PREFIX = 'claimed-by-';
 const PENDING_RECOVERY_KEY = 'hushfacebookWeb.pendingPreferenceRecovery';
 const DIRECT_STORAGE_RETRY_DELAYS = [50, 150];
 const FACEBOOK_ORIGINS = new Set(['https://www.facebook.com', 'https://web.facebook.com']);
@@ -165,7 +169,10 @@ function validWorkerRequest(message) {
     if (!SETTINGS_KEY.test(message.key) || message.doneKey !== `${message.key}.migrated`) return false;
     if (!settingsMutation(message.mutation) || !migrationReceipt(message.receipt)) return false;
     if (message.key === 'settings') return message.sourceKey == null && message.sourceDoneKey == null;
-    return message.sourceKey === 'settings' && message.sourceDoneKey === 'settings.migrated';
+    // An account copies from the shared record, or from the one v0.0.2 kept under its old,
+    // shorter tag.
+    return (message.sourceKey === 'settings' || LEGACY_ACCOUNT_KEY.test(message.sourceKey))
+      && message.sourceDoneKey === `${message.sourceKey}.migrated`;
   }
   if (message.type === 'download') {
     return onlyKeys(message, ['type', 'url', 'name', 'key'])
@@ -583,7 +590,7 @@ function migrateStorage({
     const previous = structuredClone(source);
     const targetDone = Array.isArray(saved[doneKey]) ? saved[doneKey].filter((id) => typeof id === 'string') : [];
     const sourceDone = copiesSource && Array.isArray(saved[sourceDoneKey])
-      ? saved[sourceDoneKey].filter((id) => typeof id === 'string')
+      ? saved[sourceDoneKey].filter((id) => typeof id === 'string' && !id.startsWith(CLAIM_PREFIX))
       : [];
     const done = [...new Set([...structuredClone(targetDone), ...structuredClone(sourceDone)])];
     const pending = receipt.filter((id) => !done.includes(id));

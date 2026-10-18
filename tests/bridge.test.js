@@ -22,7 +22,7 @@ import {
   createBridgeStorage,
 } from '../src/core/bridge.js';
 import { activityKeyFor } from '../src/core/activity.js';
-import { createSettings, storageKeyFor } from '../src/core/settings.js';
+import { claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 import { applyObjectMutation, createGmStorage } from '../src/core/storage.js';
 
@@ -2222,6 +2222,73 @@ test('a first-seen account rereads shared settings through the worker without mi
   const copy = chrome.sent.find((message) => message.type === 'storage:migrate' && message.key === accountKey);
   assert.deepEqual(copy.receipt, []);
   assert.equal(copy.sourceKey, 'settings');
+});
+
+test("an upgrade from v0.0.2 copies the account's old record through the worker, and the page can only mark it as taken by this account", async () => {
+  // Both ids had the same v0.0.2 tag.
+  const account = '943636461527714';
+  const other = '816007231797254';
+  const legacy = legacyStorageKeyFor(account);
+  assert.equal(legacyStorageKeyFor(other), legacy);
+  const accountKey = storageKeyFor(account);
+  const chrome = fakeChrome({ settings: { alpha: false }, [legacy]: { beta: false }, [`${legacy}.migrated`]: ['done'] });
+  const win = page(account);
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  const settings = createSettings({
+    storage,
+    features: [{ id: 'alpha', title: 'Alpha', default: true }, { id: 'beta', title: 'Beta', default: true }],
+    account,
+    migrations: [],
+  });
+  await settle();
+
+  assert.equal(settings.get('alpha'), true, 'the shared record is not where this account came from');
+  assert.equal(settings.get('beta'), false);
+  assert.deepEqual(chrome.data[accountKey], { beta: false });
+  const copy = chrome.sent.find((message) => message.type === 'storage:migrate' && message.key === accountKey);
+  assert.equal(copy.sourceKey, legacy);
+  assert.equal(copy.sourceDoneKey, `${legacy}.migrated`);
+  assert.deepEqual(chrome.data[legacy], { beta: false }, 'the old record stays');
+  assert.deepEqual(chrome.data[`${legacy}.migrated`], ['done', claimFor(account)]);
+
+  // A save that crosses another tab removing this account's record copies the old record again, not the shared one.
+  delete chrome.data[accountKey];
+  settings.set('alpha', false);
+  await settle();
+  assert.deepEqual(chrome.data[accountKey], { beta: false, alpha: false });
+
+  // Another tab, where a page script got to the bridge first. Only one tab's isolated half runs
+  // at a time here, since each one answers on whichever page loaded last.
+  const tab = page(account);
+  await startIsolated(tab, chrome);
+  const forged = forgedChannel(tab);
+  const loaded = await forged.send('storage:load', {});
+  assert.deepEqual(loaded.result[legacy], { beta: false });
+  assert.deepEqual(loaded.result[`${legacy}.migrated`], ['done', claimFor(account)]);
+  const before = chrome.sent.length;
+  for (const mutation of [{ union: [claimFor(other)] }, { union: [claimFor(account), 'done-later'] }, { union: ['done-later'] }, { set: {} }]) {
+    await refused(forged.send('storage:mutate', { key: `${legacy}.migrated`, mutation }), /not allowed/, JSON.stringify(mutation));
+  }
+  await refused(forged.send('storage:mutate', { key: legacy, mutation: { set: { beta: true } } }), /not allowed/);
+  await refused(forged.send('storage:set', { key: legacy, value: {} }), /not allowed/);
+  await refused(forged.send('storage:remove', { key: legacy }), /not allowed/);
+  await refused(forged.send('storage:remove', { key: `${legacy}.migrated` }), /not allowed/);
+  await refused(forged.send('storage:migrate', {
+    key: accountKey,
+    doneKey: `${accountKey}.migrated`,
+    mutation: { set: {} },
+    receipt: [],
+    sourceKey: storageKeyFor(other),
+    sourceDoneKey: `${storageKeyFor(other)}.migrated`,
+  }), /not allowed/, "another account's current record is never a source");
+  await refused(forged.send('storage:migrate', {
+    key: accountKey, doneKey: `${accountKey}.migrated`, mutation: { set: {} }, receipt: [], sourceKey: legacy, sourceDoneKey: 'settings.migrated',
+  }), /not allowed/);
+  assert.equal(chrome.sent.length, before, 'nothing refused reached the worker');
+  assert.equal((await forged.send('storage:mutate', { key: `${legacy}.migrated`, mutation: { union: [claimFor(account)] } })).ok, true);
+  assert.deepEqual(chrome.data[legacy], { beta: false });
+  assert.deepEqual(chrome.data[`${legacy}.migrated`], ['done', claimFor(account)]);
 });
 
 test("a userscript backup restores into the extension's record for that account, seen posts and video speed stay behind, and one this version can't use changes nothing", async () => {

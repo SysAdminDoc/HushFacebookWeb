@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { accountFromCookie, buildSchema, createSettings, EXPORT_SCHEMA, isValid, olderThan, storageKeyFor } from '../src/core/settings.js';
+import { createLog } from '../src/core/log.js';
+import {
+  accountFromCookie, accountTag, buildSchema, claimFor, createSettings, EXPORT_SCHEMA, isValid,
+  legacyAccountTag, legacyStorageKeyFor, olderThan, storageKeyFor,
+} from '../src/core/settings.js';
 import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
+import { buildDiagnosticReport } from '../src/ui/diagnostic-report.js';
 
 const features = [
   { id: 'alpha', title: 'Alpha', default: true },
@@ -919,6 +924,106 @@ test('settings from before the switch carry over once to each account seen for t
   other.reset();
   createSettings({ storage, features }).set('beta', true);
   assert.equal(createSettings({ storage, features, account: '615000000000018' }).get('beta'), false);
+});
+
+// Made-up ids whose v0.0.2 tags are the same.
+const COLLIDING = ['943636461527714', '816007231797254'];
+
+test('two ids that shared a v0.0.2 tag keep their own settings, receipts and notifications', () => {
+  const [a, b] = COLLIDING;
+  assert.equal(legacyAccountTag(a), legacyAccountTag(b), 'the pair really did collide');
+  assert.notEqual(accountTag(a), accountTag(b));
+  assert.match(accountTag(a), /^[0-9a-f]{32}$/);
+  assert.equal(accountTag(a), accountTag(a), 'the same id always gets the same tag');
+
+  const acknowledged = createAcknowledgedStorage();
+  const first = createSettings({ storage: acknowledged.storage, features, account: a, migrations: [] });
+  const second = createSettings({ storage: acknowledged.storage, features, account: b, migrations: [] });
+  const heard = { a: [], b: [] };
+  first.subscribe(({ keys }) => heard.a.push(keys));
+  second.subscribe(({ keys }) => heard.b.push(keys));
+  acknowledged.remote(storageKeyFor(a), { 'ui.launcher': false });
+  assert.equal(first.get('ui.launcher'), false);
+  assert.equal(second.get('ui.launcher'), true);
+  assert.deepEqual(heard, { a: [['ui.launcher']], b: [] });
+  acknowledged.remote(storageKeyFor(b), { beta: true });
+  assert.equal(first.get('beta'), false);
+  assert.equal(second.get('beta'), true);
+  assert.deepEqual(heard.b, [['beta']]);
+
+  const storage = createMemoryStorage();
+  createSettings({ storage, features, account: a }).set('beta', true);
+  assert.equal(createSettings({ storage, features, account: b }).get('beta'), false);
+  assert.ok(storage.dump()[`${storageKeyFor(a)}.migrated`]);
+  assert.ok(storage.dump()[`${storageKeyFor(b)}.migrated`]);
+  assert.notEqual(`${storageKeyFor(a)}.migrated`, `${storageKeyFor(b)}.migrated`);
+});
+
+test('an upgrade from v0.0.2 copies the old record to one account and keeps it for anyone else', () => {
+  const [a, b] = COLLIDING;
+  const legacy = legacyStorageKeyFor(a);
+  const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
+  const storage = createMemoryStorage({
+    settings: { alpha: false },
+    'settings.migrated': ['split-ad-switch'],
+    [legacy]: { beta: true, 'beta.words': 'crypto' },
+    [`${legacy}.migrated`]: ['split-ad-switch'],
+  });
+  const first = createSettings({ storage, features, account: a, log });
+  assert.equal(first.get('beta'), true, "the account's own v0.0.2 choices come along");
+  assert.equal(first.get('beta.words'), 'crypto');
+  assert.equal(first.get('alpha'), true, 'and not the shared ones');
+  assert.deepEqual(storage.dump()[storageKeyFor(a)], { beta: true, 'beta.words': 'crypto' });
+  assert.deepEqual(storage.dump()[`${storageKeyFor(a)}.migrated`], ['split-ad-switch'], 'the claim stays out of its receipt');
+  assert.deepEqual(storage.dump()[legacy], { beta: true, 'beta.words': 'crypto' }, 'the old record stays for going back');
+  assert.deepEqual(storage.dump()[`${legacy}.migrated`], ['split-ad-switch', claimFor(a)]);
+
+  // A reload keeps everything and claims nothing twice.
+  first.set('beta.days', 3);
+  const reloaded = createSettings({ storage, features, account: a, log });
+  assert.deepEqual(reloaded.snapshot(), { beta: true, 'beta.words': 'crypto', 'beta.days': 3 });
+  assert.deepEqual(storage.dump()[`${legacy}.migrated`], ['split-ad-switch', claimFor(a)]);
+
+  // The other id with the same old tag can't tell whose that record was, so it doesn't get it.
+  const second = createSettings({ storage, features, account: b, log });
+  assert.equal(second.get('beta'), false);
+  assert.equal(second.get('alpha'), false, 'it starts from the shared settings like any new account');
+  assert.deepEqual(storage.dump()[storageKeyFor(b)], { alpha: false });
+  assert.deepEqual(storage.dump()[legacy], { beta: true, 'beta.words': 'crypto' }, 'the old record is still there to recover');
+  assert.deepEqual(storage.dump()[`${legacy}.migrated`], ['split-ad-switch', claimFor(a)]);
+  second.set('beta.order', 'all');
+  assert.equal(createSettings({ storage, features, account: b, log }).get('beta.order'), 'all');
+  assert.equal(createSettings({ storage, features, account: a, log }).get('beta.order'), 'newest');
+
+  // The account that took it can take it again if its own record goes missing.
+  storage.remove(storageKeyFor(a));
+  assert.equal(createSettings({ storage, features, account: a, log }).get('beta.words'), 'crypto');
+  assert.deepEqual(storage.dump()[`${storageKeyFor(a)}.migrated`], ['split-ad-switch'], 'its own claim stays out of its receipt too');
+
+  // The migrations the old record already had count, not the shared ones, so none runs on it twice.
+  const flip = [{ id: 'flip-beta', run: (raw) => { if (Object.hasOwn(raw, 'beta')) raw.beta = !raw.beta; } }];
+  const migrated = createMemoryStorage({ settings: {}, [legacy]: { beta: true }, [`${legacy}.migrated`]: ['flip-beta'] });
+  assert.equal(createSettings({ storage: migrated, features, account: a, migrations: flip }).get('beta'), true);
+  assert.deepEqual(migrated.dump()[`${storageKeyFor(a)}.migrated`], ['flip-beta']);
+
+  // An account with no v0.0.2 record of its own starts from the shared settings, as before.
+  const fresh = createMemoryStorage({ settings: { alpha: false }, [`${legacy}.migrated`]: ['split-ad-switch'] });
+  assert.equal(createSettings({ storage: fresh, features, account: a }).get('alpha'), false);
+  assert.equal(fresh.dump()[`${legacy}.migrated`].includes(claimFor(a)), false, 'nothing to claim');
+
+  // A claim that can't be saved is logged, and a copied report names no account.
+  const failing = createMemoryStorage({ [legacy]: { beta: true } });
+  const save = failing.set;
+  failing.set = (key, value) => {
+    if (key === `${legacy}.migrated`) throw new Error('Storage unavailable');
+    return save(key, value);
+  };
+  assert.equal(createSettings({ storage: failing, features, account: a, log }).get('beta'), true);
+  assert.ok(log.entries().some(({ message }) => message === 'Could not mark your old settings as copied'));
+  const report = buildDiagnosticReport({ version: '0.0.3', settings: reloaded, log: log.entries() });
+  for (const secret of [a, b, accountTag(a), accountTag(b), legacyAccountTag(a)]) {
+    assert.equal(report.includes(secret), false, 'the report names no account');
+  }
 });
 
 test('an export says which schema it uses', () => {

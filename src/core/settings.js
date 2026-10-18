@@ -3,8 +3,11 @@
 //
 // Each Facebook account keeps its own settings, the way Social Fixer and F.B. Purity do it,
 // under a key made from the account's id (the c_user cookie). The id itself isn't stored.
-// An account seen for the first time starts from the settings everyone shared before, so
-// nothing is lost on upgrade. Signed out, the shared settings are used.
+// An account seen for the first time starts from the record v0.0.2 kept for it, or else from
+// the settings everyone shared before, so nothing is lost on upgrade. Signed out, the shared
+// settings are used.
+
+import { sha256Hex } from './sha256.js';
 
 const STORAGE_KEY = 'settings';
 const REMOVED = Symbol('removed');
@@ -20,9 +23,16 @@ export function accountFromCookie(cookie) {
   return found.size === 1 ? [...found][0] : null;
 }
 
-// FNV-1a, enough to tell a few accounts apart without writing their ids down. Only base-36
-// digits, so a tag can't look like anything else kept beside it.
+// The first 128 bits of a SHA-256, so two accounts never end up with one tag and the ids
+// aren't written down as they are. Lowercase hex only, so a tag can't look like anything else
+// kept beside it. Anyone who can read the browser's storage could still test ids against it.
 export function accountTag(account) {
+  return sha256Hex(`HushFacebook Web account ${account}`).slice(0, 32);
+}
+
+// v0.0.2 used a 32-bit FNV-1a tag, which two accounts can share. It's kept only to find the
+// settings saved under it (accountSource in createSettings).
+export function legacyAccountTag(account) {
   let hash = 0x811c9dc5;
   for (const char of String(account)) {
     hash ^= char.charCodeAt(0);
@@ -34,6 +44,16 @@ export function accountTag(account) {
 export function storageKeyFor(account) {
   return account ? `${STORAGE_KEY}@${accountTag(account)}` : STORAGE_KEY;
 }
+
+export function legacyStorageKeyFor(account) {
+  return account ? `${STORAGE_KEY}@${legacyAccountTag(account)}` : null;
+}
+
+// What an account writes into the v0.0.2 record's receipt once it has copied that record, so a
+// second account with the same old tag knows it belongs to someone else. It has the shape of
+// a migration id, which v0.0.2 and the extension's checks already accept and ignore.
+export const CLAIM_PREFIX = 'claimed-by-';
+export const claimFor = (account) => `${CLAIM_PREFIX}${accountTag(account)}`;
 
 // One-time changes to stored settings. Each runs once for each settings key, recorded under a
 // key of its own, so a later change by hand is left alone. An import of an export made before
@@ -118,6 +138,11 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   };
   const key = storageKeyFor(account);
   const doneKey = `${key}.migrated`;
+  const legacyKey = legacyStorageKeyFor(account);
+  const legacyDoneKey = legacyKey && `${legacyKey}.migrated`;
+  const claim = account ? claimFor(account) : null;
+  const isClaim = (id) => typeof id === 'string' && id.startsWith(CLAIM_PREFIX);
+  const migrationIds = (receipt) => receipt.filter((id) => typeof id === 'string' && !isClaim(id));
   // The extension's storage fills a few milliseconds in (whenReady). Until then every setting
   // is at its default, and loading, copying and migrating wait so they see what's really saved.
   let ready = !storage.whenReady;
@@ -136,11 +161,38 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   let reinitializeAccountOnWrite = false;
   let accountDeletionGeneration = -1;
 
+  // Where an account seen for the first time copies its settings from: the record v0.0.2 kept
+  // under its old tag, unless another account already took it. Two accounts can share an old
+  // tag and the record doesn't say whose it was, so only the first one here gets it. Anyone
+  // after that starts from the shared settings, and the old record stays as it was.
+  function accountSource(get) {
+    if (!legacyKey || !isSettingsRecord(get(legacyKey, undefined))) return STORAGE_KEY;
+    const receipt = get(legacyDoneKey, undefined);
+    const claims = Array.isArray(receipt) ? receipt.filter(isClaim) : [];
+    return claims.every((id) => id === claim) ? legacyKey : STORAGE_KEY;
+  }
+
+  // Marks the v0.0.2 record as this account's, the first time it's copied from.
+  function claimLegacy(get) {
+    if (accountSource(get) !== legacyKey) return;
+    const receipt = get(legacyDoneKey, undefined);
+    if (Array.isArray(receipt) && receipt.includes(claim)) return;
+    const failed = (error) => log?.error('Could not mark your old settings as copied', error);
+    try {
+      const saved = storage.mutate
+        ? storage.mutate(legacyDoneKey, { union: [claim] })
+        : storage.set(legacyDoneKey, [...(Array.isArray(receipt) ? receipt.filter((id) => typeof id === 'string') : []), claim]);
+      if (isPromise(saved)) saved.catch(failed);
+    } catch (error) {
+      failed(error);
+    }
+  }
+
   function read(get) {
     const own = get(key, undefined);
     if (key === STORAGE_KEY) return isSettingsRecord(own) ? own : {};
     if (isSettingsRecord(own)) return own;
-    return sanitize(get(STORAGE_KEY, {}));
+    return sanitize(get(accountSource(get), {}));
   }
 
   function migrationResult(raw, stored) {
@@ -174,11 +226,11 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     const own = get(doneKey, undefined);
     const cleanOwn = Array.isArray(own) ? [...new Set(own.filter((id) => typeof id === 'string'))] : own;
     if (key === STORAGE_KEY || get(key, undefined) !== undefined) return cleanOwn;
-    const shared = get(`${STORAGE_KEY}.migrated`, undefined);
+    const shared = get(`${accountSource(get)}.migrated`, undefined);
     if (Array.isArray(own) || Array.isArray(shared)) {
       return [...new Set([
         ...(Array.isArray(cleanOwn) ? cleanOwn : []),
-        ...(Array.isArray(shared) ? shared.filter((id) => typeof id === 'string') : []),
+        ...(Array.isArray(shared) ? migrationIds(shared) : []),
       ])];
     }
     return cleanOwn ?? shared;
@@ -284,6 +336,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       if (receipt) return persistMigrationReceipt(receipt);
       return undefined;
     };
+    claimLegacy(storage.get);
     let saved;
     const mutation = { replace: migration.after };
     saved = persistRecordMutation(mutation, 'Could not copy your settings to this account', saveReceipt);
@@ -299,7 +352,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     return saved === false || isPromise(saved) ? migration.before : migration.after;
   }
 
-  function stageMigration(migration, { copyAll = false, receipt = null } = {}) {
+  function stageMigration(migration, { copyAll = false, receipt = null, source = STORAGE_KEY } = {}) {
     if (!migration.pending.length && !copyAll) return;
     const changed = new Set([...schema.keys()].filter((name) => (
       !sameValue(savedValue(migration.after, name), savedValue(migration.before, name))
@@ -361,8 +414,8 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       migrationValues,
       migrationValueOwners,
       copyAll,
-      sourceKey: copyAll ? STORAGE_KEY : null,
-      sourceDoneKey: copyAll ? `${STORAGE_KEY}.migrated` : null,
+      sourceKey: copyAll ? source : null,
+      sourceDoneKey: copyAll ? `${source}.migrated` : null,
     };
     for (const name of changed) {
       const wanted = savedValue(migration.after, name);
@@ -387,7 +440,8 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     const receipt = migration.pending.length
       ? [...migration.done, ...migration.pending.map((item) => item.id)]
       : Array.isArray(storedMigrations) ? storedMigrations : null;
-    stageMigration(migration, { copyAll: true, receipt });
+    claimLegacy(storage.get);
+    stageMigration(migration, { copyAll: true, receipt, source: accountSource(storage.get) });
   }
 
   function loadSavedSettings() {
@@ -402,7 +456,8 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       const receipt = migration.pending.length
         ? [...migration.done, ...migration.pending.map((item) => item.id)]
         : inheritedShared && Array.isArray(storedMigrations) ? storedMigrations : null;
-      stageMigration(migration, { copyAll: inheritedShared, receipt });
+      if (inheritedShared) claimLegacy(get);
+      stageMigration(migration, { copyAll: inheritedShared, receipt, source: accountSource(get) });
     } else {
       values = loadManagerSettings();
       if (managerCopyRetry) pendingInternal = managerCopyRetry;
@@ -736,8 +791,8 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
         operation.atomicMigration = true;
         operation.detailed = wantsPrevious && Boolean(storage.migrateDetailed);
         const migrationOptions = {
-          sourceKey: operation.internal?.sourceKey ?? (accountWrite ? STORAGE_KEY : undefined),
-          sourceDoneKey: operation.internal?.sourceDoneKey ?? (accountWrite ? `${STORAGE_KEY}.migrated` : undefined),
+          sourceKey: operation.internal?.sourceKey ?? (accountWrite ? accountSource(storage.get) : undefined),
+          sourceDoneKey: operation.internal?.sourceDoneKey ?? (accountWrite ? `${accountSource(storage.get)}.migrated` : undefined),
         };
         const atomicMutation = accountWrite && !Object.hasOwn(mutation, 'initialize')
           ? { ...mutation, initialize: {} }
