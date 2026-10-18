@@ -268,7 +268,10 @@ test('color math matches Facebook\'s own blue', () => {
   // Facebook's light link is a darker step and its dark link a lighter one.
   const blue = palette('#0866FF');
   assert.equal(toHsl(parseHex(blue.light.link))[2].toFixed(0), '41');
-  assert.equal(toHsl(parseHex(blue.dark.link))[2].toFixed(0), '68');
+  // Lightness 68 in this hue is #5C9AFF, 4.0:1 on dark mode's #3A3B3C bubbles, so it goes on
+  // to 72, near Facebook's own #5AA7FF.
+  assert.equal(toHsl(parseHex(blue.dark.link))[2].toFixed(0), '72');
+  assert.ok(contrast(blue.dark.link, '#3A3B3C') >= 4.5);
   assert.equal(blue.light.focus, '#0866FF', 'the focus ring stays the color itself when it reads');
   assert.equal(blue.onBase, '#FFFFFF');
   assert.equal(palette('#FFD54F').onBase, '#000000', 'dark text on a light color');

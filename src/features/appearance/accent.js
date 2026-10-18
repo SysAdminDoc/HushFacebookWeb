@@ -68,11 +68,13 @@ export function contrast(a, b) {
 export const TEXT = 4.5;
 export const INDICATOR = 3;
 
-// What the shades sit on. Light mode: white cards, and #F0F2F5 for comment bubbles and the
-// page behind the cards. Dark mode (read live, see amoled.js): comment bubbles #333334, the
-// lightest place a link shows, cards #252728, text boxes and toasts #242526. AMOLED's
-// surfaces are all darker, so a shade that reads in dark mode reads there too.
-export const SURFACES = { white: '#FFFFFF', wash: '#F0F2F5', bubble: '#333334', card: '#252728', box: '#242526' };
+// What the shades sit on. Light mode: white cards and toasts, and #F0F2F5 for comment bubbles
+// and the page behind the cards. Dark mode comes in two palettes. Signed in on 2026-10-11 (see
+// amoled.js) it had comment bubbles #333334 and cards #252728. Signed out on 2026-10-18 it had
+// bubbles #3A3B3C and cards #242526. Text boxes and toasts were #242526 in both. Where they
+// differ the lighter one is used, since a light shade reads worst there. AMOLED's surfaces
+// are all darker, so a shade that reads in dark mode reads there too.
+export const SURFACES = { white: '#FFFFFF', wash: '#F0F2F5', bubble: '#3A3B3C', card: '#252728', box: '#242526' };
 
 // Your color laid over a surface at some opacity, as Facebook draws dark mode's tinted buttons.
 export function over(rgb, surface, a) {
