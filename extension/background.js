@@ -5,9 +5,13 @@
 const FACEBOOK = ['www.facebook.com', 'web.facebook.com'];
 // Where the script's downloads come from: Facebook's media servers.
 const SAVABLE = /(^|\.)(fbcdn\.net|facebook\.com)$/;
-// The worker answers by then even when a large file is still coming, so it never outlives the
-// browser's limit on one event. The download carries on either way.
-const ANSWER_WITHIN = 20000;
+// The downloads pages are waiting to hear about, by the key each page made up (the pattern is
+// src/core/bridge.js BRIDGE_DOWNLOAD_KEY). Session storage keeps them while Chrome stops and
+// starts this worker, so the page that asked still hears how its download ended.
+const DOWNLOADS_KEY = 'hushfacebookWeb.downloads';
+const DOWNLOAD_KEY = /^[A-Za-z0-9-]{8,64}$/;
+const DOWNLOADS_KEPT = 64;
+const DOWNLOAD_KEPT_FOR = 24 * 60 * 60 * 1000;
 const STORAGE_REVISIONS_KEY = 'hushfacebookWeb.storageRevisions';
 const STORAGE_REVISION_EPOCH_KEY = '__epoch';
 const STORAGE_REVISION_ORDER_KEY = '__order';
@@ -164,11 +168,16 @@ function validWorkerRequest(message) {
     return message.sourceKey === 'settings' && message.sourceDoneKey === 'settings.migrated';
   }
   if (message.type === 'download') {
-    return onlyKeys(message, ['type', 'url', 'name'])
+    return onlyKeys(message, ['type', 'url', 'name', 'key'])
       && typeof message.url === 'string'
       && message.url.length > 0
       && message.url.length <= 8192
-      && validFilename(message.name);
+      && validFilename(message.name)
+      && typeof message.key === 'string'
+      && DOWNLOAD_KEY.test(message.key);
+  }
+  if (message.type === 'download:cancel') {
+    return onlyKeys(message, ['type', 'key']) && typeof message.key === 'string' && DOWNLOAD_KEY.test(message.key);
   }
   return false;
 }
@@ -1082,27 +1091,120 @@ function validFilename(name) {
   return !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name);
 }
 
-async function save({ url, name }) {
+// The records, read and written one change at a time: change(records, persist) edits them in
+// place, and persist() writes them early when a step mustn't be lost if the worker stops.
+let downloadsTail = Promise.resolve();
+let downloadsInMemory = {};
+function changeDownloads(change) {
+  const run = downloadsTail.then(async () => {
+    const session = chrome.storage.session;
+    let records = downloadsInMemory;
+    if (session?.get) {
+      const { [DOWNLOADS_KEY]: saved } = await session.get(DOWNLOADS_KEY);
+      records = isStorageRecord(saved) ? saved : {};
+    }
+    const persist = async () => {
+      const now = Date.now();
+      const keys = Object.keys(records);
+      keys.forEach((key, index) => {
+        if (!(now - records[key]?.at < DOWNLOAD_KEPT_FOR) || index < keys.length - DOWNLOADS_KEPT) delete records[key];
+      });
+      if (session?.set) await session.set({ [DOWNLOADS_KEY]: records });
+      else downloadsInMemory = records;
+    };
+    const result = await change(records, persist);
+    await persist();
+    return result;
+  });
+  downloadsTail = run.catch(() => {});
+  return run;
+}
+
+async function downloadState(id) {
+  const [item] = await chrome.downloads.search({ id });
+  const state = item?.state ?? 'interrupted';
+  return state === 'interrupted' ? { id, state, error: String(item?.error || 'the download stopped') } : { id, state };
+}
+
+// A download this extension started for the url since the record was made, and that no other
+// record has: what a worker stopped between asking Chrome and writing down the id leaves.
+async function startedFor(record, records) {
+  const taken = new Set(Object.values(records).map((other) => other.id));
+  const items = await chrome.downloads.search({ url: record.url, startedAfter: new Date(record.at - 1000).toISOString() });
+  return items.find((item) => item.byExtensionId === chrome.runtime.id && !taken.has(item.id))?.id;
+}
+
+const ownedBy = (record, sender) => record.tab === sender.tab.id && record.document === (sender.documentId ?? null);
+
+// Starts a download and answers once the browser has it: { id, state, error }. A page that sends
+// a key hears later how it ended ('download-state'), and the same key again gets the download
+// already started for it, not a second one. Only 'complete' means saved.
+async function save({ url, name, key }, sender) {
   if (!savable(url)) throw new Error('that address is not a Facebook file');
   if (!validFilename(name)) throw new Error('that file name is not safe');
   // The page cannot prove a remote file's size. chrome.downloads owns and reports the transfer.
-  const id = await chrome.downloads.download({ url, filename: name, saveAs: false, conflictAction: 'uniquify' });
-  return new Promise((resolve, reject) => {
-    const done = (error) => {
-      chrome.downloads.onChanged.removeListener(watch);
-      clearTimeout(timer);
-      if (error) reject(new Error(error));
-      else resolve();
-    };
-    const watch = (delta) => {
-      if (delta.id !== id) return;
-      if (delta.state?.current === 'complete') done();
-      else if (delta.state?.current === 'interrupted') done(delta.error?.current ?? 'the download stopped');
-    };
-    const timer = setTimeout(() => done(), ANSWER_WITHIN);
-    chrome.downloads.onChanged.addListener(watch);
+  const start = () => chrome.downloads.download({ url, filename: name, saveAs: false, conflictAction: 'uniquify' });
+  if (!key || !sender?.tab) return downloadState(await start());
+  return changeDownloads(async (records, persist) => {
+    let record = records[key];
+    if (record && (!ownedBy(record, sender) || record.url !== url)) throw new Error('that download belongs to another page');
+    if (record?.id === undefined) {
+      const earlier = record ? await startedFor(record, records) : undefined;
+      if (!record) {
+        record = { tab: sender.tab.id, document: sender.documentId ?? null, url, at: Date.now() };
+        records[key] = record;
+        await persist();
+      }
+      try {
+        record.id = earlier ?? await start();
+      } catch (error) {
+        delete records[key];
+        await persist();
+        throw error;
+      }
+    }
+    // It can end before this records the id, and then onChanged finds no record to tell.
+    const answer = await downloadState(record.id);
+    if (answer.state !== 'in_progress') delete records[key];
+    return answer;
   });
 }
+
+// Only the page that started a download can cancel it.
+function cancelSave({ key }, sender) {
+  return changeDownloads(async (records) => {
+    const record = records[key];
+    if (!record || !ownedBy(record, sender)) return { cancelled: false };
+    delete records[key];
+    const id = record.id ?? await startedFor(record, records);
+    if (id === undefined) return { cancelled: false };
+    await chrome.downloads.cancel(id).catch(() => {});
+    return { cancelled: true };
+  });
+}
+
+// Registered as the worker starts, so a download that ends while Chrome had the worker stopped
+// starts it again and still reaches its page.
+chrome.downloads.onChanged.addListener((delta) => {
+  const state = delta?.state?.current;
+  if (state !== 'complete' && state !== 'interrupted') return;
+  changeDownloads(async (records) => {
+    const key = Object.keys(records).find((name) => records[name].id === delta.id);
+    if (!key) return;
+    const { tab, document } = records[key];
+    delete records[key];
+    const message = { type: 'download-state', key, state };
+    if (state === 'interrupted') message.error = String(delta.error?.current || 'the download stopped');
+    // A page that's gone or moved on hears nothing, and the browser keeps the file all the same.
+    chrome.tabs.sendMessage(tab, message, document ? { documentId: document } : { frameId: 0 }).catch(() => {});
+  }).catch(() => {});
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  changeDownloads(async (records) => {
+    for (const key of Object.keys(records)) if (records[key].tab === tabId) delete records[key];
+  }).catch(() => {});
+});
 
 const tellTab = (tabId) => chrome.tabs.sendMessage(tabId, { type: 'open-settings' }, { frameId: 0 });
 
@@ -1201,7 +1303,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return false;
   }
   const task = message?.type === 'download'
-    ? save(message)
+    ? save(message, sender)
+    : message?.type === 'download:cancel'
+      ? cancelSave(message, sender)
     : message?.type === 'storage:mutate'
       ? mutateStorage(message)
       : message?.type === 'storage:migrate'

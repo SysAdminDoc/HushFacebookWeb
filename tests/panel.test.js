@@ -732,6 +732,32 @@ test('a notice under the pointer or holding focus stays until both leave', async
   assert.equal(settings.get('ui.hiddenNote'), false);
 });
 
+test('a notice for something still running stays until it is dismissed, and its action ends it too', () => {
+  const { shadow, panel } = setup();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  cleanups.push(() => mock.timers.reset());
+  const ran = [];
+  const running = panel.toast('Saving Pat photo.jpg', { action: { label: 'Cancel', run: () => ran.push('cancel') }, duration: Infinity });
+  const notice = shadow.querySelector('.toast:last-child');
+  mock.timers.tick(3600000);
+  assert.ok(notice.isConnected, 'no timeout for an open-ended notice');
+  running.dismiss();
+  assert.equal(notice.isConnected, false);
+  running.dismiss();
+
+  panel.toast('Saving Pat video.mp4', { action: { label: 'Cancel', run: () => ran.push('cancel') }, duration: Infinity });
+  const second = shadow.querySelector('.toast:last-child');
+  second.querySelector('button').click();
+  assert.equal(second.isConnected, false);
+  assert.deepEqual(ran, ['cancel']);
+
+  const timed = panel.toast('Saved Pat photo.jpg');
+  const third = shadow.querySelector('.toast:last-child');
+  mock.timers.tick(4000);
+  assert.equal(third.isConnected, false, 'an ordinary notice still times out');
+  timed.dismiss();
+});
+
 test('a failed Undo keeps the earlier choices until a retry saves them', async () => {
   const { storage, data, control } = laterStorage({ 'ui.hiddenNote': true, 'ui.launcher': false });
   const { shadow, panel, settings } = setup({ storage });

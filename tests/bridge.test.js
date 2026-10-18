@@ -65,6 +65,7 @@ function fakeChrome(saved = {}, {
     sent,
     emitStorageChange: tell,
     openSettings: () => fromBackground.forEach((listener) => listener({ type: 'open-settings' })),
+    tellPage: (message) => fromBackground.forEach((listener) => listener(message)),
     storage: {
       local: {
         get: async () => {
@@ -1605,21 +1606,118 @@ test('the toolbar button reaches the page as open-settings', async () => {
   assert.equal(opened, 1);
 });
 
-test("downloads go to the background in GM_download's shape, and a cancel says so", async () => {
+test("downloads go to the background in GM_download's shape and count as saved only once the browser has the whole file", async () => {
   const win = page();
-  const answers = [{ ok: true }, { ok: false, error: 'USER_CANCELED' }];
-  const chrome = fakeChrome({}, { download: () => answers.shift() });
-  await startIsolated(win, chrome);
-  const download = bridgeDownload(connectBridge({ doc: win.document, win, secret: randomUUID() }));
-  const outcome = (url) => new Promise((resolve) => {
-    download({ url, name: 'Pat video.mp4', onload: () => resolve('saved'), onerror: (error) => resolve(error.error), ontimeout: () => resolve('timeout') });
+  const video = (file) => `https://video.xx.fbcdn.net/v/${file}.mp4`;
+  let workerGone = true;
+  const chrome = fakeChrome({}, {
+    download: (message) => {
+      if (message.type === 'download:cancel') return { ok: true, result: { cancelled: true } };
+      const file = message.url.match(/(\w+)\.mp4$/)[1];
+      if (file === 'six' && workerGone) {
+        workerGone = false;
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      }
+      if (file === 'five') return { ok: false, error: 'that download belongs to another page' };
+      return { ok: true, result: { id: 7, state: file === 'three' ? 'complete' : 'in_progress' } };
+    },
   });
-  assert.equal(await outcome('https://video.xx.fbcdn.net/v/one.mp4'), 'saved');
-  assert.equal(await outcome('https://video.xx.fbcdn.net/v/two.mp4'), 'USER_CANCELED');
-  assert.deepEqual(chrome.sent.map(({ type, url, name }) => [type, url, name]), [
-    ['download', 'https://video.xx.fbcdn.net/v/one.mp4', 'Pat video.mp4'],
-    ['download', 'https://video.xx.fbcdn.net/v/two.mp4', 'Pat video.mp4'],
+  await startIsolated(win, chrome);
+  const keys = Array.from({ length: 6 }, (_, n) => `0f8e2a52-6a51-4c39-9d3b-00000000000${n + 1}`);
+  let made = 0;
+  const download = bridgeDownload(connectBridge({ doc: win.document, win, secret: randomUUID() }), { makeKey: () => keys[made++] });
+  const ends = {};
+  const finals = {};
+  const start = (file) => download({
+    url: video(file), name: 'Pat video.mp4',
+    onload: () => { ends[file] = 'saved'; },
+    onerror: (error) => { ends[file] = error.error; finals[file] = error.final === true; },
+    ontimeout: () => { ends[file] = 'timeout'; },
+  });
+  start('one');
+  start('two');
+  await settle();
+  assert.deepEqual(ends, {}, 'taken by the browser is not saved yet');
+  chrome.tellPage({ type: 'download-state', key: keys[0], state: 'complete' });
+  chrome.tellPage({ type: 'download-state', key: 'not a key', state: 'complete' });
+  await settle();
+  assert.deepEqual(ends, { one: 'saved' });
+  chrome.tellPage({ type: 'download-state', key: keys[1], state: 'interrupted', error: `NETWORK_FAILED ${'x'.repeat(300)}` });
+  chrome.tellPage({ type: 'download-state', key: keys[0], state: 'interrupted', error: 'late' });
+  await settle();
+  assert.equal(ends.one, 'saved', 'a download ends once');
+  assert.match(ends.two, /^NETWORK_FAILED x+$/);
+  assert.equal(ends.two.length, 200, 'the isolated half cuts a long error');
+  assert.equal(finals.two, true, 'a download the browser took and then stopped is final');
+
+  start('three');
+  await settle();
+  assert.equal(ends.three, 'saved', 'a download already finished when the browser answered');
+
+  const four = start('four');
+  await settle();
+  four.abort();
+  chrome.tellPage({ type: 'download-state', key: keys[3], state: 'interrupted', error: 'USER_CANCELED' });
+  await settle();
+  assert.equal(Object.hasOwn(ends, 'four'), false, 'an abort reports nothing');
+
+  start('five');
+  await settle();
+  start('six');
+  await settle();
+  assert.equal(ends.five, 'that download belongs to another page');
+  assert.equal(finals.five, false, 'a download the browser never took can be tried another way');
+  assert.equal(Object.hasOwn(ends, 'six'), false, 'the isolated half asked once more after the worker went away');
+  assert.deepEqual(chrome.sent.map(({ type, url, key }) => [type, url && url.match(/(\w+)\.mp4$/)[1], keys.indexOf(key)]), [
+    ['download', 'one', 0],
+    ['download', 'two', 1],
+    ['download', 'three', 2],
+    ['download', 'four', 3],
+    ['download:cancel', undefined, 3],
+    ['download', 'five', 4],
+    ['download:cancel', undefined, 4],
+    ['download', 'six', 5],
+    ['download', 'six', 5],
   ]);
+});
+
+test("a stopped download says why in plain words and keeps the browser's name for it", async () => {
+  const stopped = (error) => new Promise((resolve) => {
+    const bridge = {
+      on: () => () => {},
+      request: (type) => (type === 'download' ? Promise.resolve({ id: 7, state: 'interrupted', error }) : Promise.resolve({})),
+    };
+    bridgeDownload(bridge, { makeKey: () => '0f8e2a52-6a51-4c39-9d3b-000000000009' })({
+      url: 'https://video.xx.fbcdn.net/v/one.mp4', name: 'Pat video.mp4', onerror: resolve,
+    });
+  });
+  assert.deepEqual(await stopped('SERVER_CONTENT_LENGTH_MISMATCH'), { error: "Facebook's server stopped sending it (SERVER_CONTENT_LENGTH_MISMATCH)", final: true });
+  assert.equal((await stopped('NETWORK_DISCONNECTED')).error, 'the connection dropped (NETWORK_DISCONNECTED)');
+  assert.equal((await stopped('FILE_NO_SPACE')).error, 'the disk is full (FILE_NO_SPACE)');
+  assert.equal((await stopped('FILE_ACCESS_DENIED')).error, "the browser couldn't write the file (FILE_ACCESS_DENIED)");
+  assert.equal((await stopped('CRASH')).error, 'the browser stopped it (CRASH)');
+  assert.match((await stopped('USER_CANCELED')).error, /USER_CANCELED/, 'a cancel still reads as one');
+  assert.equal((await stopped(undefined)).error, 'the download stopped');
+  assert.equal((await stopped('the download stopped')).error, 'the download stopped');
+});
+
+test('the isolated half refuses download requests without a key or with anything extra', async () => {
+  const win = page();
+  const chrome = fakeChrome({}, { download: () => ({ ok: true, result: { id: 7, state: 'in_progress' } }) });
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+  const key = '0f8e2a52-6a51-4c39-9d3b-0e9c3b0d6a11';
+  const url = 'https://scontent.xx.fbcdn.net/v/a.jpg';
+  for (const [type, payload] of [
+    ['download', { url, name: 'a.jpg' }],
+    ['download', { url, name: 'a.jpg', key: 'short' }],
+    ['download', { url, name: 'a.jpg', key: `${key}/..` }],
+    ['download', { url, name: 'a.jpg', key, saveAs: true }],
+    ['download:cancel', {}],
+    ['download:cancel', { key, id: 7 }],
+  ]) await refused(forged.send(type, payload), /not allowed/, JSON.stringify(payload));
+  assert.deepEqual(chrome.sent, []);
+  assert.deepEqual((await forged.send('download', { url, name: 'a.jpg', key })).result, { id: 7, state: 'in_progress' });
 });
 
 test('settings wait for the saved copy, then migrate through the worker once before recording it', async () => {
@@ -2199,7 +2297,7 @@ test('a game frame sees and changes only the game ads switch', async () => {
   assert.equal(chrome.data['instantGamesAds.enabled'], true);
   await refused(forged.send('storage:set', { key: 'keepSpeed.rate', value: 2 }), /not allowed/);
   await refused(forged.send('storage:mutate', { key: 'settings', mutation: { set: { beta: false } } }), /not allowed/);
-  await refused(forged.send('download', { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg' }), /not allowed/);
+  await refused(forged.send('download', { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', key: '0f8e2a52-6a51-4c39-9d3b-0e9c3b0d6a11' }), /not allowed/);
 });
 
 test('oversize, duplicate, piled-up and flooding requests are turned away', async () => {
@@ -2239,7 +2337,7 @@ test('oversize, duplicate, piled-up and flooding requests are turned away', asyn
   }
   await refused(flooding.send('storage:load', {}), /too many extension requests were sent/);
   assert.equal((await flooding.send('storage:set', { key: 'keepSpeed.rate', value: 2 })).ok, true, 'quick writes have their own allowance');
-  const download = { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'Pat photo.jpg' };
+  const download = { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'Pat photo.jpg', key: '0f8e2a52-6a51-4c39-9d3b-0e9c3b0d6a11' };
   for (let index = 0; index < BRIDGE_MAX_DOWNLOADS_PER_WINDOW; index++) {
     assert.equal((await flooding.send('download', download)).ok, true);
   }

@@ -47,25 +47,36 @@ export function extensionOf(url, fallback) {
 
 // A manager's error fields can be text or an object (the browser's own error, say).
 const describe = (value) => (value && typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''));
+const cancelledError = (cause) => Object.assign(new Error('you cancelled it', cause ? { cause } : undefined), { cancelled: true });
 
-function viaManager(download, url, name) {
-  return new Promise((resolve, reject) => {
-    download({
-      url, name, saveAs: false, timeout: TIMEOUT,
+// Each try hands back how to stop it: the abort() of the manager's handle, or of the fetch's
+// AbortController. Managers don't all keep to the timeout they're given (an anonymous
+// GM_xmlhttpRequest can run on), so the deadline is the save's own and covers every try.
+
+function viaManager(download, url, name, timeout) {
+  let handle = null;
+  const done = new Promise((resolve, reject) => {
+    handle = download({
+      url, name, saveAs: false, timeout,
       onload: () => resolve(),
       onerror: (error) => reject(Object.assign(new Error(describe(error?.error) || describe(error?.details) || 'the manager could not save it'), {
         cancelled: /cancel/i.test(`${describe(error?.error)} ${describe(error?.details)}`),
+        // The extension's downloads: the browser took the file and then stopped, so another
+        // try would only hide why.
+        final: error?.final === true,
       })),
       ontimeout: () => reject(new Error('it took too long')),
     });
   });
+  return { done, abort: () => handle?.abort?.() };
 }
 
-function fetchBlob(url, { request, win }) {
+function fetchBlob(url, { request, win, timeout }) {
   if (request) {
-    return new Promise((resolve, reject) => {
-      request({
-        method: 'GET', url, responseType: 'blob', timeout: TIMEOUT, anonymous: true,
+    let handle = null;
+    const done = new Promise((resolve, reject) => {
+      handle = request({
+        method: 'GET', url, responseType: 'blob', timeout, anonymous: true,
         onload: (response) => (response.status >= 200 && response.status < 300 && response.response
           ? resolve(response.response)
           : reject(new Error(`the server answered ${response.status}`))),
@@ -73,37 +84,85 @@ function fetchBlob(url, { request, win }) {
         ontimeout: () => reject(new Error('it took too long')),
       });
     });
+    return { done, abort: () => handle?.abort?.() };
   }
-  return win.fetch(url, { credentials: 'omit' }).then((response) => {
+  const controller = new (win.AbortController ?? AbortController)();
+  const done = win.fetch(url, { credentials: 'omit', signal: controller.signal }).then((response) => {
     if (!response.ok) throw new Error(`the server answered ${response.status}`);
     return response.blob();
   });
+  return { done, abort: () => controller.abort() };
 }
 
 // api: { download, request } from the manager (env.js gmApi), either may be null.
 // container: where the temporary link goes, so nothing is added to Facebook's markup.
-// Returns 'manager' or 'link', the way it was saved.
-export async function saveFile({ url, name, api = {}, doc = globalThis.document, win = globalThis, container = null }) {
-  if (api.download) {
+// Returns { done, cancel }. done resolves 'manager' or 'link', the way it was saved, or rejects
+// (error.cancelled when the person cancelled, here or in the browser). It settles once, and
+// whatever ends it first (the save, an error, cancel() or the deadline) stops the try that's
+// running. A cancel or the deadline never starts the next try.
+export function startSave({ url, name, api = {}, doc = globalThis.document, win = globalThis, container = null, deadline = TIMEOUT }) {
+  let over = false;
+  let running = null;
+  let settle;
+  const done = new Promise((resolve, reject) => {
+    settle = (error, how) => {
+      if (over) return false;
+      over = true;
+      clearTimeout(timer);
+      const stop = running;
+      running = null;
+      if (error) {
+        reject(error);
+        try {
+          stop?.abort();
+        } catch {
+          // The manager's own abort failing changes nothing here: the save is over.
+        }
+      } else resolve(how);
+      return true;
+    };
+  });
+  const timer = setTimeout(() => settle(new Error('it took too long')), deadline);
+  const attempt = async (step) => {
+    running = step;
     try {
-      await viaManager(api.download, url, name);
-      return 'manager';
-    } catch (error) {
-      // Cancelled in the browser means no. Anything else, fetch it instead.
-      if (error.cancelled) throw Object.assign(new Error('you cancelled it', { cause: error }), { cancelled: true });
+      return await step.done;
+    } finally {
+      if (running === step) running = null;
     }
-  }
-  const blob = await fetchBlob(url, { request: api.request, win });
-  const href = URL.createObjectURL(blob);
-  const link = doc.createElement('a');
-  link.href = href;
-  link.download = name;
-  link.rel = 'noopener';
-  link.style.display = 'none';
-  (container ?? doc.body ?? doc.documentElement).append(link);
-  link.click();
-  link.remove();
-  // The browser has the file by then. In Node (the tests) the timer mustn't hold the process.
-  setTimeout(() => URL.revokeObjectURL(href), 60000).unref?.();
-  return 'link';
+  };
+
+  const run = async () => {
+    if (api.download) {
+      try {
+        await attempt(viaManager(api.download, url, name, deadline));
+        return 'manager';
+      } catch (error) {
+        if (over) return undefined;
+        // Cancelled in the browser means no, and a final error stands. Anything else, fetch it instead.
+        if (error.cancelled) throw cancelledError(error);
+        if (error.final) throw error;
+      }
+    }
+    const blob = await attempt(fetchBlob(url, { request: api.request, win, timeout: deadline }));
+    if (over) return undefined;
+    const href = URL.createObjectURL(blob);
+    const link = doc.createElement('a');
+    link.href = href;
+    link.download = name;
+    link.rel = 'noopener';
+    link.style.display = 'none';
+    (container ?? doc.body ?? doc.documentElement).append(link);
+    link.click();
+    link.remove();
+    // The browser has the file by then. In Node (the tests) the timer mustn't hold the process.
+    setTimeout(() => URL.revokeObjectURL(href), 60000).unref?.();
+    return 'link';
+  };
+  run().then((how) => settle(null, how), (error) => settle(error));
+  return { done, cancel: () => settle(cancelledError()) };
+}
+
+export function saveFile(options) {
+  return startSave(options).done;
 }

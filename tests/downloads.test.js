@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { Window } from 'happy-dom';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
-import { extensionOf, fileName, saveFile } from '../src/core/download.js';
+import { extensionOf, fileName, saveFile, startSave } from '../src/core/download.js';
 import { createMediaIndex, MEDIA_MARKERS, photoFile, videoFiles } from '../src/core/media-index.js';
 import { createDownloadButton, mediaAt } from '../src/features/downloads/button.js';
 import { authorOf, findMedia, linkTarget, nearestVideoLink, pageTarget, planSave } from '../src/features/downloads/find.js';
@@ -256,6 +256,126 @@ test("the manager's download is tried first, and a fetched copy is saved when it
   };
   await assert.rejects(saveFile({ url: 'https://v.example.invalid/a.mp4', name: 'f.mp4', api: cancelledObject, doc: fakeDoc() }),
     (error) => error.cancelled === true && error.message === 'you cancelled it');
+  // The extension's download, taken by the browser and then stopped: its reason stands, and the
+  // page's fetch (which can't read Facebook's files) isn't tried.
+  const fetched = [];
+  const stopped = {
+    download: (options) => options.onerror({ error: "Facebook's server stopped sending it (SERVER_CONTENT_LENGTH_MISMATCH)", final: true }),
+    request: (options) => {
+      fetched.push(options.url);
+      options.onload({ status: 200, response: new Blob(['x']) });
+    },
+  };
+  await assert.rejects(saveFile({ url: 'https://v.example.invalid/a.mp4', name: 'g.mp4', api: stopped, doc: fakeDoc() }),
+    (error) => error.message === "Facebook's server stopped sending it (SERVER_CONTENT_LENGTH_MISMATCH)" && !error.cancelled);
+  assert.deepEqual(fetched, [], 'a final error starts no fallback');
+});
+
+const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+test('a save has one deadline over every try, and cancel or the deadline stops the try that is running', async (t) => {
+  const url = 'https://v.example.invalid/a.mp4';
+  const aborted = [];
+  const fallbacks = [];
+  // Managers report their own abort as an error, which mustn't read as "try the fallback".
+  const stoppable = (label) => (options) => ({
+    abort: () => {
+      aborted.push(label);
+      options.onerror({ error: 'aborted' });
+    },
+  });
+  const fallback = (options) => (fallbacks.push(options.url), { abort() {} });
+  await nextTurn();
+  // A manager that keeps going past the timeout it was given.
+  const silent = { download: stoppable('download'), request: fallback };
+  await assert.rejects(startSave({ url, name: 'a.mp4', api: silent, doc: fakeDoc(), deadline: 20 }).done, /took too long/);
+  await nextTurn();
+  assert.deepEqual(aborted, ['download']);
+  assert.deepEqual(fallbacks, [], 'the deadline started no fallback');
+
+  // A server that never finishes the file.
+  let signal = null;
+  const stalled = {
+    fetch: (_, options) => {
+      ({ signal } = options);
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
+    },
+  };
+  const stalledDoc = fakeDoc();
+  await assert.rejects(startSave({ url, name: 'b.mp4', api: {}, doc: stalledDoc, win: stalled, deadline: 20 }).done, /took too long/);
+  assert.equal(signal.aborted, true, 'the fetch is aborted');
+  assert.deepEqual(stalledDoc.clicks, []);
+
+  // Cancel while the manager has it: no fallback.
+  const manager = { download: stoppable('manager'), request: fallback };
+  const save = startSave({ url, name: 'c.mp4', api: manager, doc: fakeDoc() });
+  save.cancel();
+  save.cancel();
+  await assert.rejects(save.done, (error) => error.cancelled === true && error.message === 'you cancelled it');
+  await nextTurn();
+  assert.deepEqual(aborted, ['download', 'manager']);
+  assert.deepEqual(fallbacks, [], 'a cancel started no fallback');
+
+  // Cancel during the fallback, and the file arrives anyway: nothing is saved or kept.
+  const made = [];
+  const createObjectURL = URL.createObjectURL;
+  URL.createObjectURL = (blob) => (made.push(blob), 'blob:x');
+  t.after(() => { URL.createObjectURL = createObjectURL; });
+  let deliver = null;
+  const late = {
+    download: (options) => options.onerror({ error: 'not_whitelisted' }),
+    request: (options) => {
+      deliver = () => options.onload({ status: 200, response: new Blob(['x']) });
+      return { abort: () => aborted.push('request') };
+    },
+  };
+  const lateDoc = fakeDoc();
+  const fetching = startSave({ url, name: 'd.mp4', api: late, doc: lateDoc });
+  await nextTurn();
+  fetching.cancel();
+  deliver();
+  await assert.rejects(fetching.done, /cancelled/);
+  await nextTurn();
+  assert.deepEqual(lateDoc.clicks, []);
+  assert.deepEqual(made, [], 'no object URL for a file nobody wants');
+  assert.deepEqual(aborted, ['download', 'manager', 'request']);
+
+  // It settles once: a manager that reports twice, then a cancel, change nothing.
+  const twice = {
+    download: (options) => {
+      options.onload();
+      options.onerror({ error: 'late' });
+      return { abort: () => aborted.push('twice') };
+    },
+  };
+  const quick = startSave({ url, name: 'e.mp4', api: twice, doc: fakeDoc() });
+  assert.equal(await quick.done, 'manager');
+  quick.cancel();
+  assert.deepEqual(aborted, ['download', 'manager', 'request'], 'nothing aborts a finished save');
+});
+
+test('a transfer well past twenty seconds still saves, and the deadline is ten minutes for the whole save', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const url = 'https://v.example.invalid/a.mp4';
+  const ends = [];
+  let finish = null;
+  const slow = startSave({ url, name: 'a.mp4', api: { download: (options) => { finish = options.onload; return { abort() {} }; } }, doc: fakeDoc() });
+  slow.done.then((how) => ends.push(how), (error) => ends.push(error.message));
+  t.mock.timers.tick(25000);
+  await nextTurn();
+  assert.deepEqual(ends, []);
+  finish();
+  await nextTurn();
+  assert.deepEqual(ends, ['manager']);
+
+  const stuck = startSave({ url, name: 'b.mp4', api: { download: () => ({ abort() {} }) }, doc: fakeDoc() });
+  stuck.done.catch((error) => ends.push(error.message));
+  t.mock.timers.tick(599999);
+  await nextTurn();
+  assert.deepEqual(ends, ['manager']);
+  t.mock.timers.tick(1);
+  await nextTurn();
+  assert.deepEqual(ends, ['manager', 'it took too long']);
 });
 
 // Lays out an element for the button: happy-dom has no layout.
@@ -752,9 +872,66 @@ test('each switch only offers what it covers, and the index fills from what Face
   assert.equal(found?.feature, 'downloadPhotos');
   await shared.run(found, doc.body);
   assert.deepEqual(downloaded, ['Pat Example photo 9999999.jpg'], toasts.join(' | '));
+  assert.deepEqual(toasts, ['Saved Pat Example photo 9999999.jpg'], 'a quick save gets no notice while it runs');
   // Cancelled in the manager: a plain note, not an error.
   api.download = (options) => options.onerror({ error: 'not_succeeded', details: 'USER_CANCELED' });
   toasts.length = 0;
   await shared.run(found, doc.body);
   assert.deepEqual(toasts, ['Cancelled Pat Example photo 9999999.jpg']);
+});
+
+test('a save still going after a moment says so, and its Cancel stops the transfer and clears the notice', async (t) => {
+  const win = page(POST('<a href="/photo/?fbid=9999999"><img></a>'));
+  const doc = win.document;
+  const rules = [];
+  const toasts = [];
+  const aborted = [];
+  let finish = null;
+  const api = {
+    download: ({ onload }) => {
+      finish = onload;
+      return { abort: () => aborted.push('download') };
+    },
+    request: () => assert.fail('a cancel started a fallback'),
+  };
+  downloadPhotos.setup({
+    win, doc, api, net: { transformResponses: (rule) => rules.push(rule) }, router: { current: () => ({ href: win.location.href }) },
+    log: { error() {}, warn() {}, info() {} },
+    toast: (message, options) => {
+      const entry = { message, options, dismissed: false };
+      toasts.push(entry);
+      return { dismiss: () => { entry.dismissed = true; } };
+    },
+    enabled: () => true,
+    option: () => 'best',
+  });
+  rules[0].transform({ p: photo('9999999') });
+  const shared = downloads({ doc });
+  const found = findMedia(doc.querySelector('img'), { href: win.location.href, index: shared.index });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+
+  const slow = shared.run(found, doc.body);
+  t.mock.timers.tick(1499);
+  assert.deepEqual(toasts, []);
+  t.mock.timers.tick(1);
+  assert.equal(toasts.length, 1);
+  const [notice] = toasts;
+  assert.equal(notice.message, 'Saving Pat Example photo 9999999.jpg');
+  assert.equal(notice.options.duration, Infinity, 'it stays while the save runs');
+  assert.equal(notice.options.action.label, 'Cancel');
+  notice.options.action.run();
+  await slow;
+  assert.deepEqual(aborted, ['download'], "the manager's transfer is stopped");
+  assert.equal(notice.dismissed, true);
+  assert.deepEqual(toasts.map((entry) => entry.message), ['Saving Pat Example photo 9999999.jpg', 'Cancelled Pat Example photo 9999999.jpg']);
+  finish();
+
+  // One that finishes after the notice is up clears it and says Saved.
+  toasts.length = 0;
+  const later = shared.run(found, doc.body);
+  t.mock.timers.tick(5000);
+  finish();
+  await later;
+  assert.equal(toasts[0].dismissed, true);
+  assert.deepEqual(toasts.map((entry) => entry.message), ['Saving Pat Example photo 9999999.jpg', 'Saved Pat Example photo 9999999.jpg']);
 });

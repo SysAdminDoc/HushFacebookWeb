@@ -5,6 +5,7 @@
 // capabilities, validation and bounds protect it even when the page chooses that route first.
 
 import {
+  BRIDGE_DOWNLOAD_KEY,
   BRIDGE_MAX_DOWNLOADS_PER_WINDOW,
   BRIDGE_MAX_MESSAGE_BYTES,
   BRIDGE_MAX_PENDING,
@@ -283,13 +284,17 @@ const validStorageRequest = (type, payload) => {
   }
   return false;
 };
-const validDownloadRequest = (payload) => (
+const validDownloadKey = (key) => typeof key === 'string' && BRIDGE_DOWNLOAD_KEY.test(key);
+const validDownloadRequest = (type, payload) => (
   storageAccess.kind === 'facebook'
-  && onlyKeys(payload, ['url', 'name'])
-  && boundedString(payload.url, 8192)
-  && payload.url.length > 0
-  && boundedString(payload.name, 512)
-  && payload.name.length > 0
+  && (type === 'download:cancel'
+    ? onlyKeys(payload, ['key']) && validDownloadKey(payload.key)
+    : onlyKeys(payload, ['url', 'name', 'key'])
+      && boundedString(payload.url, 8192)
+      && payload.url.length > 0
+      && boundedString(payload.name, 512)
+      && payload.name.length > 0
+      && validDownloadKey(payload.key))
 );
 const activeRequests = new Set();
 // Separate buckets, so a volume-slider drag can't use up the quota a settings save needs.
@@ -553,11 +558,23 @@ const handlers = {
       sourceDoneKey,
     })
   ),
-  download: async ({ url, name }) => {
-    const answer = await chrome.runtime.sendMessage({ type: 'download', url, name });
-    if (!answer?.ok) throw new Error(answer?.error || 'the browser could not save it');
-  },
+  download: ({ url, name, key }) => askAboutDownload({ type: 'download', url, name, key }),
+  'download:cancel': ({ key }) => askAboutDownload({ type: 'download:cancel', key }),
 };
+
+// Chrome stops an idle worker, and one stopped in the middle of an answer leaves the message
+// with none, so it's asked once more. The key makes the second ask find the download the first
+// one started instead of starting another.
+async function askAboutDownload(message) {
+  let answer;
+  try {
+    answer = await chrome.runtime.sendMessage(message);
+  } catch {
+    answer = await chrome.runtime.sendMessage(message);
+  }
+  if (!answer?.ok) throw new Error(answer?.error || 'the browser could not save it');
+  return answer.result;
+}
 
 async function onRequest(event) {
   if (typeof event.detail !== 'string') return;
@@ -591,7 +608,7 @@ async function onRequest(event) {
     if (!handler) throw new Error(`unknown request ${type}`);
     const body = payload ?? {};
     if (type.startsWith('storage:') && !validStorageRequest(type, body)) throw new Error('that storage request is not allowed');
-    if (type === 'download' && !validDownloadRequest(body)) throw new Error('that download request is not allowed');
+    if (type.startsWith('download') && !validDownloadRequest(type, body)) throw new Error('that download request is not allowed');
     activeRequests.add(id);
     const result = await handler(body);
     toMain({ id, ok: true, result: result ?? null });
@@ -720,9 +737,17 @@ document.addEventListener(HELLO_MAIN, (event) => {
       () => forwardStorageChange(changes),
     );
   });
-  // The toolbar button.
+  // The toolbar button, and how a download ended.
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'open-settings') toMain({ push: 'open-settings' });
+    if (
+      message?.type === 'download-state'
+      && validDownloadKey(message.key)
+      && (message.state === 'complete' || message.state === 'interrupted')
+    ) {
+      const error = message.state === 'interrupted' ? String(message.error ?? '').slice(0, 200) : undefined;
+      toMain({ push: 'download', data: { key: message.key, state: message.state, ...(error ? { error } : {}) } });
+    }
     if (message?.type === 'storage-error') {
       toMain({
         push: 'storage',

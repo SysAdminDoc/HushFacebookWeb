@@ -174,6 +174,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     }
   }
 
+  // duration Infinity keeps the notice until dismiss() on what this returns, or its action.
   function toast(message, { tone = 'info', action, duration } = {}) {
     const el = h('div', { class: `toast ${tone}`, role: tone === 'error' ? 'alert' : null },
       h('span', { text: message }),
@@ -187,7 +188,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const wait = duration ?? (action ? 7000 : 4000);
     const schedule = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => { if (!hovered && !focused) el.remove(); }, wait);
+      if (Number.isFinite(wait)) timer = setTimeout(() => { if (!hovered && !focused) el.remove(); }, wait);
     };
     el.addEventListener('pointerenter', () => { hovered = true; });
     el.addEventListener('pointerleave', () => { hovered = false; schedule(); });
@@ -198,6 +199,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       schedule();
     });
     schedule();
+    return {
+      dismiss() {
+        clearTimeout(timer);
+        el.remove();
+      },
+    };
   }
 
   // ---- views ----

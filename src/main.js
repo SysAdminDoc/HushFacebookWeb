@@ -80,7 +80,18 @@ function boot() {
   let pendingSettingsOpen = false;
   let pendingSettingsSection;
   const waiting = [];
-  const toast = (message, options) => (panel ? panel.toast(message, options) : waiting.push([message, options]));
+  // Hands back { dismiss }, which works on a notice still waiting for the panel too.
+  const toast = (message, options) => {
+    if (panel) return panel.toast(message, options);
+    const entry = { message, options, shown: null, gone: false };
+    waiting.push(entry);
+    return {
+      dismiss() {
+        entry.gone = true;
+        entry.shown?.dismiss();
+      },
+    };
+  };
   const openSettings = (section) => whenBodyReady(() => {
     if (panel) panel.open(section);
     else {
@@ -174,7 +185,9 @@ function boot() {
       settings, features, log, hider, diagnostics, actions, unavailable,
       environment: { version, ...managerInfo(), update, storage, activity, accountMatches: () => settings.startup.matchesAccount(signedInAccount()) },
     });
-    for (const [message, options] of waiting.splice(0)) panel.toast(message, options);
+    for (const entry of waiting.splice(0)) {
+      if (!entry.gone) entry.shown = panel.toast(entry.message, entry.options);
+    }
     if (pendingSettingsOpen) {
       panel.open(pendingSettingsSection);
       pendingSettingsOpen = false;

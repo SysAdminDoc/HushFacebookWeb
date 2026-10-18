@@ -43,6 +43,10 @@ export const BRIDGE_MAX_REQUESTS_PER_WINDOW = 120;
 // Remembered volume writes on every volumechange, so a slider drag runs near 60 a second.
 export const BRIDGE_MAX_WRITES_PER_WINDOW = 600;
 export const BRIDGE_MAX_DOWNLOADS_PER_WINDOW = 8;
+// A page's name for one of its downloads (a UUID). The background keeps the same pattern.
+export const BRIDGE_DOWNLOAD_KEY = /^[A-Za-z0-9-]{8,64}$/;
+// The browser takes a download once the server starts answering, which a slow one can delay.
+const DOWNLOAD_ANSWER_WITHIN = 60000;
 // Taken when the bundle loads, before the script's own JSON.parse hook or Facebook's code.
 const { stringify } = JSON;
 const Encoder = TextEncoder;
@@ -144,6 +148,7 @@ export function connectBridge({
     // Messages the extension sends on its own: 'storage' (changes from other tabs), 'open-settings'.
     on(push, listener) {
       pushes.set(push, [...(pushes.get(push) ?? []), listener]);
+      return () => pushes.set(push, (pushes.get(push) ?? []).filter((entry) => entry !== listener));
     },
   };
 }
@@ -517,10 +522,53 @@ export function createBridgeStorage(bridge, { log } = {}) {
   };
 }
 
-// GM_download's shape, through chrome.downloads in the extension's background.
-export const bridgeDownload = (bridge) => ({ url, name, timeout, onload, onerror, ontimeout }) => {
-  bridge.request('download', { url, name }, { timeout: timeout ?? 600000 }).then(
-    () => onload?.(),
-    (error) => (/did not answer/.test(error.message) ? ontimeout?.() : onerror?.({ error: error.message })),
-  );
+// chrome.downloads names why a download stopped (SERVER_CONTENT_LENGTH_MISMATCH, FILE_NO_SPACE).
+// The name stays in the message for Diagnostics, and USER_CANCELED still reads as a cancel.
+function stoppedBecause(reason) {
+  const code = String(reason || '');
+  if (!/^[A-Z_]+$/.test(code)) return code || 'the download stopped';
+  if (code === 'FILE_NO_SPACE') return `the disk is full (${code})`;
+  if (code.startsWith('NETWORK_')) return `the connection dropped (${code})`;
+  if (code.startsWith('SERVER_')) return `Facebook's server stopped sending it (${code})`;
+  if (code.startsWith('FILE_')) return `the browser couldn't write the file (${code})`;
+  return `the browser stopped it (${code})`;
+}
+
+// GM_download's shape, through chrome.downloads in the extension's background, abort() handle
+// included. The background answers once the browser has taken the download, and says later
+// how it ended (the 'download' push), so a long video counts as saved only when the browser
+// has all of it. The key ties both to this one download, and lets the background find it again
+// when the same request is sent twice (the isolated half asks again if the worker went away).
+// A download the browser took and then stopped is final: Chrome has already retried the
+// transfer itself, and the page's own fetch can't read Facebook's files.
+export const bridgeDownload = (bridge, { makeKey = () => globalThis.crypto.randomUUID() } = {}) => ({ url, name, onload, onerror, ontimeout }) => {
+  const key = makeKey();
+  let over = false;
+  const cancel = () => bridge.request('download:cancel', { key }).catch(() => {});
+  const end = (report) => {
+    if (over) return;
+    over = true;
+    stopListening();
+    report?.();
+  };
+  const ended = ({ state, error } = {}) => {
+    if (state === 'complete') end(onload);
+    else if (state === 'interrupted') end(() => onerror?.({ error: stoppedBecause(error), final: true }));
+  };
+  const stopListening = bridge.on('download', (data) => {
+    if (data?.key === key) ended(data);
+  });
+  bridge.request('download', { url, name, key }, { timeout: DOWNLOAD_ANSWER_WITHIN }).then(ended, (error) => {
+    if (over) return;
+    // The browser may have started it all the same, and nothing should go on behind a failure.
+    cancel();
+    end(() => (/did not answer/.test(error.message) ? ontimeout?.() : onerror?.({ error: error.message })));
+  });
+  return {
+    abort() {
+      if (over) return;
+      end(null);
+      cancel();
+    },
+  };
 };

@@ -17,15 +17,17 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null } = {}) {
+// items: the browser's downloads, shared between workers to stand for one browser whose worker
+// Chrome stopped and started again. finishes: state a new download is in once download() resolves.
+function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null, items = new Map(), finishes = 'in_progress' } = {}) {
   const data = structuredClone(saved);
-  const calls = { fetch: 0, badge: [], created: [], reloaded: [], sent: [], downloads: [] };
-  const listeners = { updated: [], downloadChanged: [], messages: [], storageChanged: [] };
+  const calls = { fetch: 0, badge: [], created: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [] };
+  const listeners = { updated: [], downloadChanged: [], messages: [], storageChanged: [], removed: [] };
   const tellStorage = (changes) => queueMicrotask(() => (
     listeners.storageChanged.forEach((listener) => listener(changes, 'local'))
   ));
   const chrome = {
-    runtime: { getManifest: () => ({ version }), onMessage: { addListener: (fn) => listeners.messages.push(fn) } },
+    runtime: { id: 'hfw', getManifest: () => ({ version }), onMessage: { addListener: (fn) => listeners.messages.push(fn) } },
     storage: { local: {
       get: async (keys) => {
         const names = Array.isArray(keys) ? keys : [keys];
@@ -63,16 +65,37 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
       query: async () => Object.keys(tabs).map((id) => ({ id: Number(id) })),
       create: async ({ url }) => (calls.created.push(url), { id: 99 }),
       reload: async (id) => void calls.reloaded.push(id),
-      sendMessage: async (id, message) => {
+      sendMessage: async (id, message, options) => {
         calls.sent.push([id, message.type]);
+        if (message.type === 'download-state') calls.told.push([id, structuredClone(message), structuredClone(options)]);
         if (!tabs[id]) throw new Error('Could not establish connection. Receiving end does not exist.');
       },
       onUpdated: { addListener: (fn) => listeners.updated.push(fn), removeListener: (fn) => listeners.updated.splice(listeners.updated.indexOf(fn), 1) },
+      onRemoved: { addListener: (fn) => listeners.removed.push(fn) },
     },
     downloads: {
-      download: async (options) => (calls.downloads.push(options), 7),
+      download: async (options) => {
+        calls.downloads.push(options);
+        const id = 7 + items.size;
+        items.set(id, { id, url: options.url, state: finishes, byExtensionId: 'hfw', startTime: new Date().toISOString() });
+        return id;
+      },
+      search: async ({ id, url, startedAfter }) => [...items.values()]
+        .filter((item) => (id === undefined || item.id === id) && (url === undefined || item.url === url)
+          && (startedAfter === undefined || item.startTime > startedAfter))
+        .map((item) => ({ ...item })),
+      cancel: async (id) => {
+        calls.cancelled.push(id);
+        if (items.get(id)?.state !== 'in_progress') throw new Error('Download must be in progress');
+        end(id, 'interrupted', 'USER_CANCELED');
+      },
       onChanged: { addListener: (fn) => listeners.downloadChanged.push(fn), removeListener() {} },
     },
+  };
+  // How the browser reports a download ending.
+  const end = (id, state, error) => {
+    Object.assign(items.get(id), { state, ...(error ? { error } : {}) });
+    listeners.downloadChanged.forEach((fn) => fn({ id, state: { current: state }, ...(error ? { error: { current: error } } : {}) }));
   };
   const fetch = async () => {
     calls.fetch++;
@@ -91,7 +114,7 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
     console,
   });
   vm.runInContext(SOURCE, context);
-  return { context, chrome, data, calls, listeners };
+  return { context, chrome, data, calls, listeners, session, items, end };
 }
 
 test('a newer release is saved, lights the badge, and the page reads it as an update', async () => {
@@ -158,15 +181,101 @@ test('the toolbar button opens settings on Facebook, reloads a tab without the s
   assert.equal(await context.openSettings({ id: 5, index: 0, url: 'https://www.facebook.com.evil.example/' }), 'new tab');
 });
 
-test('downloads take only Facebook files and wait for the browser to finish', async () => {
-  const { context, calls, listeners } = worker();
+test('downloads take only Facebook files and answer once the browser has them', async () => {
+  const { context, calls } = worker();
   await assert.rejects(context.save({ url: 'https://example.com/a.jpg', name: 'a.jpg' }), /not a Facebook file/);
   await assert.rejects(context.save({ url: 'http://scontent.xx.fbcdn.net/a.jpg', name: 'a.jpg' }), /not a Facebook file/);
-  const saving = context.save({ url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'Pat photo.jpg' });
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  const answer = await context.save({ url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'Pat photo.jpg' });
   assert.deepEqual(JSON.parse(JSON.stringify(calls.downloads)), [{ url: 'https://scontent.xx.fbcdn.net/v/a.jpg', filename: 'Pat photo.jpg', saveAs: false, conflictAction: 'uniquify' }]);
-  listeners.downloadChanged.forEach((fn) => fn({ id: 7, state: { current: 'interrupted' }, error: { current: 'USER_CANCELED' } }));
-  await assert.rejects(saving, /USER_CANCELED/);
+  assert.deepEqual({ ...answer }, { id: 7, state: 'in_progress' });
+});
+
+const KEY = '0f8e2a52-6a51-4c39-9d3b-0e9c3b0d6a11';
+const OTHER_KEY = '8b1c7d2e-3f40-4a5b-9c6d-7e8f9a0b1c2d';
+const photoDownload = (key = KEY, url = 'https://scontent.xx.fbcdn.net/v/a.jpg') => ({ type: 'download', url, name: 'Pat photo.jpg', key });
+const recordsOf = (session) => session['hushfacebookWeb.downloads'] ?? {};
+
+// The worker's answers come from its own realm, so they're copied out before comparing.
+const answerOf = async (...through) => JSON.parse(JSON.stringify(await ask(...through)));
+test('a download longer than any answer counts only once the browser says complete, and the page that asked hears it', async () => {
+  const current = worker({ tabs: { 1: true } });
+  const answer = await answerOf(current, photoDownload());
+  assert.deepEqual(answer, { ok: true, result: { id: 7, state: 'in_progress' } }, 'the answer comes as soon as the browser has it');
+  assert.deepEqual(Object.keys(recordsOf(current.session)), [KEY], 'kept where a restarted worker finds it');
+  assert.deepEqual(current.calls.told, []);
+  current.end(7, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.told, [[1, { type: 'download-state', key: KEY, state: 'complete' }, { documentId: 'document-1' }]]);
+  assert.deepEqual(recordsOf(current.session), {});
+
+  // A late interruption, the network dropping minutes in, reaches the page as a failure.
+  await answerOf(current, photoDownload(OTHER_KEY));
+  current.end(8, 'interrupted', 'NETWORK_FAILED');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.told[1][1], { type: 'download-state', key: OTHER_KEY, state: 'interrupted', error: 'NETWORK_FAILED' });
+});
+
+test('a download that ends before its id is written down is reported in the answer itself', async () => {
+  const current = worker({ tabs: { 1: true }, finishes: 'complete' });
+  assert.deepEqual(await answerOf(current, photoDownload()), { ok: true, result: { id: 7, state: 'complete' } });
+  current.end(7, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.told, [], 'the page is told once, by the answer');
+  assert.deepEqual(recordsOf(current.session), {});
+});
+
+test('a worker Chrome stopped and started again still tells the page, and the same request again starts nothing new', async () => {
+  const session = {};
+  const items = new Map();
+  const first = worker({ tabs: { 1: true }, session, items });
+  assert.equal((await answerOf(first, photoDownload())).result.state, 'in_progress');
+
+  // The isolated half asks again when the worker went away before answering.
+  const second = worker({ tabs: { 1: true }, session, items });
+  assert.deepEqual(await answerOf(second, photoDownload()), { ok: true, result: { id: 7, state: 'in_progress' } });
+  assert.equal(first.calls.downloads.length + second.calls.downloads.length, 1, 'one download for one key');
+  second.end(7, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(second.calls.told.map(([tab, message]) => [tab, message.key, message.state]), [[1, KEY, 'complete']]);
+
+  // Stopped between asking Chrome and writing down the id: the record has no id yet.
+  const third = worker({ tabs: { 1: true }, session, items });
+  items.set(20, { id: 20, url: 'https://scontent.xx.fbcdn.net/v/b.jpg', state: 'in_progress', byExtensionId: 'hfw', startTime: new Date(Date.now() + 5).toISOString() });
+  session['hushfacebookWeb.downloads'] = { [OTHER_KEY]: { tab: 1, document: 'document-1', url: 'https://scontent.xx.fbcdn.net/v/b.jpg', at: Date.now() } };
+  assert.deepEqual(await answerOf(third, photoDownload(OTHER_KEY, 'https://scontent.xx.fbcdn.net/v/b.jpg')), { ok: true, result: { id: 20, state: 'in_progress' } });
+  assert.equal(third.calls.downloads.length, 0, 'it took up the download already going');
+});
+
+test('only the page that started a download can cancel it, and cancelling calls the browser', async () => {
+  const current = worker({ tabs: { 1: true, 2: true } });
+  await answerOf(current, photoDownload());
+  assert.deepEqual(await answerOf(current, { type: 'download:cancel', key: KEY }, topFrame(2)), { ok: true, result: { cancelled: false } });
+  assert.deepEqual(current.calls.cancelled, []);
+  assert.deepEqual(await answerOf(current, { type: 'download:cancel', key: KEY }), { ok: true, result: { cancelled: true } });
+  assert.deepEqual(current.calls.cancelled, [7]);
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.told, [], 'a page that cancelled already knows');
+  assert.equal(current.items.get(7).state, 'interrupted');
+  assert.deepEqual(await answerOf(current, photoDownload(KEY)), { ok: true, result: { id: 8, state: 'in_progress' } }, 'a cancelled key is free again');
+  assert.equal((await answerOf(current, photoDownload(KEY), topFrame(2))).ok, false, "another page can't take up a key it didn't make");
+});
+
+test('a closed page leaves its download to the browser and its record goes', async () => {
+  const current = worker({ tabs: { 1: true } });
+  await answerOf(current, photoDownload());
+  current.listeners.removed.forEach((fn) => fn(1));
+  await settle();
+  await settle();
+  assert.deepEqual(recordsOf(current.session), {});
+  current.end(7, 'complete');
+  await settle();
+  assert.deepEqual(current.calls.told, []);
+  assert.deepEqual(current.calls.cancelled, [], 'the file still saves');
 });
 
 test('downloads refuse a file name with a control character or a path in it', async () => {
@@ -1371,13 +1480,18 @@ test('the worker refuses request shapes, keys and file names it does not know', 
     { type: 'storage:mutate', key: 'settings', mutation: { set: { css: 'x'.repeat(70000) } } },
     { type: 'storage:mutate', key: 'settings.migrated', mutation: { union: ['Bad id'] } },
     { type: 'storage:migrate', key: 'settings@abc', doneKey: 'settings@abc.migrated', mutation: { set: {} }, receipt: [], sourceKey: 'other', sourceDoneKey: 'settings.migrated' },
-    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: '../a.jpg' },
-    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'CON.jpg' },
-    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'flag \u{e0067}\u{e0062}.jpg' },
-    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'photo.jpg‮gpj' },
-    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: '.hidden.jpg' },
-    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'no extension' },
-    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', saveAs: true },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: '../a.jpg', key: KEY },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'CON.jpg', key: KEY },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'flag \u{e0067}\u{e0062}.jpg', key: KEY },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'photo.jpg‮gpj', key: KEY },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: '.hidden.jpg', key: KEY },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'no extension', key: KEY },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', key: KEY, saveAs: true },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg' },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', key: 'short' },
+    { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', key: '../../0f8e2a52-6a51' },
+    { type: 'download:cancel' },
+    { type: 'download:cancel', key: KEY, id: 7 },
   ]) {
     const answer = await ask(current, message);
     assert.equal(answer.ok, false, JSON.stringify(message));
@@ -1394,7 +1508,7 @@ test('the worker refuses request shapes, keys and file names it does not know', 
     ['https://user:pass@scontent.xx.fbcdn.net/a.jpg', /not a Facebook file/],
     ['https://scontent.xx.fbcdn.net:8443/a.jpg', /not a Facebook file/],
   ]) {
-    const answer = await ask(current, { type: 'download', url, name: 'a.jpg' });
+    const answer = await ask(current, { type: 'download', url, name: 'a.jpg', key: KEY });
     assert.equal(answer.ok, false, url);
     assert.match(answer.error, error, url);
   }
@@ -1402,20 +1516,15 @@ test('the worker refuses request shapes, keys and file names it does not know', 
 
 test('downloads stop at eight a window for each page, and another page keeps its own allowance', async () => {
   const current = worker();
-  const download = { type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'Pat photo.jpg' };
-  const saving = Array.from({ length: 8 }, () => ask(current, download));
-  await settle();
+  const download = (n) => ({ type: 'download', url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'Pat photo.jpg', key: `key-${String(n).padStart(4, '0')}` });
+  const saving = await Promise.all(Array.from({ length: 8 }, (_, n) => ask(current, download(n))));
+  for (const answer of saving) assert.equal(answer.ok, true);
   assert.equal(current.calls.downloads.length, 8);
-  const ninth = await ask(current, download);
+  const ninth = await ask(current, download(8));
   assert.equal(ninth.ok, false);
   assert.match(ninth.error, /too many extension requests/);
   assert.equal(current.calls.downloads.length, 8, 'the ninth never reached chrome.downloads');
-  current.listeners.downloadChanged.forEach((fn) => fn({ id: 7, state: { current: 'complete' } }));
-  for (const answer of await Promise.all(saving)) assert.equal(answer.ok, true);
 
-  const other = ask(current, download, topFrame(2));
-  await settle();
+  assert.equal((await ask(current, download(9), topFrame(2))).ok, true);
   assert.equal(current.calls.downloads.length, 9);
-  current.listeners.downloadChanged.forEach((fn) => fn({ id: 7, state: { current: 'complete' } }));
-  assert.equal((await other).ok, true);
 });

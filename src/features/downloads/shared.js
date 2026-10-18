@@ -4,11 +4,12 @@
 
 import { createDownloadButton } from './button.js';
 import { findMedia, planSave } from './find.js';
-import { saveFile } from '../../core/download.js';
+import { startSave } from '../../core/download.js';
 import { gmApi } from '../../core/env.js';
 import { createMediaIndex, MEDIA_MARKERS } from '../../core/media-index.js';
 
 const instances = new WeakMap();
+const NOTICE_AFTER = 1500;
 
 export const QUALITY_OPTION = {
   key: 'quality', type: 'select', label: 'Video quality', default: 'best',
@@ -49,10 +50,17 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
       toast?.(plan.error, { tone: 'error' });
       return;
     }
+    const save = startSave({ url: plan.url, name: plan.name, api, doc, win, container });
+    // A quick save needs no notice. One still going after a moment gets one with Cancel,
+    // which stays until the save ends.
+    let notice = null;
+    const later = setTimeout(() => {
+      notice = toast?.(`Saving ${plan.name}`, { action: { label: 'Cancel', run: () => save.cancel() }, duration: Infinity });
+    }, NOTICE_AFTER);
     try {
-      const how = await saveFile({ url: plan.url, name: plan.name, api, doc, win, container });
+      await save.done;
       saved++;
-      toast?.(how === 'manager' ? `Saving ${plan.name}` : `Saved ${plan.name}`);
+      toast?.(`Saved ${plan.name}`);
     } catch (error) {
       if (error.cancelled) {
         toast?.(`Cancelled ${plan.name}`);
@@ -63,6 +71,8 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
       log?.error("Couldn't save a photo or video", error);
       toast?.(`Couldn't save it: ${error.message}.`, { tone: 'error' });
     } finally {
+      clearTimeout(later);
+      notice?.dismiss?.();
       diagnostics?.changed();
     }
   }
