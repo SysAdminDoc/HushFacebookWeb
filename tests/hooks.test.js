@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DROP } from '../src/core/net/payload.js';
+import { DROP, LINE_LIMIT } from '../src/core/net/payload.js';
 import { createHandledLines, installNetworkHooks, lineKey } from '../src/core/net/hooks.js';
 
 // respond(input, init) stands in for the network when a test needs a particular Response.
@@ -55,6 +55,30 @@ test('a long line split over chunks with no newline still comes through whole', 
   const net = installNetworkHooks({ win, log: quietLog() });
   net.transformResponses({ id: 'touch', enabled: () => true, match: () => true, transform: () => undefined });
   assert.equal(await (await win.fetch('/api/graphql/')).text(), '{"a":1,"b":"x"}');
+});
+
+test('a fetched line past LINE_LIMIT goes through as sent, unparsed and counted, and the next line is still edited', async () => {
+  const piece = 'x'.repeat(64 * 1024);
+  const chunks = ['{"ad":1}\n{"ad":1,"pad":"', ...Array(Math.ceil(LINE_LIMIT / piece.length) + 2).fill(piece), '"}\r\n{"ad":1,"n":1}'];
+  const sent = chunks.join('');
+  const { win } = fakeWindow({ chunks });
+  const warnings = [];
+  const net = installNetworkHooks({ win, log: { ...quietLog(), warn: (message) => warnings.push(message) } });
+  const parsed = [];
+  net.transformResponses({
+    id: 'ads', enabled: () => true, match: () => true,
+    transform: (doc) => { parsed.push(Object.keys(doc).join()); return 'ad' in doc ? delete doc.ad : undefined; },
+  });
+  const text = await (await win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('Feed') })).text();
+  const expected = `{}\n${sent.slice('{"ad":1}\n'.length, -'{"ad":1,"n":1}'.length)}{"n":1}`;
+  assert.equal(text.length, expected.length);
+  assert.ok(text === expected, 'the long line is byte for byte what Facebook sent');
+  assert.deepEqual(parsed, ['ad', 'ad,n'], 'the long line never reached a rule');
+  assert.equal(net.lineStats.oversized, 1);
+  assert.equal(warnings.length, 1);
+  await (await win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('Feed') })).text();
+  assert.equal(net.lineStats.oversized, 2);
+  assert.equal(warnings.length, 1, 'the log says so once per tab');
 });
 
 test("a streamed line is rewritten even when the page's JSON.parse is the hooked one", async () => {

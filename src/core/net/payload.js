@@ -113,12 +113,24 @@ export function transformDocumentLine(line, allRules, ctx, onError, parse = JSON
   return result ? prefix + JSON.stringify(doc) : line;
 }
 
+// A document longer than this many characters goes out as it came, unparsed and never held
+// whole. The largest one captured from Facebook (a Groups feed page, 2026-10-11) was about
+// 1.8 million characters, so this leaves room for four times that.
+export const LINE_LIMIT = 8 * 1024 * 1024;
+
 // Splits a growing body into complete lines and transforms each once. Output is only ever
-// appended to, so a reader that polls a growing responseText sees a stable prefix.
-export function createLineStream(transformLine) {
+// appended to, so a reader that polls a growing responseText sees a stable prefix. Once an
+// unfinished line passes limit, what's held of it goes out untouched, and so does the rest
+// of it as it arrives, up to its line break. onBypass is called once for each such line.
+export function createLineStream(transformLine, { limit = LINE_LIMIT, onBypass } = {}) {
   let pending = '';
+  let passing = false;
 
   function emit(raw, newline) {
+    if (raw.length > limit) {
+      onBypass?.();
+      return raw + newline;
+    }
     const cr = raw.endsWith('\r') ? '\r' : '';
     const result = transformLine(cr ? raw.slice(0, -1) : raw);
     return result === null ? '' : result + cr + newline;
@@ -126,17 +138,40 @@ export function createLineStream(transformLine) {
 
   return {
     push(chunk) {
-      pending += chunk;
-      const end = pending.lastIndexOf('\n');
-      if (end === -1) return '';
-      const complete = pending.slice(0, end);
-      pending = pending.slice(end + 1);
-      return complete.split('\n').map((raw) => emit(raw, '\n')).join('');
+      let out = '';
+      if (passing) {
+        const end = chunk.indexOf('\n');
+        if (end === -1) return chunk;
+        passing = false;
+        out = chunk.slice(0, end + 1);
+        chunk = chunk.slice(end + 1);
+      }
+      // Only the new text can hold a line break, so a long line isn't searched again each time.
+      const end = chunk.lastIndexOf('\n');
+      if (end === -1) {
+        pending += chunk;
+      } else {
+        const complete = pending + chunk.slice(0, end);
+        pending = chunk.slice(end + 1);
+        out += complete.split('\n').map((raw) => emit(raw, '\n')).join('');
+      }
+      if (pending.length > limit) {
+        onBypass?.();
+        out += pending;
+        pending = '';
+        passing = true;
+      }
+      return out;
     },
+    // The end of the body. A stream isn't used again after it.
     flush() {
       const raw = pending;
       pending = '';
       return raw ? emit(raw, '') : '';
+    },
+    // How much of an unfinished line is held, in characters.
+    get held() {
+      return pending.length;
     },
   };
 }

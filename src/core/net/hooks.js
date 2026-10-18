@@ -319,18 +319,25 @@ export function installNetworkHooks({ win, log, startup }) {
   // Taken before patchJsonParse wraps it. See transformDocumentLine.
   const parse = win.JSON?.parse ?? JSON.parse;
   const handled = createHandledLines();
-  const lineTransformer = (rules, ctx) => (line) => {
+  // Lines too long to read as they arrived (see LINE_LIMIT). They reach the page unread here,
+  // and only the page's own JSON.parse of them, judged as inline data, may still edit them.
+  const lineStats = { oversized: 0 };
+  const lineStream = (rules, ctx) => createLineStream((line) => {
     const out = transformDocumentLine(line, rules, ctx, onError, parse);
     const ran = rulesFor(line, rules);
     // A line that failed counts as handled for all of them too, so the page's own JSON.parse of it
     // doesn't run the rest without the one that failed.
     if (out !== null && ran.length) handled.add(out, ran);
     return out;
-  };
+  }, {
+    onBypass: () => {
+      if (!lineStats.oversized++) log.warn("A Facebook answer was too long to filter as it arrived, so it went through as sent. Diagnostics counts them.", ctx.friendlyName || ctx.transport);
+    },
+  });
 
   const startupGate = createStartupGate(win, startup, log);
-  patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineTransformer, log });
-  patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineTransformer, log });
+  patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log });
+  patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log });
   patchBeacon(win, { blockingRule, startupRule, startupGate, fakeAnswer });
   patchJsonParse(win, { active, responseRules, onError, handled });
   const sockets = patchWebSocket(win, { log, startup: startupGate });
@@ -339,6 +346,7 @@ export function installNetworkHooks({ win, log, startup }) {
     // The chat socket: see websocket.js. chatStats counts what it sent and couldn't read.
     editChatRequests: sockets.editChatRequests,
     chatStats: sockets.stats,
+    lineStats,
     startupPending: startupGate.pending,
     startupState: startupGate.state,
     teardown: startupGate.close,
@@ -358,7 +366,7 @@ export function installNetworkHooks({ win, log, startup }) {
   return api;
 }
 
-function patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineTransformer, log }) {
+function patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log }) {
   const original = win.fetch;
   if (typeof original !== 'function') return;
 
@@ -376,7 +384,7 @@ function patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, a
     });
     const route = (form) => routeFetch(win, {
       input, init, isRequest, form, startupRule, startupGate,
-      original, receiver, args, ctx, blockingRule, fakeAnswer, active, responseRules, lineTransformer, log,
+      original, receiver, args, ctx, blockingRule, fakeAnswer, active, responseRules, lineStream, log,
     });
     const formType = isRequest && !ctx.friendlyName ? requestFormType(win, input, init) : '';
     if (!formType) return route(null);
@@ -423,7 +431,7 @@ function routeFetch(win, { input, init, isRequest, form, startupRule, startupGat
   return deferFetch(win, { ...send, request, bytes, signal, ctx: deferredCtx, pending, startupGate });
 }
 
-function sendFetch(win, { original, receiver, args, ctx, blockingRule, fakeAnswer, active, responseRules, lineTransformer, log }) {
+function sendFetch(win, { original, receiver, args, ctx, blockingRule, fakeAnswer, active, responseRules, lineStream, log }) {
   const blocker = blockingRule(ctx);
   if (blocker) return win.Promise.resolve(new win.Response(fakeAnswer(blocker, ctx), { status: 200 }));
 
@@ -432,7 +440,7 @@ function sendFetch(win, { original, receiver, args, ctx, blockingRule, fakeAnswe
   if (!rules.length) return promise;
   return promise.then((response) => {
     try {
-      return rewriteFetchResponse(win, response, lineTransformer(rules, ctx));
+      return rewriteFetchResponse(win, response, lineStream(rules, ctx));
     } catch (error) {
       log.error("Couldn't rewrite a fetch response, so it went through unchanged", error);
       return response;
@@ -443,7 +451,7 @@ function sendFetch(win, { original, receiver, args, ctx, blockingRule, fakeAnswe
 function deferFetch(win, options) {
   const {
     original, receiver, request, bytes, signal, ctx, pending,
-    startupGate, blockingRule, fakeAnswer, active, responseRules, lineTransformer, log,
+    startupGate, blockingRule, fakeAnswer, active, responseRules, lineStream, log,
   } = options;
   const fake = (rule) => new win.Response(fakeAnswer(rule, ctx), { status: 200 });
   return new win.Promise((resolve, reject) => {
@@ -454,7 +462,7 @@ function deferFetch(win, options) {
         try {
           resolve(sendFetch(win, {
             original, receiver, args: [request], ctx, blockingRule, fakeAnswer,
-            active, responseRules, lineTransformer, log,
+            active, responseRules, lineStream, log,
           }));
         } catch (error) {
           reject(error);
@@ -466,10 +474,9 @@ function deferFetch(win, options) {
   });
 }
 
-function rewriteFetchResponse(win, response, transformLine) {
+function rewriteFetchResponse(win, response, stream) {
   if (!response.body || response.type === 'opaque') return response;
   const reader = response.body.getReader();
-  const stream = createLineStream(transformLine);
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
@@ -513,7 +520,7 @@ function keepResponseFacts(win, response, facts) {
   return response;
 }
 
-function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineTransformer, log }) {
+function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log }) {
   const Xhr = win.XMLHttpRequest;
   if (typeof Xhr !== 'function') return;
   const proto = Xhr.prototype;
@@ -585,7 +592,7 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
 
       entry.synthetic = false;
       const rules = active(responseRules, ctx);
-      if (rules.length) attachTextTransform(xhr, lineTransformer(rules, ctx), textGetter, responseGetter, overrides);
+      if (rules.length) attachTextTransform(xhr, lineStream(rules, ctx), textGetter, responseGetter, overrides);
       return send.call(xhr, requestBody);
     };
 
@@ -728,8 +735,7 @@ function decodeAs(win, type, text, parse) {
 // The getters taken from the prototype can belong to another script that hooked XHR first,
 // and one that builds responseText from this.response lands back on these getters mid-read.
 // While a read runs, they hand back what the prototype says, so the two never loop.
-function attachTextTransform(xhr, transformLine, textGetter, responseGetter, overrides) {
-  const stream = createLineStream(transformLine);
+function attachTextTransform(xhr, stream, textGetter, responseGetter, overrides) {
   let seen = 0;
   let output = '';
   let flushed = false;

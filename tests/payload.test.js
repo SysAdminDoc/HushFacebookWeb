@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DROP, FAILED, applyRules, createLineStream, friendlyNameOf, later, transformDocumentLine, transformText } from '../src/core/net/payload.js';
+import { DROP, FAILED, LINE_LIMIT, applyRules, createLineStream, friendlyNameOf, later, transformDocumentLine, transformText } from '../src/core/net/payload.js';
 
 const rule = (transform, extra = {}) => ({ id: 'test', transform, ...extra });
 
@@ -136,6 +136,66 @@ test('in a stream, only the line a rule fails on goes out as it came', () => {
     assert.ok(whole.startsWith(first), `prefix at ${i}`);
     assert.equal(first + stream.push(body.slice(i)) + stream.flush(), whole, `split at ${i}`);
   }
+});
+
+test('a line past the limit goes out as it came wherever the body is split, and the lines around it are still edited', () => {
+  // Accents and an emoji, so splits land inside multibyte characters and surrogate pairs. Each
+  // long line has its own n, which bump would change if it were ever parsed.
+  const long = `{"n":1,"pad":"${'é😀x'.repeat(6)}"}`;
+  const body = `{"n":1}\r\n${long}\r\n{"n":5}\n${long}`;
+  const expected = `{"n":2}\r\n${long}\r\n{"n":6}\n${long}`;
+  const limit = 20;
+  for (let i = 0; i <= body.length; i++) {
+    for (let j = i; j <= body.length; j += 5) {
+      const parsed = [];
+      let bypassed = 0;
+      const stream = createLineStream((line) => { parsed.push(line); return bump(line); }, { limit, onBypass: () => bypassed++ });
+      let out = '';
+      for (const part of [body.slice(0, i), body.slice(i, j), body.slice(j)]) {
+        const piece = stream.push(part);
+        assert.ok(stream.held <= limit, `held ${stream.held} at ${i}, ${j}`);
+        out += piece;
+        assert.ok(expected.startsWith(out), `prefix at ${i}, ${j}`);
+      }
+      out += stream.flush();
+      assert.equal(out, expected, `split at ${i}, ${j}`);
+      assert.equal(bypassed, 2, `counted once each at ${i}, ${j}`);
+      assert.deepEqual(parsed, ['{"n":1}', '{"n":5}'], `long lines never parsed at ${i}, ${j}`);
+    }
+  }
+});
+
+test('a long line given up partway leaves nothing held, however much of it came first', () => {
+  let bypassed = 0;
+  const stream = createLineStream(() => assert.fail('a line past the limit is never parsed'), { limit: 64, onBypass: () => bypassed++ });
+  let out = stream.push('{"a":"');
+  let most = 0;
+  for (let i = 0; i < 1000; i++) {
+    out += stream.push('y'.repeat(50));
+    most = Math.max(most, stream.held);
+  }
+  assert.ok(most <= 64, `held at most ${most}`);
+  assert.equal(stream.held, 0, 'an abort here keeps nothing');
+  assert.equal(out, `{"a":"${'y'.repeat(50000)}`);
+  assert.equal(stream.flush(), '', 'nothing is left to flush');
+  assert.equal(bypassed, 1);
+});
+
+test('with the default limit a 24 MiB line streams through while holding at most LINE_LIMIT', () => {
+  const piece = 'z'.repeat(256 * 1024);
+  let bypassed = 0;
+  const stream = createLineStream(() => assert.fail('never parsed'), { onBypass: () => bypassed++ });
+  let most = 0;
+  let length = stream.push('{"pad":"').length;
+  for (let i = 0; i < 96; i++) {
+    length += stream.push(piece).length;
+    most = Math.max(most, stream.held);
+  }
+  length += stream.push('"}\n').length;
+  assert.ok(most <= LINE_LIMIT, `held at most ${most}`);
+  assert.equal(length, 96 * piece.length + '{"pad":"'.length + '"}\n'.length);
+  assert.equal(bypassed, 1);
+  assert.equal(stream.held, 0);
 });
 
 test('dropped lines take their line break with them', () => {

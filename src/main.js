@@ -74,6 +74,13 @@ function boot() {
     })[net?.startupState?.() ?? settings.startup.status()] ?? 'Unconfirmed', shareable);
     storage.onStatus(() => diagnostics.changed());
   }
+  // A count only, so it goes in Copy report too. See LINE_LIMIT in payload.js.
+  if (net) {
+    diagnostics.add('Answers too long to filter', () => {
+      const count = net.lineStats.oversized;
+      return count ? `${count} passed through as Facebook sent ${count === 1 ? 'it' : 'them'}` : 'None in this tab';
+    }, shareable);
+  }
   const actions = createActions();
   // Feature id to why it isn't running (see startFeatures).
   const unavailable = new Map();

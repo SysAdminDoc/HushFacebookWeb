@@ -6,7 +6,7 @@ import noWatchHistory from '../src/features/reels/no-watch-history.js';
 import holdBackLogs from '../src/features/privacy/usage-logs.js';
 import hideCommentTyping from '../src/features/comments/hide-comment-typing.js';
 import sanitizeLinks from '../src/features/links/sanitize-links.js';
-import { DROP } from '../src/core/net/payload.js';
+import { DROP, LINE_LIMIT } from '../src/core/net/payload.js';
 
 const quietLog = { error() {}, warn() {}, info() {}, debug() {} };
 const graphqlBody = (name, extra = '') => new URLSearchParams({
@@ -367,6 +367,29 @@ test('a transformed XHR still reads when another script built responseText on to
   assert.equal(xhr.responseText, '{"n":1}');
   assert.equal(xhr.response, '{"n":1}');
   assert.ok(foreignReads > 0, "the other script's getter still runs");
+});
+
+test('an XHR read while a line past LINE_LIMIT arrives shows it as sent, a growing prefix each time', () => {
+  const window = fakeWindow({ respond: () => '' });
+  const net = installNetworkHooks({ win: window.win, log: quietLog, startup: startupControl({ state: 'ready' }).startup });
+  net.transformResponses({ id: 'cut-ad', enabled: () => true, match: () => true, transform: (doc) => ('ad' in doc ? delete doc.ad : undefined) });
+  const xhr = new window.win.XMLHttpRequest();
+  xhr.open('POST', '/api/graphql/');
+  xhr.send(graphqlBody('Feed'));
+  xhr.readyState = 3;
+  const piece = 'x'.repeat(512 * 1024);
+  const pieces = ['{"ad":1}\n{"ad":1,"pad":"', ...Array(Math.ceil(LINE_LIMIT / piece.length) + 1).fill(piece), '"}\n{"ad":2,', '"n":1}'];
+  let last = '';
+  for (const [index, part] of pieces.entries()) {
+    xhr._responseText += part;
+    if (index === pieces.length - 1) xhr.readyState = 4;
+    const read = xhr.responseText;
+    assert.ok(read.startsWith(last), `read ${index} keeps what earlier reads showed`);
+    last = read;
+  }
+  const sent = pieces.join('');
+  assert.ok(last === `{}\n${sent.slice('{"ad":1}\n'.length, -'{"ad":2,"n":1}'.length)}{"n":1}`, 'the long line is what Facebook sent, the lines around it are edited');
+  assert.equal(net.lineStats.oversized, 1);
 });
 
 test('a reused XHR shows only its current request, whatever the last one was', async () => {
