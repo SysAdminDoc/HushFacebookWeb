@@ -520,11 +520,20 @@ function keepResponseFacts(win, response, facts) {
   return response;
 }
 
+// A held or answered XHR is measured against an unhooked one in Chromium and Firefox (an
+// iframe's own XMLHttpRequest, answered by a server with the same text). Where the two engines
+// differ, the hook does what the XHR spec says and one of them does:
+//   Firefox fires load and loadend after a reopen inside DONE's readystatechange, still starts
+//   the upload of a request reopened in its loadstart, and keeps responseURL, the Content-Type
+//   header and even responseText after an abort.
+//   Chromium keeps feeding the old body into a request reopened during HEADERS_RECEIVED.
+// Two differences no script can close: its events are never isTrusted, and a microtask queued
+// by one listener runs after the event's other listeners rather than between them.
 function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log }) {
   const Xhr = win.XMLHttpRequest;
   if (typeof Xhr !== 'function') return;
   const proto = Xhr.prototype;
-  const { open, send, setRequestHeader, abort } = proto;
+  const { open, send, setRequestHeader, abort, getResponseHeader, getAllResponseHeaders, overrideMimeType } = proto;
   const textGetter = Object.getOwnPropertyDescriptor(proto, 'responseText').get;
   const responseGetter = Object.getOwnPropertyDescriptor(proto, 'response').get;
   // Taken before patchJsonParse wraps it: the browser's json responseType doesn't go
@@ -534,91 +543,191 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
   const parse = (text) => jsonParse.call(json, text);
   const state = new WeakMap();
   const overrides = xhrOverrides();
+  // The XHRs and uploads whose browser loadstart is kept from the page, for sendQuietly.
+  const quiet = new WeakSet();
+  const hush = (event) => {
+    if (quiet.has(event.currentTarget)) event.stopImmediatePropagation();
+  };
+  const hushXhr = listenFirst(win, proto, Xhr, 'loadstart', hush);
+  listenFirst(win, win.XMLHttpRequestUpload?.prototype, win.XMLHttpRequestUpload, 'loadstart', hush);
+  const synthetic = (xhr) => state.get(xhr)?.synthetic === true;
+  const inFlight = (entry) => Boolean(entry?.deferred || entry?.fake?.pending);
 
-  // Ends what this hook started for the instance's last request: a held send, a synthetic
-  // completion still to run and every property it put on the instance. Bumping the epoch
-  // tells an abort already dispatching events that the page has moved on.
-  const settle = (xhr) => {
-    const entry = state.get(xhr);
-    if (entry) {
-      entry.epoch++;
-      entry.deferred?.cancel();
-      entry.deferred = null;
-      entry.fake?.cancel();
-      entry.fake = null;
-    }
-    overrides.release(xhr);
-    return entry;
+  // Ends what this hook started for a request: a held send or a synthetic completion still to run.
+  const stop = (entry) => {
+    if (!entry) return;
+    entry.deferred?.cancel();
+    entry.deferred = null;
+    entry.fake?.cancel();
+    entry.fake = null;
   };
 
-  proto.open = function (method, url, async = true) {
+  proto.open = function (method, url) {
     const shown = this.readyState;
-    settle(this);
+    const previous = state.get(this);
+    const released = overrides.release(this);
     // A held or answered request never left the browser's OPENED state, and open() only
     // announces OPENED when the state changes, so the page's DONE or UNSENT request would
     // reopen without the readystatechange a real one fires.
     const silent = shown !== 1 && this.readyState === 1;
-    state.set(this, {
-      method, url, async: Boolean(async), headers: {}, deferred: null, fake: null, sent: false, synthetic: false, epoch: 0,
-    });
-    const result = open.apply(this, arguments);
+    // An explicit async argument counts even when it's undefined, as in the browser.
+    const entry = {
+      method, url, async: arguments.length < 3 || Boolean(arguments[2]), headers: {},
+      deferred: null, fake: null, sent: false, synthetic: false, uploading: false,
+    };
+    state.set(this, entry);
+    let result;
+    try {
+      result = open.apply(this, arguments);
+    } catch (error) {
+      // An open() that throws changes nothing, so the last request carries on as it was.
+      if (state.get(this) === entry) {
+        if (previous) state.set(this, previous);
+        else state.delete(this);
+        overrides.restore(this, released);
+      }
+      throw error;
+    }
+    stop(previous);
+    hushXhr(this);
     if (silent) this.dispatchEvent(new win.Event('readystatechange'));
     return result;
   };
 
+  // A held or answered request was sent as far as the page knows, so whatever a sent, finished
+  // or aborted request refuses, it refuses too, before the browser (which still has it OPENED)
+  // can allow it. Calls missing arguments go to the browser for its own TypeError.
+  const refuse = (name) => invalidState(win, `Failed to execute '${name}' on 'XMLHttpRequest': The object's state must be OPENED.`);
   proto.setRequestHeader = function (name, value) {
     const entry = state.get(this);
+    if (entry?.synthetic && arguments.length >= 2) throw refuse('setRequestHeader');
     if (entry) entry.headers[String(name).toLowerCase()] = value;
     return setRequestHeader.apply(this, arguments);
+  };
+  const loadingOrDone = (xhr) => synthetic(xhr) && xhr.readyState >= 3;
+  if (typeof overrideMimeType === 'function') {
+    proto.overrideMimeType = function () {
+      if (loadingOrDone(this) && arguments.length >= 1) throw refuse('overrideMimeType');
+      return overrideMimeType.apply(this, arguments);
+    };
+  }
+  guardSetter(proto, 'responseType', (xhr) => {
+    if (loadingOrDone(xhr)) throw invalidState(win, "Failed to set the 'responseType' property on 'XMLHttpRequest': The response type cannot be set if the object's state is LOADING or DONE.");
+  });
+  guardSetter(proto, 'withCredentials', (xhr) => {
+    if (synthetic(xhr) && xhr.readyState !== 0) throw invalidState(win, "Failed to set the 'withCredentials' property on 'XMLHttpRequest': The value may only be set if the object's state is UNSENT or OPENED.");
+  });
+
+  // From HEADERS_RECEIVED on, an answered request shows the one header its answer has. Before
+  // that, and once aborted, its status is 0.
+  const answered = (xhr) => synthetic(xhr) && xhr.status !== 0;
+  if (typeof getResponseHeader === 'function') {
+    proto.getResponseHeader = function (name) {
+      const value = getResponseHeader.apply(this, arguments);
+      if (!synthetic(this)) return value;
+      return answered(this) && String(name).toLowerCase() === 'content-type' ? ANSWER_TYPE : null;
+    };
+  }
+  if (typeof getAllResponseHeaders === 'function') {
+    proto.getAllResponseHeaders = function () {
+      const value = getAllResponseHeaders.apply(this, arguments);
+      if (!synthetic(this)) return value;
+      return answered(this) ? `content-type: ${ANSWER_TYPE}\r\n` : '';
+    };
+  }
+
+  // The send that follows a hold: the page saw this request start when it called send(), so
+  // the browser's own loadstart is kept from it, and the upload's too when the page saw that one
+  // start (a FormData upload's size wasn't known then, so its start comes from the browser).
+  const sendQuietly = (xhr, body, uploadStarted) => {
+    const upload = uploadStarted ? xhr.upload : null;
+    quiet.add(xhr);
+    if (upload) quiet.add(upload);
+    try {
+      return send.call(xhr, body);
+    } finally {
+      quiet.delete(xhr);
+      if (upload) quiet.delete(upload);
+    }
   };
 
   proto.send = function (body) {
     const entry = state.get(this);
     if (!entry) return send.apply(this, arguments);
-    if (entry.sent) throw invalidState(win, "Failed to execute 'send': the request has already been sent.");
+    if (entry.sent) throw invalidState(win, "Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED.");
     entry.sent = true;
     const ctx = describeRequest({ transport: 'xhr', url: entry.url, method: entry.method, body, headers: entry.headers, base: win.location.href });
     const xhr = this;
+    const upload = entry.async ? uploadSize(entry.method, body) : null;
+    const live = () => state.get(xhr) === entry && Boolean(entry.fake || entry.deferred);
+    // A request the browser never sends starts the way a real one does before send() returns:
+    // loadstart, then the upload's. A handler there that aborts or reopens ends it.
+    const announce = () => {
+      entry.uploading = upload !== null;
+      // Sent, as far as the page knows. Firefox only refuses responseText for a json or other
+      // typed request once it's sent, and the browser still has this one unsent.
+      overrides.define(xhr, xhrResult(win, xhr, { readyState: 1, status: 0, statusText: '', url: '', text: null }));
+      xhr.dispatchEvent(progressEvent(win, 'loadstart'));
+      if (entry.uploading && live()) xhr.upload?.dispatchEvent(progressEvent(win, 'loadstart', 0, upload));
+      return live();
+    };
     const fakeSuccess = (text, synchronous = false) => {
       entry.fake?.cancel();
       entry.synthetic = true;
-      entry.fake = fakeXhrSuccess(win, xhr, { url: ctx.url, text, parse, synchronous, overrides });
-      entry.fake.start();
+      entry.fake = fakeXhrSuccess(win, xhr, {
+        url: ctx.url, text, parse, synchronous, overrides,
+        // Read when it starts, after loadstart has said whether there's an upload.
+        uploadBytes: () => (entry.uploading ? upload : null),
+        uploaded: () => { entry.uploading = false; },
+      });
+      return entry.fake;
     };
 
-    const sendRequest = (requestBody) => {
+    const sendRequest = (requestBody, resumed) => {
       const blocker = blockingRule(ctx);
-      if (blocker) return fakeSuccess(fakeAnswer(blocker, ctx), !entry.async);
+      if (blocker) {
+        const fake = fakeSuccess(fakeAnswer(blocker, ctx), !entry.async);
+        if (resumed || !entry.async || announce()) fake.start();
+        return undefined;
+      }
 
       entry.synthetic = false;
+      overrides.release(xhr);
       const rules = active(responseRules, ctx);
       if (rules.length) attachTextTransform(xhr, lineStream(rules, ctx), textGetter, responseGetter, overrides);
-      return send.call(xhr, requestBody);
+      return resumed ? sendQuietly(xhr, requestBody, entry.uploading) : send.call(xhr, requestBody);
     };
 
-    if (startupGate.state() === 'ready') return sendRequest(body);
+    if (startupGate.state() === 'ready') return sendRequest(body, false);
     const pending = startupRule(ctx);
-    if (!pending) return sendRequest(body);
-    if (!entry.async) return fakeSuccess(fakeAnswer(pending, ctx), true);
+    if (!pending) return sendRequest(body, false);
+    if (!entry.async) {
+      fakeSuccess(fakeAnswer(pending, ctx), true).start();
+      return undefined;
+    }
     const bytes = bodyBytes(body);
     const queuedBody = bytes === null ? body : snapshotXhrBody(body);
     ctx.body = undefined;
     entry.synthetic = true;
+    // Held while loadstart runs, so a handler that aborts there sees a request in flight. The
+    // gate only takes it once loadstart is over.
+    entry.deferred = { cancel() {} };
+    if (!announce()) return undefined;
 
     const resume = () => {
       if (state.get(xhr) !== entry) return;
       entry.deferred = null;
       try {
-        sendRequest(queuedBody);
+        sendRequest(queuedBody, true);
       } catch (error) {
         log.error("A privacy request couldn't resume after saved settings loaded, so it stayed held back", error);
-        fakeSuccess(fakeAnswer(pending, ctx));
+        fakeSuccess(fakeAnswer(pending, ctx)).start();
       }
     };
     const hold = () => {
       if (state.get(xhr) !== entry) return;
       entry.deferred = null;
-      fakeSuccess(fakeAnswer(pending, ctx));
+      fakeSuccess(fakeAnswer(pending, ctx)).start();
     };
     entry.deferred = startupGate.defer({
       bytes,
@@ -631,23 +740,30 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
 
   if (typeof abort === 'function') {
     proto.abort = function () {
-      const before = state.get(this);
-      const inFlight = Boolean(before?.deferred || before?.fake?.pending);
-      const entry = settle(this);
+      const entry = state.get(this);
+      const wasInFlight = inFlight(entry);
+      const uploading = wasInFlight && entry.uploading;
+      stop(entry);
+      overrides.release(this);
       const result = abort.apply(this, arguments);
       // The browser never sent a held or answered request, so its own abort changes nothing
       // and the page has to see what a real one shows: an in-flight request fails with
-      // readystatechange, abort and loadend at DONE, and every request ends UNSENT.
+      // readystatechange, the upload's abort and loadend if it hadn't finished, then abort and
+      // loadend, all at DONE, and every request ends UNSENT.
       if (!entry?.synthetic) return result;
-      const epoch = entry.epoch;
-      const current = () => state.get(this) === entry && entry.epoch === epoch;
-      if (inFlight) {
+      entry.uploading = false;
+      if (wasInFlight) {
         overrides.define(this, xhrResult(win, this, { readyState: 4, status: 0, statusText: '', url: '', text: null }));
-        // Chromium and Firefox fire all three even when a handler reopens or aborts again.
+        // Chromium and Firefox fire them all even when a handler reopens or aborts again.
         this.dispatchEvent(new win.Event('readystatechange'));
-        this.dispatchEvent(new win.ProgressEvent('abort'));
-        this.dispatchEvent(new win.ProgressEvent('loadend'));
-        if (!current()) return result;
+        if (uploading) {
+          this.upload?.dispatchEvent(progressEvent(win, 'abort'));
+          this.upload?.dispatchEvent(progressEvent(win, 'loadend'));
+        }
+        this.dispatchEvent(progressEvent(win, 'abort'));
+        this.dispatchEvent(progressEvent(win, 'loadend'));
+        // A handler that reopened leaves the new request alone.
+        if (state.get(this) !== entry) return result;
       }
       overrides.define(this, xhrResult(win, this, { readyState: 0, status: 0, statusText: '', url: '', text: null }));
       return result;
@@ -655,9 +771,88 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
   }
 }
 
+// The one header a held-back answer has: what new Response(text) gives the held-back fetch.
+const ANSWER_TYPE = 'text/plain;charset=UTF-8';
+
+// Wraps one of the prototype's setters so check can throw first. A property the browser
+// doesn't have, or one fixed for good, is left alone.
+function guardSetter(proto, key, check) {
+  const descriptor = Object.getOwnPropertyDescriptor(proto, key);
+  if (typeof descriptor?.set !== 'function' || !descriptor.configurable) return;
+  const set = descriptor.set;
+  Object.defineProperty(proto, key, {
+    ...descriptor,
+    set(value) {
+      check(this);
+      set.call(this, value);
+    },
+  });
+}
+
+// Puts listener ahead of the page's own listeners for type on the instances of Target, since
+// Chromium runs a target's listeners in the order they were added, capture or not. It's added
+// the first time the page listens, through addEventListener or the on<type> handler, or when
+// the hook calls the function it returns. Until the page listens on an upload, nothing is
+// added to it: a listener there changes how a cross-origin request is sent.
+function listenFirst(win, proto, Target, type, listener) {
+  const added = new WeakSet();
+  const add = win.EventTarget?.prototype.addEventListener ?? proto?.addEventListener;
+  const ensure = (target) => {
+    if (added.has(target) || !(target instanceof Target)) return;
+    added.add(target);
+    add.call(target, type, listener, true);
+  };
+  if (!proto || typeof Target !== 'function' || typeof add !== 'function') return () => {};
+  const definable = (key) => Object.getOwnPropertyDescriptor(proto, key)?.configurable !== false;
+  const listen = descriptorOf(proto, 'addEventListener');
+  if (typeof listen?.value === 'function' && definable('addEventListener')) {
+    Object.defineProperty(proto, 'addEventListener', {
+      ...listen,
+      value: function addEventListener(eventType) {
+        if (eventType === type) ensure(this);
+        return listen.value.apply(this, arguments);
+      },
+    });
+  }
+  const handler = descriptorOf(proto, `on${type}`);
+  if (typeof handler?.set === 'function' && definable(`on${type}`)) {
+    Object.defineProperty(proto, `on${type}`, {
+      ...handler,
+      set(value) {
+        ensure(this);
+        handler.set.call(this, value);
+      },
+    });
+  }
+  return ensure;
+}
+
+// A property's descriptor from the first prototype on the chain that has it.
+function descriptorOf(object, key) {
+  for (let current = object; current; current = Object.getPrototypeOf(current)) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, key);
+    if (descriptor) return descriptor;
+  }
+  return undefined;
+}
+
+// The body a real send would upload, in bytes, or null when it uploads nothing (GET and HEAD
+// send no body) or the exact size can't be known: the browser picks a FormData's multipart
+// boundary, so a held FormData send fires no upload events.
+function uploadSize(method, body) {
+  if (body === undefined || body === null || ['GET', 'HEAD'].includes(String(method).toUpperCase())) return null;
+  if (Object.prototype.toString.call(body) === '[object FormData]') return null;
+  return bodyBytes(body);
+}
+
+// loaded and total as the browser gives them: a total it doesn't know is 0, and not computable.
+function progressEvent(win, type, loaded = 0, total = 0) {
+  return new win.ProgressEvent(type, { lengthComputable: total !== 0, loaded, total });
+}
+
 // The properties this hook puts on one XHR instance, all accessors. Releasing removes only
 // those still holding the getter this hook set, and puts back whatever the page had defined
-// on the instance before.
+// on the instance before. It returns what it removed, for restore.
 function xhrOverrides() {
   const owned = new WeakMap();
   return {
@@ -675,13 +870,20 @@ function xhrOverrides() {
     },
     release(xhr) {
       const props = owned.get(xhr);
-      if (!props) return;
+      const removed = new Map();
+      if (!props) return removed;
       owned.delete(xhr);
-      for (const [key, { get, previous }] of props) {
-        if (Object.getOwnPropertyDescriptor(xhr, key)?.get !== get) continue;
-        if (previous) Object.defineProperty(xhr, key, previous);
+      for (const [key, entry] of props) {
+        if (Object.getOwnPropertyDescriptor(xhr, key)?.get !== entry.get) continue;
+        if (entry.previous) Object.defineProperty(xhr, key, entry.previous);
         else delete xhr[key];
+        removed.set(key, entry);
       }
+      return removed;
+    },
+    // Puts back what release removed, for an open() that threw.
+    restore(xhr, removed) {
+      if (removed.size) this.define(xhr, Object.fromEntries([...removed].map(([key, { get }]) => [key, get])));
     },
   };
 }
@@ -693,7 +895,8 @@ function invalidState(win, message) {
 }
 
 // What a request the browser never sent shows the page. text is the answer, or null for a
-// failed request, and each read follows responseType the way the browser's own getters do.
+// failed request, and each read follows responseType and readyState the way the browser's own
+// getters do: no text before LOADING, and no typed response before DONE.
 function xhrResult(win, xhr, { readyState, status, statusText, url, text, parse }) {
   const textual = () => xhr.responseType === '' || xhr.responseType === 'text';
   let typed = null;
@@ -711,9 +914,12 @@ function xhrResult(win, xhr, { readyState, status, statusText, url, text, parse 
       if (!textual()) {
         throw invalidState(win, `Failed to read the 'responseText' property from 'XMLHttpRequest': The value is only accessible if the object's 'responseType' is '' or 'text' (was '${xhr.responseType}').`);
       }
-      return text ?? '';
+      return readyState < 3 ? '' : text ?? '';
     },
-    response: () => (textual() ? text ?? '' : typedResponse()),
+    response: () => {
+      if (textual()) return readyState < 3 ? '' : text ?? '';
+      return readyState < 4 ? null : typedResponse();
+    },
   };
 }
 
@@ -767,29 +973,75 @@ function attachTextTransform(xhr, stream, textGetter, responseGetter, overrides)
   });
 }
 
-// Completes a request the browser never sent. Until then the page sees the opened request.
-// Like Chromium, a reopen or abort from the readystatechange handler stops load, but once
-// load has fired, loadend follows whatever its handlers did, as in Chromium and Firefox.
-function fakeXhrSuccess(win, xhr, { url, text, parse, synchronous, overrides }) {
+// Completes a request the browser never sent the way Chromium and Firefox deliver an answer
+// that comes in one piece with no length. Until then the page sees the opened request. Each
+// stage is a task of its own: the upload's progress, load and loadend when there's a body, then
+// HEADERS_RECEIVED, then LOADING with one progress event, then DONE with load and loadend. Each
+// event runs in its own microtask, so what one event's listeners queue runs before the next
+// event. A reopen or abort stops the stages still to come, but LOADING's progress fires anyway
+// (with nothing received), and so does loadend once load has, as in both browsers.
+function fakeXhrSuccess(win, xhr, { url, text, parse, synchronous, uploadBytes = () => null, uploaded = () => {}, overrides }) {
   let active = true;
   let timer = null;
-  const complete = () => {
-    timer = null;
-    if (!active) return;
-    fake.pending = false;
-    overrides.define(xhr, xhrResult(win, xhr, { readyState: 4, status: 200, statusText: 'OK', url, text, parse }));
-    xhr.dispatchEvent(new win.Event('readystatechange'));
-    if (!active) return;
-    xhr.dispatchEvent(new win.ProgressEvent('load'));
-    xhr.dispatchEvent(new win.ProgressEvent('loadend'));
+  const bytes = bodyBytes(String(text));
+  const show = (readyState) => overrides.define(xhr, xhrResult(win, xhr, { readyState, status: 200, statusText: 'OK', url, text, parse }));
+  const changed = () => { xhr.dispatchEvent(new win.Event('readystatechange')); };
+  const fire = (target, type, loaded, total) => { target?.dispatchEvent(progressEvent(win, type, loaded, total)); };
+  const later = typeof win.queueMicrotask === 'function' ? (step) => win.queueMicrotask(step) : (step) => Promise.resolve().then(step);
+  // Runs one stage's events in order. A step that returns false ends the stage.
+  const run = (steps, then) => {
+    const next = (i) => {
+      if (i === steps.length) return then();
+      if (steps[i]() === false) return undefined;
+      if (synchronous) return next(i + 1);
+      later(() => next(i + 1));
+      return undefined;
+    };
+    next(0);
+  };
+  const done = [
+    () => {
+      fake.pending = false;
+      show(4);
+      changed();
+      return active;
+    },
+    () => fire(xhr, 'load', bytes, 0),
+    () => fire(xhr, 'loadend', bytes, 0),
+  ];
+  const stagesFor = (upload) => {
+    if (synchronous) return [done];
+    const stages = [];
+    if (upload !== null) {
+      stages.push([
+        () => {
+          uploaded();
+          fire(xhr.upload, 'progress', upload, upload);
+        },
+        () => fire(xhr.upload, 'load', upload, upload),
+        () => fire(xhr.upload, 'loadend', upload, upload),
+      ]);
+    }
+    stages.push([() => { show(2); changed(); }]);
+    stages.push([() => { show(3); changed(); }, () => fire(xhr, 'progress', active ? bytes : 0, 0)]);
+    stages.push(done);
+    return stages;
   };
   // Started only once the caller holds the handle, so a synchronous completion's handlers
   // can already cancel it.
   const fake = {
     pending: true,
     start() {
-      if (synchronous) complete();
-      else timer = win.setTimeout(complete, 0);
+      const stages = stagesFor(uploadBytes());
+      const stage = (i) => {
+        timer = null;
+        if (!active) return;
+        run(stages[i], () => {
+          if (active && i + 1 < stages.length) timer = win.setTimeout(() => stage(i + 1), 0);
+        });
+      };
+      if (synchronous) stage(0);
+      else timer = win.setTimeout(() => stage(0), 0);
     },
     cancel() {
       active = false;

@@ -15,6 +15,14 @@ const graphqlBody = (name, extra = '') => new URLSearchParams({
   variables: extra,
 }).toString();
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+const attempt = (fn) => {
+  try {
+    fn();
+    return 'ok';
+  } catch (error) {
+    return error.name;
+  }
+};
 
 function startupControl(options = {}) {
   let phase = options.state ?? 'loading';
@@ -49,23 +57,35 @@ function fakeWindow({ respond = () => 'native' } = {}) {
   const beacons = [];
   const xhrCalls = [];
   const listeners = new Map();
-  class FakeProgressEvent extends Event {}
+  const immediates = new WeakSet();
+  class FakeProgressEvent extends Event {
+    constructor(type, init = {}) {
+      super(type, init);
+      this.lengthComputable = Boolean(init.lengthComputable);
+      this.loaded = init.loaded ?? 0;
+      this.total = init.total ?? 0;
+    }
+  }
+  class FakeUpload extends EventTarget {}
   class FakeXhr extends EventTarget {
     constructor() {
       super();
       this.readyState = 0;
       this.status = 0;
-      this.responseType = '';
+      this._responseType = '';
+      this._withCredentials = false;
       this._responseText = '';
       this.aborted = 0;
+      this.upload = new FakeUpload();
     }
 
-    // Like a browser, open() announces OPENED only when the state changes, and abort() on a
-    // request that was never sent leaves it OPENED.
-    open(method, url, async = true) {
+    // Like a browser, open() announces OPENED only when the state changes, refuses a method
+    // that isn't a token, and abort() on a request that was never sent leaves it OPENED.
+    open(method, url, async) {
+      if (/\s/.test(method)) throw new DOMException(`'${method}' is not a valid HTTP method.`, 'SyntaxError');
       this.method = method;
       this.url = url;
-      this.async = async;
+      this.async = arguments.length < 3 || Boolean(async);
       if (this.readyState === 1) return;
       this.readyState = 1;
       this.dispatchEvent(new Event('readystatechange'));
@@ -73,8 +93,23 @@ function fakeWindow({ respond = () => 'native' } = {}) {
 
     setRequestHeader() {}
 
+    getResponseHeader() {
+      return null;
+    }
+
+    getAllResponseHeaders() {
+      return '';
+    }
+
+    overrideMimeType() {}
+
+    // An asynchronous send starts the way a browser's does, before it returns.
     send(body) {
       xhrCalls.push({ xhr: this, method: this.method, url: this.url, body });
+      if (this.async) {
+        this.dispatchEvent(new FakeProgressEvent('loadstart'));
+        if (body !== undefined && body !== null) this.upload.dispatchEvent(new FakeProgressEvent('loadstart'));
+      }
       this._responseText = respond(this.url);
       this.readyState = 4;
       this.status = 204;
@@ -88,11 +123,15 @@ function fakeWindow({ respond = () => 'native' } = {}) {
   Object.defineProperties(FakeXhr.prototype, {
     responseText: { configurable: true, get() { return this._responseText; } },
     response: { configurable: true, get() { return this._responseText; } },
+    responseType: { configurable: true, get() { return this._responseType; }, set(value) { this._responseType = value; } },
+    withCredentials: { configurable: true, get() { return this._withCredentials; }, set(value) { this._withCredentials = Boolean(value); } },
   });
   const win = {
     Request, Response, Headers, ReadableStream, Promise, Event, DOMException, TextEncoder, Blob,
     ProgressEvent: FakeProgressEvent,
     XMLHttpRequest: FakeXhr,
+    XMLHttpRequestUpload: FakeUpload,
+    queueMicrotask,
     JSON: { parse: JSON.parse, stringify: JSON.stringify },
     location: { href: 'https://www.facebook.com/' },
     navigator: {
@@ -106,8 +145,18 @@ function fakeWindow({ respond = () => 'native' } = {}) {
       calls.push({ input, init });
       return Promise.resolve(new Response('native', { status: 200 }));
     },
-    setTimeout,
-    clearTimeout,
+    // A browser runs a 0 ms timer within a millisecond or so, where Node on Windows waits for
+    // its 15 ms clock tick, which would stretch a held answer's steps past the tests' waits.
+    setTimeout(callback, ms, ...args) {
+      if (ms > 0) return setTimeout(callback, ms, ...args);
+      const handle = setImmediate(callback, ...args);
+      immediates.add(handle);
+      return handle;
+    },
+    clearTimeout(handle) {
+      if (immediates.has(handle)) clearImmediate(handle);
+      else clearTimeout(handle);
+    },
     addEventListener(type, listener) {
       listeners.set(type, [...(listeners.get(type) ?? []), listener]);
     },
@@ -425,7 +474,9 @@ test('a reused XHR shows only its current request, whatever the last one was', a
   blocked.xhr.send(graphqlBody('PrivateMutation'));
   assert.equal(blocked.xhr.readyState, 1, 'a held answer is still loading until its events run');
   await tick();
-  assert.deepEqual(blocked.events, ['readystatechange@1/0', 'readystatechange@4/200', 'load@4/200', 'loadend@4/200']);
+  assert.deepEqual(blocked.events, [
+    'readystatechange@1/0', 'readystatechange@2/200', 'readystatechange@3/200', 'readystatechange@4/200', 'load@4/200', 'loadend@4/200',
+  ]);
   assert.equal(blocked.xhr.responseURL, 'https://www.facebook.com/api/graphql/');
   blocked.events.length = 0;
   blocked.xhr.open('POST', '/ajax/plain');
@@ -519,11 +570,12 @@ test('a reused XHR shows only its current request, whatever the last one was', a
   assert.deepEqual(await handlers('readystatechange', reopen, true), {
     events: ['readystatechange@4/0', 'readystatechange@1/0', 'abort@1/0', 'loadend@1/0'], readyState: 1,
   });
+  const answered = ['readystatechange@2/200', 'readystatechange@3/200', 'readystatechange@4/200', 'load@4/200'];
   assert.deepEqual(await handlers('load', reopen, false), {
-    events: ['readystatechange@4/200', 'load@4/200', 'readystatechange@1/0', 'loadend@1/0'], readyState: 1,
+    events: [...answered, 'readystatechange@1/0', 'loadend@1/0'], readyState: 1,
   });
   assert.deepEqual(await handlers('load', (xhr) => xhr.abort(), false), {
-    events: ['readystatechange@4/200', 'load@4/200', 'loadend@0/0'], readyState: 0,
+    events: [...answered, 'loadend@0/0'], readyState: 0,
   });
 });
 
@@ -574,6 +626,255 @@ test('a held-back XHR answer reads the way its responseType asks', async () => {
   assert.deepEqual(loads, [200], 'a property the page locked for good does not stop the answer');
   assert.equal(locked.statusText, 'page-locked');
   assert.equal(locked.responseText, '{"held":true}');
+
+  const early = new win.XMLHttpRequest();
+  const reads = [];
+  early.addEventListener('loadstart', () => reads.push(attempt(() => early.responseText), early.response));
+  early.open('POST', '/api/graphql/');
+  early.responseType = 'json';
+  early.send(graphqlBody('PrivateMutation'));
+  assert.deepEqual(reads, ['InvalidStateError', null], 'a sent json request refuses responseText from the start, as in Firefox');
+
+  const typed = new win.XMLHttpRequest();
+  const seen = [];
+  typed.addEventListener('readystatechange', () => seen.push(`${typed.readyState}:${JSON.stringify(typed.response)}`));
+  const typedEnd = new Promise((resolve) => typed.addEventListener('loadend', resolve));
+  typed.open('POST', '/api/graphql/');
+  typed.responseType = 'json';
+  typed.send(graphqlBody('PrivateMutation'));
+  await typedEnd;
+  assert.deepEqual(seen, ['1:""', '2:null', '3:null', '4:{"held":true}'], 'opened as text, then a json answer stays null until DONE');
+});
+
+// Measured against an unhooked XHR in Chromium 155 and Firefox 156, answered by a local server
+// with the same text: one header, the body in one piece and no length.
+test('a held-back XHR goes through the steps a browser shows for a real answer', async () => {
+  const { win } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog, startup: startupControl({ state: 'ready' }).startup });
+  requestRule(net);
+  const body = graphqlBody('PrivateMutation');
+  const up = body.length;
+  const watch = (xhr) => {
+    const trace = [];
+    const snap = () => `${xhr.readyState}/${xhr.status}|${xhr.getResponseHeader('Content-Type')}|${xhr.responseText.length}`;
+    const ended = new Promise((resolve) => xhr.addEventListener('loadend', resolve));
+    for (const type of ['loadstart', 'progress', 'readystatechange', 'load', 'loadend']) {
+      xhr.addEventListener(type, (event) => {
+        trace.push(`${type}${'loaded' in event ? `[${event.loaded},${event.total},${event.lengthComputable}]` : ''}@${snap()}`);
+        queueMicrotask(() => trace.push(`micro:${type}`));
+      });
+    }
+    for (const type of ['loadstart', 'progress', 'load', 'loadend']) {
+      xhr.upload.addEventListener(type, (event) => trace.push(`upload.${type}[${event.loaded},${event.total},${event.lengthComputable}]`));
+    }
+    return { trace, snap, ended };
+  };
+
+  const xhr = new win.XMLHttpRequest();
+  const { trace, snap, ended } = watch(xhr);
+  xhr.open('POST', '/api/graphql/');
+  xhr.send(body);
+  trace.push(`sent@${snap()}`);
+  await ended;
+  await tick();
+  const answer = 'text/plain;charset=UTF-8|13';
+  assert.deepEqual(trace, [
+    'readystatechange@1/0|null|0',
+    'loadstart[0,0,false]@1/0|null|0',
+    `upload.loadstart[0,${up},true]`,
+    'sent@1/0|null|0',
+    'micro:readystatechange',
+    'micro:loadstart',
+    `upload.progress[${up},${up},true]`,
+    `upload.load[${up},${up},true]`,
+    `upload.loadend[${up},${up},true]`,
+    'readystatechange@2/200|text/plain;charset=UTF-8|0',
+    'micro:readystatechange',
+    `readystatechange@3/200|${answer}`,
+    'micro:readystatechange',
+    `progress[13,0,false]@3/200|${answer}`,
+    'micro:progress',
+    `readystatechange@4/200|${answer}`,
+    'micro:readystatechange',
+    `load[13,0,false]@4/200|${answer}`,
+    'micro:load',
+    `loadend[13,0,false]@4/200|${answer}`,
+    'micro:loadend',
+  ], "each event's microtasks run before the next event, as they do for a real answer");
+  assert.equal(xhr.getAllResponseHeaders(), 'content-type: text/plain;charset=UTF-8\r\n');
+
+  for (const flag of [[false], [undefined]]) {
+    const sync = new win.XMLHttpRequest();
+    const steps = watch(sync);
+    sync.open('POST', '/api/graphql/', ...flag);
+    sync.send(body);
+    steps.trace.push('sent');
+    assert.deepEqual(steps.trace, [
+      'readystatechange@1/0|null|0',
+      `readystatechange@4/200|${answer}`,
+      `load[13,0,false]@4/200|${answer}`,
+      `loadend[13,0,false]@4/200|${answer}`,
+      'sent',
+    ], `a synchronous answer (async ${flag[0]}) finishes before send() returns, with no loadstart or upload`);
+  }
+});
+
+test('a held-back XHR refuses what a sent, finished or aborted one refuses', async () => {
+  const { win } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog, startup: startupControl({ state: 'ready' }).startup });
+  requestRule(net);
+  const xhr = new win.XMLHttpRequest();
+  const ended = new Promise((resolve) => xhr.addEventListener('loadend', resolve));
+  xhr.open('POST', '/api/graphql/');
+  xhr.send(graphqlBody('PrivateMutation'));
+  const attempts = () => ({
+    header: attempt(() => xhr.setRequestHeader('x-a', '1')),
+    credentials: attempt(() => { xhr.withCredentials = true; }),
+    type: attempt(() => { xhr.responseType = ''; }),
+    mime: attempt(() => xhr.overrideMimeType('text/plain')),
+    send: attempt(() => xhr.send()),
+  });
+  const refused = 'InvalidStateError';
+  assert.deepEqual(attempts(), { header: refused, credentials: refused, type: 'ok', mime: 'ok', send: refused }, 'sent');
+  await ended;
+  assert.deepEqual(attempts(), { header: refused, credentials: refused, type: refused, mime: refused, send: refused }, 'done');
+  xhr.abort();
+  assert.equal(xhr.readyState, 0);
+  assert.deepEqual(attempts(), { header: refused, credentials: 'ok', type: 'ok', mime: 'ok', send: refused }, 'unsent');
+  assert.equal(xhr.withCredentials, true, 'an allowed change reaches the browser');
+});
+
+// Each trace is what the XHR spec gives a real request, and what Chromium 155 showed for one.
+test('a held-back XHR ends the way a real one does when the page aborts or reopens part way', async () => {
+  const body = graphqlBody('PrivateMutation');
+  const up = body.length;
+  const answer = 'text/plain;charset=UTF-8';
+  // Sends one held-back request with act() listening after the recorder, then waits out its steps.
+  const run = async ({ state = 'ready', switchOn = true, method = 'POST', payload = body, on, at, act, then = () => {} }) => {
+    const control = startupControl({ state });
+    const { win, xhrCalls } = fakeWindow();
+    const net = installNetworkHooks({ win, log: quietLog, startup: control.startup });
+    requestRule(net, () => switchOn);
+    const xhr = new win.XMLHttpRequest();
+    const trace = [];
+    const shown = () => `@${xhr.readyState}/${xhr.status}|${xhr.getResponseHeader('content-type')}`;
+    const progress = (event) => `[${event.loaded},${event.total},${event.lengthComputable}]`;
+    for (const type of ['loadstart', 'readystatechange', 'progress', 'abort', 'load', 'loadend']) {
+      xhr.addEventListener(type, (event) => trace.push(`${type}${type === 'readystatechange' ? '' : progress(event)}${shown()}`));
+    }
+    for (const type of ['loadstart', 'progress', 'abort', 'load', 'loadend']) {
+      xhr.upload.addEventListener(type, (event) => trace.push(`upload.${type}${progress(event)}`));
+    }
+    let acted = false;
+    if (on) {
+      xhr.addEventListener(on, () => {
+        if (acted || (at !== undefined && xhr.readyState !== at)) return;
+        acted = true;
+        act(xhr);
+      });
+    }
+    xhr.open(method, '/api/graphql/');
+    xhr.send(payload);
+    if (!on && act) act(xhr);
+    then(control);
+    await tick();
+    trace.push(`end${shown()}`);
+    return { trace, xhrCalls };
+  };
+  const opened = ['readystatechange@1/0|null', 'loadstart[0,0,false]@1/0|null'];
+  const uploaded = [`upload.loadstart[0,${up},true]`, `upload.progress[${up},${up},true]`, `upload.load[${up},${up},true]`, `upload.loadend[${up},${up},true]`];
+  const failed = ['readystatechange@4/0|null', 'abort[0,0,false]@4/0|null', 'loadend[0,0,false]@4/0|null'];
+  const uploadFailed = ['upload.abort[0,0,false]', 'upload.loadend[0,0,false]'];
+  const abort = (xhr) => xhr.abort();
+  const reopen = (xhr) => xhr.open('POST', '/ajax/plain');
+
+  assert.deepEqual((await run({ act: abort })).trace, [
+    ...opened, `upload.loadstart[0,${up},true]`, failed[0], ...uploadFailed, ...failed.slice(1), 'end@0/0|null',
+  ], 'aborted at once, the upload fails too');
+
+  const atStart = [...opened, failed[0], ...uploadFailed, ...failed.slice(1), 'end@0/0|null'];
+  assert.deepEqual((await run({ on: 'loadstart', act: abort })).trace, atStart, 'aborted in loadstart, the upload never starts');
+  const heldAbort = await run({ state: 'loading', switchOn: false, on: 'loadstart', act: abort, then: (control) => control.set('ready') });
+  assert.deepEqual(heldAbort.trace, atStart, 'the same while held for saved choices');
+  assert.equal(heldAbort.xhrCalls.length, 0, 'and it never goes out once they load with its switch off');
+  assert.deepEqual((await run({ on: 'loadstart', act: reopen })).trace, [...opened, 'end@1/0|null'], 'reopened in loadstart, nothing more of it runs');
+
+  assert.deepEqual((await run({ on: 'readystatechange', at: 2, act: abort })).trace, [
+    ...opened, ...uploaded, `readystatechange@2/200|${answer}`, ...failed, 'end@0/0|null',
+  ], 'aborted once the upload is done, only the request fails, and its header goes');
+  assert.deepEqual((await run({ on: 'readystatechange', at: 3, act: reopen })).trace, [
+    ...opened, ...uploaded, `readystatechange@2/200|${answer}`, `readystatechange@3/200|${answer}`,
+    'readystatechange@1/0|null', 'progress[0,0,false]@1/0|null', 'end@1/0|null',
+  ], 'reopened at LOADING, its progress still fires, with nothing received');
+  assert.deepEqual((await run({ on: 'readystatechange', at: 3, act: abort })).trace, [
+    ...opened, ...uploaded, `readystatechange@2/200|${answer}`, `readystatechange@3/200|${answer}`,
+    ...failed, 'progress[0,0,false]@0/0|null', 'end@0/0|null',
+  ], 'aborted at LOADING, the same');
+
+  const form = new FormData();
+  form.append('fb_api_req_friendly_name', 'PrivateMutation');
+  for (const [label, options] of [['a GET', { method: 'GET' }], ['a form', { payload: form }]]) {
+    const { trace } = await run(options);
+    assert.deepEqual(trace.filter((line) => /^(upload\.|loadstart|end)/.test(line)), ['loadstart[0,0,false]@1/0|null', `end@4/200|${answer}`], `${label} starts and finishes with no upload events`);
+  }
+});
+
+test('an open() that throws leaves a held-back request as it was', async () => {
+  const { win, xhrCalls } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog, startup: startupControl({ state: 'ready' }).startup });
+  requestRule(net);
+  const body = graphqlBody('PrivateMutation');
+  const done = new win.XMLHttpRequest();
+  const ended = new Promise((resolve) => done.addEventListener('loadend', resolve));
+  done.open('POST', '/api/graphql/');
+  done.send(body);
+  await ended;
+  assert.throws(() => done.open('BAD METHOD', '/ajax/plain'), (error) => error.name === 'SyntaxError');
+  assert.deepEqual([done.readyState, done.status, done.responseText, done.getResponseHeader('content-type')], [4, 200, '{"held":true}', 'text/plain;charset=UTF-8']);
+
+  const sent = new win.XMLHttpRequest();
+  const loads = [];
+  sent.addEventListener('load', () => loads.push(`${sent.readyState}/${sent.status}`));
+  const finished = new Promise((resolve) => sent.addEventListener('loadend', resolve));
+  sent.open('POST', '/api/graphql/');
+  sent.send(body);
+  assert.throws(() => sent.open('BAD METHOD', '/ajax/plain'), (error) => error.name === 'SyntaxError');
+  await finished;
+  assert.deepEqual(loads, ['4/200'], 'the request still finishes');
+  assert.equal(xhrCalls.length, 0);
+});
+
+// Chromium runs a target's listeners in the order they were added, capture or not, and so does
+// Node, so the page here listens before open() as a page in Chromium can.
+test('a request held for saved choices starts once, even when the page listened before open', () => {
+  const control = startupControl();
+  const { win, xhrCalls } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog, startup: control.startup });
+  requestRule(net, () => false);
+  const xhr = new win.XMLHttpRequest();
+  const starts = [];
+  xhr.addEventListener('loadstart', () => starts.push(`xhr@${xhr.readyState}`));
+  xhr.upload.addEventListener('loadstart', () => starts.push('upload'));
+  xhr.open('POST', '/api/graphql/');
+  xhr.send(graphqlBody('PrivateMutation'));
+  const form = new FormData();
+  form.append('fb_api_req_friendly_name', 'PrivateMutation');
+  const formXhr = new win.XMLHttpRequest();
+  const formStarts = [];
+  formXhr.addEventListener('loadstart', () => formStarts.push('xhr'));
+  formXhr.upload.addEventListener('loadstart', () => formStarts.push('upload'));
+  formXhr.open('POST', '/api/graphql/');
+  formXhr.send(form);
+  assert.deepEqual(starts, ['xhr@1', 'upload'], 'the page sees the request start when it sends');
+  assert.deepEqual(formStarts, ['xhr'], "a form's upload size isn't known until the browser sends it");
+  control.set('ready');
+  assert.equal(xhrCalls.length, 2, 'then they go out for real');
+  assert.deepEqual([xhr.readyState, xhr.status], [4, 204], 'showing what the browser has');
+  assert.deepEqual(starts, ['xhr@1', 'upload'], "the browser's own start is kept from the page");
+  assert.deepEqual(formStarts, ['xhr', 'upload'], "and the form's upload starts when the browser sends it");
+  xhr.open('POST', '/ajax/plain');
+  xhr.send('x');
+  assert.deepEqual(starts, ['xhr@1', 'upload', 'xhr@1', 'upload'], 'a later request starts as usual');
 });
 
 test('sendBeacon drops only recognized privacy traffic until choices are confirmed', () => {
