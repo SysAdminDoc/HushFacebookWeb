@@ -174,14 +174,16 @@ export function whenMirrorReady(mirror, run, { wait = 30000, setTimer = setTimeo
 
 const randomToken = () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
 const day = (time) => new Date(time).toISOString().slice(0, 10);
+const STORAGE_FAILED = `${KEEPER}'s storage failed the daily check, so your settings may not be saving`;
 
-// One check. Returns { ok: true, at } or { ok: false, at, message }.
+// One check. Returns { ok: true, at } or { ok: false, at, message, cause? }, where cause is the
+// manager's own error when there was one.
 export function checkStorage({ storage, mirror, now = Date.now(), token = randomToken() }) {
   let kept;
   try {
     kept = asRecord(storage.get(CHECK_KEY, null));
   } catch (error) {
-    return { ok: false, at: now, message: `${KEEPER}'s storage couldn't be read (${error?.message ?? error}), so your settings may not be saved.` };
+    return { ok: false, at: now, cause: error, message: `${KEEPER}'s storage couldn't be read (${error?.message ?? error}), so your settings may not be saved.` };
   }
   const before = mirror?.get() ?? null;
   const earlier = before && !(now - Number(before.at) < RECENT);
@@ -195,7 +197,7 @@ export function checkStorage({ storage, mirror, now = Date.now(), token = random
       return { ok: false, at: now, message: `${KEEPER} didn't give back what HushFacebook Web just saved, so your settings may not be saving.` };
     }
   } catch (error) {
-    return { ok: false, at: now, message: `${KEEPER} wouldn't save (${error?.message ?? error}), so your settings may not be saving.` };
+    return { ok: false, at: now, cause: error, message: `${KEEPER} wouldn't save (${error?.message ?? error}), so your settings may not be saving.` };
   }
   mirror?.set({ token, at: now });
   return lost ? { ok: false, at: now, message: lost } : { ok: true, at: now };
@@ -207,7 +209,8 @@ export function scheduleStorageCheck({ tasks, storage, mirror, log, toast, diagn
   tasks.add(CHECK_KEY, () => {
     result = checkStorage({ storage, mirror, now: now() });
     if (!result.ok) {
-      log?.error(result.message);
+      // The manager's own error text goes in the detail, where Copy report doesn't reach.
+      log?.error(result.cause ? STORAGE_FAILED : result.message, result.cause);
       toast?.(result.message, { tone: 'error' });
     }
     diagnostics?.changed();

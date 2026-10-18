@@ -944,7 +944,8 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     retry: retrySave,
     set(key, value) {
       const found = spec(key);
-      if (!isValid(found, value)) throw new TypeError(`Invalid value for ${key}: ${JSON.stringify(value)}`);
+      // The value stays out of the message, which can reach the log and Copy report.
+      if (!isValid(found, value)) throw new TypeError(`Invalid value for ${key}`);
       const next = { ...values };
       if (value === found.default) delete next[key];
       else next[key] = value;
@@ -955,7 +956,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       const keys = [];
       for (const [name, value] of Object.entries(entries)) {
         const found = spec(name);
-        if (!isValid(found, value)) throw new TypeError(`Invalid value for ${name}: ${JSON.stringify(value)}`);
+        if (!isValid(found, value)) throw new TypeError(`Invalid value for ${name}`);
         if (value === found.default) delete next[name];
         else next[name] = value;
         keys.push(name);

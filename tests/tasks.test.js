@@ -153,6 +153,19 @@ test('a failed check shows a toast, logs it and says so in Diagnostics', () => {
   assert.match(row(), /^Failed: Your userscript manager didn't give back/);
 });
 
+test("a failed check logs the manager's error as the detail, not in the message", () => {
+  const storage = { get: () => undefined, set: () => { throw new Error('PRIVATE quota'); } };
+  const logged = [];
+  const toasts = [];
+  const tasks = createDailyTasks({ storage: createMemoryStorage(), now: () => T0 });
+  scheduleStorageCheck({ tasks, storage, mirror: memoryMirror(), log: { error: (message, detail) => logged.push([message, detail]) }, toast: (message) => toasts.push(message), diagnostics: createDiagnostics(), now: () => T0 });
+  tasks.runDue();
+  assert.equal(logged.length, 1);
+  assert.doesNotMatch(logged[0][0], /PRIVATE/);
+  assert.equal(logged[0][1].message, 'PRIVATE quota');
+  assert.match(toasts[0], /wouldn't save \(PRIVATE quota\)/, 'the toast still names the error for the person');
+});
+
 test('a passing check is quiet and Diagnostics shows when it ran', () => {
   const storage = createMemoryStorage();
   const toasts = [];

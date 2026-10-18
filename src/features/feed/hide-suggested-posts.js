@@ -47,8 +47,9 @@ export default {
         changed();
       }, { route, diagnostics, reason: 'Suggested' }));
     }
-    diagnostics?.add('Suggested posts taken out of the data', () => (net ? summary(data) : "Off: the script can't reach the page's data"));
-    diagnostics?.add('Suggested posts hidden on the page', () => summary(page));
+    // Rule ids and the script's own button names, so Copy report can carry them.
+    diagnostics?.add('Suggested posts taken out of the data', () => (net ? summary(data) : "Off: the script can't reach the page's data"), { shareable: true });
+    diagnostics?.add('Suggested posts hidden on the page', () => summary(page), { shareable: true });
     if (!posts || !hider) return;
 
     const watcher = watchPostChecks({

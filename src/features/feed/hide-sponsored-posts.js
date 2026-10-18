@@ -83,8 +83,9 @@ export default {
       }
     });
 
-    diagnostics?.add('Ads taken out of the data', () => (net ? summary(data) : "Off: the script can't reach the page's data"));
-    diagnostics?.add('Ads hidden on the page', () => summary(page));
+    // Rule ids and the script's own signal names, so Copy report can carry them.
+    diagnostics?.add('Ads taken out of the data', () => (net ? summary(data) : "Off: the script can't reach the page's data"), { shareable: true });
+    diagnostics?.add('Ads hidden on the page', () => summary(page), { shareable: true });
     diagnostics?.add('Posts with an ad button and no readable label', () => String(unreadCount));
   },
 };

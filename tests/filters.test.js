@@ -225,3 +225,16 @@ test('a story in an answer another rule fails on is not counted or reported as f
   assert.equal(diagnostics.decisions().length, 1);
   posts.stop();
 });
+
+test('a filter decision keeps the matched words for the panel, out of what Copy report reads', () => {
+  const rules = [];
+  const win = page('');
+  const { posts, diagnostics } = setupFeature(win, { words: 'bread', net: { transformResponses: (rule) => rules.push(rule) } });
+  const line = JSON.stringify({ data: { viewer: { news_feed: { edges: [{ node: story(), cursor: 'c1' }] } } } });
+  transformDocumentLine(line, rules, { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' });
+  const [decision] = diagnostics.decisions();
+  assert.equal(decision.rule, 'Filter');
+  assert.equal(decision.detail, 'bread');
+  assert.equal(decision.signal, '');
+  posts.stop();
+});

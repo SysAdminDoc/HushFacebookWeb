@@ -42,7 +42,7 @@ export default {
     onceLoaded(settings, () => {
       if (!start || !enabled() || !isPlainHome(win.location.href) || !claimHomeRedirect(win, 'openOnTab')) return;
       const path = startPath(option('tab'), settings);
-      log?.info(`Open on a chosen tab: this visit starts on ${path}`);
+      log?.info('Open on a chosen tab: this visit starts on', path);
       win.location.replace(path);
     });
   },

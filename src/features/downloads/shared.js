@@ -59,7 +59,8 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
         return;
       }
       failed++;
-      log?.error(`Couldn't save ${plan.name}`, error);
+      // The file name carries the poster's name, so it stays out of the message.
+      log?.error("Couldn't save a photo or video", error);
       toast?.(`Couldn't save it: ${error.message}.`, { tone: 'error' });
     } finally {
       diagnostics?.changed();

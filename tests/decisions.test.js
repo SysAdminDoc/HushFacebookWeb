@@ -104,7 +104,7 @@ test('a cleared video ad break schedule is counted but stays off the decision li
     assert.equal(JSON.parse(transformDocumentLine(line, rules, ctx)).data.video.instream_video_ad_breaks_comet, null);
   }
   assert.deepEqual(diagnostics.decisions(), []);
-  assert.deepEqual(diagnostics.rows().find((row) => row.label === 'Videos cleared of ad breaks'), { label: 'Videos cleared of ad breaks', value: '3' });
+  assert.deepEqual(diagnostics.rows().find((row) => row.label === 'Videos cleared of ad breaks'), { label: 'Videos cleared of ad breaks', value: '3', shareable: false });
 });
 
 test('word filters and seen posts report each story they drop, with what matched', () => {

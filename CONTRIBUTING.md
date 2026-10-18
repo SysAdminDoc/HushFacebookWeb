@@ -62,7 +62,7 @@ export default {
 };
 ```
 
-`ctx.diagnostics.add('Row label', () => 'value')` adds a row to Diagnostics and to Copy report. Call `ctx.diagnostics.changed()` when the value moves.
+`ctx.diagnostics.add('Row label', () => 'value')` adds a row to Diagnostics and to Copy report. Call `ctx.diagnostics.changed()` when the value moves. Copy report goes into public issues, so it takes a row's value only when it's a plain count. Pass `{ shareable: true }` as a third argument when the text is only the script's own words, like a fixed status or rule ids with counts. Log messages go in the report too, so keep them to the script's own words and put a file name, an address, a filter line or Facebook's text in the detail argument. `tests/diagnostic-report.test.js` checks what a message may name.
 
 `ctx.actions.add('Button label', run)` puts a button on the feature's card while it's on. The label can be a function when its wording follows the feature's state. `ctx.storage.get(key, fallback)` and `ctx.storage.set(key, value)` keep data beside the settings, under a key of your own.
 

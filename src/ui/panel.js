@@ -9,6 +9,7 @@ import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
 import { SLIDERS_ICON } from './icons.js';
 import { navigationIcon } from './navigation-icons.js';
+import { buildDiagnosticReport } from './diagnostic-report.js';
 import { buildProblemReport } from './problem-report.js';
 import { applyQuickSetup, QUICK_SETUPS } from './quick-setups.js';
 import { findFeatures } from './search.js';
@@ -742,20 +743,20 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   async function copyReport() {
-    const report = [
-      `HushFacebook Web ${environment.version}`,
-      `Manager: ${environment.manager} ${environment.managerVersion}, mode ${environment.mode}, page access ${environment.pageAccess}`,
-      `Browser: ${navigator.userAgent}`,
-      `Changed settings: ${JSON.stringify(settings.snapshot())}`,
-      `Unavailable: ${[...unavailable].join(', ') || 'none'}`,
-      `Hidden since the page loaded: ${hiddenSummary()}`,
-      ...featureRows().map(({ label, value }) => `${label}: ${value}`),
-      '',
-      'Why posts were hidden, oldest first:',
-      ...(decisions().length ? decisions().map(decisionLine) : ['nothing yet']),
-      '',
-      ...log.entries().slice(-150).map((entry) => `${entry.time} ${entry.level} ${entry.message}${entry.detail ? ` | ${entry.detail}` : ''}`),
-    ].join('\n');
+    const report = buildDiagnosticReport({
+      version: environment.version,
+      manager: environment.manager,
+      managerVersion: environment.managerVersion,
+      mode: environment.mode,
+      pageAccess: environment.pageAccess,
+      browser: navigator.userAgent,
+      settings,
+      unavailable,
+      hidden: hider?.counts() ?? {},
+      rows: featureRows(),
+      decisions: decisions(),
+      log: log.entries(),
+    });
     try {
       await navigator.clipboard.writeText(report);
       toast('Report copied. Paste it into a GitHub issue.');

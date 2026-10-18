@@ -80,7 +80,9 @@ Most Facebook cleanup tools hunt for posts on the page and hide them. That break
 
 Some things can only be done on the page itself, like download buttons or hiding a menu item. Those use the parts of Facebook's markup that change least.
 
-Downloads request only the media you choose to save. Diagnostics reports include changed settings and recent log details, so read them before sharing. If a manager has no storage of its own, the script falls back to page storage, which Facebook may clear.
+Downloads request only the photo or video you choose to save. The userscript leaves updates to your userscript manager, which checks the release on GitHub on its own schedule. The extension asks GitHub once a day whether a newer release is out and only tells you. It never installs anything itself. If a manager has no storage of its own, the script falls back to the page's storage, where Facebook can see the key names and clear them.
+
+Copy report in Diagnostics copies your versions, browser name, which switches are on, the choices you changed, counts, rule names and error names. It leaves out your filter words and other text settings, text from Facebook, addresses, ids and log details, and posts get new labels in every report. A settings backup is a separate file with everything in it, filter words included, so keep that one to yourself.
 
 If Facebook stays on loading skeletons, open General and choose Open problem report. Include the full console stack, the Hush version, your browser and userscript manager versions, and the other Facebook tools you have enabled.
 

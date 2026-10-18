@@ -61,14 +61,15 @@ const intents = (rows) => ({
 function driver(doc, { titles = createOrderTitles(), order = 'newest', page: pageKey = null, menuWait } = {}) {
   const done = [];
   const warnings = [];
+  const details = [];
   const drive = createOrderDriver({
     doc, titles, menuWait,
     wanted: () => ORDERS.find((o) => o.value === order) ?? null,
     pageKey: () => pageKey,
-    log: { warn: (m) => warnings.push(m) },
+    log: { warn: (m, detail) => { warnings.push(m); details.push(detail); } },
     onDone: () => done.push(order),
   });
-  return { drive, done, warnings };
+  return { drive, done, warnings, details };
 }
 
 test('the titles come from a captured post page, and English stands in until then', async () => {
@@ -155,6 +156,14 @@ test("a menu that doesn't open is noted, and one without the order is closed aga
   assert.equal(clicks, 1, "nothing to close when the menu didn't open");
   assert.equal(quiet.done.length, 0);
   assert.match(quiet.warnings[0], /Newest/);
+  // Facebook's own title, in the page's language, stays out of the message Copy report keeps.
+  const germanPage = page('<div role="dialog"><div role="button">Relevanteste</div></div>');
+  const germanTitles = createOrderTitles();
+  germanTitles.learn(intents(GERMAN));
+  const german = driver(germanPage.document, { titles: germanTitles, menuWait: 150 });
+  assert.equal(await german.drive.scan(), false);
+  assert.equal(german.warnings[0], `Couldn't find "Newest" in Facebook's comment order menu`);
+  assert.equal(german.details[0], GERMAN[1][0]);
 
   const shortPage = page('<div role="dialog"><div role="button">Most relevant</div></div>');
   const doc = shortPage.document;

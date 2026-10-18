@@ -108,7 +108,7 @@ export default {
       for (const error of errors) {
         if (warned.has(error.phrase)) continue;
         warned.add(error.phrase);
-        log?.warn(`Filter line ${error.line} isn't a pattern the browser understands, so it's skipped: ${error.message}`);
+        log?.warn(`Filter line ${error.line} isn't a pattern the browser understands, so it's skipped`, error.message);
       }
       const kinds = new Set(KINDS.filter(({ key }) => option(key) === true).map(({ kind }) => kind));
       return { rules, kinds, errors };
@@ -127,7 +127,7 @@ export default {
           const filter = current();
           if (!active(filter)) return false;
           const decisions = [];
-          const reasons = pruneFiltered(doc, filter, (story, reason) => decisions.push({ post: story.post_id ?? story.id, rule: 'Filter', signal: reason, layer: 'data' }));
+          const reasons = pruneFiltered(doc, filter, (story, reason) => decisions.push({ post: story.post_id ?? story.id, rule: 'Filter', detail: reason, layer: 'data' }));
           if (!reasons.length) return false;
           later(stage, () => {
             for (const decision of decisions) diagnostics?.decide(decision);

@@ -99,7 +99,7 @@ test('Diagnostics lists why posts were hidden, newest first, and the report carr
   };
   assert.equal(listed(), 'Nothing hidden yet.');
   diagnostics.decide({ post: 'UzpfSTEyMw', rule: 'Sponsored', signal: 'th_dat_spo', layer: 'data' });
-  diagnostics.decide({ post: null, rule: 'Filter', signal: 'crypto', layer: 'page' });
+  diagnostics.decide({ post: null, rule: 'Filter', detail: 'crypto', layer: 'page' });
   await tick();
   const lines = listed();
   assert.equal(lines.length, 2);
@@ -112,7 +112,8 @@ test('Diagnostics lists why posts were hidden, newest first, and the report carr
   const start = report.indexOf('Why posts were hidden, oldest first:');
   assert.ok(start > 0);
   assert.match(report[start + 1], /Sponsored: th_dat_spo$/);
-  assert.match(report[start + 2], /Filter: crypto$/);
+  assert.match(report[start + 2], /page no id yet Filter$/, 'the filter phrase stays in the panel');
+  assert.ok(!copied[0].includes('crypto'));
   assert.ok(!copied[0].includes('UzpfSTEyMw'));
 });
 
@@ -454,8 +455,10 @@ test('settings do not reopen when the one-shot reload marker cannot be cleared',
 test('rows a feature adds show in Diagnostics, follow its changes and go in the report', async () => {
   const { shadow, panel, diagnostics, copied } = setup();
   let hits = 0;
-  diagnostics.add('Ads hidden on the page', () => (hits ? `header label ${hits}` : 'None yet'));
+  diagnostics.add('Ads hidden on the page', () => (hits ? `header label ${hits}` : 'None yet'), { shareable: true });
   diagnostics.add('Broken row', () => { throw new Error('nope'); });
+  diagnostics.add('Filter hits', () => (hits ? `cats ${hits}` : 'None yet'));
+  diagnostics.add('Videos', () => String(hits));
   panel.open('diagnostics');
   assert.equal(row(shadow, 'Ads hidden on the page'), 'None yet');
   assert.equal(row(shadow, 'Broken row'), 'unavailable (nope)');
@@ -466,6 +469,26 @@ test('rows a feature adds show in Diagnostics, follow its changes and go in the 
   [...shadow.querySelectorAll('button')].find((button) => button.textContent === 'Copy report').click();
   await tick();
   assert.match(copied[0], /^Ads hidden on the page: header label 2$/m);
+  assert.equal(row(shadow, 'Filter hits'), 'cats 2', 'the panel shows the text');
+  assert.match(copied[0], /^Filter hits: left out$/m, 'a row that may hold your text goes as left out');
+  assert.match(copied[0], /^Videos: 2$/m, 'a count goes as it is');
+  assert.match(copied[0], /^Broken row: left out$/m);
+});
+
+test('Copy report leaves out setting text, row text, log details and post ids', async () => {
+  const feature = { id: 'demo', section: 'feed', title: 'Demo', description: 'A demo switch.', default: true, options: [{ key: 'words', type: 'text', default: '', label: 'Words' }], setup() {} };
+  const { shadow, panel, settings, diagnostics, log, copied } = setup({ features: [feature] });
+  settings.set('demo.words', 'PRIVATE-WORDS');
+  diagnostics.add('Words matched', () => 'PRIVATE-ROW');
+  diagnostics.decide({ post: 'PRIVATE-POST', rule: 'Filter', detail: 'PRIVATE-PHRASE', layer: 'page' });
+  log.warn('A line was skipped', 'PRIVATE-DETAIL');
+  panel.open('diagnostics');
+  [...shadow.querySelectorAll('button')].find((button) => button.textContent === 'Copy report').click();
+  await tick();
+  assert.equal(copied.length, 1);
+  assert.ok(!copied[0].includes('PRIVATE'), copied[0]);
+  assert.match(copied[0], /^Text settings filled in, text left out: demo\.words$/m);
+  assert.match(copied[0], /warn A line was skipped \[string\]$/m);
 });
 
 test("a feature's own buttons show on its card while it's on, follow its state and run when clicked", async () => {

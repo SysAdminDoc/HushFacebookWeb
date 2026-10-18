@@ -4,7 +4,7 @@
 import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady, whenRootReady } from './core/env.js';
 import { createActions } from './core/actions.js';
 import { availableUpdate, UPDATE_KEY, UPDATE_TOLD_KEY } from './core/extension.js';
-import { createDiagnostics } from './core/diagnostics.js';
+import { createDiagnostics, hideListener } from './core/diagnostics.js';
 import { createHider, hideCss } from './core/dom/hide.js';
 import { createPostTracker, postIdOf } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
@@ -56,18 +56,20 @@ function boot() {
   const hider = createHider({
     doc: document, posts, log,
     notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote') === true,
-    onHide: ({ element, reason, detail, signal }) => diagnostics.decide({ post: postIdOf(element).id, rule: reason, signal: signal ?? detail, layer: 'page' }),
+    onHide: hideListener(diagnostics, postIdOf),
   });
   settings.subscribe(() => hider.refresh());
-  diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'));
-  diagnostics.add('Settings kept in', () => ({ gm: 'Your userscript manager', extension: "The extension's own storage" })[storage.kind] ?? "Facebook's page, which clears them");
+  // Fixed wording only, so these go in Copy report as they read.
+  const shareable = { shareable: true };
+  diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'), shareable);
+  diagnostics.add('Settings kept in', () => ({ gm: 'Your userscript manager', extension: "The extension's own storage" })[storage.kind] ?? "Facebook's page, which clears them", shareable);
   if (storage.status) {
-    diagnostics.add('Saved settings', () => ({ loading: 'Loading', ready: 'Loaded', error: 'Unavailable. Open General to retry.' })[storage.status().state] ?? 'Unavailable');
+    diagnostics.add('Saved settings', () => ({ loading: 'Loading', ready: 'Loaded', error: 'Unavailable. Open General to retry.' })[storage.status().state] ?? 'Unavailable', shareable);
     diagnostics.add('Startup privacy protection', () => ({
       loading: 'Waiting for saved choices',
       ready: 'Confirmed',
       error: 'Unconfirmed. Recognized requests are held back. Open General to retry.',
-    })[net?.startupState?.() ?? settings.startup.status()] ?? 'Unconfirmed');
+    })[net?.startupState?.() ?? settings.startup.status()] ?? 'Unconfirmed', shareable);
     storage.onStatus(() => diagnostics.changed());
   }
   const actions = createActions();
@@ -162,8 +164,10 @@ function boot() {
       panel.open(pendingSettingsSection);
       pendingSettingsOpen = false;
     }
+    // Any script on the page can write the mark, so only a version number goes in the message.
     const other = document.documentElement.getAttribute(DUPLICATE);
-    if (other) log.warn(`A second copy of HushFacebook Web (v${other}) is installed. Turn one off in your userscript manager or on the browser's extensions page.`);
+    const otherVersion = /^\d+(?:\.\d+){0,3}$/.test(other ?? '') ? ` (v${other})` : '';
+    if (other) log.warn(`A second copy of HushFacebook Web${otherVersion} is installed. Turn one off in your userscript manager or on the browser's extensions page.`);
   });
   registerMenuCommand('HushFacebook Web settings', () => openSettings());
 

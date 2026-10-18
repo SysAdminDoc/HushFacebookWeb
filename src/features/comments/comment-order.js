@@ -56,7 +56,8 @@ export function createOrderDriver({ doc, win = globalThis, titles, wanted, pageK
         ?? (items.length === ORDERS.length ? items[ORDERS.indexOf(order)] : null);
       if (!item) {
         if (menu) button.click();
-        log?.warn(`Couldn't find "${title}" in Facebook's comment order menu`);
+        // The title is Facebook's text in the page's language, so it goes in the detail.
+        log?.warn(`Couldn't find "${order.english}" in Facebook's comment order menu`, title);
         return false;
       }
       item.click();
