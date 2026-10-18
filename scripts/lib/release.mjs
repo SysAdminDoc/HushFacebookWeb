@@ -63,6 +63,15 @@ export function changelogSection(text, version) {
 
 export const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 
+// The preflight's test run as [command, args]. When NODE_CAPPED_SCRIPT names a PowerShell runner
+// that holds node under a hard memory ceiling and a time limit, the suite goes through it, since a
+// looping test with no cap once ran a PC out of memory. Without one it's plain `npm test` in a shell.
+export function testCommand(env, root) {
+  const capped = env.NODE_CAPPED_SCRIPT;
+  if (!capped) return ['npm test'];
+  return ['pwsh', ['-NoProfile', '-File', capped, '-Repo', root, '-Suite', '-MemoryMB', '1536', '-Seconds', '300', '-Tail', '40']];
+}
+
 // sha256sum's format, so `sha256sum -c SHA256SUMS.txt` checks a download.
 export function sumsText(entries) {
   return entries.map(({ name, hash }) => `${hash}  ${name}`).join('\n') + '\n';

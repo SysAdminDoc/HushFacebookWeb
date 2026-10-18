@@ -15,7 +15,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ASSETS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, record, refusal, servedProblems, sha256, sumsText } from './lib/release.mjs';
+import { ASSETS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, record, refusal, servedProblems, sha256, sumsText, testCommand } from './lib/release.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DIST = path.join(ROOT, 'dist');
@@ -51,9 +51,13 @@ function exec(command, args, { allowFail = false } = {}) {
 
 const git = (...args) => exec('git', args).out;
 
-function runVisible(label, commandLine) {
-  console.log(`\n> ${commandLine}`);
-  const result = spawnSync(commandLine, { cwd: ROOT, stdio: 'inherit', shell: true, windowsHide: true });
+// A command line runs in a shell. A command with an args list runs as is.
+function runVisible(label, command, args) {
+  console.log(`\n> ${args ? [command, ...args].join(' ') : command}`);
+  const result = args
+    ? spawnSync(command, args, { cwd: ROOT, stdio: 'inherit', windowsHide: true })
+    : spawnSync(command, { cwd: ROOT, stdio: 'inherit', shell: true, windowsHide: true });
+  if (result.error) throw new Refused(`${label} couldn't start: ${result.error.message}`);
   if (result.status !== 0) throw new Refused(`${label} failed (exit ${result.status}).`);
 }
 
@@ -105,7 +109,9 @@ async function preflight(head) {
   requireUnreleased(head);
   changelogSection(await readFile(path.join(ROOT, 'CHANGELOG.md'), 'utf8'), head.version);
   runVisible('The version check and lint', 'npm run check');
-  runVisible('The tests', 'npm test');
+  const capped = process.env.NODE_CAPPED_SCRIPT;
+  if (capped && !existsSync(capped)) throw new Refused(`NODE_CAPPED_SCRIPT points at ${capped}, which isn't there.`);
+  runVisible('The tests', ...testCommand(process.env, path.resolve(ROOT)));
   return {};
 }
 

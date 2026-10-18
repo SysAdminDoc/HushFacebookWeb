@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { ASSETS, EXTENSION_ZIP, PUBLISHED, STAGES, SUMS_FILE, bannerVersion, changelogSection, parseSums, record, refusal, servedProblems, sha256, sumsText } from '../scripts/lib/release.mjs';
+import { ASSETS, EXTENSION_ZIP, PUBLISHED, STAGES, SUMS_FILE, bannerVersion, changelogSection, parseSums, record, refusal, servedProblems, sha256, sumsText, testCommand } from '../scripts/lib/release.mjs';
 import { renderMetaBlock } from '../scripts/meta.mjs';
 import { zip } from '../scripts/zip.mjs';
 
@@ -61,6 +61,16 @@ test('the real CHANGELOG yields notes for v0.0.1 with every bullet', async () =>
   const bullets = text.split('## v0.0.1')[1].split('\n## ')[0].split('\n').filter((line) => line.startsWith('* '));
   assert.ok(bullets.length > 3);
   for (const bullet of bullets) assert.ok(notes.includes(bullet), bullet);
+});
+
+test('the preflight runs the tests under the memory cap when there is one, and npm test otherwise', () => {
+  assert.deepEqual(testCommand({}, 'C:/repo'), ['npm test']);
+  const [command, args] = testCommand({ NODE_CAPPED_SCRIPT: 'C:/tools/node-capped.ps1' }, 'C:/repo');
+  assert.equal(command, 'pwsh');
+  assert.deepEqual(args.slice(0, 5), ['-NoProfile', '-File', 'C:/tools/node-capped.ps1', '-Repo', 'C:/repo']);
+  assert.ok(args.includes('-Suite'));
+  assert.equal(args[args.indexOf('-MemoryMB') + 1], '1536');
+  assert.equal(args[args.indexOf('-Seconds') + 1], '300');
 });
 
 test('sum files use sha256sum format and read back', () => {
