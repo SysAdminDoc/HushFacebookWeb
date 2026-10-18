@@ -18,6 +18,15 @@ import { later } from '../../core/net/payload.js';
 
 export const CSS_WARNING = "Those filter lines look like CSS. Hide posts by words matches words in posts, so put CSS in Custom CSS under Appearance instead.";
 const CSS_WARNED_KEY = 'hidePostsByWords.cssWarned';
+const SKIP_WARNED_KEY = 'hidePostsByWords.skipWarned';
+
+// The toast for pattern lines the filter skips (engine.js says why for each).
+export function skipNotice(errors) {
+  if (errors.length === 1) return `Filter line ${errors[0].line} is skipped because it ${errors[0].reason}.`;
+  const lines = errors.map((error) => error.line);
+  const named = lines.length > 4 ? [...lines.slice(0, 3), `${lines.length - 3} more`] : lines;
+  return `Filter lines ${named.slice(0, -1).join(', ')} and ${named.at(-1)} are skipped. Diagnostics says why.`;
+}
 
 // The lines that are words, without the re: patterns and "# " notes (engine.js).
 export const plainLines = (text) => String(text ?? '').split(/\r?\n/).filter((line) => !/^\s*(?:re:|#(?:\s|$))/i.test(line)).join('\n');
@@ -83,17 +92,22 @@ export default {
   setup({ net, router, posts, hider, log, toast, storage, settings, diagnostics, enabled, option }) {
     const compile = filterCache();
     const warned = new Set();
-    // CSS pasted here would only ever match posts that quote it. Said once per list, and
-    // remembered across page loads. Pattern and note lines are left out of the check, since
-    // "re:not( ?sponsored)" is a fine pattern.
+    // Skipped pattern lines and CSS pasted here (which would only ever match posts that quote
+    // it) each get a toast once per list, remembered across page loads. Pattern and note lines
+    // are left out of the CSS check, since "re:not( ?sponsored)" is a fine pattern.
     let checked = null;
-    const warnIfCss = () => {
+    const checkList = () => {
       if (!enabled()) return;
       const words = option('words') ?? '';
       if (words === checked) return;
       checked = words;
-      if (!looksLikeCss(plainLines(words))) return;
       const print = fingerprint(words);
+      const { errors } = current();
+      if (errors.length && storage?.get(SKIP_WARNED_KEY, null) !== print) {
+        storage?.set(SKIP_WARNED_KEY, print);
+        toast?.(skipNotice(errors), { tone: 'error' });
+      }
+      if (!looksLikeCss(plainLines(words))) return;
       if (storage?.get(CSS_WARNED_KEY, null) === print) return;
       storage?.set(CSS_WARNED_KEY, print);
       log?.warn(CSS_WARNING);
@@ -108,7 +122,7 @@ export default {
       for (const error of errors) {
         if (warned.has(error.phrase)) continue;
         warned.add(error.phrase);
-        log?.warn(`Filter line ${error.line} isn't a pattern the browser understands, so it's skipped`, error.message);
+        log?.warn(`Filter line ${error.line} is skipped because it ${error.reason}. It stays in your list as you wrote it`, error.message);
       }
       const kinds = new Set(KINDS.filter(({ key }) => option(key) === true).map(({ kind }) => kind));
       return { rules, kinds, errors };
@@ -138,12 +152,12 @@ export default {
         },
       });
     }
-    warnIfCss();
-    settings?.subscribe(warnIfCss);
+    checkList();
+    settings?.subscribe(checkList);
     diagnostics?.add('Posts hidden by your filters', () => summary(hits));
     diagnostics?.add("Filter lines that aren't valid", () => {
       const { errors } = current();
-      return errors.length ? errors.map((error) => `line ${error.line}`).join(', ') : 'None';
+      return errors.length ? errors.map((error) => `line ${error.line} (${error.reason})`).join(', ') : 'None';
     });
     if (!posts || !hider) return;
 

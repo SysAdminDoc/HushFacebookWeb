@@ -167,7 +167,7 @@ const SAFE = {
   'core/tasks.js': ['task.id', 'result.cause ? STORAGE_FAILED : result.message'],
   'features/comments/comment-order.js': ['order.english'],
   'features/downloads/button.js': ['failText'],
-  'features/feed/filters.js': ['CSS_WARNING', 'error.line'],
+  'features/feed/filters.js': ['CSS_WARNING', 'error.line', 'error.reason'],
   'features/feed/hide-sponsored-posts.js': ['signal', "corroborated ? ', with an ad button' : ''", 'unreadCount'],
   'features/games/sdk.js': ['message'],
   'main.js': ['UNKEPT_SETTINGS', 'feature.title', 'otherVersion', 'version', 'pageAccess'],

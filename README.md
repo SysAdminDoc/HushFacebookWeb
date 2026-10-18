@@ -107,7 +107,7 @@ That writes `dist/hushfacebook-web.user.js`, which you open in your userscript m
 
 ## Thanks
 
-These projects showed what works on Facebook's site and what doesn't: [FB Clean my feeds](https://github.com/Artificial-Sweetener/facebook-clean-my-feeds), [Social Fixer](https://www.socialfixer.com/), [F.B. Purity](https://www.fbpurity.com/), uBlock Origin's Facebook filters, [Privacy Badger](https://github.com/EFForg/privacybadger) and [ClearURLs](https://github.com/ClearURLs/Rules). HushFacebook Web is written from scratch and doesn't include their code. Settings navigation uses [Tabler Icons](https://github.com/tabler/tabler-icons) under the MIT license.
+These projects showed what works on Facebook's site and what doesn't: [FB Clean my feeds](https://github.com/Artificial-Sweetener/facebook-clean-my-feeds), [Social Fixer](https://www.socialfixer.com/), [F.B. Purity](https://www.fbpurity.com/), uBlock Origin's Facebook filters, [Privacy Badger](https://github.com/EFForg/privacybadger) and [ClearURLs](https://github.com/ClearURLs/Rules). HushFacebook Web is written from scratch and doesn't include their code. Settings navigation uses [Tabler Icons](https://github.com/tabler/tabler-icons) under the MIT license, and the re: lines in Hide posts by words run on [RE2JS](https://github.com/le0pard/re2js), also MIT.
 
 ## License
 
