@@ -102,7 +102,8 @@ export function buildDiagnosticReport({
     return labels.get(id);
   };
   const hiddenParts = Object.entries(hidden).filter(([, count]) => COUNT.test(String(count))).map(([reason, count]) => `${named(reason)} ${count}`);
-  const blocked = [...unavailable].map(named);
+  // A Map of feature id to reason, or a plain list of ids.
+  const blocked = [...unavailable].map((entry) => (Array.isArray(entry) ? `${named(entry[0])} (${named(entry[1])})` : named(entry)));
   return [
     `HushFacebook Web ${scrubText(version, 40)}`,
     `Manager: ${scrubText(`${manager ?? ''} ${managerVersion ?? ''}`, 80) || 'none'}, mode ${named(mode)}, page access ${named(pageAccess)}`,

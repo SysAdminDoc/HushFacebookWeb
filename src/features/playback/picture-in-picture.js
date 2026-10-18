@@ -45,7 +45,7 @@ export default {
 
   setup({ doc, win, enabled, log, diagnostics, markUnavailable }) {
     if (!doc.pictureInPictureEnabled || typeof doc.exitPictureInPicture !== 'function') {
-      markUnavailable?.();
+      markUnavailable?.('api');
       return;
     }
     let popped = 0;

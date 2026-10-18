@@ -11,7 +11,7 @@ export default {
 
   setup({ storage, settings, enabled, log, markUnavailable }) {
     if (!mirrorGameSetting({ storage, settings, enabled, log })) {
-      markUnavailable?.();
+      markUnavailable?.('api');
       log?.warn('Instant Games ad blocking needs storage from your userscript manager.');
     }
   },

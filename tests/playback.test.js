@@ -559,9 +559,9 @@ test('photos get no Pop out button, and without picture-in-picture the switch is
   assert.equal(button.state().shown, false);
   button.stop();
 
-  let unavailable = 0;
+  const unavailable = [];
   Object.defineProperty(doc, 'pictureInPictureEnabled', { get: () => false, configurable: true });
-  pictureInPicture.setup({ doc, win, enabled: () => true, markUnavailable: () => unavailable++ });
-  assert.equal(unavailable, 1);
+  pictureInPicture.setup({ doc, win, enabled: () => true, markUnavailable: (reason) => unavailable.push(reason) });
+  assert.deepEqual(unavailable, ['api'], 'the browser is missing it, so the card says so');
   assert.equal(pictureInPicture.default, false);
 });

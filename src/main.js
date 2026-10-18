@@ -11,6 +11,7 @@ import { createPostTracker, postIdOf } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
 import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
+import { startFeatures } from './core/start-features.js';
 import { accountFromCookie, createSettings } from './core/settings.js';
 import { createGmStorage, keepsSettings, UNKEPT_SETTINGS } from './core/storage.js';
 import { keepOutOfStorageReport } from './core/storage-report.js';
@@ -74,7 +75,8 @@ function boot() {
     storage.onStatus(() => diagnostics.changed());
   }
   const actions = createActions();
-  const unavailable = new Set();
+  // Feature id to why it isn't running (see startFeatures).
+  const unavailable = new Map();
   // Toasts wait for the panel, which mounts once there's a body.
   let panel = null;
   let pendingSettingsOpen = false;
@@ -125,40 +127,23 @@ function boot() {
     toast(UNKEPT_SETTINGS, { tone: 'error' });
   }
 
-  for (const feature of features) {
-    if (feature.needsPage && !net) {
-      unavailable.add(feature.id);
-      continue;
-    }
-    if (!feature.setup) continue;
-    try {
-      feature.setup({
-        win: pageWindow,
-        doc: document,
-        net,
-        diagnostics,
-        actions: actions.for(feature.id),
-        storage: activity.storage,
-        router,
-        posts,
-        hider,
-        log,
-        toast,
-        openSettings,
-        // A feature that stops working after setup says so, the same as one that couldn't start.
-        markUnavailable: () => {
-          unavailable.add(feature.id);
-          panel?.refresh();
-        },
-        settings,
-        enabled: () => settings.enabled(feature.id),
-        option: (key) => settings.get(`${feature.id}.${key}`),
-      });
-    } catch (error) {
-      unavailable.add(feature.id);
-      log.error(`${feature.title} couldn't start`, error);
-    }
-  }
+  startFeatures({
+    features, net, settings, log, unavailable,
+    context: (feature) => ({
+      win: pageWindow,
+      doc: document,
+      diagnostics,
+      actions: actions.for(feature.id),
+      storage: activity.storage,
+      router,
+      posts,
+      hider,
+      log,
+      toast,
+      openSettings,
+    }),
+    changed: () => panel?.refresh(),
+  });
 
   mountFeatureStyles({ features, settings, log, base: [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') === true }) }] });
 

@@ -112,9 +112,9 @@ test('page storage cannot publish or enable game hooks', async () => {
   assert.equal(mirrorGameSetting({ storage: saved }), null);
   assert.equal(startGameFrame({ win, storage: saved }), null);
   assert.equal(win.FBInstant.getInterstitialAdAsync, original);
-  let unavailable = false;
-  blockAds.setup({ storage: saved, markUnavailable: () => { unavailable = true; } });
-  assert.equal(unavailable, true);
+  let unavailable = null;
+  blockAds.setup({ storage: saved, markUnavailable: (reason) => { unavailable = reason; } });
+  assert.equal(unavailable, 'api', "the manager's storage is missing, not a failed hook");
   assert.equal(await original(), 'native');
 });
 

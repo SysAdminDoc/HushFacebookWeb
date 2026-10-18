@@ -46,7 +46,7 @@ function seeded() {
   const input = {
     version: '0.0.4', manager: 'Tampermonkey', managerVersion: '5.4.1', mode: 'page', pageAccess: 'page',
     browser: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 PRIVATE-AGENT',
-    settings, unavailable: new Set(['demo']), hidden: { Sponsored: 2 },
+    settings, unavailable: new Map([['demo', 'failed']]), hidden: { Sponsored: 2 },
     rows: diagnostics.rows(), decisions: diagnostics.decisions(), log: log.entries(),
   };
   return { input, log, settings, diagnostics };
@@ -67,7 +67,7 @@ test('a copied report keeps the facts a maintainer needs', () => {
   has('Browser: Chrome 141 on Windows');
   has('Choices changed: demo.size=large, demo.count=5');
   has('Text settings filled in, text left out: demo.words');
-  has('Unavailable: demo');
+  has('Unavailable: demo (failed)');
   has('Hidden since the page loaded: Sponsored 2');
   has('Count row: 7');
   has('Text row: left out');
@@ -170,7 +170,8 @@ const SAFE = {
   'features/feed/filters.js': ['CSS_WARNING', 'error.line', 'error.reason'],
   'features/feed/hide-sponsored-posts.js': ['signal', "corroborated ? ', with an ad button' : ''", 'unreadCount'],
   'features/games/sdk.js': ['message'],
-  'main.js': ['UNKEPT_SETTINGS', 'feature.title', 'otherVersion', 'version', 'pageAccess'],
+  'core/start-features.js': ['feature.title'],
+  'main.js': ['UNKEPT_SETTINGS', 'otherVersion', 'version', 'pageAccess'],
   'ui/panel.js': ['label', `error instanceof TypeError ? error.message : "Couldn't restore settings. Choose a valid backup and try again"`],
 };
 

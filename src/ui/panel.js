@@ -40,6 +40,16 @@ const SECTION_DESCRIPTIONS = {
   general: 'Settings for HushFacebook Web.',
   diagnostics: 'See how HushFacebook Web is running.',
 };
+// Why a feature isn't running, by the reason startFeatures recorded: on its card, then
+// shorter in Diagnostics.
+const UNAVAILABLE_NOTES = {
+  page: "This one has to run in Facebook's page, and your userscript manager runs the script outside it. Diagnostics says how to change that.",
+  api: "Your browser or userscript manager doesn't offer what this one needs.",
+  failed: "This one couldn't start on this page, or stopped working. The log in Diagnostics says why.",
+};
+const UNAVAILABLE_SHORT = { page: 'needs page access', api: 'missing from this browser or manager', failed: 'see the log' };
+const searchCount = (count) => (count === 0 ? 'No setting matches.' : count === 1 ? '1 setting matches.' : `${count} settings match.`);
+const SEARCH_SETTLE_MS = 600;
 
 export function mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment }) {
   // Inline and important, so no page rule (Custom CSS included, say div:empty) can hide the
@@ -114,6 +124,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const searchField = h('div', { class: 'search-field' }, navigationIcon('search'), search);
   const pauseState = h('span', { class: 'power-state' });
   const saveState = h('span', { class: 'save-state', role: 'status', dataset: { key: 'save-state', state: preferenceSave.state } });
+  // One live region for the life of the panel. The visible count is redrawn on every key, so
+  // only this one speaks, and only once the count has held still for a moment.
+  const searchStatus = h('p', { class: 'visually-hidden', role: 'status', dataset: { key: 'search-status' } });
+  let searchStatusTimer = null;
   // Checked means running, so the switch agrees with the "On" chip beside it.
   const power = h('input', {
     class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'HushFacebook Web on', dataset: { key: 'power' },
@@ -135,6 +149,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     h('footer', null,
       saveState,
       h('span', { class: 'footer-brand', text: 'HushFacebook Web' })),
+    searchStatus,
   );
   dialog.addEventListener('click', (event) => {
     if (event.target !== dialog) return;
@@ -142,6 +157,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) close();
   });
   dialog.addEventListener('close', () => {
+    announceSearch('');
     root.append(toasts);
     if (opener?.isConnected && !opener.hidden && opener !== document.body && opener !== document.documentElement) opener.focus({ preventScroll: true });
     else if (!launcher.hidden) launcher.focus({ preventScroll: true });
@@ -209,10 +225,17 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   // ---- views ----
 
-  function toggle(key, label, { disabled = false } = {}) {
+  // A locked switch can't be turned on, but one that's on still turns off, so a feature that
+  // failed partway can stop what did start. Locked and off, it stays focusable (aria-disabled
+  // rather than disabled) so the note on why is still read with it.
+  function toggle(key, label, { locked = false, describedBy } = {}) {
+    const on = settingValue(key) === true;
+    const stuck = locked && !on;
     return h('input', {
       class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': label,
-      checked: settingValue(key) === true, disabled: disabled || quickSetupPending(), dataset: { key },
+      'aria-describedby': describedBy, 'aria-disabled': stuck ? 'true' : null,
+      checked: on, disabled: quickSetupPending(), dataset: { key },
+      onclick: stuck ? (event) => event.preventDefault() : undefined,
       onchange: (event) => apply(key, event.target.checked),
     });
   }
@@ -283,16 +306,20 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function featureCard(feature, { showOptions = false } = {}) {
-    const blocked = unavailable.has(feature.id);
+    const reason = unavailable.get(feature.id);
+    const blocked = reason !== undefined;
     const on = settingValue(feature.id) === true;
+    // Stable ids, so the switch reads its help, why it's unavailable and the reload note.
+    const ids = { desc: `hfw-${feature.id}-desc`, note: `hfw-${feature.id}-note`, reload: `hfw-${feature.id}-reload` };
+    const describedBy = [ids.desc, blocked ? ids.note : null, feature.reload ? ids.reload : null].filter(Boolean).join(' ');
     return h('div', { class: `card${blocked ? ' unavailable' : ''}` },
       h('div', { class: 'row' },
         h('div', { class: 'text' },
           h('div', { class: 'title', text: feature.title }),
-          h('div', { class: 'desc', text: feature.description }),
-          blocked ? h('div', { class: 'note', text: "This one isn't available the way your userscript manager runs the script. Diagnostics explains why." }) : null,
-          feature.reload ? h('div', { class: 'note', text: 'Applies after Facebook reloads.' }) : null),
-        toggle(feature.id, feature.title, { disabled: blocked })),
+          h('div', { class: 'desc', id: ids.desc, text: feature.description }),
+          blocked ? h('div', { class: 'note', id: ids.note, text: `${UNAVAILABLE_NOTES[reason] ?? UNAVAILABLE_NOTES.failed}${on ? ' You can still turn it off.' : ''}` }) : null,
+          feature.reload ? h('div', { class: 'note', id: ids.reload, text: 'Applies after Facebook reloads.' }) : null),
+        toggle(feature.id, feature.title, { locked: blocked, describedBy })),
       (on || showOptions) && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option))) : null,
       on ? featureActions(feature) : null);
   }
@@ -397,8 +424,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: 'Show the settings button' }),
-            h('div', { class: 'desc', text: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.` })),
-          toggle('ui.launcher', 'Show the settings button')));
+            h('div', { class: 'desc', id: 'hfw-ui.launcher-desc', text: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.` })),
+          toggle('ui.launcher', 'Show the settings button', { describedBy: 'hfw-ui.launcher-desc' })));
   }
 
   function hiddenNoteCard() {
@@ -406,8 +433,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: 'Leave a note where a post was hidden' }),
-            h('div', { class: 'desc', text: 'A short line that says why a post was hidden. Click it to see the post.' })),
-          toggle('ui.hiddenNote', 'Leave a note where a post was hidden')));
+            h('div', { class: 'desc', id: 'hfw-ui.hiddenNote-desc', text: 'A short line that says why a post was hidden. Click it to see the post.' })),
+          toggle('ui.hiddenNote', 'Leave a note where a post was hidden', { describedBy: 'hfw-ui.hiddenNote-desc' })));
   }
 
   function backupCard() {
@@ -556,7 +583,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function diagnosticsView() {
     const entries = log.entries().slice(-150);
-    const blocked = features.filter((feature) => unavailable.has(feature.id)).map((feature) => feature.title);
+    const blocked = features.filter((feature) => unavailable.has(feature.id))
+      .map((feature) => `${feature.title} (${UNAVAILABLE_SHORT[unavailable.get(feature.id)] ?? UNAVAILABLE_SHORT.failed})`);
     return [
       h('div', { class: 'diagnostic-summary' },
         h('h3', { class: 'summary-title', text: 'Environment' }),
@@ -605,10 +633,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'page-heading' },
           h('div', { class: 'eyebrow', text: 'Find a setting' }),
           h('h3', { id: 'hfw-section-title', text: 'Search' }),
-          h('p', { role: 'status', text: found.length === 1 ? '1 setting matches.' : `${found.length} settings match.` })),
+          h('p', { text: searchCount(found.length) })),
         ...(reloadPending ? [reloadCard()] : []),
         ...resultsView(found));
+      announceSearch(searchCount(found.length));
     } else {
+      announceSearch('');
       const section = sections.find((entry) => entry.id === current);
       const count = current === 'general' ? generalRows().length : features.filter((feature) => feature.section === current).length;
       main.replaceChildren(
@@ -628,6 +658,19 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       replacement?.focus({ preventScroll: true });
       if (selection && replacement?.setSelectionRange) replacement.setSelectionRange(...selection);
     }
+  }
+
+  // Speaks the count once typing has settled, and not again while it stays the same. Leaving
+  // the search clears it without a word.
+  function announceSearch(text) {
+    clearTimeout(searchStatusTimer);
+    if (!text) {
+      searchStatus.textContent = '';
+      return;
+    }
+    searchStatusTimer = setTimeout(() => {
+      if (dialog.open && searchStatus.textContent !== text) searchStatus.textContent = text;
+    }, SEARCH_SETTLE_MS);
   }
 
   function refreshChrome() {

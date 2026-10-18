@@ -13,6 +13,7 @@ import { createLog } from '../src/core/log.js';
 import { createSettings } from '../src/core/settings.js';
 import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
 import { features as allFeatures } from '../src/features/index.js';
+import { startFeatures } from '../src/core/start-features.js';
 import { mountPanel } from '../src/ui/panel.js';
 import { QUICK_SETUPS } from '../src/ui/quick-setups.js';
 import menuEntry from '../src/features/menu/menu-entry.js';
@@ -38,7 +39,7 @@ function lendGlobals(win) {
   });
 }
 
-function setup({ features = [], actions = null, unavailable = new Set(), storage = createMemoryStorage(), update, environment = {}, beforeMount, migrations } = {}) {
+function setup({ features = [], actions = null, unavailable = new Map(), storage = createMemoryStorage(), update, environment = {}, beforeMount, migrations } = {}) {
   const win = new Window({ url: 'https://www.facebook.com/' });
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
@@ -536,9 +537,158 @@ test('the corner button comes back when the menu row stops working', () => {
   const launcher = shadow.querySelector('.launcher');
   settings.set('menuEntry.hideButton', true);
   assert.equal(launcher.hidden, true);
-  unavailable.add('menuEntry');
+  unavailable.set('menuEntry', 'failed');
   panel.refresh();
   assert.equal(launcher.hidden, false);
+});
+
+const describedText = (shadow, control) => (control.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
+  .map((id) => [...shadow.querySelectorAll('[id]')].find((node) => node.id === id)?.textContent ?? `missing #${id}`);
+
+test('each switch reads its help, why it is unavailable and the reload note, in sections and search', async () => {
+  const features = [
+    { id: 'quiet', section: 'feed', title: 'Quiet', description: 'Quiet help.', default: false },
+    { id: 'needy', section: 'feed', title: 'Needy', description: 'Needy help.', default: false, reload: true },
+    { id: 'popper', section: 'feed', title: 'Popper', description: 'Popper help.', default: false },
+    { id: 'broken', section: 'feed', title: 'Broken', description: 'Broken help.', default: true },
+  ];
+  const unavailable = new Map([['needy', 'page'], ['popper', 'api'], ['broken', 'failed']]);
+  const { win, shadow, panel, copied } = setup({ features, unavailable });
+  panel.open('feed');
+  const control = (key) => shadow.querySelector(`main [data-key="${key}"]`);
+  assert.deepEqual(describedText(shadow, control('quiet')), ['Quiet help.']);
+  const [needyHelp, needyNote, needyReload] = describedText(shadow, control('needy'));
+  assert.equal(needyHelp, 'Needy help.');
+  assert.match(needyNote, /has to run in Facebook's page, and your userscript manager runs the script outside it/);
+  assert.equal(needyReload, 'Applies after Facebook reloads.');
+  assert.match(describedText(shadow, control('popper'))[1], /^Your browser or userscript manager doesn't offer what this one needs\.$/);
+  assert.match(describedText(shadow, control('broken'))[1], /couldn't start on this page, or stopped working.*You can still turn it off\.$/);
+  for (const key of ['needy', 'popper']) {
+    assert.equal(control(key).getAttribute('aria-disabled'), 'true', `${key} can't turn on`);
+    assert.equal(control(key).disabled, false, `${key} stays focusable, so its note is read`);
+  }
+  assert.equal(control('broken').getAttribute('aria-disabled'), null, 'an unavailable switch that is on can turn off');
+  assert.equal(shadow.querySelectorAll('[id]').length, new Set([...shadow.querySelectorAll('[id]')].map((node) => node.id)).size, 'ids are unique');
+
+  const search = shadow.querySelector('[data-key="search"]');
+  search.value = 'needy';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.deepEqual(describedText(shadow, shadow.querySelector('.result [data-key="needy"]')).slice(0, 2), [needyHelp, needyNote], 'a search result reads the same notes');
+  search.value = 'settings button';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.match(describedText(shadow, shadow.querySelector('.result [data-key="ui.launcher"]'))[0], /^The sliders button in Facebook's bottom-left corner/);
+
+  panel.open('general');
+  assert.match(describedText(shadow, control('ui.hiddenNote'))[0], /^A short line that says why a post was hidden/);
+  panel.open('diagnostics');
+  assert.equal(row(shadow, "Features that didn't start"), 'Needy (needs page access), Popper (missing from this browser or manager), Broken (see the log)');
+  shadow.querySelector('[data-key="copy-report"]').click();
+  await tick();
+  assert.ok(copied[0].split('\n').includes('Unavailable: needy (page), popper (api), broken (failed)'), copied[0]);
+});
+
+test('a switch that cannot turn on ignores clicks and keys but keeps focus', () => {
+  const needy = { id: 'needy', section: 'feed', title: 'Needy', description: 'Needy help.', default: false };
+  const { win, shadow, panel, settings } = setup({ features: [needy], unavailable: new Map([['needy', 'page']]) });
+  panel.open('feed');
+  const control = shadow.querySelector('main [data-key="needy"]');
+  control.focus();
+  control.click();
+  control.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert.equal(control.checked, false);
+  assert.equal(settings.get('needy'), false);
+  assert.equal(shadow.activeElement?.dataset.key, 'needy');
+});
+
+test('switching off a feature that failed partway stops the part that started, without Reset or Pause', () => {
+  // The first hook works and the second throws, the way a Facebook change breaks one of two.
+  const flaky = {
+    id: 'flaky', section: 'feed', title: 'Flaky', description: 'Two hooks.', default: true,
+    setup({ doc, enabled, settings }) {
+      const survivor = () => doc.body.classList.toggle('flaky-on', enabled());
+      survivor();
+      settings.subscribe(survivor);
+      throw new Error('the second hook found nothing');
+    },
+  };
+  let late = null;
+  const later = { id: 'later', section: 'feed', title: 'Later', description: 'Stops later.', default: true, setup({ markUnavailable }) { late = markUnavailable; } };
+  const needy = { id: 'needy', section: 'feed', title: 'Needy', description: 'Needs the page.', default: false, needsPage: true, setup() { throw new Error('must not run'); } };
+  const features = [flaky, later, needy];
+  const { win, shadow, panel, settings, unavailable, log } = setup({ features });
+  startFeatures({ features, net: null, settings, log, unavailable, context: () => ({ doc: win.document }), changed: () => panel.refresh() });
+  assert.deepEqual([...unavailable], [['flaky', 'failed'], ['needy', 'page']]);
+  assert.ok(log.entries().some((entry) => entry.message === "Flaky couldn't start"));
+  const body = win.document.body.classList;
+  assert.equal(body.contains('flaky-on'), true, 'the first hook survived the failed setup');
+
+  panel.open('feed');
+  const flakySwitch = () => shadow.querySelector('main [data-key="flaky"]');
+  assert.equal(flakySwitch().checked, true);
+  flakySwitch().click();
+  assert.equal(settings.get('flaky'), false);
+  assert.equal(body.contains('flaky-on'), false, 'switching it off stopped the surviving hook');
+  assert.notEqual(settings.get('paused'), true, 'without pausing everything');
+  assert.equal(settings.get('later'), true, 'and without resetting anything else');
+  assert.equal(flakySwitch().getAttribute('aria-disabled'), 'true', "off now, it can't come back on");
+  flakySwitch().click();
+  assert.equal(settings.get('flaky'), false);
+  assert.equal(body.contains('flaky-on'), false);
+
+  late();
+  assert.equal(unavailable.get('later'), 'failed');
+  assert.match(describedText(shadow, shadow.querySelector('main [data-key="later"]'))[1], /stopped working.*You can still turn it off/, 'a feature that stops later redraws the open panel');
+});
+
+test('the search count is spoken once it settles, from one live region, without moving focus', async () => {
+  const features = [
+    { id: 'quiet', section: 'feed', title: 'Wobble the feed', description: 'Shakes it.', default: false },
+    { id: 'speedy', section: 'playback', title: 'Keep your video speed', description: 'The speed you pick stays.', default: false },
+  ];
+  const { win, shadow, panel, settings } = setup({ features });
+  panel.open('feed');
+  mock.timers.enable({ apis: ['setTimeout'] });
+  cleanups.push(() => mock.timers.reset());
+  const status = shadow.querySelector('[data-key="search-status"]');
+  assert.ok(status.closest('dialog'), 'it sits inside the modal, where a screen reader can reach it');
+  const writes = [];
+  new win.MutationObserver((records) => writes.push(...records)).observe(status, { childList: true, characterData: true, subtree: true });
+  const search = shadow.querySelector('[data-key="search"]');
+  search.focus();
+  const type = (text) => {
+    search.value = text;
+    search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  };
+  type('w');
+  mock.timers.tick(300);
+  type('wo');
+  mock.timers.tick(300);
+  type('wob');
+  mock.timers.tick(599);
+  assert.equal(status.textContent, '', 'nothing while typing goes on');
+  assert.match(shadow.querySelector('.page-heading p').textContent, /^1 setting matches\.$/, 'the visible count keeps up');
+  assert.deepEqual([...shadow.querySelectorAll('[role="status"]')].map((node) => node.dataset.key), ['save-state', 'search-status'], 'nothing inside the redrawn page is a live region');
+  mock.timers.tick(1);
+  assert.equal(status.textContent, '1 setting matches.');
+  settings.set('quiet', true);
+  type('wobble');
+  mock.timers.tick(5000);
+  await tick();
+  assert.equal(writes.length, 1, 'a redraw or a longer word with the same count says nothing new');
+  type('zebra');
+  mock.timers.tick(600);
+  assert.equal(status.textContent, 'No setting matches.');
+  assert.equal(shadow.activeElement, search, 'focus stays in the search box');
+  panel.close();
+  await tick();
+  assert.equal(status.textContent, '', 'closing settings takes the words away');
+  panel.open();
+  mock.timers.tick(600);
+  assert.equal(status.textContent, 'No setting matches.', 'and opening them again on the same search says it again');
+  type('');
+  assert.equal(status.textContent, '', 'leaving the search clears it at once');
+  mock.timers.tick(5000);
+  assert.equal(status.textContent, '');
 });
 
 test("no page rule can hide the panel, and a long text box stops at its setting's limit", () => {

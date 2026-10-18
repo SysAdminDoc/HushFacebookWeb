@@ -3,7 +3,7 @@ export const uiTokens = `
   --base: #171923; --mantle: #12141c; --crust: #0e1017;
   --surface0: #1e202c; --surface1: #3d4152;
   --text: #f3f4fb; --subtext: #b3b8cb; --accent: #c4b0ff; --accent-ink: #20192e;
-  --border: #343745; --selected: #39304f;
+  --border: #343745; --selected: #39304f; --control: #7d8298;
   --green: #a6e3a1; --red: #f38ba8; --peach: #fab387;
 `;
 
@@ -73,7 +73,7 @@ nav hr { border: 0; border-top: 1px solid var(--border); margin: 14px 10px 10px;
 .search-field .nav-icon { position: absolute; left: 10px; top: 11px; pointer-events: none; color: var(--subtext); width: 16px; height: 16px; }
 .search {
   display: block; box-sizing: border-box; width: 100%; margin: 0; padding: 9px 10px 9px 34px;
-  background: var(--crust); border: 1px solid var(--surface1); border-radius: 6px; font-size: 13px; line-height: 18px;
+  background: var(--crust); border: 1px solid var(--control); border-radius: 6px; font-size: 13px; line-height: 18px;
 }
 .search::placeholder { color: var(--subtext); opacity: 0.85; }
 .result { padding: 18px 0; border-top: 1px solid var(--border); }
@@ -115,7 +115,7 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .options [aria-invalid="true"] { border-color: var(--red); }
 .button[aria-busy="true"] { cursor: progress; }
 .options select, .options input[type="text"], .options input[type="number"], .options textarea {
-  min-width: 0; max-width: 100%; background: var(--crust); border: 1px solid var(--surface1); border-radius: 6px; padding: 9px 12px;
+  min-width: 0; max-width: 100%; background: var(--crust); border: 1px solid var(--control); border-radius: 6px; padding: 9px 12px;
 }
 .options select { flex: 0 1 auto; width: auto; min-width: min(128px, 100%); max-width: min(360px, 100%); text-overflow: ellipsis; }
 .options input[type="text"] { width: min(100%, 260px); }
@@ -124,11 +124,14 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .options label:has(> textarea) { flex-direction: column; align-items: stretch; gap: 8px; }
 .options textarea { display: block; width: 100%; resize: vertical; min-height: 88px; line-height: 1.5; }
 .options textarea.code { font-family: ui-monospace, Consolas, Menlo, monospace; font-size: 13px; white-space: pre; tab-size: 2; }
-.switch { appearance: none; flex: none; width: 54px; height: 30px; margin: 2px 0 0; border: 1px solid var(--surface1); border-radius: 6px; background: var(--surface1); position: relative; cursor: pointer; transition: background 0.15s ease; }
+/* Edges and knobs keep 3:1 against what's behind them: --control on the cards, a dark knob on
+   the accent. */
+.switch { appearance: none; flex: none; width: 54px; height: 30px; margin: 2px 0 0; border: 1px solid var(--control); border-radius: 6px; background: var(--surface1); position: relative; cursor: pointer; transition: background 0.15s ease; }
 .switch::after { content: ""; position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 4px; background: var(--subtext); transition: transform 0.15s ease; }
 .switch:checked { background: var(--accent); border-color: var(--accent); }
-.switch:checked::after { transform: translateX(24px); background: var(--text); }
-.switch:disabled { opacity: 0.55; cursor: not-allowed; }
+.switch:checked::after { transform: translateX(24px); background: var(--accent-ink); }
+.switch:disabled, .switch[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .button { min-height: 40px; max-width: 100%; border: 1px solid var(--surface1); background: var(--surface0); padding: 9px 16px; border-radius: 8px; transition: background 0.15s ease; }
 .button:hover { background: var(--surface1); }
