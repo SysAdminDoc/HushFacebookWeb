@@ -390,6 +390,42 @@ test('each post gets its own click budget, so later posts still open after a lon
   expander.stop();
 });
 
+test('a dialog Facebook reuses for the next photo gives it a budget of its own, and going back keeps the first one\'s', async () => {
+  const win = page('<div role="feed"><div role="button">View 3 replies</div></div><div role="dialog"></div>', 'https://www.facebook.com/photo/?fbid=1');
+  const doc = win.document;
+  const dialog = doc.querySelector('[role="dialog"]');
+  const clicked = [];
+  const listen = (button) => button.addEventListener('click', () => clicked.push(`${new URL(doc.location.href).searchParams.get('fbid')}:${button.textContent}`));
+  const add = (text) => {
+    const button = doc.createElement('div');
+    button.setAttribute('role', 'button');
+    button.textContent = text;
+    listen(button);
+    dialog.append(button);
+    return button;
+  };
+  listen(doc.querySelector('[role="feed"] [role="button"]'));
+  add('View 1 reply');
+  const expander = createReplyExpander({ doc, win: globalThis, inPage: () => true, enabled: () => true, delay: 5, maxClicks: 2 });
+  expander.wake();
+  await wait(80);
+  // The next photo in the same dialog, keeping a button and even its words.
+  win.history.pushState({}, '', '/photo/?fbid=2');
+  const two = add('View 4 replies');
+  const three = add('View 6 replies');
+  expander.wake();
+  await wait(80);
+  // Back to the first photo: it already clicked its own button and has one click left.
+  win.history.pushState({}, '', '/photo/?fbid=1');
+  two.textContent = 'View 2 replies';
+  three.remove();
+  add('View 7 replies');
+  expander.wake();
+  await wait(80);
+  expander.stop();
+  assert.deepEqual(clicked, ['1:View 1 reply', '2:View 1 reply', '2:View 4 replies', '1:View 2 replies'], 'the feed behind the photo stays folded too');
+});
+
 test("while a post's dialog is still drawing, the replies behind it stay folded", async () => {
   const win = page('<div role="feed"><div role="button">View 3 replies</div></div><div role="dialog"><div role="button" aria-label="Close"></div></div>');
   const doc = win.document;

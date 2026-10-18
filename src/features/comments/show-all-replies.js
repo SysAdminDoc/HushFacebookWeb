@@ -7,8 +7,10 @@
 // A button is clicked again when it says something new. "View more replies" is also tried
 // again a few rounds later if it still says that, since Facebook can keep it on one element
 // while it loads the next page; a counted one like "12 Replies" isn't, as a second click could
-// fold the thread back up. Five times at most. Each post, meaning each dialog or page address,
-// gets its own budget of clicks, so a long visit never runs dry.
+// fold the thread back up. Five times at most. Each post, meaning a dialog or the page at one
+// address, gets its own budget of clicks, so a long visit never runs dry. Facebook reuses a
+// dialog, and the buttons in it, for the next post or photo, so that post starts with nothing
+// spent and nothing clicked, and going back to a post picks up where it left off.
 //
 // Same reach as Default comment order: a post's own page, a photo's page and a post opened
 // over the feed. A reply button is found by the curved arrow Facebook draws in front of its
@@ -36,23 +38,23 @@ export function isReplyButton(button, text) {
 }
 
 export function createReplyExpander({ doc, win = globalThis, inPage, enabled, onClick, idleLimit = 5, delay = 800, maxClicks = 300 }) {
-  const clicked = new WeakMap(); // button -> { text, times, round }
-  const spentInDialog = new WeakMap();
-  const spentOnPage = new Map();
+  // Both by the address the dialog or page shows.
+  const clicked = new WeakMap(); // button -> Map(address -> { text, times, round })
+  const spentIn = new WeakMap(); // dialog or body -> Map(address -> clicks)
   let idle = 0;
   let timer = null;
   let rounds = 0;
   let total = 0;
 
   const address = () => doc.location?.href ?? '';
-  const spent = (scope) => (scope === doc.body ? spentOnPage.get(address()) : spentInDialog.get(scope)) ?? 0;
-  function spend(scope) {
-    if (scope === doc.body) spentOnPage.set(address(), spent(scope) + 1);
-    else spentInDialog.set(scope, spent(scope) + 1);
-  }
+  const under = (map, key) => map.get(key) ?? map.set(key, new Map()).get(key);
+  const spent = (scope) => spentIn.get(scope)?.get(address()) ?? 0;
+  const spend = (scope) => under(spentIn, scope).set(address(), spent(scope) + 1);
+  const record = (button) => clicked.get(button)?.get(address());
+  const note = (button) => under(clicked, button).set(address(), { text: normalizeText(button.textContent), times: (record(button)?.times ?? 0) + 1, round: rounds });
 
   function ready(button, text) {
-    const before = clicked.get(button);
+    const before = record(button);
     if (!before) return true;
     if (before.times >= PER_BUTTON) return false;
     return before.text !== text || (morePages(text) && rounds - before.round >= RETRY_ROUNDS);
@@ -94,7 +96,7 @@ export function createReplyExpander({ doc, win = globalThis, inPage, enabled, on
     for (const [button, scope] of buttons) {
       if (now >= PER_ROUND) break;
       if (spent(scope) >= maxClicks) continue;
-      clicked.set(button, { text: normalizeText(button.textContent), times: (clicked.get(button)?.times ?? 0) + 1, round: rounds });
+      note(button);
       spend(scope);
       button.click();
       now++;
