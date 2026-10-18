@@ -5,6 +5,8 @@
 // after a hidden " · ", a role=button whose label holds the author's name ("Follow <name>" in
 // English), which finds it in any language. Works in content mode.
 
+import { whenBodyReady } from '../../core/env.js';
+
 export const MARK = 'data-hfw-reel';
 const DELAY = 150;
 
@@ -122,8 +124,7 @@ export default {
     const styleOf = (element) => view.getComputedStyle(element);
     const cleaner = createReelCleaner({ doc, enabled, styleOf });
     const begin = () => cleaner.start();
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
     settings?.subscribe(() => cleaner.schedule());
     diagnostics?.add('Reel parts tidied', () => String(cleaner.marked()));
   },

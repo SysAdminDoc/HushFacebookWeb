@@ -8,6 +8,8 @@
 // Only comment boxes on a post count (in a feed post, a post's page or a post opened over the
 // feed), so a chat window's own GIF and sticker buttons are never touched. Works in content mode.
 
+import { whenBodyReady } from '../../core/env.js';
+
 export const MARK = 'data-hfw-comment-sticker';
 const FORMS = 'form[role="presentation"]';
 const BUTTONS = '[role="button"][aria-haspopup]';
@@ -81,8 +83,7 @@ export default {
   setup({ doc, settings, diagnostics, enabled }) {
     const hider = createStickerHider({ doc, enabled });
     const begin = () => hider.start();
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
     settings?.subscribe(() => hider.schedule());
     diagnostics?.add('Comment box buttons hidden', () => String(hider.hidden()));
   },

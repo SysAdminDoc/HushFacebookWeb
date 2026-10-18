@@ -16,6 +16,7 @@
 // comment, holding a span with that svg and a span of text), or by its English words.
 
 import { normalizeText } from '../../core/dom/visible-text.js';
+import { whenBodyReady } from '../../core/env.js';
 import { dialogOpen } from './post-dialog.js';
 
 export const REPLY_BUTTON = /^(?:view (?:all )?[\d.,]+k? (?:more )?repl(?:y|ies)|view more repl(?:y|ies)|[\d.,]+k? repl(?:y|ies))$/i;
@@ -143,7 +144,6 @@ export default {
     const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
     const observer = new Observer(() => expander.wake());
     const begin = () => observer.observe(doc.body, { childList: true, subtree: true });
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
   },
 };

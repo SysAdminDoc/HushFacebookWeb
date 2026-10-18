@@ -15,6 +15,8 @@
 // The observer starts with the first subscriber, so the page pays nothing until a feature
 // needs posts.
 
+import { whenBodyReady } from '../env.js';
+
 // Feed posts are plain div[aria-posinset]. aria-posinset on something with another role
 // (a list option, a carousel item) is a widget, not a post.
 export const CANDIDATE_SELECTOR = '[aria-posinset]:not([role]), [role="article"]';
@@ -242,8 +244,7 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
       observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'aria-posinset', 'role'] });
       scan(doc.body);
     };
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
   }
 
   return {

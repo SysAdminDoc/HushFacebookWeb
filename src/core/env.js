@@ -57,8 +57,12 @@ export function whenRootReady(fn, doc = globalThis.document) {
   observer.observe(doc, { childList: true });
 }
 
-// Runs fn once the document has a body, or right away when it already does.
+// Runs fn once the document has a body, or right away when it already does. A document that
+// finishes with no body never runs it: Firefox fires DOMContentLoaded on the page a
+// document_start redirect (Marketplace only) leaves behind, and that page has none.
 export function whenBodyReady(fn, doc = globalThis.document) {
   if (doc.body) return fn();
-  doc.addEventListener('DOMContentLoaded', () => fn(), { once: true });
+  doc.addEventListener('DOMContentLoaded', () => {
+    if (doc.body) fn();
+  }, { once: true });
 }

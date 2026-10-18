@@ -6,6 +6,7 @@
 // The idea is FB Feed Filter 0.1.0.17's ephemeral label cache (content.js 1172-1203, MIT,
 // see THIRD_PARTY_NOTICES.txt).
 
+import { whenBodyReady } from '../env.js';
 import { normalizeText } from './visible-text.js';
 
 const MAX_TEXT = 40;
@@ -46,8 +47,7 @@ export function createLabelCache({ doc = globalThis.document, max = 500 } = {}) 
         observer.observe(doc.body, { childList: true, subtree: true });
         capture(doc.body);
       };
-      if (doc.body) begin();
-      else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+      whenBodyReady(begin, doc);
     },
     stop() {
       observer?.disconnect();

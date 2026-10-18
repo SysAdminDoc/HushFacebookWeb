@@ -5,6 +5,8 @@
 // shape finds it in any language. The script clicks it as it comes near the screen, once each,
 // so posts open as you scroll to them rather than all at once. Works in content mode.
 
+import { whenBodyReady } from '../../core/env.js';
+
 const DELAY = 150;
 const MAX_WORDS = 24; // characters in the button's text
 const SCOPE = '[aria-posinset], [role="article"]';
@@ -82,8 +84,7 @@ export default {
   setup({ doc, settings, diagnostics, enabled }) {
     const expander = createExpander({ doc, enabled });
     const begin = () => expander.start();
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
     settings?.subscribe(() => expander.schedule());
     diagnostics?.add('Long posts opened', () => String(expander.opened()));
   },

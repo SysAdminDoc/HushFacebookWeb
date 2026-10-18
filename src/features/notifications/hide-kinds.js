@@ -10,6 +10,8 @@
 // The test account had no birthday or memory notifications, so those two groups go by the words
 // Facebook's kind names use for them (birthday, and memories or On This Day).
 
+import { whenBodyReady } from '../../core/env.js';
+
 const LINKS = 'a[href*="notif_t="]';
 export const KIND_MARK = 'data-hfw-notif-kind';
 // Each notification is a list item, on the page and under the bell alike (live 2026-10-11).
@@ -144,8 +146,7 @@ export default {
   setup({ doc, enabled, option, settings, diagnostics }) {
     const marker = createKindMarker({ doc, enabled, custom: () => parseKinds(option('custom')) });
     const begin = () => marker.start();
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
     settings?.subscribe(() => marker.refresh());
     diagnostics?.add('Notification kinds seen', () => marker.seen().join(', ') || 'None yet');
   },

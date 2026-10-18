@@ -8,6 +8,8 @@
 // labelled "More footer links"). The span with the dot and the button goes, so the name reads on
 // its own. Reels have their own switch in Clean up Reels. Works in content mode.
 
+import { whenBodyReady } from '../../core/env.js';
+
 export const MARK = 'data-hfw-follow';
 const DELAY = 150;
 const MAX_VERB = 24; // characters in the button's own text
@@ -100,8 +102,7 @@ export default {
   setup({ doc, settings, diagnostics, enabled }) {
     const hider = createFollowHider({ doc, enabled });
     const begin = () => hider.start();
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
     settings?.subscribe(() => hider.schedule());
     diagnostics?.add('Follow buttons hidden', () => String(hider.marked()));
   },

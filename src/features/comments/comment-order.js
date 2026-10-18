@@ -8,6 +8,7 @@
 // once, so changing the order by hand afterwards sticks.
 
 import { normalizeText } from '../../core/dom/visible-text.js';
+import { whenBodyReady } from '../../core/env.js';
 import { createOrderTitles, DEFAULT_ORDER, ORDER_MARKERS, ORDERS } from './orders.js';
 import { dialogOpen } from './post-dialog.js';
 
@@ -139,7 +140,6 @@ export default {
       }, SCAN_DELAY);
     });
     const begin = () => observer.observe(doc.body, { childList: true, subtree: true });
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
   },
 };

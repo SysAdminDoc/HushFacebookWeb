@@ -12,6 +12,8 @@
 // sibling rule can't do that: "div:has(+ div [tray])" also matched Facebook's top bar, whose
 // next sibling holds the whole page (live check, 2026-10-11).
 
+import { whenBodyReady } from '../../core/env.js';
+
 const HOME = 'html[data-hfw-route="home"]';
 const TRAY = '[data-focus-target="stories_tray"]';
 const POSTS = '[aria-posinset], [role="article"]';
@@ -89,7 +91,6 @@ export default {
       observer.observe(doc.body, { childList: true, subtree: true });
       mark();
     };
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
   },
 };

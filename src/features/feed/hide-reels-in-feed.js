@@ -10,6 +10,7 @@
 
 import { adRule } from './ad-markers.js';
 import { CANDIDATE_SELECTOR } from '../../core/dom/posts.js';
+import { whenBodyReady } from '../../core/env.js';
 
 const REEL_LINK = 'a[href*="/reel/"]';
 const NOT_A_ROW = '[data-focus-target="stories_tray"], [role="region"], [role="dialog"], [role="complementary"], [role="navigation"]';
@@ -99,8 +100,7 @@ export default {
       observer.observe(doc.body, { childList: true, subtree: true });
       schedule();
     };
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
 
     let on = enabled();
     settings.subscribe(() => {

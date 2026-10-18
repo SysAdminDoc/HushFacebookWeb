@@ -8,6 +8,7 @@
 // get the link, whether opened on their own page or over Marketplace. Works in content mode.
 
 import { normalizeText } from '../../core/dom/visible-text.js';
+import { whenBodyReady } from '../../core/env.js';
 
 export const MARK = 'data-hfw-seller-profile';
 export const LABEL = 'View profile';
@@ -159,8 +160,7 @@ export default {
     const links = createSellerLinks({ doc, enabled });
     diagnostics?.add('Seller profile links added', () => String(links.added()));
     const begin = () => links.start();
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
     router?.subscribe(() => links.schedule());
     settings?.subscribe(() => links.schedule());
   },

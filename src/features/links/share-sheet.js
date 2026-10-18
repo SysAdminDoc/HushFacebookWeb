@@ -7,6 +7,8 @@
 // for now, and their sprite icon can't help since its position moves between Facebook builds.
 // Copy link always stays. Works in content mode.
 
+import { whenBodyReady } from '../../core/env.js';
+
 export const MARK = 'data-hfw-share';
 const DELAY = 150;
 
@@ -163,8 +165,7 @@ export default {
   setup({ doc, settings, diagnostics, enabled }) {
     const marker = createShareSheetMarker({ doc, enabled });
     const begin = () => marker.start();
-    if (doc.body) begin();
-    else doc.addEventListener('DOMContentLoaded', begin, { once: true });
+    whenBodyReady(begin, doc);
     settings?.subscribe(() => marker.schedule());
     diagnostics?.add('Share menu targets found', () => String(marker.marked()));
   },
