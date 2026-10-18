@@ -4,12 +4,16 @@
 // The id comes from the address when a viewer shows one thing (/reel/<id>, /watch/?v=<id>,
 // /photo/?fbid=<id>, /stories/<bucket>/<card>), and otherwise from the links around the
 // photo or video in its post. Those ids match the media ids in the data (34 of 34 checked
-// live on 2026-10-11).
+// live on 2026-10-11). The address only names the page's own viewer, never a photo or video
+// in a comment or a post below it.
 
 import { fileName, extensionOf } from '../../core/download.js';
+import { isComment } from '../../core/dom/posts.js';
 import { normalizeText } from '../../core/dom/visible-text.js';
 
 const POST = '[aria-posinset], [role="article"]';
+// A link to a comment names the post or video the comment is on, not anything in the comment.
+const COMMENT_LINK = /[?&](?:reply_comment_id|comment_id)=/;
 const MAX_LEVELS = 14;
 const LABELS = { downloadVideos: 'video', downloadReels: 'reel', downloadStories: 'story', downloadPhotos: 'photo' };
 
@@ -46,13 +50,18 @@ export function pageTarget(href) {
 
 // The video or reel link nearest a video in its post. Each step out takes in more of the
 // post. The first step that reaches any such link decides, and two different ids there mean
-// it can't tell.
+// it can't tell. Only the post's own links count, not ones in its comments or a post inside
+// it, and for a video in no post, only links in no post either.
 export function nearestVideoLink(element) {
+  // Links in a comment or another post are about that one.
+  const home = element.closest(POST);
   let node = element.parentElement;
   for (let level = 0; node && level < MAX_LEVELS; level++, node = node.parentElement) {
     const ids = new Map();
     for (const link of node.querySelectorAll('a[href]')) {
-      const target = linkTarget(link.getAttribute('href'));
+      const href = link.getAttribute('href');
+      if (COMMENT_LINK.test(href) || link.closest(POST) !== home) continue;
+      const target = linkTarget(href);
       if (target && target.kind !== 'photo' && !ids.has(target.id)) ids.set(target.id, target);
     }
     if (ids.size === 1) return [...ids.values()][0];
@@ -60,6 +69,23 @@ export function nearestVideoLink(element) {
     if (node.matches(POST)) return null;
   }
   return null;
+}
+
+// Whether a video is the page's own player, which the address names. A video in a feed post
+// or a comment is some other video, even on a video's own page, so it never gets that id.
+function pagePlayer(element) {
+  if (element.closest('[aria-posinset]')) return false;
+  const article = element.closest('[role="article"]');
+  return !article || (!isComment(article) && !article.parentElement?.closest('[role="article"]'));
+}
+
+// The video or reel a video element plays: the nearest link in its post, or on a video or
+// reel's own page the address, for that page's player only. Download and Resume long videos
+// both name videos this way.
+export function videoTarget(element, page) {
+  const near = nearestVideoLink(element);
+  if (near) return near;
+  return (page?.kind === 'video' || page?.kind === 'reel') && pagePlayer(element) ? page : null;
 }
 
 // The name on the post a photo or video is in, for the file name.
@@ -100,8 +126,7 @@ export function findMedia(element, { href, index }) {
   }
 
   if (tag === 'VIDEO') {
-    const near = nearestVideoLink(element);
-    const target = near ?? (page && page.kind !== 'photo' ? page : null);
+    const target = videoTarget(element, page);
     const feature = (target?.kind ?? page?.kind) === 'reel' ? 'downloadReels' : 'downloadVideos';
     const id = target?.id ?? null;
     return { feature, kind: 'video', id, item: asKind(index?.get(id), 'video'), author: authorOf(element), fallback: null };

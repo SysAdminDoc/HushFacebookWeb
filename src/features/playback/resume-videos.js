@@ -8,7 +8,7 @@
 // on its own while you scroll past doesn't leave one behind. Going back to the first half
 // minute of a video you were watching forgets its spot, since you started it over.
 
-import { nearestVideoLink, pageTarget } from '../downloads/find.js';
+import { pageTarget, videoTarget } from '../downloads/find.js';
 
 export const POSITIONS_KEY = 'resumeVideos.positions';
 export const LENGTHS = [2, 5, 10, 20]; // minutes
@@ -26,7 +26,7 @@ const isVideo = (node) => node?.tagName === 'VIDEO';
 export function videoId(video, href) {
   const page = pageTarget(href);
   if (page?.kind === 'story' || page?.kind === 'reel') return null;
-  const target = nearestVideoLink(video) ?? (page?.kind === 'video' ? page : null);
+  const target = videoTarget(video, page);
   return target?.kind === 'video' ? target.id : null;
 }
 

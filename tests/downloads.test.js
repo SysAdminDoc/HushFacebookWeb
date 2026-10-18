@@ -159,6 +159,43 @@ test('on a reel or video page the address names the video, and a story uses its 
   assert.equal(planSave(s).name, 'Harbor Pier story 4444444 HD.mp4');
 });
 
+test("on a video's own page the address names only its player, never a video in a comment or a post below it", () => {
+  const index = createMediaIndex();
+  index.scan({ main: video('3333333', [['HD', 'main']]), comment: video('9999999', [['HD', 'comment']]) });
+  // A comment's time links back to the video it's on, with the comment's id.
+  const comment = (label, inner) => `<div role="article"${label ? ` aria-label="${label}"` : ''}><a href="/bob">Bob</a>`
+    + `<a href="/watch/?v=3333333&amp;comment_id=5555555">2h</a>${inner}</div>`;
+  const win = page(
+    '<div class="main"><video></video></div>'
+    + comment('Comment by Bob', '<div><video class="labeled"></video></div>')
+    + comment('', '<div><video class="unlabeled"></video></div>'
+      + '<div role="article"><a href="/ann">Ann</a><div><video class="reply"></video></div></div>')
+    + comment('Comment by Bob', '<div><video class="linked"></video><a href="/bob/videos/9999999/">clip</a></div>')
+    + '<div aria-posinset="1"><h4><a href="/pat">Pat</a></h4><div><video class="below"></video></div></div>',
+    'https://www.facebook.com/watch/?v=3333333',
+  );
+  const q = (selector) => win.document.querySelector(selector);
+  const at = (selector) => findMedia(q(selector), { href: win.location.href, index });
+  const main = at('.main video');
+  assert.equal(main.id, '3333333');
+  assert.equal(planSave(main).url, 'https://video.example.invalid/3333333-main.mp4?x=1');
+  for (const selector of ['video.labeled', 'video.unlabeled', 'video.reply', 'video.below']) {
+    const found = at(selector);
+    assert.equal(found.id, null, selector);
+    assert.match(planSave(found).error, /Couldn't tell which video/, selector);
+  }
+  assert.equal(planSave(at('video.linked')).url, 'https://video.example.invalid/9999999-comment.mp4?x=1', 'a comment video with its own link is still found');
+
+  // Facebook draws the player again, and the new one still gets the address.
+  q('.main').innerHTML = '<video class="redrawn"></video>';
+  assert.equal(at('video.redrawn').id, '3333333');
+  // On a video's own page the player can sit in the post itself, which is no comment.
+  const permalink = page('<div role="article"><a href="/pat">Pat</a><div><video></video></div></div>', 'https://www.facebook.com/pat/videos/3333333/');
+  assert.equal(findMedia(permalink.document.querySelector('video'), { href: permalink.location.href, index }).id, '3333333');
+  const reel = page(comment('Comment by Bob', '<video></video>'), 'https://www.facebook.com/reel/3333333');
+  assert.equal(findMedia(reel.document.querySelector('video'), { href: reel.location.href, index }).id, null, 'nor on a reel');
+});
+
 test('a photo is found by its photo link, and pictures that are not post photos are left alone', () => {
   const win = page(POST('<a href="/photo/?fbid=9999999&set=a.1"><img class="p" src="https://cdn.example.invalid/shown.jpg"></a>')
     + '<a href="/pat"><img class="avatar" src="https://cdn.example.invalid/face.jpg"></a><img class="loose" src="x.jpg">');

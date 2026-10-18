@@ -70,6 +70,30 @@ test('a video is named by its link in the post or by its own page, and reels and
   assert.equal(videoId(longVideo(bare).video, bare.location.href), null);
 });
 
+test("on a video's own page a video in a comment never takes that video's spot", () => {
+  const storage = createMemoryStorage();
+  const win = page(`${FB}/watch/?v=2234567890`, '<div class="main"></div><div role="article" aria-label="Comment by Bob">'
+    + `<a href="${FB}/watch/?v=2234567890&amp;comment_id=5555555">2h</a><div class="clip"></div></div>`);
+  resumer(win, storage);
+  const main = longVideo(win, win.document.querySelector('.main'));
+  const clip = longVideo(win, win.document.querySelector('.clip'), { duration: 1700 });
+  assert.equal(videoId(clip.video, win.location.href), null);
+  main.play();
+  main.at(400);
+  main.pause();
+  clip.play();
+  clip.at(900);
+  clip.pause();
+  assert.deepEqual(Object.keys(storage.get(POSITIONS_KEY)), ['2234567890']);
+  assert.equal(storage.get(POSITIONS_KEY)['2234567890'].t, 400);
+
+  // Facebook draws the player again, and the new one still picks up the spot.
+  main.video.remove();
+  const redrawn = longVideo(win, win.document.querySelector('.main'));
+  redrawn.play();
+  assert.equal(redrawn.video.currentTime, 400 - STEP_BACK);
+});
+
 test('a long video picks up where it was left, a few seconds early, after a reload', () => {
   const storage = createMemoryStorage();
   const first = page(`${FB}/watch/?v=2234567890`);

@@ -86,7 +86,7 @@ export function postIdOf(element) {
   return postIdFromHrefs(idHrefs(element));
 }
 
-function isComment(element) {
+export function isComment(element) {
   if (element.getAttribute('role') !== 'article') return false;
   if (COMMENT_LABEL.test(element.getAttribute('aria-label') ?? '')) return true;
   return ownLinks(element).some((a) => COMMENT_ID.test(a.getAttribute('href')));
