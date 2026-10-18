@@ -169,6 +169,16 @@ test('downloads take only Facebook files and wait for the browser to finish', as
   await assert.rejects(saving, /USER_CANCELED/);
 });
 
+test('downloads refuse a file name with a control character or a path in it', async () => {
+  const { context, calls } = worker();
+  const url = 'https://scontent.xx.fbcdn.net/v/a.jpg';
+  for (const code of [0x00, 0x1f, 0x7f, 0x9f, 0x202e]) {
+    await assert.rejects(context.save({ url, name: `Pat${String.fromCodePoint(code)}photo.jpg` }), /not safe/, `U+${code.toString(16)}`);
+  }
+  await assert.rejects(context.save({ url, name: 'Pat/photo.jpg' }), /not safe/);
+  assert.equal(calls.downloads.length, 0);
+});
+
 test('settings mutations from two tabs merge at the worker and same-field requests use accepted order', async () => {
   const { context, data } = worker({ saved: { settings: { existing: true } } });
   const [first, second] = await Promise.all([

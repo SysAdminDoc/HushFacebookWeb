@@ -1069,10 +1069,16 @@ function savable(url) {
     && SAVABLE.test(parsed.hostname);
 }
 
+// C0 and C1 control characters, checked by code point rather than as a regex range of them.
+const hasControl = (name) => [...name].some((char) => {
+  const code = char.codePointAt(0);
+  return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+});
+
 function validFilename(name) {
   if (typeof name !== 'string' || !name || name !== name.normalize('NFC') || utf8Bytes(name, 512) > 512) return false;
   if (name.startsWith('.') || name.startsWith('~') || /[. ]$/.test(name) || !/\.[A-Za-z0-9]{1,10}$/.test(name)) return false;
-  if (/[\\/:*?"<>|\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb\u{e0000}-\u{e007f}]/u.test(name)) return false;
+  if (hasControl(name) || /[\\/:*?"<>|\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb\u{e0000}-\u{e007f}]/u.test(name)) return false;
   return !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name);
 }
 
