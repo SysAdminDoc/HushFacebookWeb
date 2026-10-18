@@ -725,28 +725,39 @@ function decodeAs(win, type, text, parse) {
 
 // Facebook reads responseText while the body is still arriving. Each read returns the
 // transformed text of every complete line so far, which only ever grows.
+// The getters taken from the prototype can belong to another script that hooked XHR first,
+// and one that builds responseText from this.response lands back on these getters mid-read.
+// While a read runs, they hand back what the prototype says, so the two never loop.
 function attachTextTransform(xhr, transformLine, textGetter, responseGetter, overrides) {
   const stream = createLineStream(transformLine);
   let seen = 0;
   let output = '';
   let flushed = false;
+  let reading = false;
 
   const read = () => {
-    const raw = textGetter.call(xhr);
-    if (raw.length > seen) {
-      output += stream.push(raw.slice(seen));
-      seen = raw.length;
-    }
-    if (xhr.readyState === 4 && !flushed) {
-      output += stream.flush();
-      flushed = true;
+    if (reading) return textGetter.call(xhr);
+    reading = true;
+    try {
+      const raw = textGetter.call(xhr);
+      if (raw.length > seen) {
+        output += stream.push(raw.slice(seen));
+        seen = raw.length;
+      }
+      if (xhr.readyState === 4 && !flushed) {
+        output += stream.flush();
+        flushed = true;
+      }
+    } finally {
+      reading = false;
     }
     return output;
   };
+  const textual = () => xhr.responseType === '' || xhr.responseType === 'text';
 
   overrides.define(xhr, {
     responseText: read,
-    response: () => (xhr.responseType === '' || xhr.responseType === 'text' ? read() : responseGetter.call(xhr)),
+    response: () => (!reading && textual() ? read() : responseGetter.call(xhr)),
   });
 }
 

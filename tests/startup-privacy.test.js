@@ -343,6 +343,32 @@ test('XHR startup handling defers asynchronous requests, honors abort and fails 
   assert.equal(syncWindow.xhrCalls.length, 1, 'an uninspectable unknown body passes through');
 });
 
+// Issue #2: another script on the page had already swapped the prototype's responseText for a
+// getter that reads this.response. The transform's response getter read responseText again,
+// and the two called each other until the stack ran out (Facebook stayed on its skeletons).
+test('a transformed XHR still reads when another script built responseText on top of response', () => {
+  const window = fakeWindow({ respond: () => '{"ad":1}\n{"n":1}' });
+  const proto = window.win.XMLHttpRequest.prototype;
+  const nativeText = Object.getOwnPropertyDescriptor(proto, 'responseText').get;
+  let foreignReads = 0;
+  Object.defineProperty(proto, 'responseText', {
+    configurable: true,
+    get() {
+      foreignReads++;
+      const value = this.response;
+      return typeof value === 'string' ? value : nativeText.call(this);
+    },
+  });
+  const net = installNetworkHooks({ win: window.win, log: quietLog, startup: startupControl({ state: 'ready' }).startup });
+  net.transformResponses({ id: 'drop-ad', enabled: () => true, match: () => true, transform: (doc) => ('ad' in doc ? DROP : undefined) });
+  const xhr = new window.win.XMLHttpRequest();
+  xhr.open('POST', '/api/graphql/');
+  xhr.send(graphqlBody('Feed'));
+  assert.equal(xhr.responseText, '{"n":1}');
+  assert.equal(xhr.response, '{"n":1}');
+  assert.ok(foreignReads > 0, "the other script's getter still runs");
+});
+
 test('a reused XHR shows only its current request, whatever the last one was', async () => {
   const setup = () => {
     const window = fakeWindow({ respond: (url) => (url === '/api/graphql/' ? '{"ad":1}\n{"n":1}' : '{"ad":2}') });
