@@ -21,7 +21,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { extractDataSjs, findLeftovers, scrubDomTree, scrubLine, scrubValue, setScrubKey } from './lib/scrub.mjs';
+import { extractDataSjs, findLeftovers, findRealText, scrubDomTree, scrubLine, scrubValue, setScrubKey } from './lib/scrub.mjs';
 
 // Stand-ins are keyed with a secret that stays beside the raw captures, so a committed
 // fixture can't be checked against a guessed id or name. HFW_SCRUB_KEY overrides the file.
@@ -110,6 +110,12 @@ const text = `${lines.join('\n')}\n`;
 const leftovers = findLeftovers(text);
 if (leftovers.length) {
   console.error(`the scrub left something behind, so no fixture was written:\n  ${leftovers.join('\n  ')}`);
+  process.exit(1);
+}
+// Page markup also gets every text run and label checked for words the scrub didn't replace.
+const realText = flag('dom') ? lines.flatMap((line) => findRealText(JSON.parse(line).html)) : [];
+if (realText.length) {
+  console.error(`the scrub kept ${realText.length} piece(s) of real text, so no fixture was written:\n  ${realText.slice(0, 20).join('\n  ')}`);
   process.exit(1);
 }
 // A .gz name writes the fixture compressed, for page markup too large to keep as plain text.

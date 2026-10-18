@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  extractDataSjs, fakeDigits, fakeHex, fakeToken, findLeftovers, scrubDomText, scrubDomTree, scrubLine, scrubNumber, scrubString, scrubUrl, scrubValue, setScrubKey, trimArrays,
+  extractDataSjs, fakeDigits, fakeHex, fakeToken, findLeftovers, findRealText, scrubDomText, scrubDomTree, scrubLine, scrubNumber, scrubString, scrubUrl, scrubValue, setScrubKey, trimArrays,
 } from '../scripts/lib/scrub.mjs';
 
 const KEY = 'test-key-for-the-scrubber-tests';
@@ -253,4 +253,63 @@ test('page text: short runs stay, other scripts are blanked, numbers and spacing
   }
   assert.equal(scrubDomText('1,234'), '1,234');
   assert.equal(scrubDomText('12:45'), '12:45');
+});
+
+// A three-letter name used to stay as it was, because every short run of text did.
+const canary = () => ['div', {}, 'display:block', '0,0,680,200', [
+  ['a', { href: '/profile.php?id=123456789012345', 'aria-label': 'Amy' }, 'display:inline', '16,12,40,20', [['span', {}, 'display:inline', '16,12,40,20', ['Amy']]]],
+  ['span', { title: 'Al' }, 'display:inline', '60,12,20,20', [' 2h ']],
+  ['span', {}, 'display:inline', '90,12,20,20', ['Ad']],
+  ['span', {}, 'display:block;order:1', '100,12,6,16', ['S͏']],
+  ['span', {}, 'display:inline', '110,12,20,20', [' · ']],
+]];
+
+test('short names in page text and labels are replaced, and the checker sees them when they are not', () => {
+  const html = scrubDomTree(canary());
+  assert.ok(!/Amy|"Al"/.test(html), html);
+  assert.ok(!html.includes('123456789012345'));
+  assert.match(html, /<a href="\/profile\.php\?id=\d{9}" aria-label="[A-Z][a-z]+"[^>]*><span[^>]*>[A-Z][a-z]+<\/span><\/a>/);
+  assert.ok(html.includes('> 2h </span>') && html.includes('>Ad</span>') && html.includes('>S͏</span>') && html.includes('> · </span>'), 'times, the ad label and its letters stay');
+  assert.equal(scrubDomTree(canary()), html, 'the same name gets the same stand-in every time');
+  assert.deepEqual(findLeftovers(html), []);
+  assert.deepEqual(findRealText(html), []);
+  // The same markup without the scrub: a name the leftover check alone would miss.
+  const raw = '<div><a href="/profile.php?id=1" aria-label="Amy"><span>Amy</span></a><span title="Al"> 2h </span><span>Ad</span><span>S͏</span></div>';
+  assert.deepEqual(findLeftovers(raw), []);
+  assert.deepEqual(findRealText(raw).sort(), ['aria-label A**', 'text A**', 'title A*']);
+});
+
+test('the checker reads a word at a time and keeps what the scrub leaves', () => {
+  assert.deepEqual(findRealText('<span>Maple river…</span><span>Like·Share</span><span>MapleRiver</span>'), []);
+  assert.deepEqual(findRealText('<span>1.2K</span><span>12:45</span><span>xx</span><span>Sponsored</span>'), []);
+  assert.deepEqual(findRealText('<span>Maple Ada</span>'), ['text M********'], "short words don't run together into a name");
+  assert.deepEqual(findRealText('<span>&lt;Amy&gt;</span>'), ['text <****'], 'escaped text is read as text');
+});
+
+test('short names in captured data are replaced wherever a name or text goes', () => {
+  const out = scrubValue({ actors: [{ name: 'Amy', short_name: 'Amy', first_name: 'Al' }], message: { text: 'Amy' }, title: { text: 'Al' } });
+  assert.ok(!/Amy|"Al"/.test(JSON.stringify(out)), JSON.stringify(out));
+  assert.equal(out.actors[0].name, out.actors[0].short_name, 'one name, one stand-in');
+  assert.equal(out.actors[0].name, out.message.text);
+});
+
+test('any key named as a token holds one, whatever it looks like', () => {
+  for (const key of ['intent_token', 'after_cursor', 'clientNonce', 'image_hash', 'requestSignature', 'csrf']) {
+    const out = scrubString('AQHRxAbCdEfgHiJK', key);
+    assert.notEqual(out, 'AQHRxAbCdEfgHiJK', key);
+    assert.equal(out.length, 16, key);
+    assert.equal(scrubString('AQHRxAbCdEfgHiJK', key), out, `${key} is deterministic`);
+  }
+  // A digit run inside a cursor goes with the rest of it, not just the digits.
+  const cursor = 'MTo1234567890:AbCdEf';
+  const scrubbed = scrubString(cursor, 'cursor');
+  assert.equal(scrubbed.length, cursor.length);
+  assert.ok(!scrubbed.includes('AbCdEf') && !scrubbed.startsWith('MTo'), scrubbed);
+  assert.equal(scrubString(cursor, 'page_cursor'), scrubString(cursor, 'page_cursor'));
+  // Hex stays hex, enums are words of Facebook's own, and a set id keeps its grammar.
+  assert.match(scrubString('ab'.repeat(16), 'image_hash'), /^[0-9a-f]{32}$/);
+  assert.equal(scrubString('RANKED_FILTERED_INTENT_V1', 'intent_token'), 'RANKED_FILTERED_INTENT_V1');
+  assert.equal(scrubString('pcb.500000001', 'mediaset_token'), `pcb.${fakeDigits('500000001')}`);
+  assert.equal(scrubString('Ad', 'label'), 'Ad');
+  assert.equal(scrubString('display', 'name'), 'display');
 });

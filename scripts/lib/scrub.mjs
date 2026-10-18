@@ -32,6 +32,11 @@ const TEXT_KEYS = new Set([
 const GEO_KEYS = new Set(['latitude', 'longitude', 'lat', 'lng', 'lon', 'long']);
 // Keys whose values are tokens however short they look.
 const TOKEN_KEYS = new Set(['fbclid', 'h', 'oh', 'oe', 'eid', 'ccb', '_nc_ohc', '_nc_sid', '_nc_cat', '__tn__', 'access_token', 'token', 'fb_dtsg', 'jazoest', 'lsd', 'client_token', 'cursor', 'end_cursor', 'start_cursor', 'enc', 'nonce', 'hsi']);
+// Any other key named as one (intent_token, after_cursor, clientNonce, image_hash) holds a
+// token too, unless the value is one of Facebook's enums ("RANKED_FILTERED_INTENT_V1") or a
+// set's id ("pcb.<id>" under mediaset_token), whose digits get a stand-in like any id.
+const TOKEN_KEY = /(?:^|_)(?:token|cursor|nonce|secret|signature|hash|hmac|csrf)$|[a-z](?:Token|Cursor|Nonce|Secret|Signature|Hash)$/;
+const NOT_A_TOKEN = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$|^[a-z]+\.\d+$/;
 // *name keys hold people and Pages, except the ones Facebook uses for code identifiers.
 const CODE_NAME_KEYS = new Set(['__typename', 'friendly_name', 'fb_api_req_friendly_name', 'queue_name', 'icon_name', 'field_name', 'module_name', 'class_name', 'font_name', 'typename', 'experiment_name', 'event_name', 'surface_name', 'query_name', 'operation_name']);
 
@@ -73,6 +78,7 @@ const CODE_IDENTIFIER = /^[a-z][a-z0-9]*[_.\-0-9][a-z0-9_.-]*$/;
 const CSS_PROPERTIES = new Set(['display', 'order', 'color', 'flex', 'position', 'width', 'height', 'opacity', 'margin', 'padding', 'visibility', 'transform', 'top', 'left', 'right', 'bottom', 'font', 'content', 'overflow']);
 // A letter outside ASCII: text in another script is always someone's words.
 const NON_ASCII_LETTER = /(?!\p{ASCII})\p{L}/u;
+const letters = (value) => value.match(/\p{L}/gu)?.length ?? 0;
 const TOKEN = /^[A-Za-z0-9_\-+/=@.:~%]{12,}$/;
 
 function digest(kind, value) {
@@ -234,6 +240,10 @@ export function scrubString(value, key) {
   if (isTextKey(key)) return fakeWords(value);
   if (isNameKey(key) && !CODE_IDENTIFIER.test(value) && !(key === 'name' && CSS_PROPERTIES.has(value))) return fakeWords(value);
   if (NON_ASCII_LETTER.test(value)) return fakeWords(value);
+  // A token goes whole, before anything below could keep part of it. Hex stays hex.
+  if (TOKEN_KEYS.has(key) || /^__cft__/.test(key ?? '') || (TOKEN_KEY.test(key ?? '') && !NOT_A_TOKEN.test(value))) {
+    return /^[0-9a-f]{32,}$/i.test(value) ? fakeHex(value, value.length) : fakeToken(value);
+  }
 
   // An id, hash, uuid or URL inside a string: replace it and keep the grammar around it
   // ("browse_rl:<uuid>", "a.<album id>", a DASH manifest). Prose with one inside still
@@ -246,7 +256,6 @@ export function scrubString(value, key) {
     return digits >= 7 ? text.replace(/\d+/g, (run) => fakeDigits(run, run.length)) : text;
   }
   if (DOMAIN.test(text)) return FACEBOOK_HOST.test(text) ? text : fakeDomain(text);
-  if (TOKEN_KEYS.has(key) || /^__cft__/.test(key ?? '')) return fakeToken(text);
   if (WORDY.test(text)) return text;
   if (SHORT_IDENTIFIER.test(text) && text.replace(/\D/g, '').length <= 4) return text;
   if (TOKEN.test(text)) return fakeToken(text);
@@ -332,9 +341,10 @@ export function extractDataSjs(html, match) {
 // (so aria-labelledby still points somewhere), link shapes, the computed display, position,
 // order, visibility, opacity and tiny font sizes written inline, and each element's box
 // relative to the post as data-hfw-rect="left,top,width,height" for a test to replay.
-// Text of three characters or fewer stays (the scrambled one-letter spans of a label or a
-// timestamp are the point), and so do Facebook's own interface words. Everything else a
-// person wrote or is called goes through fakeWords.
+// A short run with one letter at most stays (the scrambled letters of a label, each with an
+// invisible mark after it, and times like "2h" are the point), and so do Facebook's own
+// interface words. Everything else a person wrote or is called goes through fakeWords, a
+// two-letter name included.
 
 const UI_TEXT = new Set([
   'like', 'comment', 'share', 'send', 'reply', 'follow', 'join', 'see more', 'see less', 'more', 'most relevant',
@@ -364,8 +374,8 @@ export function scrubDomText(value) {
   if (trimmed === '') return value;
   const lead = value.match(/^\s*/)[0];
   const tail = value.match(/\s*$/)[0];
-  if (trimmed.length <= 3) return NON_ASCII_LETTER.test(trimmed) ? lead + 'x'.repeat(trimmed.length) + tail : value;
-  if (UI_TEXT.has(trimmed.toLowerCase())) return value;
+  if (trimmed.length <= 3 && NON_ASCII_LETTER.test(trimmed)) return lead + 'x'.repeat(trimmed.length) + tail;
+  if ((trimmed.length <= 3 && letters(trimmed) <= 1) || UI_TEXT.has(trimmed.toLowerCase())) return value;
   // Counts and times stay. Seven digits or more could be a phone number, as in the data path.
   if (SMALL_NUMBER.test(trimmed)) return trimmed.replace(/\D/g, '').length >= 7 ? value.replace(/\d+/g, (run) => fakeDigits(run, run.length)) : value;
   return lead + fakeWords(trimmed) + tail;
@@ -401,6 +411,35 @@ export function scrubDomTree(node) {
   const open = `<${parts.join(' ')}>`;
   if (VOID_TAGS.has(tag.toLowerCase())) return open;
   return `${open}${kids.map(scrubDomTree).join('')}</${tag}>`;
+}
+
+// Words that scrubbed page markup may still hold: placeholder words and Facebook's own. Text
+// pieces next to each other run together in the markup ("Maple river…", "Like·Share"), so
+// it's checked a word at a time, and a word may be several of these run together.
+// Only words of four letters or more run together, so "ad" and "a" can't spell "Ada".
+const KNOWN_WORDS = new Set([...VOCAB, ...[...UI_TEXT].flatMap((text) => text.split(' '))].map((word) => word.replace(/\P{L}/gu, '')).filter(Boolean));
+const KNOWN_RUN = new RegExp(`^(?:${[...KNOWN_WORDS].filter((word) => word.length >= 4).join('|')})+$`, 'i');
+const unescape = (value) => value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+function scrubbedWord(word) {
+  // A label's scrambled letters, each with an invisible mark after it, and "2h" or "1.2K".
+  if (letters(word) <= 1 || /^(?:\p{L}[\p{M}\p{Cf}]+)+$/u.test(word) || /^x{1,3}$/.test(word)) return true;
+  const bare = word.replace(/\P{L}/gu, '');
+  return KNOWN_WORDS.has(bare.toLowerCase()) || KNOWN_RUN.test(bare);
+}
+const scrubbedText = (value) => value.trim().split(/\s+/).every(scrubbedWord);
+
+// The text runs and prose attributes in page markup that are none of those: a person's words
+// or name the scrub missed. Each comes back masked, so the report doesn't repeat it.
+export function findRealText(html) {
+  const found = [];
+  const mask = (value) => `${value.trim()[0]}${'*'.repeat(Math.max(0, value.trim().length - 1))}`;
+  for (const [, text] of html.matchAll(/>([^<]+)</g)) {
+    if (!scrubbedText(unescape(text))) found.push(`text ${mask(unescape(text))}`);
+  }
+  for (const [, name, value] of html.matchAll(/\s([a-z-]+)="([^"]*)"/g)) {
+    if (PROSE_ATTRS.has(name) && !scrubbedText(unescape(value))) found.push(`${name} ${mask(unescape(value))}`);
+  }
+  return found;
 }
 
 // What must never be left in a fixture. The test and the CLI share this list.
