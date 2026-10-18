@@ -207,5 +207,13 @@ export default {
         if (hiding()) watcher?.recheckAll();
       });
     }
+    // Another tab forgot the list, or the page is someone else's now. Posts hidden by the old
+    // list come back.
+    store.onDrop(() => {
+      refresh(until);
+      hider?.showAll('Seen');
+      if (hiding()) watcher?.recheckAll();
+      changed();
+    });
   },
 };

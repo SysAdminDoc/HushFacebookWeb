@@ -34,6 +34,16 @@ export function createSeenStore({
   let ready = !storage?.whenReady;
   let savedBeforeReady = false;
   const waiting = [];
+  const dropListeners = [];
+  const tell = (listeners, what) => {
+    for (const run of listeners) {
+      try {
+        run();
+      } catch (error) {
+        log?.error(`A seen-post ${what} listener failed`, error);
+      }
+    }
+  };
   // The extension's storage fills a few milliseconds in, so the saved list joins whatever was
   // seen before then rather than the other way round.
   const read = () => {
@@ -52,13 +62,7 @@ export function createSeenStore({
       savedBeforeReady = false;
       save();
     }
-    for (const run of waiting.splice(0)) {
-      try {
-        run();
-      } catch (error) {
-        log?.error('A seen-post ready listener failed', error);
-      }
-    }
+    tell(waiting.splice(0), 'ready');
   };
 
   function save() {
@@ -109,6 +113,7 @@ export function createSeenStore({
     if (at <= cleared) return;
     cleared = at;
     for (const [id, seen] of entries) if (seen < cleared) entries.delete(id);
+    tell(dropListeners, 'drop');
   });
   // The page is signed in to someone else now (core/activity.js), and this list was the old account's.
   storage?.onAccountChange?.(() => {
@@ -116,6 +121,7 @@ export function createSeenStore({
     if (timer !== null) cancel(timer);
     timer = null;
     savedBeforeReady = false;
+    tell(dropListeners, 'drop');
   });
 
   return {
@@ -145,6 +151,9 @@ export function createSeenStore({
       if (ready) run();
       else waiting.push(run);
     },
+    // Runs when posts leave the list without this tab asking: another tab forgot it, or the
+    // page changed accounts.
+    onDrop: (run) => dropListeners.push(run),
     clear() {
       cleared = Math.max(now(), cleared);
       entries.clear();

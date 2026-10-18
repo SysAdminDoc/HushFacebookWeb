@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { createActions } from '../src/core/actions.js';
+import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
@@ -13,6 +14,8 @@ import { transformDocumentLine } from '../src/core/net/payload.js';
 import { parseRoute } from '../src/core/route.js';
 import { mediaIdOf, pageKeys, storyKeys, textKey } from '../src/core/seen-keys.js';
 import { CLEARED_KEY, createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
+import { createSettings } from '../src/core/settings.js';
+import { startFeatures } from '../src/core/start-features.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import hideSeenPosts, { pruneSeen, SHOW_KEY } from '../src/features/feed/hide-seen-posts.js';
 
@@ -472,4 +475,181 @@ test('nothing is hidden on a post opened by its link, or on a profile', () => {
     assert.equal(note(doc, 1), null, href);
     posts.stop();
   }
+});
+
+// The extension's storage, which fills a few milliseconds after the script starts. Until
+// load() nothing is in it, and load() runs what was waiting in the order it came, the way
+// core/bridge.js does. main.js makes the settings first, so they always hear first.
+function lateStorage(saved, { unreadable = false } = {}) {
+  const data = new Map();
+  const listeners = new Map();
+  const waiting = [];
+  let loaded = false;
+  const value = (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback);
+  return {
+    get: value,
+    getAtLoad(key, fallback) {
+      if (unreadable && key.startsWith(SEEN_KEY)) throw new Error('unreadable');
+      return value(key, fallback);
+    },
+    set: (key, next) => data.set(key, structuredClone(next)),
+    remove: (key) => data.delete(key),
+    onChange: (key, fn) => listeners.set(key, [...(listeners.get(key) ?? []), fn]),
+    remote: (key, next) => listeners.get(key)?.forEach((fn) => fn(next)),
+    whenReady(run) {
+      if (loaded) run();
+      else waiting.push(run);
+    },
+    load() {
+      for (const [key, next] of Object.entries(saved)) data.set(key, structuredClone(next));
+      loaded = true;
+      for (const run of waiting.splice(0)) run();
+    },
+  };
+}
+
+// Settings, activity and the feature put together the way main.js does it.
+function startLikeMain(win, storage, { account = null, clock = { now: 50 * DAY } } = {}) {
+  const quiet = { warn() {}, error() {}, info() {}, debug() {} };
+  const errors = [];
+  const log = { ...quiet, error: (message) => errors.push(message) };
+  const settings = createSettings({ storage, features: [hideSeenPosts], account, migrations: [] });
+  const signedIn = { account };
+  const activity = createActivityStorage({ storage, account, currentAccount: () => signedIn.account, log });
+  const heard = [];
+  const router = { current: () => parseRoute(win.location.href), subscribe: (fn) => heard.push(fn) };
+  activity.watch({ router });
+  win.IntersectionObserver = FakeObserver;
+  const posts = createPostTracker({ doc: win.document });
+  const hider = createHider({ doc: win.document, posts });
+  const diagnostics = createDiagnostics();
+  const rules = [];
+  startFeatures({
+    features: [hideSeenPosts], net: { transformResponses: (rule) => rules.push(rule) }, settings, log, unavailable: new Map(),
+    context: () => ({
+      win, doc: win.document, diagnostics, actions: createActions().for('hideSeenPosts'), storage: activity.storage,
+      router, posts, hider, log, now: () => clock.now,
+    }),
+  });
+  const rows = () => Object.fromEntries(diagnostics.rows().map(({ label, value }) => [label, value]));
+  // Facebook redrawing the same page, which is when activity looks at the account again.
+  const navigate = () => heard.forEach((fn) => fn(router.current()));
+  return { settings, posts, rule: rules[0], io: FakeObserver.last, rows, errors, signedIn, navigate, clock };
+}
+
+const SEEN = activityKeyFor(SEEN_KEY, null);
+const feedLine = (media) => JSON.stringify({ data: { viewer: { news_feed: { edges: [{ node: { __typename: 'Story', __isFeedUnit: 'Story', id: 's1', attachments: [{ media: { __typename: 'Photo', id: media } }] }, cursor: 'c1' }] } } } });
+const FEED = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+const dataDrops = (rule, media) => JSON.parse(transformDocumentLine(feedLine(media), [rule], FEED)).data.viewer.news_feed.edges[0].node === undefined;
+
+test('in the extension, posts seen on an earlier visit go once its storage loads, with no page change', () => {
+  const now = 50 * DAY;
+  // Post 3 was read in another tab while this one was still loading, so it's from this visit.
+  const storage = lateStorage({ settings: { hideSeenPosts: true }, 'settings.migrated': [], [SEEN]: { [keyOf(1)]: now - DAY, 'm:99887766': now - DAY, [keyOf(3)]: now + 20 } });
+  const win = page(post(1) + post(2) + post(3));
+  const { settings, posts, rule, io, rows, errors, clock } = startLikeMain(win, storage, { clock: { now } });
+  // Still loading: the switch reads as off and nothing is known yet.
+  assert.equal(rule.enabled(), false);
+  assert.equal(note(win.document, 1), null);
+
+  clock.now += 50;
+  storage.load();
+  assert.equal(rule.enabled(), true);
+  assert.equal(note(win.document, 1), 'Hidden: Seen. Show', 'on the page');
+  assert.equal(dataDrops(rule, '99887766'), true, 'and in the data');
+  assert.equal(dataDrops(rule, '12345678'), false);
+  assert.equal(note(win.document, 3), null);
+  assert.equal(rows()['Seen posts remembered'], '3');
+
+  // Post 2 is read on this visit. It's kept, and stays where it is, even when the days change.
+  const two = win.document.querySelector('[aria-posinset="2"]');
+  io.show(two, 300);
+  clock.now += 1500;
+  io.show(two, 0);
+  assert.equal(rows()['Seen posts remembered'], '4');
+  settings.set('hideSeenPosts.days', 30);
+  assert.equal(note(win.document, 2), null);
+  assert.equal(note(win.document, 3), null);
+  assert.equal(note(win.document, 1), 'Hidden: Seen. Show');
+  posts.stop();
+  assert.deepEqual(errors, []);
+});
+
+test('in the extension, an empty or unreadable seen list hides nothing and still keeps what you read', () => {
+  const now = 50 * DAY;
+  for (const unreadable of [false, true]) {
+    const storage = lateStorage({ settings: { hideSeenPosts: true }, 'settings.migrated': [] }, { unreadable });
+    const win = page(post(1));
+    const { posts, rule, io, rows, errors, clock } = startLikeMain(win, storage, { clock: { now } });
+    storage.load();
+    assert.equal(rule.enabled(), false, 'nothing to hide');
+    assert.equal(note(win.document, 1), null);
+    assert.deepEqual(errors, unreadable ? ["Couldn't read the seen posts list, starting a new one"] : []);
+    const one = win.document.querySelector('[aria-posinset="1"]');
+    io.show(one, 300);
+    clock.now += 1500;
+    io.show(one, 0);
+    assert.equal(rows()['Seen posts remembered'], '1');
+    assert.equal(note(win.document, 1), null);
+    posts.stop();
+  }
+});
+
+test('with a userscript manager, settings and seen posts are there from the start', () => {
+  const now = 50 * DAY;
+  const storage = createMemoryStorage({ settings: { hideSeenPosts: true }, 'settings.migrated': [], [SEEN]: { [keyOf(1)]: now - DAY, 'm:99887766': now - DAY } });
+  const win = page(post(1) + post(2));
+  const { posts, rule } = startLikeMain(win, storage, { clock: { now } });
+  assert.equal(rule.enabled(), true);
+  assert.equal(note(win.document, 1), 'Hidden: Seen. Show');
+  assert.equal(note(win.document, 2), null);
+  assert.equal(dataDrops(rule, '99887766'), true);
+  posts.stop();
+});
+
+test("after the account changes, the old account's seen posts aren't hidden on the page or in the data", () => {
+  const now = 50 * DAY;
+  const account = '615000000000041';
+  const mine = activityKeyFor(SEEN_KEY, account);
+  const saved = { [mine]: { [keyOf(1)]: now - DAY, 'm:99887766': now - DAY } };
+  const storage = createMemoryStorage({ settings: { hideSeenPosts: true }, 'settings.migrated': [], [mine]: saved[mine] });
+  const win = page(post(1) + post(2));
+  const { posts, rule, signedIn, rows, navigate } = startLikeMain(win, storage, { account, clock: { now } });
+  assert.equal(note(win.document, 1), 'Hidden: Seen. Show');
+
+  // Signed in to someone else without a reload. A page change notices.
+  signedIn.account = '615000000000042';
+  navigate();
+  assert.equal(rows()['Seen posts remembered'], '0');
+  assert.equal(rule.enabled(), false);
+  assert.equal(dataDrops(rule, '99887766'), false);
+  assert.equal(note(win.document, 1), null);
+  posts.stop();
+
+  // Switched before the extension's storage loaded: the old list never comes in at all.
+  const late = lateStorage({ settings: { hideSeenPosts: true }, 'settings.migrated': [], [mine]: saved[mine] });
+  const lateWin = page(post(1));
+  const early = startLikeMain(lateWin, late, { account, clock: { now } });
+  early.signedIn.account = null;
+  late.load();
+  assert.equal(early.rule.enabled(), false);
+  assert.equal(note(lateWin.document, 1), null);
+  early.posts.stop();
+});
+
+test('when another tab forgets the seen posts, the ones hidden here come back', () => {
+  const now = 50 * DAY;
+  const storage = sharedStorage({ [SEEN_KEY]: { [keyOf(1)]: now - 2 * DAY, [keyOf(2)]: now - DAY } });
+  const win = page(post(1) + post(2));
+  const { doc, posts, rows } = setupFeature(win, { storage, clock: { now } });
+  assert.equal(note(doc, 1), 'Hidden: Seen. Show');
+  assert.equal(note(doc, 2), 'Hidden: Seen. Show');
+  // Forgotten in between the two: post 2 was seen after, so it stays hidden.
+  storage.remote(CLEARED_KEY, now - 1.5 * DAY);
+  assert.equal(note(doc, 1), null);
+  assert.equal(note(doc, 2), 'Hidden: Seen. Show');
+  storage.remote(CLEARED_KEY, now);
+  assert.equal(note(doc, 2), null);
+  assert.equal(rows()['Seen posts remembered'], '0');
+  posts.stop();
 });
