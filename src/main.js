@@ -58,6 +58,7 @@ function boot() {
     notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote') === true,
     onHide: ({ element, reason, detail, signal }) => diagnostics.decide({ post: postIdOf(element).id, rule: reason, signal: signal ?? detail, layer: 'page' }),
   });
+  settings.subscribe(() => hider.refresh());
   diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'));
   diagnostics.add('Settings kept in', () => ({ gm: 'Your userscript manager', extension: "The extension's own storage" })[storage.kind] ?? "Facebook's page, which clears them");
   if (storage.status) {

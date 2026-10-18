@@ -9,7 +9,7 @@ export default {
   section: 'downloads',
   android: 'Download any photo',
   title: 'Download any photo',
-  description: 'Shows a Download button on photos in posts and in the photo viewer when you point at them. It saves the largest copy Facebook sent.',
+  description: 'Shows a Download button on photos in posts and in the photo viewer when you point at them or Tab to them. It saves the largest copy Facebook sent.',
   default: true,
 
   setup(ctx) {

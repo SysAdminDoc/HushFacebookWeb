@@ -379,3 +379,168 @@ test('note mode hides loose text inside the mark too', () => {
   assert.ok(css.includes(`[${MARK}] { font-size: 0 !important; }`));
   assert.ok(!hideCss({ notes: false }).includes('font-size'));
 });
+
+const key = (win, target, type, name, init = {}) => {
+  const event = new win.KeyboardEvent(type, { key: name, bubbles: true, cancelable: true, ...init });
+  target.dispatchEvent(event);
+  return event;
+};
+const buttonParts = (element) => ['role', 'tabindex', 'aria-label'].map((name) => element.getAttribute(name));
+
+test('the note is a button keyboards and screen readers reach, and Enter shows the post', () => {
+  const win = page(feed(post(1), post(2)));
+  const [first] = win.document.querySelectorAll('[aria-posinset]');
+  const before = { post: attributesOf(first), feedChild: attributesOf(first.parentElement) };
+  const hider = createHider({ doc: win.document });
+  hider.hide(first, 'Filter', 'cats');
+  const marker = first.firstElementChild;
+  assert.deepEqual(buttonParts(marker), ['button', '0', 'Hidden: Filter: cats. Show']);
+  assert.deepEqual(attributesOf(first), before.post, 'the post itself is never written on');
+  assert.deepEqual(attributesOf(first.parentElement), before.feedChild, "nor the feed's child");
+  assert.match(hideCss({ notes: true }), new RegExp(`\\[${MARK}\\] \\{ display: block !important;`), "Facebook's display:contents mark gets a box that can take focus");
+  assert.match(hideCss({ notes: true }), new RegExp(`\\[${MARK}\\]:focus-visible \\{ outline:`));
+
+  const facebook = [];
+  marker.addEventListener('keydown', () => facebook.push('target'));
+  win.document.addEventListener('keydown', () => facebook.push('document'));
+  marker.focus();
+  assert.equal(key(win, marker, 'keydown', 'Enter', { ctrlKey: true }).defaultPrevented, false, 'Ctrl+Enter stays the page\'s');
+  assert.equal(hider.isHidden(first), true);
+  facebook.length = 0;
+  const enter = key(win, marker, 'keydown', 'Enter');
+  assert.equal(enter.defaultPrevented, true);
+  assert.deepEqual(facebook, []);
+  assert.equal(hider.isHidden(first), false);
+  assert.deepEqual(buttonParts(marker), [null, null, null], 'the button goes with the note');
+  assert.ok(win.document.activeElement === first.querySelector('h4 a'), 'focus moves to the first control the post brings back');
+  assert.equal(key(win, win.document.activeElement, 'keydown', 'Enter').defaultPrevented, false, 'it shows once; the next Enter is the link\'s');
+  assert.equal(hider.hide(first, 'Filter', 'cats'), false, 'a shown post stays shown');
+});
+
+test('Space shows the post as it comes up, and only on the note it went down on', () => {
+  const win = page(feed(post(1), post(2)));
+  const [a, b] = win.document.querySelectorAll('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  hider.hide(a, 'Sponsored');
+  hider.hide(b, 'Sponsored');
+  const [markA, markB] = [a.firstElementChild, b.firstElementChild];
+  // The name link isn't drawn (Facebook keeps some controls in the page but off screen).
+  a.querySelector('h4 a').getClientRects = () => [];
+  markA.focus();
+  assert.equal(key(win, markA, 'keydown', ' ').defaultPrevented, true, 'the page does not scroll');
+  assert.equal(hider.isHidden(a), true, 'not yet');
+  assert.equal(key(win, markA, 'keyup', ' ').defaultPrevented, true);
+  assert.equal(hider.isHidden(a), false);
+  assert.ok(win.document.activeElement === a.querySelector('a[href*="/posts/"]'), 'focus skips a control that is not drawn');
+
+  markB.focus();
+  key(win, markB, 'keydown', ' ');
+  key(win, a.querySelector('h4 a'), 'keyup', ' ');
+  assert.equal(hider.isHidden(b), true, 'let go somewhere else');
+  assert.equal(key(win, markB, 'keyup', ' ').defaultPrevented, false, 'and the press is spent');
+  assert.equal(hider.isHidden(b), true);
+
+  // The name link is drawn but won't take focus (visibility:hidden does that).
+  b.querySelector('h4 a').focus = () => {};
+  markB.focus();
+  key(win, markB, 'keydown', 'Enter');
+  assert.ok(win.document.activeElement === b.querySelector('a[href*="/posts/"]'), 'a control that refuses focus is passed over');
+});
+
+test('a note with nothing focusable behind it keeps focus on the mark, given a box, until focus moves on', () => {
+  const words = '<div class="wrap"><div aria-posinset="N"><div class="inner"><div>Just text</div></div></div></div>';
+  const win = page(feed(words.replace('N', '1'), words.replace('N', '2').replace('class="inner"', 'class="inner" tabindex="-1"')));
+  const [element, other] = win.document.querySelectorAll('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  hider.hide(element, 'Sponsored');
+  hider.hide(other, 'Sponsored');
+  // Without its mark the wrapper is display:contents again, and a browser takes focus off it.
+  // happy-dom doesn't.
+  const fixup = (marker) => {
+    const remove = marker.removeAttribute.bind(marker);
+    marker.removeAttribute = (name) => {
+      remove(name);
+      if (name === MARK) marker.blur();
+    };
+  };
+  const marker = element.firstElementChild;
+  fixup(marker);
+  marker.focus();
+  key(win, marker, 'keydown', 'Enter');
+  assert.equal(hider.isHidden(element), false);
+  assert.ok(win.document.activeElement === marker);
+  assert.deepEqual([marker.getAttribute('tabindex'), marker.hasAttribute('data-hfw-held')], ['-1', true]);
+  assert.ok(hideCss({ notes: true }).includes('[data-hfw-held] { display: block !important; }'), 'Facebook\'s display:contents wrapper gets a box to keep focus on');
+  marker.blur();
+  assert.deepEqual([marker.hasAttribute('tabindex'), marker.hasAttribute('data-hfw-held')], [false, false]);
+
+  // When focus won't stay anyway, nothing is left behind on Facebook's element.
+  const stuck = other.firstElementChild;
+  fixup(stuck);
+  stuck.focus();
+  stuck.focus = () => {};
+  key(win, stuck, 'keydown', 'Enter');
+  assert.equal(hider.isHidden(other), false);
+  assert.deepEqual([stuck.getAttribute('tabindex'), stuck.hasAttribute('data-hfw-held')], ['-1', false], 'the page\'s own tabindex comes back');
+});
+
+test('pausing or switching the note off takes the button back off and puts back the page\'s own values', () => {
+  const win = page(feed('<div class="wrap"><div aria-posinset="1"><div class="inner" role="none"><a href="/a/posts/1">1h</a></div></div></div>', post(2)));
+  const [first, second] = win.document.querySelectorAll('[aria-posinset]');
+  let shown = true;
+  const hider = createHider({ doc: win.document, notesShown: () => shown });
+  hider.hide(first, 'Sponsored');
+  const marker = first.firstElementChild;
+  assert.deepEqual(buttonParts(marker), ['button', '0', 'Hidden: Sponsored. Show']);
+  hider.hide(first, 'Filter', 'cats');
+  hider.refresh();
+  // Someone else's element carrying the mark, like a second copy of the script's.
+  win.document.body.insertAdjacentHTML('beforeend', `<div class="foreign" ${MARK}="x">not ours</div>`);
+  hider.refresh();
+  assert.deepEqual(buttonParts(win.document.querySelector('.foreign')), [null, null, null], 'only the script\'s own marks become buttons');
+
+  shown = false;
+  hider.refresh();
+  assert.deepEqual(buttonParts(marker), ['none', null, null], 'the page\'s values, even after the button was written twice');
+  marker.focus();
+  assert.equal(key(win, marker, 'keydown', 'Enter').defaultPrevented, false, 'a paused script takes no keys');
+  assert.equal(hider.isHidden(first), true);
+  hider.hide(second, 'Sponsored');
+  assert.deepEqual(buttonParts(second.firstElementChild), [null, null, null], 'hidden while the note is off: no button');
+
+  shown = true;
+  hider.refresh();
+  assert.deepEqual(buttonParts(marker), ['button', '0', 'Hidden: Sponsored. Show']);
+  assert.deepEqual(buttonParts(second.firstElementChild), ['button', '0', 'Hidden: Sponsored. Show']);
+  hider.show(first);
+  assert.deepEqual(buttonParts(marker), ['none', null, null]);
+});
+
+test('a click on the note shows the post and leaves focus where it was', () => {
+  const win = page(feed(post(1), post(2)));
+  const [a, b] = win.document.querySelectorAll('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  hider.hide(a, 'Sponsored');
+  const elsewhere = b.querySelector('h4 a');
+  elsewhere.focus();
+  a.firstElementChild.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert.equal(hider.isHidden(a), false);
+  assert.ok(win.document.activeElement === elsewhere);
+});
+
+test('a recycled post loses the note\'s button and its reveal', () => {
+  const win = page(feed(post(1)));
+  const element = win.document.querySelector('[aria-posinset]');
+  const posts = fakePosts();
+  const hider = createHider({ doc: win.document, posts });
+  hider.hide(element, 'Sponsored');
+  const marker = element.firstElementChild;
+  marker.focus();
+  key(win, marker, 'keydown', 'Enter');
+  assert.equal(hider.hide(element, 'Sponsored'), false);
+  posts.removed(element);
+  assert.equal(hider.hide(element, 'Sponsored'), true, 'the new story is judged on its own');
+  assert.deepEqual(buttonParts(marker), ['button', '0', 'Hidden: Sponsored. Show']);
+  posts.removed(element);
+  assert.deepEqual(buttonParts(marker), [null, null, null]);
+});

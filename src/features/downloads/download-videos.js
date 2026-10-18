@@ -9,7 +9,7 @@ export default {
   section: 'downloads',
   android: 'Download any video',
   title: 'Download any video',
-  description: 'Shows a Download button on videos in the feed and in Watch when you point at them. Videos save in the best quality Facebook offers unless you pick smaller files.',
+  description: 'Shows a Download button on videos in the feed and in Watch when you point at them or Tab to them. Videos save in the best quality Facebook offers unless you pick smaller files.',
   default: false,
   needsPage: true,
   options: [QUALITY_OPTION],

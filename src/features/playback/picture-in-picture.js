@@ -1,5 +1,5 @@
 // Picture-in-picture, as Hushfacebook does on Android: a Pop out button on the video or reel
-// under the pointer, in the same floating button as Download (downloads/button.js), one row
+// under the pointer or keyboard focus, in the same floating button as Download (downloads/button.js), one row
 // below it. Facebook doesn't turn the browser's picture-in-picture off on its videos (live
 // 2026-10-11, no disablepictureinpicture on any player), so the button only has to ask for it.
 // Browsers without the picture-in-picture API, like Firefox, have their own button on videos,
@@ -40,7 +40,7 @@ export default {
   section: 'playback',
   android: 'Picture-in-picture',
   title: 'Picture-in-picture button',
-  description: 'Point at a video or reel and a Pop out button shows in its corner. Click it and the video keeps playing in a small window that stays on top while you use other tabs and apps.',
+  description: 'Point at a video or reel, or Tab to it, and a Pop out button shows in its corner. Click it and the video keeps playing in a small window that stays on top while you use other tabs and apps.',
   default: false,
 
   setup({ doc, win, enabled, log, diagnostics, markUnavailable }) {

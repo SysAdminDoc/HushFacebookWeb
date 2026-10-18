@@ -455,6 +455,244 @@ test('the button shows over media a switch covers, and a click saves it', async 
   button.stop();
 });
 
+const press = (win, target, name, init = {}) => {
+  const event = new win.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true, ...init });
+  target.dispatchEvent(event);
+  return event;
+};
+
+test('Tab to a photo brings its Download button up, steps onto it and moves on past it', async () => {
+  const win = page('<a class="before" href="/x">x</a><div class="post" tabindex="0"><a class="photo" href="/photo/?fbid=1"><img></a><div class="like" tabindex="0">Like</div></div><a class="other" href="/photo/?fbid=2"><img class="two"></a>');
+  const doc = win.document;
+  const [post, link, img, like, other, two] = ['.post', 'a.photo', 'a.photo img', '.like', 'a.other', 'img.two'].map((s) => doc.querySelector(s));
+  box(post, [100, 0, 600, 900]);
+  box(link, [100, 100, 600, 400]);
+  box(img, [100, 100, 600, 400]);
+  box(like, [100, 510, 100, 30]);
+  // An inline link's box can be empty around the photo it holds.
+  box(other, [0, 0, 0, 0]);
+  box(two, [100, 1000, 600, 400]);
+  let on = false;
+  const saved = [];
+  const button = createDownloadButton({ doc, win, active: () => on, find: (element) => ({ what: element.className || 'one' }), run: async (found) => saved.push(found.what) });
+  press(win, doc.body, 'Tab');
+  link.focus();
+  assert.equal(button.state().shown, false, 'switched off, focus brings nothing up');
+  on = true;
+  post.focus();
+  assert.equal(button.state().shown, false, 'a whole post is not the photo in it, even with its middle on the photo');
+  link.focus();
+  assert.equal(button.state().shown, true, 'no pointer move needed');
+  assert.equal(button.state().top, '110px');
+  const host = doc.querySelector('[data-hushfacebook-web="download"]');
+
+  assert.equal(press(win, link, 'Tab', { ctrlKey: true }).defaultPrevented, false, 'Ctrl+Tab is the browser\'s');
+  const trap = (event) => event.preventDefault();
+  win.addEventListener('keydown', trap, true);
+  press(win, link, 'Tab');
+  assert.ok(doc.activeElement === link, 'a Tab the page already took is left alone');
+  win.removeEventListener('keydown', trap, true);
+  assert.equal(press(win, link, 'Tab').defaultPrevented, true);
+  assert.ok(doc.activeElement === host, 'Tab lands on the button next');
+  button.click();
+  await frame();
+  assert.deepEqual(saved, ['one']);
+  assert.equal(press(win, host, 'Tab').defaultPrevented, false, "the browser's own Tab moves on");
+  assert.ok(doc.activeElement === link, 'from the element focus reached');
+  press(win, link, 'Tab');
+  assert.equal(press(win, host, 'Tab', { shiftKey: true }).defaultPrevented, true);
+  assert.ok(doc.activeElement === link, 'Shift+Tab goes back to it');
+  assert.equal(press(win, link, 'Tab', { shiftKey: true }).defaultPrevented, false);
+
+  like.focus();
+  assert.equal(button.state().shown, false, 'a Like button under the photo is not the photo');
+  press(win, like, 'Tab', { shiftKey: true });
+  link.focus();
+  assert.ok(doc.activeElement === host, 'coming back up with Shift+Tab, the button comes before its photo');
+  assert.equal(press(win, host, 'Tab', { shiftKey: true }).defaultPrevented, true);
+  assert.ok(doc.activeElement === link);
+  link.focus();
+  assert.equal(button.state().shown, true);
+  doc.dispatchEvent(new win.PointerEvent('pointerdown'));
+  like.focus();
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  assert.equal(button.state().shown, false, 'a click that moves focus away lets the button go');
+  other.focus();
+  assert.equal(button.state().shown, false, 'focus a click gave leaves the button to the pointer');
+  press(win, other, 'Tab', { shiftKey: true });
+  like.focus();
+  press(win, like, 'Tab');
+  other.focus();
+  assert.ok(doc.activeElement === other, 'going forward, focus stays where the browser put it');
+  button.click();
+  await frame();
+  assert.deepEqual(saved, ['one', 'two'], 'a link with an empty box still holds its photo');
+
+  // Shift+Tab ends on an element with no photo, and the page moves focus to the photo later.
+  like.focus();
+  press(win, like, 'Tab', { shiftKey: true });
+  doc.querySelector('a.before').focus();
+  link.focus();
+  assert.ok(doc.activeElement === link, 'focus the page moves afterwards is not Shift+Tab coming up');
+  button.stop();
+});
+
+test('Download and Pop out on a focused player step in row order and hold through scroll and redraws', async () => {
+  const win = page('<div class="player"><video class="first"></video><div class="controls"><div class="play" tabindex="0" role="button"></div><div class="mute" tabindex="0" role="button"></div></div></div><a class="after" href="/y">y</a><video class="elsewhere"></video>');
+  const doc = win.document;
+  const [first, play, mute, elsewhere] = ['video.first', '.play', '.mute', 'video.elsewhere'].map((s) => doc.querySelector(s));
+  box(first, [0, 0, 640, 360]);
+  box(play, [10, 320, 30, 30]);
+  box(mute, [50, 320, 30, 30]);
+  box(elsewhere, [0, 400, 640, 360]);
+  doc.elementsFromPoint = () => [elsewhere];
+  let on = true;
+  const saved = [];
+  const find = (element) => (on ? { what: element.className } : null);
+  const download = createDownloadButton({ doc, win, active: () => on, find, run: async (found) => saved.push(found.what) });
+  const pop = createDownloadButton({ doc, win, active: () => on, find, run: async () => {}, name: 'picture-in-picture', text: 'Pop out', row: 1 });
+  const [downloadHost, popHost] = ['download', 'picture-in-picture'].map((name) => doc.querySelector(`[data-hushfacebook-web="${name}"]`) ?? name);
+  press(win, doc.body, 'Tab');
+  play.focus();
+  assert.equal(download.state().shown && pop.state().shown, true);
+  const hosts = () => [doc.querySelector('[data-hushfacebook-web="download"]'), doc.querySelector('[data-hushfacebook-web="picture-in-picture"]')];
+  assert.equal(typeof downloadHost, 'string', 'no box before anything needed one');
+  assert.equal(typeof popHost, 'string');
+  const [dl, pp] = hosts();
+
+  press(win, play, 'Tab');
+  assert.ok(doc.activeElement === dl);
+  press(win, dl, 'Tab');
+  assert.ok(doc.activeElement === pp, 'rows in order');
+  assert.equal(press(win, pp, 'Tab').defaultPrevented, false);
+  assert.ok(doc.activeElement === play);
+  mute.focus();
+  assert.equal(pop.state().shown, true, 'the next control of the same player keeps the buttons');
+  assert.equal(press(win, mute, 'Tab').defaultPrevented, false, 'and Tab from it is the browser\'s');
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 100, clientY: 500 }));
+  await frame();
+  assert.equal(download.state().top, '10px', 'focus on a control of the player holds the buttons there');
+  play.focus();
+  press(win, play, 'Tab');
+  press(win, dl, 'Tab');
+  assert.equal(press(win, pp, 'Tab', { shiftKey: true }).defaultPrevented, true);
+  assert.ok(doc.activeElement === dl);
+  const after = doc.querySelector('a.after');
+  box(after, [0, 380, 50, 20]);
+  after.focus();
+  assert.equal(download.state().shown, false, 'past the player, the buttons go');
+  press(win, after, 'Tab', { shiftKey: true });
+  mute.focus();
+  assert.ok(doc.activeElement === pp, 'Shift+Tab back into the player comes to its last button first');
+  press(win, pp, 'Tab', { shiftKey: true });
+  assert.ok(doc.activeElement === dl);
+  press(win, dl, 'Tab', { shiftKey: true });
+  assert.ok(doc.activeElement === mute, 'then to the control focus came up to');
+  press(win, mute, 'Tab');
+  assert.ok(doc.activeElement === dl);
+
+  // The pointer wanders over another video while focus is on the button.
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 100, clientY: 500 }));
+  await frame();
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(download.state().shown, true, 'the pointer does not take a focused button away');
+  box(first, [0, -500, 640, 360]);
+  win.dispatchEvent(new win.Event('scroll'));
+  await frame();
+  assert.equal(download.state().shown, true, 'scrolled off screen, it stays');
+  assert.deepEqual([download.state().top, pop.state().top], ['10px', '54px']);
+  box(first, [0, 2000, 640, 360]);
+  win.dispatchEvent(new win.Event('scroll'));
+  await frame();
+  assert.deepEqual([download.state().top, pop.state().top], [`${win.innerHeight - 88}px`, `${win.innerHeight - 44}px`], 'below the screen, both stay in view, in order');
+
+  // Facebook draws the player's video again as a new element.
+  const second = doc.createElement('video');
+  second.className = 'second';
+  box(second, [0, 0, 640, 360]);
+  first.replaceWith(second);
+  download.click();
+  await frame();
+  assert.deepEqual(saved, ['second'], 'the video the focused player holds now, not the one under the pointer');
+  const third = doc.createElement('video');
+  third.className = 'third';
+  box(third, [0, 100, 640, 360]);
+  second.replaceWith(third);
+  win.dispatchEvent(new win.Event('scroll'));
+  await frame();
+  assert.equal(download.state().top, '110px', 'the button moves to the new video on its own');
+
+  on = false;
+  assert.equal(press(win, dl, 'Tab').defaultPrevented, false, 'paused, Tab is the browser\'s');
+  assert.equal(download.state().shown || pop.state().shown, false, 'and the buttons left up go');
+  on = true;
+  play.focus();
+  assert.equal(download.state().shown, true);
+  on = false;
+  win.dispatchEvent(new win.Event('scroll'));
+  await frame();
+  assert.equal(download.state().shown, false, 'paused, a held button goes at the next scroll too');
+  download.click();
+  await frame();
+  assert.deepEqual(saved, ['second'], 'switched off, nothing saves');
+  on = true;
+  const removed = [];
+  const remove = doc.removeEventListener.bind(doc);
+  doc.removeEventListener = (type, listener, options) => {
+    removed.push(options === true || options?.capture ? `${type} capture` : type);
+    return remove(type, listener, options);
+  };
+  download.stop();
+  assert.equal(removed.includes('keydown capture'), false, 'Pop out still needs the page\'s Tab');
+  pop.stop();
+  assert.deepEqual(['keydown capture', 'pointerdown capture', 'focusin'].map((type) => removed.includes(type)), [true, true, true], 'the last one out takes the listeners');
+  assert.ok(hosts().every((found) => found === null), 'both boxes go');
+  play.focus();
+  assert.equal(press(win, play, 'Tab').defaultPrevented, false, 'stopped buttons leave Tab alone');
+  assert.ok(hosts().every((found) => found === null), 'and focus brings nothing back');
+});
+
+test('a focused button stays while the mouse passes over it, and a clicked one still goes with its video', async () => {
+  const win = page('<a class="photo" href="/photo/?fbid=1"><img></a><video></video>');
+  const doc = win.document;
+  const [link, img, videoEl] = ['a.photo', 'img', 'video'].map((s) => doc.querySelector(s));
+  box(link, [0, 0, 600, 400]);
+  box(img, [0, 0, 600, 400]);
+  box(videoEl, [0, 500, 600, 400]);
+  doc.elementsFromPoint = () => [videoEl];
+  // The button's shadow root is closed. Kept open here so the test can reach the button.
+  const attach = win.HTMLElement.prototype.attachShadow;
+  win.HTMLElement.prototype.attachShadow = function (init) {
+    return attach.call(this, { ...init, mode: 'open' });
+  };
+  const button = createDownloadButton({ doc, win, active: () => true, find: () => ({}), run: async () => {} });
+  press(win, doc.body, 'Tab');
+  link.focus();
+  press(win, link, 'Tab');
+  const inner = doc.querySelector('[data-hushfacebook-web="download"]').shadowRoot.querySelector('button');
+  inner.dispatchEvent(new win.PointerEvent('pointerenter'));
+  inner.dispatchEvent(new win.PointerEvent('pointerleave'));
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  assert.equal(button.state().shown, true, 'the mouse going by does not take a focused button away');
+
+  link.remove();
+  assert.equal(press(win, inner, 'Tab', { shiftKey: true, composed: true }).defaultPrevented, false, 'with the photo gone, Shift+Tab is the browser\'s');
+
+  // A click on the page takes focus off the button.
+  doc.dispatchEvent(new win.PointerEvent('pointerdown'));
+  inner.blur();
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 100, clientY: 600 }));
+  await frame();
+  assert.equal(button.state().top, '510px', 'the pointer has it now');
+  inner.focus();
+  box(videoEl, [0, -900, 600, 400]);
+  win.dispatchEvent(new win.Event('scroll'));
+  await frame();
+  assert.equal(button.state().shown, false, 'a button the mouse brought up goes with its video, focused or not');
+  button.stop();
+  win.HTMLElement.prototype.attachShadow = attach;
+});
+
 test('floating controls follow resized media without another pointer move', async () => {
   const win = page('<video></video>');
   const doc = win.document;
@@ -469,6 +707,10 @@ test('floating controls follow resized media without another pointer move', asyn
   await frame();
   assert.equal(button.state().top, '90px');
   assert.equal(button.state().right, `${win.innerWidth - 320 + 10}px`);
+  box(video, [20, win.innerHeight - 20, 300, 200]);
+  win.dispatchEvent(new win.Event('resize'));
+  await frame();
+  assert.equal(button.state().top, `${win.innerHeight - 10}px`, 'the pointer\'s button stays on its media near the bottom edge');
   button.stop();
 });
 

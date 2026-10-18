@@ -9,7 +9,7 @@ export default {
   section: 'downloads',
   android: 'Download any story',
   title: 'Download any story',
-  description: "Shows a Download button on the story you're watching when you point at it. Videos save in the best quality Facebook offers unless you pick smaller files.",
+  description: "Shows a Download button on the story you're watching when you point at it or Tab to it. Videos save in the best quality Facebook offers unless you pick smaller files.",
   default: true,
   needsPage: true,
   options: [QUALITY_OPTION],

@@ -66,7 +66,7 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
 
   const button = createDownloadButton({
     doc, win, log, run, active: anyOn,
-    onMissing: () => toast?.("There's nothing to save under the button now. Point at the photo or video again."),
+    onMissing: () => toast?.("There's nothing to save there now. Go back to the photo or video and try again."),
     find(element) {
       const found = findMedia(element, { href: router?.current()?.href ?? win.location.href, index });
       return found && switches.get(found.feature)?.enabled() ? found : null;
