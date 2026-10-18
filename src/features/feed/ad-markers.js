@@ -37,12 +37,16 @@ const JOIN_TYPENAME = 'GroupJoinForumAction';
 
 // Looks for a value inside one story. Nested edges and a shared post's attached story speak
 // for themselves, so a friend's share of an ad or a group page holding an ad doesn't count
-// as an ad.
+// as an ad. A share carries its post more than once (the story's own attached_story, another
+// under content.story, and the section that draws it), so every attached_story is left out,
+// however deep.
 export function storyMatches(node, test) {
   let found = false;
+  const shared = new Set();
   walk(node, (value) => {
-    if (found || value === node.attached_story) return SKIP;
+    if (found || shared.has(value)) return SKIP;
     if (value !== node && 'node' in value && 'cursor' in value) return SKIP;
+    if (isObject(value.attached_story)) shared.add(value.attached_story);
     if (test(value)) found = true;
     return undefined;
   });

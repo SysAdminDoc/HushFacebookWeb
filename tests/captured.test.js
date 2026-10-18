@@ -88,6 +88,54 @@ test('Marketplace: the ad card loses its node, listings and paging stay', async 
   assert.equal(first.data.marketplace_home_feed.edges[0].node.__typename, 'MarketplaceFeedGeneralListingObject');
 });
 
+// The captured Home page's second line is a friend's share. It carries the shared post four
+// times: the story's own attached_story, another under content.story, the section that draws it
+// and that section's own copy. A sponsored label in any of them is the shared post's, so the share
+// and its paging cursor stay, by XHR and through the JSON.parse hook. A label on the share itself
+// still takes it out, and Hide AI-labeled posts still looks inside the share as it says it does.
+test("a sponsored label anywhere inside a shared post leaves the friend's share and its cursor alone", async () => {
+  const [, shareLine] = await fixtureLines('CometNewsFeedPaginationQuery.jsonl');
+  const ctx = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+  const ads = adRule('hideSponsoredPosts', () => true);
+  const label = () => ({ __typename: 'CometStorySponsoredLabelStrategy', label: 'Ad' });
+  const content = (doc) => doc.data.node.comet_sections.content.story;
+  const places = {
+    'the story': (doc) => doc.data.node.attached_story,
+    'content.story': (doc) => content(doc).attached_story,
+    'the section': (doc) => content(doc).comet_sections.attached_story.story,
+    "the section's copy": (doc) => content(doc).comet_sections.attached_story.story.attached_story,
+  };
+  const hooked = () => {
+    const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/' } };
+    const net = installNetworkHooks({ win, log: { error: () => {}, warn() {}, info() {}, debug() {} } });
+    net.transformResponses(ads);
+    return win.JSON;
+  };
+  const labeled = (place) => {
+    const doc = parseLine(shareLine);
+    const target = place(doc);
+    assert.ok(target && typeof target === 'object', 'the capture has a shared post there');
+    target.sponsored_label = label();
+    return JSON.stringify(doc);
+  };
+  for (const [name, place] of Object.entries(places)) {
+    const line = labeled(place);
+    assert.equal(transformDocumentLine(line, [ads], ctx), line, name);
+    assert.deepEqual(hooked().parse(line), JSON.parse(line), `${name}, inline`);
+  }
+  const outer = parseLine(shareLine);
+  outer.data.node.sponsored_label = label();
+  const line = JSON.stringify(outer);
+  for (const after of [parseLine(transformDocumentLine(line, [ads], ctx)), hooked().parse(line)]) {
+    assert.equal(after.data.node, undefined, 'a label on the share itself is an ad');
+    assert.equal(after.data.cursor, outer.data.cursor);
+  }
+  const ai = parseLine(shareLine);
+  places['content.story'](ai).ai_label = { __typename: 'CometFeedStoryGenAIContentTransparencyStrategy', was_detected_as_ai_generated: true };
+  const aiRule = adRule('hideAiPosts', () => true, undefined, { route: () => parseRoute('https://www.facebook.com/') });
+  assert.equal(parseLine(transformDocumentLine(JSON.stringify(ai), [aiRule], ctx)).data.node, undefined, 'a share of an AI-labeled post still goes');
+});
+
 test('search: the ad edge is emptied beside the organic results', async () => {
   const [line] = await fixtureLines('SearchCometResultsPaginatedResultsQuery.jsonl');
   const before = parseLine(line);

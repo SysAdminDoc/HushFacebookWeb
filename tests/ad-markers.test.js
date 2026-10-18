@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, hasAiLabel, hasSponsoredLabel, inScope, markersFor, pruneAds } from '../src/features/feed/ad-markers.js';
+import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, hasAiLabel, hasSponsoredLabel, inScope, markersFor, pruneAds, titleHas } from '../src/features/feed/ad-markers.js';
 import { parseRoute } from '../src/core/route.js';
 import { features } from '../src/features/index.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
@@ -231,6 +231,13 @@ test('a friend sharing an ad is not an ad', () => {
   const share = edge2026('share', {}, { attached_story: { __typename: 'Story', id: 'shared-ad', comet_sections: adLabel } });
   assert.equal(hasSponsoredLabel(share.node), false);
   assert.equal(adMarkerFor(share), null);
+});
+
+test("a story without a title section isn't a suggestion because of a Follow button inside the post it shares", () => {
+  const follow = { __typename: 'CometFeedStoryFollowButtonStrategy' };
+  const share = { __typename: 'Story', id: 'share', comet_sections: { content: { story: { attached_story: { __typename: 'Story', id: 'page-post', comet_sections: { follow } } } } } };
+  assert.equal(titleHas(share, follow.__typename), false);
+  assert.equal(titleHas({ ...share, follow }, follow.__typename), true, 'its own button still counts');
 });
 
 test('a page wrapper holding an ad deep inside keeps its node', () => {
