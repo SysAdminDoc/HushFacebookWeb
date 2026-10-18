@@ -113,10 +113,17 @@ const positionRecord = (value) => (
     && finite(spot.at, 0)
   ))
 );
+// The background's release check (extension/background.js lists the fields). A record saved
+// before checkedAt existed has `at` instead of the times after it.
+const UPDATE_FIELDS = ['at', 'current', 'latest', 'url', 'newer', 'checkedAt', 'triedAt', 'state', 'failures', 'nextAt', 'checking'];
+const UPDATE_STATES = ['current', 'newer', 'offline', 'rate-limited', 'failed'];
+const updateTime = (value) => value === undefined || value === null || (Number.isSafeInteger(value) && value >= 0);
 const updateRecord = (value) => (
   isRecord(value)
-  && Object.keys(value).every((name) => ['at', 'current', 'latest', 'url', 'newer'].includes(name))
-  && finite(value.at, 0)
+  && Object.keys(value).every((name) => UPDATE_FIELDS.includes(name))
+  && ['at', 'checkedAt', 'triedAt', 'nextAt', 'checking'].every((name) => updateTime(value[name]))
+  && (value.state === undefined || value.state === null || UPDATE_STATES.includes(value.state))
+  && (value.failures === undefined || (Number.isSafeInteger(value.failures) && value.failures >= 0 && value.failures <= 10000))
   && boundedString(value.current, 32)
   && UPDATE_VERSION.test(value.current)
   && (value.latest === null || (boundedString(value.latest, 32) && UPDATE_VERSION.test(value.latest)))
@@ -558,14 +565,16 @@ const handlers = {
       sourceDoneKey,
     })
   ),
-  download: ({ url, name, key }) => askAboutDownload({ type: 'download', url, name, key }),
-  'download:cancel': ({ key }) => askAboutDownload({ type: 'download:cancel', key }),
+  download: ({ url, name, key }) => askWorker({ type: 'download', url, name, key }),
+  'download:cancel': ({ key }) => askWorker({ type: 'download:cancel', key }),
+  'update:check': () => askWorker({ type: 'update:check' }),
 };
 
 // Chrome stops an idle worker, and one stopped in the middle of an answer leaves the message
-// with none, so it's asked once more. The key makes the second ask find the download the first
-// one started instead of starting another.
-async function askAboutDownload(message) {
+// with none, so it's asked once more. A download's key makes the second ask find the download the
+// first one started instead of starting another, and a second update check waits out the first
+// one's cooldown.
+async function askWorker(message) {
   let answer;
   try {
     answer = await chrome.runtime.sendMessage(message);
@@ -609,6 +618,7 @@ async function onRequest(event) {
     const body = payload ?? {};
     if (type.startsWith('storage:') && !validStorageRequest(type, body)) throw new Error('that storage request is not allowed');
     if (type.startsWith('download') && !validDownloadRequest(type, body)) throw new Error('that download request is not allowed');
+    if (type === 'update:check' && !(storageAccess.kind === 'facebook' && onlyKeys(body, []))) throw new Error('that update request is not allowed');
     activeRequests.add(id);
     const result = await handler(body);
     toMain({ id, ok: true, result: result ?? null });

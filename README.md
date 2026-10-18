@@ -47,7 +47,7 @@ The build also makes a Firefox copy of the extension, for Firefox 128 or newer (
 2. Open `about:debugging#/runtime/this-firefox` and click **Load Temporary Add-on**.
 3. Pick `manifest.json` in that folder.
 
-A loaded-unpacked extension can't update itself, so once a day it asks GitHub for the latest release. When there's a newer one, the toolbar button shows NEW, Facebook shows a one-time note, and General in the settings says how to update: unzip the new release over the same folder and click Reload on the extensions page. Your settings stay. The extension asks for storage (your settings), downloads (saving photos and videos), alarms (the daily release check) and the tab you click its button on. It runs only on facebook.com and in Instant Games frames, and the only other place it contacts is GitHub's release API.
+A loaded-unpacked extension can't update itself, so once a day it asks GitHub for the latest release. When there's a newer one, the toolbar button shows NEW, Facebook shows a one-time note, and General in the settings says how to update: unzip the new release over the same folder and click Reload on the extensions page. Your settings stay. General also says when a check last worked, and Check now asks GitHub right away. A check that can't reach GitHub tries again in 15 minutes, then less and less often. The extension asks for storage (your settings), downloads (saving photos and videos), alarms (the release check) and the tab you click its button on. It runs only on facebook.com and in Instant Games frames, and the only other place it contacts is GitHub's release API.
 
 ## Settings
 

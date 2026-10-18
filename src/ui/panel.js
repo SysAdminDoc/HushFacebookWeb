@@ -354,14 +354,61 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     }))];
   }
 
-  // The extension's notice that a newer release is out (environment.update, extension only).
-  function updateCard(update = environment.update?.()) {
-    if (!update) return null;
+  // How the extension's release check went (environment.update, extension only, from
+  // src/core/extension.js updateStatus), with the newer release when there is one.
+  const when = (time) => new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  function updateLine(status) {
+    if (status.checking) return 'Checking GitHub now.';
+    const checked = status.checkedAt === null ? '' : `Checked ${when(status.checkedAt)}.`;
+    const lastWorked = status.checkedAt === null ? 'No check has worked yet.' : `The last one that worked was ${when(status.checkedAt)}.`;
+    const tried = status.triedAt === null ? 'The last check' : `The check on ${when(status.triedAt)}`;
+    if (status.state === 'current') return `You have the newest release. ${checked}`.trim();
+    if (status.state === 'newer') return checked;
+    if (status.state === 'offline') return `${tried} couldn't reach GitHub. ${lastWorked} It tries again on its own.`;
+    if (status.state === 'failed') return `GitHub's answer to ${tried.toLowerCase()} didn't make sense. ${lastWorked} It tries again on its own.`;
+    if (status.state === 'rate-limited') {
+      const until = status.nextAt === null ? 'GitHub asked for a pause before the next check.' : `GitHub asked for a pause, so the next check waits until ${when(status.nextAt)}.`;
+      return `${until} ${lastWorked}`;
+    }
+    return 'No check has finished for this version yet. It checks GitHub once a day.';
+  }
+
+  async function checkForUpdateNow() {
+    const answer = await environment.checkForUpdate();
+    if (answer?.asked !== false) return;
+    const status = environment.update?.();
+    toast(status?.state === 'rate-limited' && status.nextAt > Date.now()
+      ? `GitHub asked for a pause. The next check is after ${when(status.nextAt)}.`
+      : 'It checked a moment ago. Try again in a couple of minutes.');
+  }
+
+  function updateCard(status = environment.update?.()) {
+    if (!status) return null;
+    const { update } = status;
+    const line = updateLine(status);
     return h('div', { class: 'card', dataset: { key: 'update' } },
-      h('div', { class: 'title', text: `HushFacebook Web ${update.version} is out` }),
-      h('div', { class: 'desc', text: `You have ${environment.version}. Download hushfacebook-web-extension.zip from the release and unzip it over the folder you loaded. Then click Reload on HushFacebook Web in your browser's extensions page. Your settings stay.` }),
+      h('div', { class: 'title', text: update ? `HushFacebook Web ${update.version} is out` : 'Updates' }),
+      update ? h('div', { class: 'desc', text: `You have ${environment.version}. Download hushfacebook-web-extension.zip from the release and unzip it over the folder you loaded. Then click Reload on HushFacebook Web in your browser's extensions page. Your settings stay.` }) : null,
+      line ? h('div', { class: 'desc', text: line, dataset: { key: 'update:status' } }) : null,
       h('div', { class: 'actions' },
-        h('a', { class: 'button primary', href: update.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open the release' })));
+        update ? h('a', { class: 'button primary', href: update.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open the release' }) : null,
+        environment.checkForUpdate ? actionButton('update:check', 'Check now', checkForUpdateNow, { primary: !update, busyLabel: 'Checking...' }) : null));
+  }
+
+  function updateRow(status) {
+    const check = environment.checkForUpdate ? [{ label: 'Check now' }] : [];
+    if (status.update) {
+      return {
+        id: 'update', section: 'general', title: `HushFacebook Web ${status.update.version} is out`,
+        description: `You have ${environment.version}. Download the new extension files, then reload HushFacebook Web in your browser.`,
+        options: [{ label: 'Open the release' }, ...check], focusKey: 'update', render: () => updateCard(status),
+      };
+    }
+    return {
+      id: 'update', section: 'general', title: 'Updates',
+      description: 'The extension checks GitHub for a newer release once a day. Check now asks right away.',
+      options: check, focusKey: check.length ? 'update:check' : 'update', render: () => updateCard(status),
+    };
   }
 
   function reloadCard() {
@@ -550,11 +597,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         description: 'Put back the choices you had before the reset, until you change a setting or leave this page.',
         options: [{ label: 'Undo reset' }, { label: 'Dismiss' }], focusKey: 'reset:undo', render: resetUndoCard,
       }] : []),
-      ...(update ? [{
-        id: 'update', section: 'general', title: `HushFacebook Web ${update.version} is out`,
-        description: `You have ${environment.version}. Download the new extension files, then reload HushFacebook Web in your browser.`,
-        options: [{ label: 'Open the release' }], focusKey: 'update', render: () => updateCard(update),
-      }] : []),
+      ...(update?.update ? [updateRow(update)] : []),
       ...(legacy ? [{
         id: 'legacy-activity', section: 'general', title: 'Activity from before accounts were kept apart',
         description: `Seen posts and video spots shared by everyone on this browser. ${environment.activity.perAccount ? 'Add them to this account' : 'Use them while signed out'} or delete them.`,
@@ -564,6 +607,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too.`, render: launcherCard },
       { id: 'ui.hiddenNote', section: 'general', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post.', render: hiddenNoteCard },
       { id: 'backup-restore', section: 'general', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.', focusKey: 'backup', render: backupCard },
+      ...(update && !update.update ? [updateRow(update)] : []),
       { id: 'report-problem', section: 'general', title: 'Report a problem', description: 'Opens a GitHub report with your versions and settings filled in. Add what happened.', render: reportProblemCard },
       { id: 'kofi', section: 'general', title: 'Buy me a coffee', description: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.', render: kofiCard },
     ];

@@ -42,7 +42,7 @@ export function extensionManifest(pkg, { browser = 'chrome' } = {}) {
     // Firefox runs the same classic script as an event page, since it has no extension workers.
     background: firefox ? { scripts: ['background.js'] } : { service_worker: 'background.js' },
     // activeTab: the toolbar button sees which tab it was clicked on, and nothing more.
-    // alarms: the daily release check.
+    // alarms: the release check's schedule and the toolbar button's wait for a reloaded tab.
     permissions: ['storage', 'downloads', 'activeTab', 'alarms'],
     content_scripts: [...scripts(FACEBOOK, false), ...scripts(GAMES, true)],
   };

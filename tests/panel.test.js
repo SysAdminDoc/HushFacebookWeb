@@ -1171,24 +1171,101 @@ test('search covers every kind of General row', () => {
   }
 });
 
+// What src/core/extension.js updateStatus gives General.
+const CHECKED = Date.UTC(2026, 9, 17, 15, 4);
+const checkStatus = (fields = {}) => ({ state: 'current', update: null, checking: false, checkedAt: CHECKED, triedAt: CHECKED, nextAt: CHECKED + 86400000, ...fields });
+const generalKeys = (shadow) => [...shadow.querySelectorAll('main .settings-group > *')].map((card) => card.dataset.key ?? card.querySelector('[data-key]')?.dataset.key);
+
 test("the extension's update notice heads General while a newer release is out, and links to it", () => {
-  let found = { version: '0.0.9', url: 'https://github.com/SysAdminDoc/HushFacebookWeb/releases/tag/v0.0.9' };
-  const { shadow, panel, win } = setup({ update: () => found });
+  const url = 'https://github.com/SysAdminDoc/HushFacebookWeb/releases/tag/v0.0.9';
+  let status = checkStatus({ state: 'newer', update: { version: '0.0.9', url } });
+  const { shadow, panel, win } = setup({ update: () => status, environment: { checkForUpdate: async () => ({ asked: true }) } });
   panel.open('general');
   const card = shadow.querySelector('[data-key="update"]');
   assert.ok(card, 'the card shows');
+  assert.equal(generalKeys(shadow)[0], 'update', 'first in General');
   assert.equal(card.querySelector('.title').textContent, 'HushFacebook Web 0.0.9 is out');
   assert.match(card.querySelector('.desc').textContent, /^You have 0\.0\.1\. /);
+  assert.match(card.querySelector('[data-key="update:status"]').textContent, /^Checked .*2026/);
   const link = card.querySelector('a.button');
-  assert.equal(link.getAttribute('href'), found.url);
+  assert.equal(link.getAttribute('href'), url);
   assert.equal(link.getAttribute('target'), '_blank');
+  assert.ok(card.querySelector('button[data-key="update:check"]'), 'Check now sits next to it');
   const search = shadow.querySelector('[data-key="search"]');
   search.value = 'new extension release';
   search.dispatchEvent(new win.Event('input', { bubbles: true }));
   assert.ok(shadow.querySelector('.result [data-key="update"]'), 'the visible update row is searchable');
-  found = null;
+  search.value = '';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  status = checkStatus();
   panel.refresh();
-  assert.ok(!shadow.querySelector('[data-key="update"]'), 'gone once there is nothing newer');
+  const plain = shadow.querySelector('[data-key="update"]');
+  assert.equal(plain.querySelector('.title').textContent, 'Updates', 'once nothing is newer it says how the check went');
+  assert.equal(plain.querySelector('a'), null);
+  assert.notEqual(generalKeys(shadow)[0], 'update', 'and moves down General');
+});
+
+test('General says how a failed check went, never that you have the newest release, and only a check that worked says so', () => {
+  let status = checkStatus({ state: 'offline', checkedAt: null });
+  const { shadow, panel } = setup({ update: () => status });
+  panel.open('general');
+  const line = () => shadow.querySelector('[data-key="update:status"]').textContent;
+  const shows = (fields, pattern) => {
+    status = checkStatus(fields);
+    panel.refresh();
+    assert.match(line(), pattern, JSON.stringify(fields));
+    if (fields.state !== 'current') assert.doesNotMatch(line(), /newest/, JSON.stringify(fields));
+  };
+  shows({ state: 'offline', checkedAt: null }, /^The check on .+ couldn't reach GitHub\. No check has worked yet\. It tries again on its own\.$/);
+  shows({ state: 'offline', triedAt: null }, /^The last check couldn't reach GitHub\. The last one that worked was .+\. It tries again on its own\.$/);
+  shows({ state: 'failed' }, /^GitHub's answer to the check on .+ didn't make sense\. The last one that worked was .+\. It tries again on its own\.$/);
+  shows({ state: 'rate-limited' }, /^GitHub asked for a pause, so the next check waits until .+\. The last one that worked was .+\.$/);
+  shows({ state: 'rate-limited', nextAt: null, checkedAt: null }, /^GitHub asked for a pause before the next check\. No check has worked yet\.$/);
+  shows({ state: 'waiting', checkedAt: null, triedAt: null }, /^No check has finished for this version yet\. It checks GitHub once a day\.$/);
+  shows({ state: 'offline', checking: true }, /^Checking GitHub now\.$/);
+  shows({ state: 'current' }, /^You have the newest release\. Checked .+\.$/);
+  assert.equal(shadow.querySelector('[data-key="update:check"]'), null, 'no Check now without the extension to ask');
+});
+
+test('Check now asks the extension and says why when it was too soon or GitHub asked for a pause', async () => {
+  const answers = [];
+  let answer = { asked: true, nextAt: null };
+  let status = checkStatus();
+  const { shadow, panel, win } = setup({
+    update: () => status,
+    environment: { checkForUpdate: () => new Promise((resolve) => answers.push(() => resolve(answer))) },
+  });
+  panel.open('general');
+  const button = () => shadow.querySelector('[data-key="update:check"]');
+  const search = shadow.querySelector('[data-key="search"]');
+  search.value = 'check now';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  assert.ok(shadow.querySelector('.result [data-key="update:check"]'), 'search finds it');
+  search.value = '';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+
+  button().click();
+  assert.equal(button().textContent, 'Checking...');
+  assert.equal(button().getAttribute('aria-busy'), 'true');
+  button().click();
+  assert.equal(answers.length, 1, 'a second click while it runs asks nothing');
+  answers.shift()();
+  await tick();
+  assert.equal(button().textContent, 'Check now');
+  assert.equal(shadow.querySelector('.toast'), null, 'a check that ran speaks through the card');
+
+  answer = { asked: false, nextAt: null };
+  button().click();
+  answers.shift()();
+  await tick();
+  assert.equal(shadow.querySelector('.toast:last-child span').textContent, 'It checked a moment ago. Try again in a couple of minutes.');
+
+  status = checkStatus({ state: 'rate-limited', nextAt: Date.now() + 3600000 });
+  panel.refresh();
+  button().click();
+  answers.shift()();
+  await tick();
+  assert.match(shadow.querySelector('.toast:last-child span').textContent, /^GitHub asked for a pause\. The next check is after .+\.$/);
 });
 
 test('without an update source General has no notice', () => {

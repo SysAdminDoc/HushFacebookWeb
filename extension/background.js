@@ -155,7 +155,7 @@ function receiptMutation(mutation) {
 
 function validWorkerRequest(message) {
   if (!isStorageRecord(message) || utf8Bytes(message, MESSAGE_MAX_BYTES) > MESSAGE_MAX_BYTES) return false;
-  if (message.type === 'storage:recover' || message.type === 'settings:pending') return onlyKeys(message, ['type']);
+  if (message.type === 'storage:recover' || message.type === 'settings:pending' || message.type === 'update:check') return onlyKeys(message, ['type']);
   if (message.type === 'storage:mutate') {
     if (!onlyKeys(message, ['type', 'key', 'mutation', 'generation', 'baseRevisions']) || !PREFERENCE_KEY.test(message.key)) return false;
     return message.key.endsWith('.migrated') ? receiptMutation(message.mutation) : settingsMutation(message.mutation);
@@ -1322,11 +1322,34 @@ async function openSettings(tab) {
 
 // A loaded-unpacked extension never updates itself, so once a day the worker asks GitHub for
 // the latest release (api.github.com allows any origin, so no host permission). A newer one
-// lights the toolbar badge, and the page shows a notice in General from the saved record
-// (src/core/extension.js reads UPDATE_KEY). Offline or rate limited, it tries again the next day.
+// lights the toolbar badge, and General shows the saved record (src/core/extension.js reads
+// UPDATE_KEY):
+//   current      the extension version the record is for
+//   latest, url  the release from the last answer that made sense, kept through failures
+//   newer        latest is newer than current
+//   checkedAt    when GitHub last gave an answer that made sense, or null
+//   triedAt      when the worker last asked, or null
+//   state        how that went: current, newer, offline, rate-limited or failed
+//   failures     asks in a row that went wrong
+//   nextAt       the earliest time it asks again by itself
+//   checking     when the ask that's running started, or null
+// One alarm wakes the worker at nextAt, so a worker Chrome stopped picks the schedule up from the
+// record. A failure tries again after 15 minutes, an hour and four hours, then once a day.
+// GitHub's Retry-After or rate limit reset can only move the next ask later. Check now in General
+// asks at once, unless the last ask was under two minutes ago or GitHub asked for a pause.
+// Nothing is downloaded or installed.
 const RELEASES = 'https://api.github.com/repos/SysAdminDoc/HushFacebookWeb/releases/latest';
+const RELEASE_PAGES = 'https://github.com/SysAdminDoc/HushFacebookWeb/';
 const UPDATE_KEY = 'extensionUpdate';
-const DAY = 24 * 60 * 60 * 1000;
+const UPDATE_ALARM = 'update-check';
+const MINUTE = 60 * 1000;
+const DAY = 24 * 60 * MINUTE;
+const UPDATE_RETRIES = [15 * MINUTE, 60 * MINUTE, 4 * 60 * MINUTE];
+const UPDATE_DEADLINE = 15 * 1000;
+const UPDATE_COOLDOWN = 2 * MINUTE;
+const UPDATE_STATES = new Set(['current', 'newer', 'offline', 'rate-limited', 'failed']);
+const RELEASE_TAG = /^\d+(\.\d+){0,7}$/;
+let updateRun = null;
 
 function isNewer(candidate, current) {
   const a = String(candidate).split('.').map(Number);
@@ -1338,37 +1361,168 @@ function isNewer(candidate, current) {
   return false;
 }
 
-async function checkForUpdate(now = Date.now()) {
-  const current = chrome.runtime.getManifest().version;
-  const { [UPDATE_KEY]: last } = await chrome.storage.local.get(UPDATE_KEY);
-  let record = last;
-  if (!(last?.at && now - last.at >= 0 && now - last.at < DAY && last.current === current)) {
-    record = { at: now, current, latest: last?.latest ?? null, url: last?.url ?? null };
+const savedTime = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : null);
+
+// The saved record, read the same way whatever wrote it. One from before checkedAt existed has
+// only `at`, the time of its last ask, which may have failed, so it counts as tried, not checked.
+// A record made for another version of the extension is due at once.
+function updateRecord(saved, current) {
+  const latest = typeof saved?.latest === 'string' && RELEASE_TAG.test(saved.latest) ? saved.latest : null;
+  const triedAt = savedTime(saved?.triedAt) ?? savedTime(saved?.at);
+  return {
+    current,
+    latest,
+    url: latest && typeof saved.url === 'string' && saved.url.startsWith(RELEASE_PAGES) ? saved.url : null,
+    newer: Boolean(latest && isNewer(latest, current)),
+    checkedAt: savedTime(saved?.checkedAt),
+    triedAt,
+    state: UPDATE_STATES.has(saved?.state) ? saved.state : null,
+    failures: Number.isSafeInteger(saved?.failures) && saved.failures > 0 ? saved.failures : 0,
+    nextAt: saved?.current !== current ? 0 : savedTime(saved?.nextAt) ?? (triedAt === null ? 0 : triedAt + DAY),
+    checking: null,
+  };
+}
+
+// A clock that went back past the last ask makes it due, the way a stale record does.
+function updateDue(record, now, manual) {
+  if (record.triedAt !== null && record.triedAt > now) return true;
+  if (!manual) return now >= record.nextAt;
+  if (record.state === 'rate-limited' && now < record.nextAt) return false;
+  return record.triedAt === null || now - record.triedAt >= UPDATE_COOLDOWN;
+}
+
+// When GitHub said to ask again: Retry-After in seconds or as a date, or the rate limit's reset
+// (seconds since 1970) once none are left. Never more than a day out.
+function githubWait(headers, now) {
+  const read = (name) => String(headers?.get?.(name) ?? '').trim();
+  const retry = read('retry-after');
+  const reset = read('x-ratelimit-reset');
+  let until = null;
+  if (/^\d{1,9}$/.test(retry)) until = now + Number(retry) * 1000;
+  else if (retry && !Number.isNaN(Date.parse(retry))) until = Date.parse(retry);
+  if (read('x-ratelimit-remaining') === '0' && /^\d{1,12}$/.test(reset)) until = Math.max(until ?? 0, Number(reset) * 1000);
+  return until === null ? null : Math.min(until, now + DAY);
+}
+
+// One ask, ended by the deadline wherever it is, body included.
+async function askGitHub(now, deadline) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), deadline);
+  try {
+    const response = await fetch(RELEASES, { headers: { accept: 'application/vnd.github+json' }, cache: 'no-store', signal: controller.signal });
+    if (response.status === 403 || response.status === 429) return { state: 'rate-limited', until: githubWait(response.headers, now) };
+    if (!response.ok) return { state: 'failed' };
+    let release;
     try {
-      const response = await fetch(RELEASES, { headers: { accept: 'application/vnd.github+json' }, cache: 'no-store' });
-      if (response.ok) {
-        const release = await response.json();
-        const tag = String(release.tag_name ?? '').replace(/^v/, '');
-        if (/^\d+(\.\d+)*$/.test(tag)) record = { ...record, latest: tag, url: String(release.html_url ?? '') || null };
-      }
-    } catch {
-      // Offline. The record's time means the next try is tomorrow.
+      release = await response.json();
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+      return { state: 'failed' };
     }
-    record.newer = Boolean(record.latest && isNewer(record.latest, current));
-    await chrome.storage.local.set({ [UPDATE_KEY]: record });
+    const tag = typeof release?.tag_name === 'string' ? release.tag_name.replace(/^v/, '') : '';
+    if (!RELEASE_TAG.test(tag)) return { state: 'failed' };
+    const url = typeof release.html_url === 'string' && release.html_url.startsWith(RELEASE_PAGES) ? release.html_url : null;
+    return { state: 'answered', latest: tag, url };
+  } catch {
+    return { state: 'offline' };
+  } finally {
+    clearTimeout(timer);
   }
-  await chrome.action.setBadgeText({ text: record.newer ? 'NEW' : '' });
-  if (record.newer) await chrome.action.setBadgeBackgroundColor({ color: '#9D70EB' });
-  return record;
+}
+
+// The record after an ask. A failure keeps the release it knew, so a newer one stays shown and
+// nothing claims to be current.
+function settleUpdate(record, answer, now) {
+  const next = { ...record, triedAt: now, checking: null };
+  if (answer.state === 'answered') {
+    const newer = isNewer(answer.latest, record.current);
+    return { ...next, latest: answer.latest, url: answer.url, newer, checkedAt: now, state: newer ? 'newer' : 'current', failures: 0, nextAt: now + DAY };
+  }
+  const failures = Math.min(record.failures + 1, 1000);
+  return { ...next, state: answer.state, failures, nextAt: Math.max(now + (UPDATE_RETRIES[failures - 1] ?? DAY), answer.until ?? 0) };
+}
+
+// A record that can't be saved still sets the badge and the alarm, and a badge or alarm the
+// browser refuses doesn't stop the rest.
+async function saveUpdate(record) {
+  try {
+    await chrome.storage.local.set({ [UPDATE_KEY]: record });
+  } catch {
+    // The alarm below still holds the schedule until the worker stops.
+  }
+}
+
+async function showUpdateBadge(record) {
+  try {
+    await chrome.action.setBadgeText({ text: record.newer ? 'NEW' : '' });
+    if (record.newer) await chrome.action.setBadgeBackgroundColor({ color: '#9D70EB' });
+  } catch {
+    // The badge is a hint. General shows the same record.
+  }
+}
+
+async function armUpdateAlarm(when, now) {
+  try {
+    await chrome.alarms.create(UPDATE_ALARM, { when: Math.max(when, now + MINUTE) });
+  } catch {
+    // The next worker start makes it again.
+  }
+}
+
+// asked: whether GitHub was asked, by this call or by one already running that it joined.
+async function runUpdateCheck(now, manual, deadline) {
+  let saved;
+  try {
+    ({ [UPDATE_KEY]: saved } = await chrome.storage.local.get(UPDATE_KEY));
+  } catch {
+    // Without the record there's no telling when GitHub was last asked, so it waits.
+    await armUpdateAlarm(now + UPDATE_RETRIES[0], now);
+    return { record: null, asked: false };
+  }
+  let record = updateRecord(saved, chrome.runtime.getManifest().version);
+  const asked = updateDue(record, now, manual);
+  if (asked) {
+    await saveUpdate({ ...record, checking: now });
+    record = settleUpdate(record, await askGitHub(now, deadline), now);
+    await saveUpdate(record);
+  }
+  await showUpdateBadge(record);
+  await armUpdateAlarm(record.nextAt, now);
+  return { record, asked };
+}
+
+function updateCheck(now = Date.now(), { manual = false, deadline = UPDATE_DEADLINE } = {}) {
+  if (!updateRun) updateRun = runUpdateCheck(now, manual, deadline).finally(() => { updateRun = null; });
+  return updateRun;
+}
+
+async function checkForUpdate(now, options) {
+  return (await updateCheck(now, options)).record;
+}
+
+// Check now in General. The page reads the outcome from the record.
+async function checkForUpdateNow() {
+  const { record, asked } = await updateCheck(Date.now(), { manual: true });
+  return { asked, nextAt: record?.nextAt ?? null };
+}
+
+// Chrome drops alarms on some restarts and on every update, so a missing one comes back at the
+// time the record says.
+async function resumeUpdateSchedule(now = Date.now()) {
+  try {
+    if (await chrome.alarms.get(UPDATE_ALARM)) return;
+    const { [UPDATE_KEY]: saved } = await chrome.storage.local.get(UPDATE_KEY);
+    await armUpdateAlarm(updateRecord(saved, chrome.runtime.getManifest().version).nextAt, now);
+  } catch {
+    await armUpdateAlarm(now + UPDATE_RETRIES[0], now);
+  }
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'update-check') checkForUpdate();
+  if (alarm.name === UPDATE_ALARM) checkForUpdate().catch(() => {});
   if (alarm.name === OPEN_ALARM) sweepOpens().catch(() => {});
 });
-chrome.alarms.get('update-check').then((alarm) => {
-  if (!alarm) chrome.alarms.create('update-check', { delayInMinutes: 1, periodInMinutes: 360 });
-});
+resumeUpdateSchedule();
 
 // Only Facebook's top frame talks to the worker, with a known request shape, at a bounded rate.
 // The isolated script checks the same things first; this holds even if a page gets past it.
@@ -1398,6 +1552,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           ? recoverDirectPreferences()
           : message?.type === 'settings:pending'
             ? pendingOpen(sender.tab.id)
+            : message?.type === 'update:check'
+              ? checkForUpdateNow()
       : null;
   if (!task) return false;
   task.then(

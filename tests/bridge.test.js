@@ -1755,6 +1755,36 @@ test('the isolated half refuses download requests without a key or with anything
   assert.deepEqual((await forged.send('download', { url, name: 'a.jpg', key })).result, { id: 7, state: 'in_progress' });
 });
 
+test('Check now reaches the worker as a bare request and brings its answer back', async () => {
+  const win = page();
+  const chrome = fakeChrome({}, { download: (message) => ({ ok: true, result: message.type === 'update:check' ? { asked: false, nextAt: 5 } : null }) });
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+  const checks = () => chrome.sent.filter((message) => message.type === 'update:check');
+  await refused(forged.send('update:check', { force: true }), /not allowed/);
+  assert.deepEqual(checks(), [], 'nothing extra rides along');
+  assert.deepEqual((await forged.send('update:check')).result, { asked: false, nextAt: 5 });
+  assert.deepEqual(checks(), [{ type: 'update:check' }]);
+});
+
+test("the page reads the release check's record as the worker saves it now and as it used to, and nothing else under that key", async () => {
+  const saved = { current: '0.0.2', latest: '0.0.3', url: null, newer: true, checkedAt: 5, triedAt: 6, state: 'offline', failures: 1, nextAt: 7, checking: null };
+  for (const [value, shown] of [
+    [saved, true],
+    [{ at: 1, current: '0.0.2', latest: null, url: null, newer: false }, true],
+    [{ ...saved, state: 'sleeping' }, false],
+    [{ ...saved, nextAt: -1 }, false],
+    [{ ...saved, checking: 1.5 }, false],
+    [{ ...saved, failures: -1 }, false],
+    [{ ...saved, extra: 1 }, false],
+  ]) {
+    const win = page();
+    await startIsolated(win, fakeChrome({ extensionUpdate: value }));
+    const loaded = await forgedChannel(win).send('storage:load', {});
+    assert.equal(Object.hasOwn(loaded.result, 'extensionUpdate'), shown, JSON.stringify(value));
+  }
+});
+
 test('settings wait for the saved copy, then migrate through the worker once before recording it', async () => {
   const win = page();
   const chrome = fakeChrome({ settings: { alpha: false }, 'settings.migrated': [] });
@@ -2334,6 +2364,7 @@ test('a game frame sees and changes only the game ads switch', async () => {
   await refused(forged.send('storage:set', { key: 'keepSpeed.rate', value: 2 }), /not allowed/);
   await refused(forged.send('storage:mutate', { key: 'settings', mutation: { set: { beta: false } } }), /not allowed/);
   await refused(forged.send('download', { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', key: '0f8e2a52-6a51-4c39-9d3b-0e9c3b0d6a11' }), /not allowed/);
+  await refused(forged.send('update:check'), /not allowed/, 'nor ask for an update check');
 });
 
 test('oversize, duplicate, piled-up and flooding requests are turned away', async () => {

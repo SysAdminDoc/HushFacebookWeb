@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { availableUpdate, UPDATE_KEY } from '../src/core/extension.js';
+import { availableUpdate, UPDATE_KEY, updateStatus } from '../src/core/extension.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 
 const SOURCE = readFileSync(new URL('../extension/background.js', import.meta.url), 'utf8');
@@ -19,7 +19,10 @@ const deferred = () => {
 
 // items: the browser's downloads, shared between workers to stand for one browser whose worker
 // Chrome stopped and started again. finishes: state a new download is in once download() resolves.
-function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null, items = new Map(), finishes = 'in_progress' } = {}) {
+// release: what GitHub answers. A release object, an Error (offline), { status, headers } (an
+// error status), { body } (that text as the answer), { stallBody } (the body's reader), or a
+// function of the fetch options that gives one of those. alarmSet false stands for the update alarm Chrome dropped.
+function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null, readError = null, badgeError = null, alarmSet = true, items = new Map(), finishes = 'in_progress' } = {}) {
   const data = structuredClone(saved);
   // badge: the button everywhere; tabButton: [tabId, badge or title] for one tab.
   const calls = { fetch: 0, badge: [], tabButton: [], alarms: [], created: [], activated: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [] };
@@ -31,6 +34,7 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
     runtime: { id: 'hfw', getManifest: () => ({ version }), onMessage: { addListener: (fn) => listeners.messages.push(fn) } },
     storage: { local: {
       get: async (keys) => {
+        if (readError) throw readError;
         const names = Array.isArray(keys) ? keys : [keys];
         return Object.fromEntries(names.filter((key) => key in data).map((key) => [key, structuredClone(data[key])]));
       },
@@ -58,13 +62,17 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
     }, onChanged: { addListener: (fn) => listeners.storageChanged.push(fn) } },
     action: {
       onClicked: { addListener() {} },
-      setBadgeText: async ({ tabId, text }) => void (tabId === undefined ? calls.badge.push(text) : calls.tabButton.push([tabId, text])),
+      setBadgeText: async ({ tabId, text }) => {
+        if (badgeError && tabId === undefined) throw badgeError;
+        if (tabId === undefined) calls.badge.push(text);
+        else calls.tabButton.push([tabId, text]);
+      },
       setTitle: async ({ tabId, title }) => void calls.tabButton.push([tabId, title]),
       setBadgeBackgroundColor: async () => {},
     },
     alarms: {
       onAlarm: { addListener: (fn) => listeners.alarm.push(fn) },
-      get: async () => ({ name: 'update-check' }),
+      get: async () => (alarmSet ? { name: 'update-check' } : undefined),
       create: async (name, info) => void calls.alarms.push([name, info.when]),
     },
     tabs: {
@@ -104,15 +112,27 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
     Object.assign(items.get(id), { state, ...(error ? { error } : {}) });
     listeners.downloadChanged.forEach((fn) => fn({ id, state: { current: state }, ...(error ? { error: { current: error } } : {}) }));
   };
-  const fetch = async () => {
+  let answer = release;
+  const fetch = async (url, options) => {
     calls.fetch++;
-    if (release instanceof Error) throw release;
-    return { ok: release !== null && !release.status, json: async () => release };
+    const given = typeof answer === 'function' ? await answer(options) : answer;
+    if (given instanceof Error) throw given;
+    const status = given?.status ?? (given === null ? 404 : 200);
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: new Headers(given?.headers ?? {}),
+      json: async () => {
+        if (given?.stallBody) return given.stallBody();
+        return given?.body === undefined ? given : JSON.parse(given.body);
+      },
+    };
   };
   const context = vm.createContext({
     chrome,
     crypto: globalThis.crypto,
     fetch,
+    AbortController,
     URL,
     Date,
     structuredClone,
@@ -121,8 +141,18 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
     console,
   });
   vm.runInContext(SOURCE, context);
-  return { context, chrome, data, calls, listeners, session, items, end };
+  return { context, chrome, data, calls, listeners, session, items, end, setRelease: (next) => { answer = next; } };
 }
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const RELEASES_LATEST = 'https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest';
+// GitHub never answers, or answers and never finishes the body, until the worker gives up.
+const stalled = (options) => new Promise((resolve, reject) => {
+  options.signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+});
+const neverAnswers = (options) => stalled(options);
+const bodyNeverEnds = (options) => ({ stallBody: () => stalled(options) });
 
 test('a newer release is saved, lights the badge, and the page reads it as an update', async () => {
   const { context, data, calls } = worker({ release: { tag_name: 'v0.0.10', html_url: 'https://github.com/SysAdminDoc/HushFacebookWeb/releases/tag/v0.0.10' } });
@@ -159,15 +189,186 @@ test('one check a day: a fresh record is reused without asking GitHub, and a new
   assert.deepEqual(updated.calls.badge, ['']);
 });
 
-test('offline, rate limited or an odd tag keeps what was known and waits a day', async () => {
+test('a check that fails says how, keeps the release it knew lit, and tries again in 15 minutes', async () => {
+  // Saved before checkedAt existed, so nothing says a check ever worked.
   const saved = { [UPDATE_KEY]: { at: 1, current: '0.0.4', latest: '0.0.5', url: null, newer: true } };
-  for (const release of [new Error('offline'), { status: 403 }, { tag_name: 'nightly' }]) {
-    const { context, data } = worker({ saved, release });
-    const record = await context.checkForUpdate(1 + DAY * 2);
-    assert.equal(record.latest, '0.0.5');
-    assert.equal(record.newer, true);
-    assert.equal(data[UPDATE_KEY].at, 1 + DAY * 2);
+  const now = 1 + DAY * 2;
+  for (const [release, state] of [
+    [new Error('Failed to fetch'), 'offline'],
+    [{ status: 403 }, 'rate-limited'],
+    [{ status: 429 }, 'rate-limited'],
+    [{ status: 500 }, 'failed'],
+    [null, 'failed'],
+    [{ tag_name: 'nightly' }, 'failed'],
+    [{ tag_name: 7 }, 'failed'],
+    [{ tag_name: `v${'1.'.repeat(20)}1` }, 'failed'],
+    [{ body: '{"tag_name":' }, 'failed'],
+    [{ body: 'null' }, 'failed'],
+  ]) {
+    const label = `${state} ${JSON.stringify(release) ?? release}`;
+    const { context, data, calls } = worker({ saved, release });
+    const record = await context.checkForUpdate(now);
+    assert.deepEqual({ ...record }, {
+      current: '0.0.4', latest: '0.0.5', url: null, newer: true,
+      checkedAt: null, triedAt: now, state, failures: 1, nextAt: now + 15 * MINUTE, checking: null,
+    }, label);
+    assert.deepEqual({ ...data[UPDATE_KEY] }, { ...record }, label);
+    assert.deepEqual(calls.badge, ['NEW'], label);
+    assert.deepEqual(calls.alarms, [['update-check', now + 15 * MINUTE]], label);
+    const shown = updateStatus(createMemoryStorage(data), '0.0.4', now);
+    assert.equal(shown.state, state, label);
+    assert.deepEqual(shown.update, { version: '0.0.5', url: RELEASES_LATEST }, label);
   }
+});
+
+test('failures back off to 15 minutes, an hour, four hours, then a day, and the next check that works starts over', async () => {
+  const w = worker({ release: new Error('Failed to fetch') });
+  let now = 10 * DAY;
+  const waits = [];
+  for (let i = 0; i < 5; i++) {
+    const record = await w.context.checkForUpdate(now);
+    waits.push(record.nextAt - now);
+    now = record.nextAt;
+  }
+  assert.deepEqual(waits, [15 * MINUTE, HOUR, 4 * HOUR, DAY, DAY]);
+  await w.context.checkForUpdate(now - 1);
+  assert.equal(w.calls.fetch, 5, 'nothing is asked before its time');
+
+  w.setRelease({ tag_name: 'v0.0.4', html_url: 'https://github.com/SysAdminDoc/HushFacebookWeb/releases/tag/v0.0.4' });
+  const back = await w.context.checkForUpdate(now);
+  assert.equal(back.state, 'current');
+  assert.equal(back.checkedAt, now);
+  assert.equal(back.failures, 0);
+  assert.equal(back.nextAt, now + DAY);
+  assert.equal(updateStatus(createMemoryStorage(w.data), '0.0.4', now).state, 'current');
+});
+
+test("GitHub's Retry-After and rate limit reset only move the next check later, and never more than a day out", async () => {
+  const now = 10 * DAY;
+  for (const [headers, nextAt] of [
+    [{ 'retry-after': '3600' }, now + HOUR],
+    [{ 'retry-after': '5' }, now + 15 * MINUTE],
+    [{ 'retry-after': new Date(now + 3 * HOUR).toUTCString() }, now + 3 * HOUR],
+    [{ 'retry-after': '999999999' }, now + DAY],
+    [{ 'retry-after': 'soon' }, now + 15 * MINUTE],
+    [{ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String((now + 2 * HOUR) / 1000) }, now + 2 * HOUR],
+    [{ 'x-ratelimit-remaining': '12', 'x-ratelimit-reset': String((now + 2 * HOUR) / 1000) }, now + 15 * MINUTE],
+  ]) {
+    for (const status of [403, 429]) {
+      const { context } = worker({ release: { status, headers } });
+      const record = await context.checkForUpdate(now);
+      assert.equal(record.state, 'rate-limited');
+      assert.equal(record.nextAt, nextAt, `${status} ${JSON.stringify(headers)}`);
+    }
+  }
+});
+
+test('a check GitHub never answers, or never finishes answering, ends at the deadline as offline', async () => {
+  for (const release of [neverAnswers, bodyNeverEnds]) {
+    const w = worker({ release });
+    const record = await w.context.checkForUpdate(5 * DAY, { deadline: 20 });
+    assert.equal(record.state, 'offline', release.name);
+    assert.equal(record.nextAt, 5 * DAY + 15 * MINUTE, release.name);
+  }
+});
+
+test('while a check runs the record says so, and the page stops believing it after half a minute', async () => {
+  const answer = deferred();
+  const w = worker({ release: () => answer.promise });
+  const now = 5 * DAY;
+  const running = w.context.checkForUpdate(now);
+  await settle();
+  assert.equal(w.data[UPDATE_KEY].checking, now);
+  const page = (at) => updateStatus(createMemoryStorage(w.data), '0.0.4', at);
+  assert.equal(page(now + 1000).checking, true);
+  assert.equal(page(now + 30 * 1000).checking, false, 'one Chrome cut off never finishes');
+  assert.equal(page(now - 1000).checking, false, 'nor does one from the future');
+  answer.resolve({ tag_name: 'v0.0.5' });
+  assert.equal((await running).state, 'newer');
+  assert.equal(w.data[UPDATE_KEY].checking, null);
+  assert.equal(page(now + 1000).checking, false);
+});
+
+test('Check now asks at once, but not again within two minutes, not while GitHub asked for a pause, and never twice at the same time', async () => {
+  const now = Date.now();
+  const record = { current: '0.0.4', latest: '0.0.4', url: null, newer: false, checkedAt: now - HOUR, triedAt: now - 3 * MINUTE, state: 'current', failures: 0, nextAt: now - HOUR + DAY, checking: null };
+  const w = worker({ saved: { [UPDATE_KEY]: record }, release: { tag_name: 'v0.0.4' } });
+  const both = await Promise.all([ask(w, { type: 'update:check' }), ask(w, { type: 'update:check' })]);
+  assert.deepEqual(both.map((answer) => answer.result.asked), [true, true]);
+  assert.equal(w.calls.fetch, 1, 'two clicks at once ask GitHub once');
+  assert.equal((await ask(w, { type: 'update:check' })).result.asked, false, 'the second click a moment later waits');
+  assert.equal(w.calls.fetch, 1);
+
+  const paused = worker({ saved: { [UPDATE_KEY]: { ...record, state: 'rate-limited', triedAt: now - 10 * MINUTE, nextAt: now + 30 * MINUTE } }, release: { tag_name: 'v0.0.4' } });
+  assert.deepEqual({ ...(await ask(paused, { type: 'update:check' })).result }, { asked: false, nextAt: now + 30 * MINUTE });
+  assert.equal(paused.calls.fetch, 0);
+
+  const failed = worker({ saved: { [UPDATE_KEY]: { ...record, state: 'offline', failures: 3, nextAt: now + 4 * HOUR } }, release: { tag_name: 'v0.0.4' } });
+  assert.equal((await ask(failed, { type: 'update:check' })).result.asked, true, "a back-off after failures doesn't hold up a click");
+  assert.equal(failed.data[UPDATE_KEY].state, 'current');
+});
+
+test('a clock set back past the last check asks again instead of waiting for a day it already counted', async () => {
+  const now = 5 * DAY;
+  const record = { current: '0.0.4', latest: '0.0.4', url: null, newer: false, checkedAt: now + 2 * DAY, triedAt: now + 2 * DAY, state: 'current', failures: 0, nextAt: now + 3 * DAY, checking: null };
+  const w = worker({ saved: { [UPDATE_KEY]: record }, release: { tag_name: 'v0.0.4' } });
+  const after = await w.context.checkForUpdate(now);
+  assert.equal(w.calls.fetch, 1);
+  assert.equal(after.triedAt, now);
+  assert.equal(after.nextAt, now + DAY);
+});
+
+test('a worker Chrome started again books the next check from the record, and asks nothing as it starts', async () => {
+  const now = Date.now();
+  const record = { current: '0.0.4', latest: null, url: null, newer: false, checkedAt: null, triedAt: now - MINUTE, state: 'offline', failures: 1, nextAt: now + 10 * MINUTE, checking: null };
+  const resumed = worker({ alarmSet: false, saved: { [UPDATE_KEY]: record } });
+  await settle();
+  assert.deepEqual(resumed.calls.alarms, [['update-check', now + 10 * MINUTE]]);
+  assert.equal(resumed.calls.fetch, 0);
+
+  for (const saved of [{}, { [UPDATE_KEY]: { ...record, nextAt: now - HOUR } }, { [UPDATE_KEY]: { ...record, current: '0.0.3' } }]) {
+    const soon = worker({ alarmSet: false, saved });
+    await settle();
+    assert.equal(soon.calls.alarms.length, 1, JSON.stringify(saved));
+    const [[name, when]] = soon.calls.alarms;
+    assert.equal(name, 'update-check');
+    assert.ok(when >= now + MINUTE && when <= Date.now() + MINUTE, `due ones go a minute out: ${JSON.stringify(saved)}`);
+  }
+
+  const kept = worker({ saved: { [UPDATE_KEY]: record } });
+  await settle();
+  assert.deepEqual(kept.calls.alarms, [], 'an alarm Chrome kept is left alone');
+});
+
+test("storage or a badge the browser refuses doesn't stop a check or lose the next one", async () => {
+  const broken = worker({ writeError: new Error('QUOTA_BYTES quota exceeded'), badgeError: new Error('No tab'), release: { tag_name: 'v0.0.5' } });
+  const record = await broken.context.checkForUpdate(5 * DAY);
+  assert.equal(record.state, 'newer');
+  assert.deepEqual(broken.calls.alarms, [['update-check', 6 * DAY]]);
+
+  const unreadable = worker({ readError: new Error('storage is unavailable'), release: { tag_name: 'v0.0.5' } });
+  assert.equal(await unreadable.context.checkForUpdate(5 * DAY), null);
+  assert.equal(unreadable.calls.fetch, 0, "without the record it can't tell when it last asked");
+  assert.deepEqual(unreadable.calls.alarms, [['update-check', 5 * DAY + 15 * MINUTE]]);
+
+  const woken = worker({ alarmSet: false, readError: new Error('storage is unavailable') });
+  await settle();
+  assert.equal(woken.calls.alarms.length, 1, 'a worker that starts without storage still books a check');
+  woken.listeners.alarm.forEach((listener) => listener({ name: 'update-check' }));
+  await settle();
+  assert.equal(woken.calls.fetch, 0);
+});
+
+test('General reads how the last check went, skips a record made for another version, and an old record still shows a newer release', () => {
+  const read = (record, now = 100) => updateStatus(createMemoryStorage({ [UPDATE_KEY]: record }), '0.0.4', now);
+  const record = { current: '0.0.4', latest: '0.0.5', url: null, newer: true, checkedAt: 10, triedAt: 20, state: 'offline', failures: 1, nextAt: 30, checking: null };
+  assert.deepEqual(read(record), { state: 'offline', update: { version: '0.0.5', url: RELEASES_LATEST }, checking: false, checkedAt: 10, triedAt: 20, nextAt: 30 });
+  const nothing = { state: 'waiting', update: null, checking: false, checkedAt: null, triedAt: null, nextAt: null };
+  assert.deepEqual(read({ ...record, current: '0.0.3' }), nothing, 'made before this version was installed');
+  assert.deepEqual(updateStatus(createMemoryStorage(), '0.0.4'), nothing);
+  assert.equal(read({ at: 5, current: '0.0.4', latest: '0.0.5', url: null, newer: true }).state, 'newer');
+  assert.equal(read({ at: 5, current: '0.0.4', latest: null, url: null, newer: false }).state, 'waiting', "an old record doesn't say whether its check worked");
+  assert.equal(availableUpdate(createMemoryStorage({ [UPDATE_KEY]: { ...record, current: '0.0.3' } }), '0.0.4'), null, 'no toast for a release found before this version');
 });
 
 test("the page only links to this repo's releases", () => {
@@ -1573,6 +1774,7 @@ test('the worker refuses request shapes, keys and file names it does not know', 
     { type: 'storage:set', key: 'settings', value: {} },
     { type: 'storage:recover', extra: true },
     { type: 'settings:pending', tab: 2 },
+    { type: 'update:check', force: true },
     { type: 'storage:mutate', key: 'hushfacebookWeb.storageRevisions', mutation: { set: {} } },
     { type: 'storage:mutate', key: 'other', mutation: { set: {} } },
     { type: 'storage:mutate', key: 'settings', mutation: { set: { alpha: { nested: true } } } },

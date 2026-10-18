@@ -4,7 +4,7 @@
 import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady, whenRootReady } from './core/env.js';
 import { createActions } from './core/actions.js';
 import { ACCOUNT_CHANGED, createActivityStorage } from './core/activity.js';
-import { availableUpdate, UPDATE_KEY, UPDATE_TOLD_KEY } from './core/extension.js';
+import { availableUpdate, extensionHost, UPDATE_KEY, UPDATE_TOLD_KEY, updateStatus } from './core/extension.js';
 import { createDiagnostics, hideListener } from './core/diagnostics.js';
 import { createHider, hideCss } from './core/dom/hide.js';
 import { createPostTracker, postIdOf } from './core/dom/posts.js';
@@ -160,12 +160,14 @@ function boot() {
   scheduleStorageCheck({ tasks, storage, mirror, log, toast, diagnostics });
   setTimeout(() => whenMirrorReady(mirror, () => tasks.runDue()), 8000);
 
-  // The extension can't update itself, so a newer release gets one toast and a card in General.
-  const update = storage.kind === 'extension' ? () => availableUpdate(storage) : null;
+  // The extension can't update itself, so General says how its release check went, and a newer
+  // release gets one toast.
+  const host = storage.kind === 'extension' ? extensionHost() : null;
+  const update = host ? () => updateStatus(storage, version) : null;
   if (update) {
     storage.onChange(UPDATE_KEY, () => panel?.refresh());
     storage.whenReady(() => {
-      const found = update();
+      const found = availableUpdate(storage, version);
       if (!found || storage.get(UPDATE_TOLD_KEY, null) === found.version) return;
       storage.set(UPDATE_TOLD_KEY, found.version);
       toast(`HushFacebook Web ${found.version} is out.`, { action: { label: 'How to update', run: () => whenBodyReady(() => panel?.open('general')) } });
@@ -175,7 +177,7 @@ function boot() {
   whenBodyReady(() => {
     panel = mountPanel({
       settings, features, log, hider, diagnostics, actions, unavailable,
-      environment: { version, ...managerInfo(), update, storage, activity, accountMatches: () => settings.startup.matchesAccount(signedInAccount()) },
+      environment: { version, ...managerInfo(), update, checkForUpdate: host?.checkForUpdate ?? null, storage, activity, accountMatches: () => settings.startup.matchesAccount(signedInAccount()) },
     });
     for (const entry of waiting.splice(0)) {
       if (!entry.gone) entry.shown = panel.toast(entry.message, entry.options);
