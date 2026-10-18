@@ -935,3 +935,38 @@ test('a save still going after a moment says so, and its Cancel stops the transf
   assert.equal(toasts[0].dismissed, true);
   assert.deepEqual(toasts.map((entry) => entry.message), ['Saving Pat Example photo 9999999.jpg', 'Saved Pat Example photo 9999999.jpg']);
 });
+
+// The panel turns every error-level entry into a notice of its own, so a save that already
+// says why it failed logs a warning: one notice, and the details still in Diagnostics.
+test('a failed save says why in one notice and keeps the details for Diagnostics', async () => {
+  const win = page(POST('<a href="/photo/?fbid=9999999"><img></a>'));
+  const doc = win.document;
+  const rules = [];
+  const toasts = [];
+  const logged = [];
+  const api = {
+    download: ({ onerror }) => {
+      onerror({ error: 'not_whitelisted' });
+      return {};
+    },
+    request: ({ onerror }) => {
+      onerror();
+      return {};
+    },
+  };
+  downloadPhotos.setup({
+    win, doc, api, net: { transformResponses: (rule) => rules.push(rule) }, router: { current: () => ({ href: win.location.href }) },
+    log: Object.fromEntries(['error', 'warn', 'info'].map((level) => [level, (message) => logged.push([level, message])])),
+    toast: (message, options) => {
+      toasts.push([message, options?.tone]);
+      return { dismiss() {} };
+    },
+    enabled: () => true,
+    option: () => 'best',
+  });
+  rules[0].transform({ p: photo('9999999') });
+  const shared = downloads({ doc });
+  await shared.run(findMedia(doc.querySelector('img'), { href: win.location.href, index: shared.index }), doc.body);
+  assert.deepEqual(toasts, [["Couldn't save it: the file couldn't be fetched.", 'error']]);
+  assert.deepEqual(logged, [['warn', "Couldn't save a photo or video"]]);
+});

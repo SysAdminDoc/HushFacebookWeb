@@ -67,8 +67,9 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
         return;
       }
       failed++;
-      // The file name carries the poster's name, so it stays out of the message.
-      log?.error("Couldn't save a photo or video", error);
+      // The file name carries the poster's name, so it stays out of the message. A warning,
+      // since the panel gives every error a notice of its own and this one already says why.
+      log?.warn("Couldn't save a photo or video", error);
       toast?.(`Couldn't save it: ${error.message}.`, { tone: 'error' });
     } finally {
       clearTimeout(later);
