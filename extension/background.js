@@ -155,7 +155,7 @@ function receiptMutation(mutation) {
 
 function validWorkerRequest(message) {
   if (!isStorageRecord(message) || utf8Bytes(message, MESSAGE_MAX_BYTES) > MESSAGE_MAX_BYTES) return false;
-  if (message.type === 'storage:recover') return onlyKeys(message, ['type']);
+  if (message.type === 'storage:recover' || message.type === 'settings:pending') return onlyKeys(message, ['type']);
   if (message.type === 'storage:mutate') {
     if (!onlyKeys(message, ['type', 'key', 'mutation', 'generation', 'baseRevisions']) || !PREFERENCE_KEY.test(message.key)) return false;
     return message.key.endsWith('.migrated') ? receiptMutation(message.mutation) : settingsMutation(message.mutation);
@@ -1093,32 +1093,39 @@ function validFilename(name) {
 
 // The records, read and written one change at a time: change(records, persist) edits them in
 // place, and persist() writes them early when a step mustn't be lost if the worker stops.
-let downloadsTail = Promise.resolve();
-let downloadsInMemory = {};
-function changeDownloads(change) {
-  const run = downloadsTail.then(async () => {
-    const session = chrome.storage.session;
-    let records = downloadsInMemory;
-    if (session?.get) {
-      const { [DOWNLOADS_KEY]: saved } = await session.get(DOWNLOADS_KEY);
-      records = isStorageRecord(saved) ? saved : {};
-    }
-    const persist = async () => {
-      const now = Date.now();
-      const keys = Object.keys(records);
-      keys.forEach((key, index) => {
-        if (!(now - records[key]?.at < DOWNLOAD_KEPT_FOR) || index < keys.length - DOWNLOADS_KEPT) delete records[key];
-      });
-      if (session?.set) await session.set({ [DOWNLOADS_KEY]: records });
-      else downloadsInMemory = records;
-    };
-    const result = await change(records, persist);
-    await persist();
-    return result;
-  });
-  downloadsTail = run.catch(() => {});
-  return run;
+// Records a worker Chrome stopped and started again must still find, kept in storage.session (in
+// memory where there's none) and changed one at a time. Each save drops records older than
+// keptFor and all but the newest `kept`.
+function sessionRecords(key, { keptFor, kept }) {
+  let tail = Promise.resolve();
+  let inMemory = {};
+  return (change) => {
+    const run = tail.then(async () => {
+      const session = chrome.storage.session;
+      let records = inMemory;
+      if (session?.get) {
+        const { [key]: saved } = await session.get(key);
+        records = isStorageRecord(saved) ? saved : {};
+      }
+      const persist = async () => {
+        const now = Date.now();
+        const names = Object.keys(records);
+        names.forEach((name, index) => {
+          if (!(now - records[name]?.at < keptFor) || index < names.length - kept) delete records[name];
+        });
+        if (session?.set) await session.set({ [key]: records });
+        else inMemory = records;
+      };
+      const result = await change(records, persist);
+      await persist();
+      return result;
+    });
+    tail = run.catch(() => {});
+    return run;
+  };
 }
+
+const changeDownloads = sessionRecords(DOWNLOADS_KEY, { keptFor: DOWNLOAD_KEPT_FOR, kept: DOWNLOADS_KEPT });
 
 async function downloadState(id) {
   const [item] = await chrome.downloads.search({ id });
@@ -1200,38 +1207,114 @@ chrome.downloads.onChanged.addListener((delta) => {
   }).catch(() => {});
 });
 
+const tellTab = (tabId) => chrome.tabs.sendMessage(tabId, { type: 'open-settings' }, { frameId: 0 });
+
+// A panel the toolbar button asked for in a tab that's still loading, by tab id: { at, opener },
+// opener being the tab clicked on when the button opened a new one. The page asks for it as its
+// script starts ('settings:pending'), which starts the worker again if Chrome stopped it while the
+// tab loaded, and the record is in storage.session, so the panel still opens, once. Nothing
+// listens to other tabs. A tab that hasn't asked within OPEN_WAIT gets a "!" on the button and a
+// tooltip saying the settings didn't open.
+const OPENS_KEY = 'hushfacebookWeb.pendingOpens';
+const OPEN_WAIT = 60 * 1000;
+const OPEN_ALARM = 'open-settings-wait';
+const OPEN_FAILED = "HushFacebook Web settings didn't open in this tab. Reload Facebook, then click again.";
+const changeOpens = sessionRecords(OPENS_KEY, { keptFor: OPEN_WAIT * 2, kept: 8 });
+const waiting = (record, now) => now - record.at >= 0 && now - record.at < OPEN_WAIT;
+
+// The alarm goes off when the oldest record runs out of time.
+function armOpenAlarm(records) {
+  const ends = Object.values(records).map((record) => record.at + OPEN_WAIT);
+  return ends.length ? chrome.alarms.create(OPEN_ALARM, { when: Math.min(...ends) + 1000 }) : undefined;
+}
+
+// The button for one tab: a "!" and why, or back to how it is everywhere else.
+function showOpenFailed(tabId, failed) {
+  const title = failed ? OPEN_FAILED : chrome.runtime.getManifest().action?.default_title ?? 'HushFacebook Web settings';
+  return Promise.allSettled([
+    (async () => chrome.action.setBadgeText({ tabId, text: failed ? '!' : null }))(),
+    (async () => chrome.action.setTitle({ tabId, title }))(),
+  ]);
+}
+
+function rememberOpen(tabId, opener) {
+  return changeOpens(async (records) => {
+    records[tabId] = opener === undefined ? { at: Date.now() } : { at: Date.now(), opener };
+    await armOpenAlarm(records);
+  });
+}
+
+// The page's ask: true once for a tab the button is waiting on.
+async function pendingOpen(tabId) {
+  const found = await changeOpens(async (records) => {
+    const record = records[tabId];
+    delete records[tabId];
+    return record && (waiting(record, Date.now()) ? 'open' : 'late');
+  });
+  if (found === 'late') await showOpenFailed(tabId, true);
+  return found === 'open';
+}
+
+// A new tab's page can start and ask before its record is saved. When its script is already
+// there, it hears now. In the queue, so its own ask can't open the panel a second time.
+function openIfStarted(tabId) {
+  return changeOpens(async (records) => {
+    if (!records[tabId]) return false;
+    try {
+      await tellTab(tabId);
+    } catch {
+      return false;
+    }
+    delete records[tabId];
+    return true;
+  });
+}
+
+async function sweepOpens(now = Date.now()) {
+  const late = await changeOpens(async (records) => {
+    const gone = Object.keys(records).filter((name) => !waiting(records[name], now));
+    for (const name of gone) delete records[name];
+    await armOpenAlarm(records);
+    return gone.map(Number);
+  });
+  await Promise.all(late.map((tabId) => showOpenFailed(tabId, true)));
+}
+
 chrome.tabs.onRemoved.addListener((tabId) => {
   changeDownloads(async (records) => {
     for (const key of Object.keys(records)) if (records[key].tab === tabId) delete records[key];
   }).catch(() => {});
+  changeOpens(async (records) => {
+    delete records[tabId];
+  }).catch(() => {});
 });
-
-const tellTab = (tabId) => chrome.tabs.sendMessage(tabId, { type: 'open-settings' }, { frameId: 0 });
-
-// Opens the panel once the tab has finished loading.
-function openWhenLoaded(tabId) {
-  const loaded = (id, change) => {
-    if (id !== tabId || change.status !== 'complete') return;
-    chrome.tabs.onUpdated.removeListener(loaded);
-    tellTab(tabId).catch(() => {});
-  };
-  chrome.tabs.onUpdated.addListener(loaded);
-}
 
 // The toolbar button. On Facebook it opens the panel. A Facebook tab opened before the
 // extension was there has no script yet, so it reloads first. Anywhere else, Facebook opens in
-// a new tab with the panel up. activeTab lets the click see the tab's address.
+// a new tab with the panel up. activeTab lets the click see the tab's address. A click while
+// the tab it asked for is still loading goes to that one: no second reload or new tab, and the
+// panel opens there now if its script is up but never heard (a worker stopped in between).
 async function openSettings(tab) {
+  const now = Date.now();
+  const pending = await changeOpens(async (records) => Object.keys(records)
+    .find((name) => waiting(records[name], now) && (Number(name) === tab.id || records[name].opener === tab.id)));
+  if (pending !== undefined) {
+    const id = Number(pending);
+    if (id !== tab.id) await chrome.tabs.update(id, { active: true }).catch(() => {});
+    return await openIfStarted(id) ? 'opened' : 'waiting';
+  }
+  await showOpenFailed(tab.id, false);
   if (!FACEBOOK.includes(hostOf(tab.url)?.hostname)) {
     const opened = await chrome.tabs.create({ url: 'https://www.facebook.com/', index: tab.index + 1 });
-    openWhenLoaded(opened.id);
+    await rememberOpen(opened.id, tab.id);
+    await openIfStarted(opened.id);
     return 'new tab';
   }
   try {
     await tellTab(tab.id);
     return 'opened';
   } catch {
-    openWhenLoaded(tab.id);
+    await rememberOpen(tab.id);
     await chrome.tabs.reload(tab.id);
     return 'reloaded';
   }
@@ -1281,6 +1364,7 @@ async function checkForUpdate(now = Date.now()) {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'update-check') checkForUpdate();
+  if (alarm.name === OPEN_ALARM) sweepOpens().catch(() => {});
 });
 chrome.alarms.get('update-check').then((alarm) => {
   if (!alarm) chrome.alarms.create('update-check', { delayInMinutes: 1, periodInMinutes: 360 });
@@ -1312,6 +1396,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         ? migrateStorage(message)
         : message?.type === 'storage:recover'
           ? recoverDirectPreferences()
+          : message?.type === 'settings:pending'
+            ? pendingOpen(sender.tab.id)
       : null;
   if (!task) return false;
   task.then(

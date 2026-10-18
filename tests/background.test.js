@@ -21,8 +21,9 @@ const deferred = () => {
 // Chrome stopped and started again. finishes: state a new download is in once download() resolves.
 function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null, items = new Map(), finishes = 'in_progress' } = {}) {
   const data = structuredClone(saved);
-  const calls = { fetch: 0, badge: [], created: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [] };
-  const listeners = { updated: [], downloadChanged: [], messages: [], storageChanged: [], removed: [] };
+  // badge: the button everywhere; tabButton: [tabId, badge or title] for one tab.
+  const calls = { fetch: 0, badge: [], tabButton: [], alarms: [], created: [], activated: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [] };
+  const listeners = { updated: [], downloadChanged: [], messages: [], storageChanged: [], removed: [], alarm: [] };
   const tellStorage = (changes) => queueMicrotask(() => (
     listeners.storageChanged.forEach((listener) => listener(changes, 'local'))
   ));
@@ -57,13 +58,19 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
     }, onChanged: { addListener: (fn) => listeners.storageChanged.push(fn) } },
     action: {
       onClicked: { addListener() {} },
-      setBadgeText: async ({ text }) => void calls.badge.push(text),
+      setBadgeText: async ({ tabId, text }) => void (tabId === undefined ? calls.badge.push(text) : calls.tabButton.push([tabId, text])),
+      setTitle: async ({ tabId, title }) => void calls.tabButton.push([tabId, title]),
       setBadgeBackgroundColor: async () => {},
     },
-    alarms: { onAlarm: { addListener() {} }, get: async () => ({ name: 'update-check' }), create() {} },
+    alarms: {
+      onAlarm: { addListener: (fn) => listeners.alarm.push(fn) },
+      get: async () => ({ name: 'update-check' }),
+      create: async (name, info) => void calls.alarms.push([name, info.when]),
+    },
     tabs: {
       query: async () => Object.keys(tabs).map((id) => ({ id: Number(id) })),
       create: async ({ url }) => (calls.created.push(url), { id: 99 }),
+      update: async (id, { active }) => void (active && calls.activated.push(id)),
       reload: async (id) => void calls.reloaded.push(id),
       sendMessage: async (id, message, options) => {
         calls.sent.push([id, message.type]);
@@ -174,7 +181,7 @@ test('the toolbar button opens settings on Facebook, reloads a tab without the s
   assert.equal(await context.openSettings({ id: 1, index: 0, url: 'https://www.facebook.com/groups/feed/' }), 'opened');
   assert.equal(await context.openSettings({ id: 2, index: 1, url: 'https://web.facebook.com/' }), 'reloaded');
   assert.deepEqual(calls.reloaded, [2]);
-  listeners.updated.forEach((fn) => fn(2, { status: 'complete' }));
+  assert.deepEqual(listeners.updated, [], 'nothing listens to every tab');
   assert.equal(await context.openSettings({ id: 3, index: 4, url: 'https://example.com/' }), 'new tab');
   assert.equal(await context.openSettings({ id: 4, index: 5, url: undefined }), 'new tab');
   assert.deepEqual(calls.created, ['https://www.facebook.com/', 'https://www.facebook.com/']);
@@ -1467,12 +1474,105 @@ test('the worker answers only the isolated script in a Facebook top frame', asyn
   assert.equal((await ask(current, recover, prerendered)).ok, true, 'a prerendered Facebook page loads its settings');
 });
 
+const OPENS_KEY = 'hushfacebookWeb.pendingOpens';
+const OPEN_FAILED = "HushFacebook Web settings didn't open in this tab. Reload Facebook, then click again.";
+// The tabs the toolbar button is waiting on, as storage.session has them.
+const pending = (current) => Object.keys(current.session[OPENS_KEY] ?? {}).map(Number);
+async function pendingAsk(current, sender) {
+  const answer = await ask(current, { type: 'settings:pending' }, sender);
+  assert.equal(answer.ok, true);
+  return answer.result;
+}
+
+test('a tab the toolbar button reloaded opens the panel once, even after Chrome stopped the worker', async () => {
+  const first = worker();
+  assert.equal(await first.context.openSettings({ id: 2, index: 1, url: 'https://web.facebook.com/' }), 'reloaded');
+  assert.deepEqual(pending(first), [2]);
+  const [name, when] = first.calls.alarms.at(-1);
+  assert.equal(name, 'open-settings-wait');
+  assert.ok(when > Date.now() + 55 * 1000 && when <= Date.now() + 62 * 1000, String(when - Date.now()));
+  // The worker that starts for the page's ask has nothing but storage.session.
+  const restarted = worker({ session: first.session, tabs: { 2: true } });
+  const frame = topFrame(2, 'https://web.facebook.com/');
+  assert.equal(await pendingAsk(restarted, frame), true);
+  assert.equal(await pendingAsk(restarted, frame), false, 'once');
+  assert.deepEqual(pending(restarted), []);
+  assert.deepEqual(restarted.calls.sent, [], 'the page opens the panel itself');
+  assert.equal(await pendingAsk(restarted, topFrame(3)), false, 'a tab the button never asked for');
+});
+
+test('from another site the panel opens in the new Facebook tab, and more clicks go back to it', async () => {
+  const current = worker();
+  const elsewhere = { id: 3, index: 4, url: 'https://example.com/' };
+  assert.equal(await current.context.openSettings(elsewhere), 'new tab');
+  assert.equal(current.session[OPENS_KEY][99].opener, 3);
+  assert.equal(await current.context.openSettings(elsewhere), 'waiting');
+  assert.equal(await current.context.openSettings({ id: 99, index: 5, url: 'https://www.facebook.com/' }), 'waiting');
+  assert.deepEqual(current.calls.created, ['https://www.facebook.com/'], 'one tab however many clicks');
+  assert.deepEqual(current.calls.reloaded, []);
+  assert.deepEqual(current.calls.activated, [99]);
+  assert.equal(await pendingAsk(current, topFrame(99)), true);
+  assert.equal(await current.context.openSettings(elsewhere), 'new tab', 'once it opened, a click starts over');
+});
+
+test("a tab whose script is up but never heard opens the panel at once or on the next click", async () => {
+  // A new tab whose page was up before its record was saved hears straight away.
+  const quick = worker({ tabs: { 99: true } });
+  assert.equal(await quick.context.openSettings({ id: 3, index: 0, url: 'https://example.com/' }), 'new tab');
+  assert.deepEqual(quick.calls.sent, [[99, 'open-settings']]);
+  assert.deepEqual(pending(quick), []);
+  assert.equal(await pendingAsk(quick, topFrame(99)), false, 'and its own ask does not open it twice');
+
+  // That page asked too early, and the worker stopped before it could tell it: the record stays.
+  const stopped = worker();
+  await stopped.context.openSettings({ id: 3, index: 0, url: 'https://example.com/' });
+  const next = worker({ session: stopped.session, tabs: { 99: true } });
+  assert.equal(await next.context.openSettings({ id: 3, index: 0, url: 'https://example.com/' }), 'opened');
+  assert.deepEqual(next.calls.activated, [99]);
+  assert.deepEqual(next.calls.sent, [[99, 'open-settings']]);
+  assert.deepEqual(next.calls.created, []);
+  assert.deepEqual(pending(next), []);
+});
+
+test('a closed tab drops its record, and one that never asks gets a "!" saying why', async () => {
+  const current = worker();
+  await current.context.openSettings({ id: 2, index: 1, url: 'https://www.facebook.com/' });
+  await current.context.openSettings({ id: 6, index: 2, url: 'https://www.facebook.com/' });
+  assert.deepEqual(current.calls.reloaded, [2, 6]);
+  current.listeners.removed.forEach((fn) => fn(6));
+  await settle();
+  assert.deepEqual(pending(current), [2]);
+
+  await current.context.sweepOpens(current.calls.alarms.at(-1)[1]);
+  assert.deepEqual(pending(current), []);
+  assert.deepEqual(current.calls.tabButton.slice(-2), [[2, '!'], [2, OPEN_FAILED]]);
+  assert.deepEqual(current.calls.badge, [], 'the button elsewhere keeps its badge');
+  assert.equal(await pendingAsk(current, topFrame(2)), false, 'a page that loads after that leaves the panel shut');
+  assert.equal(await current.context.openSettings({ id: 2, index: 1, url: 'https://www.facebook.com/' }), 'reloaded', 'a click tries again');
+  assert.deepEqual(current.calls.tabButton.slice(-2), [[2, null], [2, 'HushFacebook Web settings']]);
+});
+
+test('the wait ends on the alarm, and a page that asks too late lights the "!" as well', async () => {
+  const at = Date.now() - 61 * 1000;
+  const alarmed = worker({ session: { [OPENS_KEY]: { 4: { at } } } });
+  alarmed.listeners.alarm.forEach((fn) => fn({ name: 'open-settings-wait' }));
+  await settle();
+  assert.deepEqual(pending(alarmed), []);
+  assert.deepEqual(alarmed.calls.tabButton, [[4, '!'], [4, OPEN_FAILED]]);
+
+  const late = worker({ session: { [OPENS_KEY]: { 4: { at } } } });
+  assert.equal(await pendingAsk(late, topFrame(4)), false);
+  assert.deepEqual(late.calls.tabButton, [[4, '!'], [4, OPEN_FAILED]]);
+  assert.equal(await late.context.openSettings({ id: 4, index: 0, url: 'https://www.facebook.com/' }), 'reloaded', 'an old record is no reason to wait');
+});
+
 test('the worker refuses request shapes, keys and file names it does not know', async () => {
   const current = worker({ saved: { settings: { alpha: true }, other: 'x' } });
   for (const message of [
     { type: 'storage:remove', key: 'other' },
     { type: 'storage:set', key: 'settings', value: {} },
     { type: 'storage:recover', extra: true },
+    { type: 'settings:pending', tab: 2 },
     { type: 'storage:mutate', key: 'hushfacebookWeb.storageRevisions', mutation: { set: {} } },
     { type: 'storage:mutate', key: 'other', mutation: { set: {} } },
     { type: 'storage:mutate', key: 'settings', mutation: { set: { alpha: { nested: true } } } },

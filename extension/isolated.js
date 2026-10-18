@@ -758,6 +758,15 @@ document.addEventListener(HELLO_MAIN, (event) => {
   });
   // Ready comes last, so every queued request sees the storage and toolbar listeners in place.
   toMain({ ready: true });
+  // Whether the toolbar button is waiting on this tab: it opened it, or reloaded it because it
+  // had no script yet. Asking also starts the worker again if Chrome stopped it meanwhile.
+  // A worker on its way out can drop the first ask, as with downloads, so it asks once more.
+  if (storageAccess.kind === 'facebook') {
+    const ask = () => chrome.runtime.sendMessage({ type: 'settings:pending' });
+    ask().catch(ask).then((answer) => {
+      if (answer?.ok && answer.result === true) toMain({ push: 'open-settings' });
+    }).catch(() => {});
+  }
 });
 
 // For when the page script started first and its hello went unheard.

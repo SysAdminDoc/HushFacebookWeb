@@ -52,17 +52,22 @@ function fakeChrome(saved = {}, {
   read,
   mutate = applyObjectMutation,
   migrate,
+  pendingOpen = false,
 } = {}) {
   const data = structuredClone(saved);
   const changed = [];
   const fromBackground = [];
   const sent = [];
+  // The page's ask whether the toolbar button is waiting on it, kept apart from the storage and
+  // download traffic the other tests count.
+  const asked = [];
   let initialRead = read;
   let mutationTail = Promise.resolve();
   const tell = (changes) => queueMicrotask(() => changed.forEach((listener) => listener(changes, 'local')));
   return {
     data,
     sent,
+    asked,
     emitStorageChange: tell,
     openSettings: () => fromBackground.forEach((listener) => listener({ type: 'open-settings' })),
     tellPage: (message) => fromBackground.forEach((listener) => listener(message)),
@@ -92,6 +97,10 @@ function fakeChrome(saved = {}, {
     },
     runtime: {
       async sendMessage(message) {
+        if (message.type === 'settings:pending') {
+          asked.push(message);
+          return { ok: true, result: pendingOpen };
+        }
         sent.push(message);
         if (message.type === 'storage:mutate' || message.type === 'storage:migrate') {
           const run = async () => {
@@ -1606,6 +1615,32 @@ test('the toolbar button reaches the page as open-settings', async () => {
   assert.equal(opened, 1);
 });
 
+test('a page asks as it starts whether the toolbar button is waiting on it, and opens the panel only if so', async () => {
+  for (const [pendingOpen, drops] of [[true, 0], [false, 0], [true, 1]]) {
+    const win = page();
+    const chrome = fakeChrome({}, { pendingOpen });
+    // A worker on its way out drops the first ask.
+    const send = chrome.runtime.sendMessage;
+    let dropped = 0;
+    chrome.runtime.sendMessage = async (message) => {
+      if (message.type === 'settings:pending' && dropped < drops) {
+        dropped++;
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      }
+      return send(message);
+    };
+    await startIsolated(win, chrome);
+    const bridge = connectBridge({ doc: win.document, win, secret: randomUUID() });
+    let opened = 0;
+    bridge.on('open-settings', () => opened++);
+    await settle();
+    const label = `waiting ${pendingOpen}, dropped ${drops}`;
+    assert.equal(chrome.asked.length, 1, label);
+    assert.deepEqual(Object.keys(chrome.asked[0]), ['type'], label);
+    assert.equal(opened, pendingOpen ? 1 : 0, label);
+  }
+});
+
 test("downloads go to the background in GM_download's shape and count as saved only once the browser has the whole file", async () => {
   const win = page();
   const video = (file) => `https://video.xx.fbcdn.net/v/${file}.mp4`;
@@ -2293,6 +2328,7 @@ test('a game frame sees and changes only the game ads switch', async () => {
   const loaded = await forged.send('storage:load', {});
   assert.deepEqual(loaded.result, { 'instantGamesAds.enabled': false });
   assert.deepEqual(chrome.sent, [], 'a game frame has no settings record for the worker to recover');
+  assert.deepEqual(chrome.asked, [], 'and the toolbar button never waits on one');
   assert.equal((await forged.send('storage:set', { key: 'instantGamesAds.enabled', value: true })).ok, true);
   assert.equal(chrome.data['instantGamesAds.enabled'], true);
   await refused(forged.send('storage:set', { key: 'keepSpeed.rate', value: 2 }), /not allowed/);
