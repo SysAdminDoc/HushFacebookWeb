@@ -763,7 +763,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       const { applied, skipped } = await settings.importJson(await file.text());
       drafts.clear();
       fieldErrors.clear();
-      const extra = skipped.length ? `, and skipped ${skipped.length} this version doesn't know` : '';
+      const extra = skipped.length ? `, and skipped ${skipped.length} this version can't use` : '';
       toast(`Restored ${applied.length} settings${extra}.`);
     } catch (error) {
       log.error(error instanceof TypeError ? error.message : "Couldn't restore settings. Choose a valid backup and try again", error);

@@ -102,6 +102,20 @@ export function isValid(spec, value) {
 export function createSettings({ storage, features, log, version = 'dev', account = null, migrations = MIGRATIONS }) {
   const schema = buildSchema(features);
   const listeners = new Set();
+  // The name the panel shows for a setting, so an error can point at the right row.
+  const settingName = (key) => {
+    const spec = schema.get(key);
+    const feature = spec.featureId && spec.featureId !== key ? schema.get(spec.featureId) : null;
+    if (feature && spec.label) return `${spec.label} in ${feature.label}`;
+    return feature?.label ?? spec.label ?? key;
+  };
+  const invalidBackupMessage = (keys, from) => {
+    const which = keys.length === 1 ? `a value this version can't use for ${settingName(keys[0])}` : `values this version can't use for ${settingName(keys[0])} and ${keys.length - 1} more`;
+    // Only the version number itself is shown, never whatever else the file put after it.
+    const newer = olderThan(version, from) ? /^\d+\.\d+\.\d+/.exec(String(from))[0] : null;
+    const update = newer ? `. It's from version ${newer}, so update HushFacebook Web and restore it again` : '';
+    return `That backup has ${which}, so nothing changed${update}`;
+  };
   const key = storageKeyFor(account);
   const doneKey = `${key}.migrated`;
   // The extension's storage fills a few milliseconds in (whenReady). Until then every setting
@@ -1003,6 +1017,13 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       const changed = { ...incoming };
       for (const migration of migrations) {
         if (olderThan(parsed.version, migration.before)) migration.run(changed);
+      }
+      // A complete backup replaces every choice, so a bad value for one this version knows would
+      // quietly put that choice back to its default. Refuse the whole file instead. Keys this
+      // version doesn't know are still left out below, so a newer backup restores the rest.
+      if (wrapped) {
+        const invalid = Object.keys(changed).filter((key) => schema.has(key) && !isValid(schema.get(key), changed[key]));
+        if (invalid.length > 0) throw new TypeError(invalidBackupMessage(invalid, parsed.version));
       }
       const applied = [];
       const skipped = [];

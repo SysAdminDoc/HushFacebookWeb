@@ -828,6 +828,51 @@ test('a complete backup restores defaults too while legacy partial imports keep 
   assert.equal(settings.get('alpha'), false);
 });
 
+test('a complete backup with a bad value for a known setting is refused whole and names that setting', () => {
+  const labeled = [...features, { id: 'gamma', title: 'Gamma', options: [{ key: 'mode', type: 'select', label: 'Mode', default: 'a', choices: [{ value: 'a' }, { value: 'b' }] }] }];
+  const storage = createMemoryStorage({ settings: { paused: true, alpha: false } });
+  const settings = createSettings({ storage, features: labeled, version: '0.0.1' });
+  const writes = [];
+  const save = storage.set;
+  storage.set = (...args) => {
+    writes.push(args[0]);
+    return save.apply(storage, args);
+  };
+  const heard = [];
+  settings.subscribe((change) => heard.push(change));
+  const backup = (values, version = '0.0.1') => JSON.stringify({ app: 'HushFacebook Web', schema: EXPORT_SCHEMA, version, settings: values });
+  for (const [values, message, version] of [
+    [{ paused: 'yes', bogus: true }, /^That backup has a value this version can't use for Pause HushFacebook Web, so nothing changed$/],
+    // The valid choices beside the bad one would otherwise replace everything and turn Pause off.
+    [{ paused: 'yes', alpha: true, beta: true }, /for Pause HushFacebook Web, so nothing changed$/],
+    [{ alpha: true, 'beta.days': 0 }, /can't use for Beta, so/],
+    [{ 'gamma.mode': 'c' }, /can't use for Mode in Gamma, so/],
+    [{ alpha: 'off', 'beta.order': 'sideways', 'beta.words': 7 }, /^That backup has values this version can't use for Alpha and 2 more, so nothing changed$/],
+    [{ 'beta.order': 'sideways', zeta: true }, /can't use for Beta, so nothing changed\. It's from version 9\.0\.0, so update HushFacebook Web and restore it again$/, '9.0.0<b>later</b>'],
+  ]) {
+    assert.throws(() => settings.importJson(backup(values, version)), (error) => error instanceof TypeError && message.test(error.message));
+    assert.deepEqual(settings.snapshot(), { paused: true, alpha: false });
+    assert.deepEqual(storage.get('settings'), { paused: true, alpha: false });
+  }
+  assert.deepEqual(writes, [], 'nothing was written');
+  assert.deepEqual(heard, [], 'nobody was told anything changed');
+
+  // A key this version doesn't know is still only left out, so a newer backup restores the rest.
+  assert.deepEqual(settings.importJson(backup({ alpha: false, 'beta.days': 30, zeta: true, 'beta.someday': 'x' }, '9.0.0')), { applied: ['alpha', 'beta.days'], skipped: ['zeta', 'beta.someday'] });
+  assert.deepEqual(settings.snapshot(), { alpha: false, 'beta.days': 30 }, 'the full backup still replaced every choice');
+  // A bare object stays a tolerant partial import.
+  assert.deepEqual(settings.importJson('{"paused":"yes","alpha":true}'), { applied: ['alpha'], skipped: ['paused'] });
+  assert.deepEqual(settings.snapshot(), { 'beta.days': 30 });
+
+  settings.set('paused', true);
+  settings.set('beta.order', 'all');
+  settings.set('beta.words', 'politics');
+  settings.set('gamma.mode', 'b');
+  const fresh = createSettings({ storage: createMemoryStorage(), features: labeled, version: '0.0.1' });
+  fresh.importJson(settings.exportJson());
+  assert.deepEqual(fresh.snapshot(), settings.snapshot(), 'a backup made by this version restores every choice');
+});
+
 test('the signed-in account comes from the c_user cookie, and nothing else', () => {
   assert.equal(accountFromCookie('datr=abc; c_user=615000000000017; xs=12%3Aabc'), '615000000000017');
   assert.equal(accountFromCookie('c_user=615000000000017'), '615000000000017');
