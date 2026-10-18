@@ -171,6 +171,7 @@ export default {
       // Facebook parses its feed answers and the page's inline data with JSON.parse, so this
       // sees every story. It only reads.
       match: (ctx) => ctx.transport === 'json-parse',
+      observe: true,
       transform(data) {
         indexTimes(data, book.remember);
         return false;

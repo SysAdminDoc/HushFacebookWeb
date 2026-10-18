@@ -107,6 +107,7 @@ export default {
       enabled,
       markers: ORDER_MARKERS,
       match: (ctx) => ctx.transport === 'json-parse',
+      observe: true,
       transform(data) {
         titles.learn(data);
         return false;

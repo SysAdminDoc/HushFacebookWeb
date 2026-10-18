@@ -11,6 +11,8 @@
 // a quick promotion is taken out too, and the description says so. Needs the script running
 // in the page.
 
+import { later } from '../../core/net/payload.js';
+
 export const MARKERS = ['"eligible_promotions"', '"jewel_qp"'];
 const LISTS = ['eligible_promotions', 'jewel_qp'];
 
@@ -52,13 +54,14 @@ export default {
       markers: MARKERS,
       // Facebook parses every answer with JSON.parse, so one place covers them all.
       match: (ctx) => ctx.transport === 'json-parse',
-      transform(data) {
+      transform(data, ctx, stage) {
         const count = emptyPromotions(data);
-        if (count) {
+        if (!count) return false;
+        later(stage, () => {
           removed += count;
           diagnostics?.changed();
-        }
-        return count > 0;
+        });
+        return true;
       },
     });
     diagnostics?.add('Cards and tips held back', () => String(removed));

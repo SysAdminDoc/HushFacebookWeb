@@ -15,6 +15,7 @@ import { pageKeys, storyKeys } from '../../core/seen-keys.js';
 import { createSeenStore } from '../../core/seen-store.js';
 import { inScope } from './ad-markers.js';
 import { FILTERED } from './filters.js';
+import { later } from '../../core/net/payload.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const DAYS = [1, 3, 7, 30];
@@ -105,14 +106,17 @@ export default {
         enabled: hiding,
         markers: ['"__isFeedUnit"'],
         match: (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql'),
-        transform(doc, ctx) {
+        transform(doc, ctx, stage) {
           if (!inScope(scope, ctx, route)) return false;
-          const count = pruneSeen(doc, isSeen, (story, key) => diagnostics?.decide({ post: story.post_id ?? story.id, rule: 'Seen', signal: matchedBy(key), layer: 'data' }));
-          if (count) {
+          const decisions = [];
+          const count = pruneSeen(doc, isSeen, (story, key) => decisions.push({ post: story.post_id ?? story.id, rule: 'Seen', signal: matchedBy(key), layer: 'data' }));
+          if (!count) return false;
+          later(stage, () => {
+            for (const decision of decisions) diagnostics?.decide(decision);
             dropped += count;
             changed();
-          }
-          return count > 0;
+          });
+          return true;
         },
       });
     }

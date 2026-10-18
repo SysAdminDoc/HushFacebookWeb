@@ -208,3 +208,20 @@ test('in page mode the data rule drops matching feed stories on Home and leaves 
   assert.equal(transformDocumentLine(line, [rule], search), line);
   posts.stop();
 });
+
+test('a story in an answer another rule fails on is not counted or reported as filtered', () => {
+  const rules = [];
+  const win = page('');
+  const { posts, diagnostics } = setupFeature(win, { words: 'bread', net: { transformResponses: (rule) => rules.push(rule) } });
+  const broken = { id: 'broken', transform() { throw new Error('boom'); } };
+  const line = JSON.stringify({ data: { viewer: { news_feed: { edges: [{ node: story(), cursor: 'c1' }] } } } });
+  const feed = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+  const hidden = () => diagnostics.rows().find((row) => row.label === 'Posts hidden by your filters').value;
+  assert.equal(transformDocumentLine(line, [rules[0], broken], feed, () => {}), line);
+  assert.equal(hidden(), 'None yet');
+  assert.equal(diagnostics.decisions().length, 0);
+  transformDocumentLine(line, rules, feed);
+  assert.equal(hidden(), 'bread 1');
+  assert.equal(diagnostics.decisions().length, 1);
+  posts.stop();
+});

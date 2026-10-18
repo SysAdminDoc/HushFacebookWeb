@@ -72,6 +72,8 @@ export default {
 
 Prefer the network layer when the thing you're removing arrives as data, because Facebook's markup changes much more often than its data. Use `markers` on response rules so documents without them aren't parsed.
 
+When one rule throws, the page gets that document as Facebook sent it, without the other rules' edits either. So a transform that keeps anything after its document, like a count or what it learned from earlier answers, hands it to `later(stage, ...)` from `src/core/net/payload.js`, or gives `stage.undo` a way to put it back. A rule that only reads sets `observe: true`. It runs after the others, on the data the page gets.
+
 ## Text people read
 
 Titles, descriptions, toasts and docs should read like a person wrote them. Keep them plain and short. No em dashes or semicolons, and use contractions. The feature test checks the panel text for dashes and semicolons.

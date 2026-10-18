@@ -77,6 +77,23 @@ test('the data rules report the post they took out and the rule that matched', (
   assert.equal(out.data.viewer.news_feed.edges[1].node, undefined);
 });
 
+test('a post in an answer a later rule fails on is never reported or counted as taken out', () => {
+  const diagnostics = createDiagnostics();
+  let counted = 0;
+  const rule = adRule('hideSponsoredPosts', () => true, (fired) => { counted += fired.length; }, { diagnostics, reason: 'Sponsored' });
+  const broken = { id: 'broken', transform() { throw new Error('boom'); } };
+  const line = JSON.stringify({ data: { viewer: { news_feed: { edges: [
+    { cursor: 'b', category: 'SPONSORED', node: { __typename: 'Story', id: 'ad-story', post_id: '2' } },
+  ] } } } });
+  const ctx = { transport: 'fetch', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+  assert.equal(transformDocumentLine(line, [rule, broken], ctx, () => {}), line);
+  assert.equal(diagnostics.decisions().length, 0);
+  assert.equal(counted, 0);
+  transformDocumentLine(line, [rule], ctx);
+  assert.deepEqual(diagnostics.decisions().map(({ post }) => post), [postTag('2')], 'the id was read before the story went');
+  assert.equal(counted, 1);
+});
+
 test('a cleared video ad break schedule is counted but stays off the decision list', () => {
   const diagnostics = createDiagnostics();
   const rules = [];

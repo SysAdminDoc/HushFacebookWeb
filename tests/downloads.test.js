@@ -739,6 +739,7 @@ test('each switch only offers what it covers, and the index fills from what Face
   assert.deepEqual(rule.markers, MEDIA_MARKERS);
   assert.equal(rule.match({ transport: 'fetch' }), false, 'it reads what JSON.parse returns, never a second parse');
   assert.equal(rule.match({ transport: 'json-parse' }), true);
+  assert.equal(rule.observe, true, 'it reads what the page gets, after the rules that edit');
   assert.equal(rule.transform({ a: video('7777777'), p: photo('9999999') }), false, 'it changes nothing');
   const shared = downloads({ doc });
   assert.equal(shared.index.size(), 2);

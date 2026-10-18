@@ -123,6 +123,61 @@ test('inline JSON is pruned through JSON.parse, and only when a marker is presen
   assert.equal(win.JSON.parse('7'), 7);
 });
 
+test('inline data a rule fails on comes back unedited, and nothing the other rules queued happens', () => {
+  const { win } = fakeWindow();
+  const log = quietLog();
+  const net = installNetworkHooks({ win, log });
+  const effects = [];
+  const read = [];
+  let after = 0;
+  net.transformResponses({
+    id: 'cut', enabled: () => true, markers: ['"ad"'], match: () => true,
+    transform: (doc, ctx, stage) => { delete doc.ad; stage.defer(() => effects.push('cut')); return true; },
+  });
+  net.transformResponses({ id: 'index', enabled: () => true, match: () => true, observe: true, transform: (doc) => { read.push(Object.keys(doc).join()); } });
+  net.transformResponses({
+    id: 'half', enabled: () => true, markers: ['"broken"'], match: () => true,
+    transform: (doc) => { delete doc.keep; throw new Error('boom'); },
+  });
+  net.transformResponses({ id: 'after', enabled: () => true, match: () => true, transform: () => { after++; } });
+  assert.deepEqual(win.JSON.parse('{"ad":1,"keep":2,"broken":true}'), { ad: 1, keep: 2, broken: true });
+  assert.deepEqual(effects, []);
+  assert.equal(after, 0, 'the rules after the broken one never ran');
+  assert.deepEqual(read, ['ad,keep,broken'], 'the index read what the page got');
+  assert.equal(log.errors.length, 1);
+  assert.deepEqual(win.JSON.parse('{"ad":1,"keep":2}'), { keep: 2 });
+  assert.deepEqual(effects, ['cut']);
+  assert.equal(after, 1);
+  assert.deepEqual(read, ['ad,keep,broken', 'keep']);
+});
+
+test('a streamed line a rule fails on goes out as it came, and the lines around it are still edited', async () => {
+  const { win } = fakeWindow({ chunks: ['{"ad":1,"n":1}\n{"ad":2,"keep":3,"broken":true}\n', '{"ad":3}'] });
+  const net = installNetworkHooks({ win, log: quietLog() });
+  net.transformResponses({ id: 'cut', enabled: () => true, markers: ['"ad"'], match: () => true, transform: (doc) => { delete doc.ad; return true; } });
+  net.transformResponses({
+    id: 'half', enabled: () => true, markers: ['"broken"'], match: () => true,
+    transform: (doc) => { delete doc.keep; throw new Error('boom'); },
+  });
+  assert.equal(await (await win.fetch('/api/graphql/')).text(), '{"n":1}\n{"ad":2,"keep":3,"broken":true}\n{}');
+});
+
+test('JSON.parse with a reviver is left alone, so the reviver sees each value once and gets what it built', () => {
+  const { win } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog() });
+  let calls = 0;
+  net.transformResponses({
+    id: 'mark', enabled: () => true, markers: ['"SPONSORED"'], match: () => true,
+    transform: (doc) => { calls++; delete doc.ad; return true; },
+  });
+  const keys = [];
+  const out = win.JSON.parse('{"category":"SPONSORED","ad":1}', (key, value) => { keys.push(key); return key === 'ad' ? value + 1 : value; });
+  assert.deepEqual(out, { category: 'SPONSORED', ad: 2 });
+  assert.deepEqual(keys, ['category', 'ad', '']);
+  assert.equal(calls, 0);
+  assert.equal(win.JSON.parse.length, JSON.parse.length);
+});
+
 test('a GraphQL line Facebook parses again with JSON.parse is judged by its query, not as page data', async () => {
   const line = '{"node":{"__typename":"Story","id":"s1"}}';
   const { win } = fakeWindow({ chunks: [line] });

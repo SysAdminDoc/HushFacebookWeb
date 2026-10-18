@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import commentsAsWritten, { ASKED, AUTO_TRANSLATED, CommentBook, forgetAsked, MARKERS, originalRanges, POST_MARKERS, RESTORED, restoreComment, restorePost, untranslate, untranslatePosts } from '../src/features/comments/comments-as-written.js';
-import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
+import { FAILED, applyRules, rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 
 const mention = (offset, length, id = '100') => ({ __typename: 'EntityAtRange', entity: { __typename: 'User', __isNode: 'User', id }, entity_is_weak_reference: false, offset, length });
@@ -264,6 +264,30 @@ test('the rule waiting for See original only runs while a translated comment wai
   assert.equal(forgetAsked(whole, book), 1, 'a See original answer that brings the whole comment counts too');
   assert.equal(book.has('d'), false);
   assert.equal(book.asked, 0);
+});
+
+test('an answer another rule fails on takes back what it taught the book, and counts nothing', () => {
+  const rules = [];
+  let changed = 0;
+  commentsAsWritten.setup({ net: { transformResponses: (rule) => rules.push(rule) }, enabled: () => true, diagnostics: { add() {}, changed: () => changed++ } });
+  const [rule] = rules;
+  const broken = { id: 'broken', transform() { throw new Error('boom'); } };
+  assert.equal(applyRules({ data: { comment: comment() } }, [rule, broken], { transport: 'json-parse' }, () => {}), FAILED);
+  assert.equal(changed, 0);
+  // The page got the comment translated, so its link's copy in a later answer stays translated.
+  const copy = { data: { link: { __typename: 'XFBCommentTranslationActionLink', comment: { id: 'Y29tbWVudDox', preferred_body: { __typename: 'TextWithEntities', translation_type: 'MACHINE_TRANSLATION' } } } } };
+  assert.equal(rule.transform(copy), false);
+  assert.equal(copy.data.link.comment.preferred_body.translation_type, 'MACHINE_TRANSLATION');
+  const book = new CommentBook();
+  book.set('a', ASKED);
+  book.set('b', RESTORED);
+  const restore = book.checkpoint();
+  book.delete('a');
+  book.set('c', ASKED);
+  book.set('d', ASKED);
+  restore();
+  assert.deepEqual([...book], [['a', ASKED], ['b', RESTORED]]);
+  assert.equal(book.asked, 1);
 });
 
 test('the comments it remembers are capped, oldest first', () => {

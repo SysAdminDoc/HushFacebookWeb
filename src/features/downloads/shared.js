@@ -23,12 +23,14 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
   let failed = 0;
 
   // Read off Facebook's own JSON.parse, which every GraphQL answer and inline page blob goes
-  // through, so the answers aren't parsed a second time. Nothing is changed.
+  // through, so the answers aren't parsed a second time. Nothing is changed, and it reads what
+  // the page gets, after the other rules.
   net?.transformResponses({
     id: 'mediaIndex',
     enabled: anyOn,
     markers: MEDIA_MARKERS,
     match: (ctx) => ctx.transport === 'json-parse',
+    observe: true,
     transform(data) {
       index.scan(data);
       return false;

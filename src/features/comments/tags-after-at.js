@@ -14,6 +14,8 @@
 // suggestions for a name without @ before, none with the switch, and 10 after @ either way).
 // Needs the script running in the page.
 
+import { later } from '../../core/net/payload.js';
+
 export const BOOTLOAD = /^useFeedComposerCometMentionsBootloadDataSource(?:WithTaggingTransparency)?Query$/;
 export const MARKERS = ['"comet_composer_typeahead_bootload"', '"xfb_tag_suggestion_search"'];
 
@@ -51,13 +53,14 @@ export default {
       markers: MARKERS,
       // By name, so the Nullstate and search answers an @ asks for are never touched.
       match: (ctx) => ctx.transport !== 'json-parse' && BOOTLOAD.test(ctx.friendlyName),
-      transform(doc) {
+      transform(doc, ctx, stage) {
         const removed = emptyTagLists(doc);
-        if (removed) {
+        if (!removed) return false;
+        later(stage, () => {
           held += 1;
           diagnostics?.changed();
-        }
-        return removed > 0;
+        });
+        return true;
       },
     });
     diagnostics?.add('Tag lists held back', () => String(held));

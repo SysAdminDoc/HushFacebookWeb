@@ -448,6 +448,22 @@ test('in page mode the data rule drops seen stories from Home and leaves search 
   posts.stop();
 });
 
+test('a seen story in an answer another rule fails on is not counted as taken out', () => {
+  const rules = [];
+  const storage = sharedStorage({ [SEEN_KEY]: { 'm:99887766': Date.now() - DAY } });
+  const win = page('');
+  const { posts, rows } = setupFeature(win, { storage, net: { transformResponses: (rule) => rules.push(rule) } });
+  const broken = { id: 'broken', transform() { throw new Error('boom'); } };
+  const story = { __typename: 'Story', __isFeedUnit: 'Story', id: 's1', attachments: [{ media: { __typename: 'Photo', id: '99887766' } }] };
+  const line = JSON.stringify({ data: { viewer: { news_feed: { edges: [{ node: story, cursor: 'c1' }] } } } });
+  const feed = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+  assert.equal(transformDocumentLine(line, [rules[0], broken], feed, () => {}), line);
+  assert.match(rows()['Seen posts hidden'], /^0 taken out of the data/);
+  transformDocumentLine(line, rules, feed);
+  assert.match(rows()['Seen posts hidden'], /^1 taken out of the data/);
+  posts.stop();
+});
+
 test('nothing is hidden on a post opened by its link, or on a profile', () => {
   for (const href of ['https://www.facebook.com/someone/posts/pfbid0P1', 'https://www.facebook.com/someone']) {
     const storage = sharedStorage({ [SEEN_KEY]: { [keyOf(1)]: Date.now() - DAY } });

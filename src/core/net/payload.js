@@ -11,8 +11,76 @@ export function rulesFor(text, rules) {
   return rules.filter((rule) => !rule.markers || rule.markers.some((marker) => text.includes(marker)));
 }
 
-// rules: [{ id, markers?, transform(doc, ctx) }]; a transform returns DROP, true when it
-// changed doc in place, or nothing. Returns the new line, or null to drop it.
+// What applyRules returns when a rule threw, so the caller hands back the data as it came.
+export const FAILED = Symbol('hfw.failed');
+
+// Runs effect once the document a rule changed is the one the page gets: a count, a
+// Diagnostics decision, anything kept after the document. Called with no stage (a rule run on
+// its own, in a test), it runs at once.
+export function later(stage, effect) {
+  if (stage) stage.defer(effect);
+  else effect();
+}
+
+// The rules on one parsed document, run as one change. A transform gets (doc, ctx, stage) and
+// returns DROP, true when it changed doc in place, or nothing. When one throws, the rest don't
+// run, nothing queued with stage.defer happens, what was given to stage.undo runs (newest
+// first), and the result is FAILED: doc may be half edited and must not reach the page.
+// Otherwise the queued effects run and the result is DROP or whether doc changed. Rules marked
+// observe only read, and are left to observeRules.
+export function applyRules(doc, rules, ctx, onError) {
+  const effects = [];
+  const undos = [];
+  let current = null;
+  const stage = {
+    defer: (effect) => effects.push([current, effect]),
+    undo: (restore) => undos.push([current, restore]),
+  };
+  let changed = false;
+  for (const rule of rules) {
+    if (rule.observe) continue;
+    current = rule;
+    let result;
+    try {
+      result = rule.transform(doc, ctx, stage);
+    } catch (error) {
+      onError?.(rule, error);
+      settle(undos.reverse(), onError);
+      return FAILED;
+    }
+    if (result === DROP) {
+      settle(effects, onError);
+      return DROP;
+    }
+    if (result === true) changed = true;
+  }
+  settle(effects, onError);
+  return changed;
+}
+
+function settle(steps, onError) {
+  for (const [rule, step] of steps) {
+    try {
+      step();
+    } catch (error) {
+      onError?.(rule, error);
+    }
+  }
+}
+
+// The read-only rules, on the data the page actually gets.
+export function observeRules(doc, rules, ctx, onError) {
+  for (const rule of rules) {
+    if (!rule.observe) continue;
+    try {
+      rule.transform(doc, ctx);
+    } catch (error) {
+      onError?.(rule, error);
+    }
+  }
+}
+
+// Returns the new line, or null to drop it. A failed pass returns the line's own bytes.
 // parse should be the page's original JSON.parse: the hooked one runs the same rules
 // first, and the line would then look unchanged and go out with the ad still in it.
 export function transformDocumentLine(line, allRules, ctx, onError, parse = JSON.parse) {
@@ -34,19 +102,15 @@ export function transformDocumentLine(line, allRules, ctx, onError, parse = JSON
     return line;
   }
 
-  let changed = false;
-  for (const rule of rules) {
-    let result;
-    try {
-      result = rule.transform(doc, ctx);
-    } catch (error) {
-      onError?.(rule, error);
-      continue;
-    }
-    if (result === DROP) return null;
-    if (result === true) changed = true;
+  const result = applyRules(doc, rules, ctx, onError);
+  if (result === DROP) return null;
+  if (result === FAILED) {
+    // doc took the failed rules' edits, so readers get a fresh copy of what Facebook sent.
+    if (rules.some((rule) => rule.observe)) observeRules(parse(body), rules, ctx, onError);
+    return line;
   }
-  return changed ? prefix + JSON.stringify(doc) : line;
+  observeRules(doc, rules, ctx, onError);
+  return result ? prefix + JSON.stringify(doc) : line;
 }
 
 // Splits a growing body into complete lines and transforms each once. Output is only ever

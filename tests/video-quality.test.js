@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 import videoQuality, { CHOICES, MARKERS, capAnswer, capManifest, createCopyBook, keepQualities, qualityOf } from '../src/features/playback/video-quality.js';
-import { rulesFor } from '../src/core/net/payload.js';
+import { FAILED, applyRules, rulesFor } from '../src/core/net/payload.js';
 
 const resultOf = (doc) => doc.data.video.videoDeliveryResponseFragment.videoDeliveryResponseResult;
 const manifestOf = (doc) => resultOf(doc).dash_manifests[0].manifest_xml;
@@ -318,4 +318,70 @@ test('the feature caps through JSON.parse only, with the chosen quality, and cou
   assert.equal(videoQuality.default, false);
   assert.equal(videoQuality.needsPage, true);
   assert.deepEqual(CHOICES.map((choice) => choice.value), ['highest', '1080', '720', '480', '360']);
+});
+
+test('an answer another rule fails on takes its copies back out of the book, and counts no video', async () => {
+  const rules = [];
+  const rows = [];
+  videoQuality.setup({
+    net: { transformResponses: (rule) => rules.push(rule) },
+    enabled: () => true,
+    option: (key) => (key === 'quality' ? '360' : undefined),
+    diagnostics: { add: (label, read) => rows.push([label, read]), changed() {} },
+  });
+  const broken = { id: 'broken', transform() { throw new Error('boom'); } };
+  const [first, , later] = await prefetchLines();
+  const kept = structuredClone(first);
+  const videos = capAnswer(structuredClone(first), '360', createCopyBook()).videos;
+  assert.ok(videos > 0);
+  assert.equal(applyRules(first, [rules[0], broken], { transport: 'json-parse' }, () => {}), FAILED);
+  assert.equal(rows[0][1](), '0');
+  // The page got the first answer as it came, so a later list can't be trimmed by its manifest.
+  assert.equal(rules[0].transform(later), true);
+  assert.deepEqual(listOf(later), [], 'the list waits for a manifest the page did get');
+  const [, , again] = await prefetchLines();
+  assert.equal(applyRules(kept, rules, { transport: 'json-parse' }), true);
+  rules[0].transform(again);
+  assert.deepEqual(copiesOf(again, 0), manifestCopies(kept));
+  assert.equal(rows[0][1](), String(videos));
+});
+
+test('a book put back from a checkpoint knows only what it knew then', () => {
+  const book = createCopyBook();
+  book.nextAnswer();
+  book.makeRoom(2);
+  book.keep('a', 360);
+  book.replace('b', 'a');
+  const restore = book.checkpoint();
+  book.nextAnswer();
+  book.makeRoom(1);
+  book.keep('b', 720);
+  book.keep('c', 1080);
+  restore();
+  assert.equal(book.kept('a'), true);
+  assert.equal(book.instead('b'), 'a');
+  assert.equal(book.kept('c'), false);
+  assert.equal(book.quality('a'), 360);
+});
+
+test('a checkpoint brings back the sets a full book forgot after it', () => {
+  const book = createCopyBook();
+  book.nextAnswer();
+  book.makeRoom(2);
+  book.keep('old', 360);
+  book.replace('older', 'old');
+  book.makeRoom(4998);
+  for (let i = 0; i < 4998; i++) book.keep(`fill${i}`, 480);
+  // An answer that only reads leaves nothing to put back.
+  book.checkpoint()();
+  assert.equal(book.kept('old'), true);
+  const restore = book.checkpoint();
+  book.nextAnswer();
+  book.makeRoom(1);
+  book.keep('new', 720);
+  assert.equal(book.kept('old'), false, 'the oldest set made room');
+  restore();
+  assert.equal(book.kept('old'), true);
+  assert.equal(book.instead('older'), 'old');
+  assert.equal(book.kept('new'), false);
 });

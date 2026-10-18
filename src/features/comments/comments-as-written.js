@@ -25,6 +25,7 @@
 // by the layout's name. Needs the script running in the page.
 
 import { walk } from '../../core/json-walk.js';
+import { later } from '../../core/net/payload.js';
 
 export const MARKERS = ['"MACHINE_TRANSLATION"'];
 // Highlights over the shown text, by offset into it. None were seen on a translated comment, and
@@ -101,6 +102,18 @@ export class CommentBook extends Map {
   delete(id) {
     if (super.get(id) === ASKED) this.asked--;
     return super.delete(id);
+  }
+
+  // The book as it is now, order included, put back by the function this returns, for an
+  // answer the page never got.
+  checkpoint() {
+    const saved = [...super.entries()];
+    const { asked } = this;
+    return () => {
+      super.clear();
+      for (const [id, kind] of saved) super.set(id, kind);
+      this.asked = asked;
+    };
   }
 }
 
@@ -204,11 +217,15 @@ export default {
       markers: MARKERS,
       // Facebook parses every answer and the page's inline data with JSON.parse.
       match: (ctx) => ctx.transport === 'json-parse',
-      transform(data) {
+      transform(data, ctx, stage) {
+        // An answer that fails takes back what it taught the book.
+        if (stage) stage.undo(seen.checkpoint());
         const { comments, copies } = untranslate(data, seen);
         if (comments) {
-          shown += comments;
-          diagnostics?.changed();
+          later(stage, () => {
+            shown += comments;
+            diagnostics?.changed();
+          });
         }
         return comments + copies > 0;
       },
@@ -220,6 +237,7 @@ export default {
       enabled: () => enabled() && seen.asked > 0,
       markers: ORIGINAL_MARKERS,
       match: (ctx) => ctx.transport === 'json-parse',
+      observe: true,
       transform(data) {
         forgetAsked(data, seen);
         return false;
@@ -231,13 +249,14 @@ export default {
       enabled,
       markers: POST_MARKERS,
       match: (ctx) => ctx.transport === 'json-parse',
-      transform(data) {
+      transform(data, ctx, stage) {
         const changed = untranslatePosts(data);
-        if (changed) {
+        if (!changed) return false;
+        later(stage, () => {
           posts += changed;
           diagnostics?.changed();
-        }
-        return changed > 0;
+        });
+        return true;
       },
     });
     diagnostics?.add('Comments shown as written', () => String(shown));

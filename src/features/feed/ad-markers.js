@@ -27,6 +27,7 @@
 // don't, so the label section's typename is the row that lasts.
 
 import { walk, SKIP } from '../../core/json-walk.js';
+import { later } from '../../core/net/payload.js';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -277,23 +278,28 @@ export const matchId = (value) => value.node?.post_id ?? value.node?.id ?? value
 
 // The network rule for one switch: its rows, on every GraphQL answer and inline page blob
 // their scope allows. onPrune gets the ids of the rows that fired. With diagnostics and a
-// reason, each match goes on the Diagnostics decision list too.
+// reason, each match goes on the Diagnostics decision list too. Both wait until the page gets
+// the pruned answer, and the decision's id is read before the match is changed.
 export function adRule(feature, enabled, onPrune, { route, diagnostics, reason } = {}) {
   const { rows, text } = markersFor(feature);
-  const report = diagnostics && reason
-    ? (row, value) => diagnostics.decide({ post: matchId(value), rule: reason, signal: row.id, layer: 'data' })
-    : undefined;
+  const noting = Boolean(diagnostics && reason);
   return {
     id: feature,
     enabled,
     markers: text,
     match: (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql'),
-    transform(doc, ctx) {
+    transform(doc, ctx, stage) {
       const active = rows.filter((row) => inScope(row, ctx, route));
       if (!active.length) return false;
+      const decisions = [];
+      const report = noting ? (row, value) => decisions.push({ post: matchId(value), rule: reason, signal: row.id, layer: 'data' }) : undefined;
       const fired = pruneAds(doc, active, report);
-      if (fired.length) onPrune?.(fired);
-      return fired.length > 0;
+      if (!fired.length) return false;
+      later(stage, () => {
+        for (const decision of decisions) diagnostics.decide(decision);
+        onPrune?.(fired);
+      });
+      return true;
     },
   };
 }

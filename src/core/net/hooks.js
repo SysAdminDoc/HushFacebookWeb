@@ -4,9 +4,10 @@
 // JSON.parse is wrapped too: the first screen of the feed arrives inline in the HTML as
 // <script type="application/json" data-sjs> blocks, never through fetch or XHR.
 //
-// A failing rule is logged once and skipped. Facebook always gets a response.
+// A failing rule is logged once, and the document it failed on reaches Facebook as it came, with
+// none of the other rules' edits either. Facebook always gets a response.
 
-import { createLineStream, friendlyNameOf, rulesFor, transformDocumentLine } from './payload.js';
+import { FAILED, applyRules, createLineStream, friendlyNameOf, observeRules, rulesFor, transformDocumentLine } from './payload.js';
 import { patchWebSocket } from './websocket.js';
 
 const INSTALLED = Symbol.for('hushfacebook-web.net');
@@ -231,6 +232,8 @@ export function installNetworkHooks({ win, log, startup }) {
   const lineTransformer = (rules, ctx) => (line) => {
     const out = transformDocumentLine(line, rules, ctx, onError, parse);
     const ran = rulesFor(line, rules);
+    // A line that failed counts as handled for all of them too, so the page's own JSON.parse of it
+    // doesn't run the rest without the one that failed.
     if (out !== null && ran.length) handled.add(out, ran);
     return out;
   };
@@ -253,8 +256,10 @@ export function installNetworkHooks({ win, log, startup }) {
     blockRequests(rule) {
       requestRules.push(rule);
     },
-    // rule: { id, enabled(), match(ctx), markers?: string[], transform(doc, ctx) }
-    // ctx.transport is 'fetch', 'xhr' or 'json-parse' (inline page data).
+    // rule: { id, enabled(), match(ctx), markers?: string[], observe?, transform(doc, ctx, stage) }
+    // ctx.transport is 'fetch', 'xhr' or 'json-parse' (inline page data). Anything a transform
+    // keeps past the document goes through stage (see applyRules), so a document that fails
+    // leaves no trace. An observe rule only reads, after the others, the data the page gets.
     transformResponses(rule) {
       responseRules.push(rule);
     },
@@ -657,13 +662,16 @@ function fakeXhrSuccess(win, xhr, { url, text, parse, synchronous, overrides }) 
 }
 
 // Facebook calls JSON.parse constantly, so the marker check (a substring search) runs
-// before anything else and most calls return untouched.
+// before anything else and most calls return untouched. A call with a reviver is left alone:
+// the reviver has already seen every value as it was built, and editing after it would hand
+// back what it never saw.
 function patchJsonParse(win, { active, responseRules, onError, handled }) {
   const json = win.JSON;
   const parse = json?.parse;
   if (typeof parse !== 'function') return;
-  json.parse = function (text) {
+  json.parse = function (text, reviver) {
     const result = parse.apply(this, arguments);
+    if (typeof reviver === 'function') return result;
     if (typeof text !== 'string' || result === null || typeof result !== 'object') return result;
     let candidates = rulesFor(text, responseRules);
     if (!candidates.length) return result;
@@ -671,14 +679,14 @@ function patchJsonParse(win, { active, responseRules, onError, handled }) {
     // judged by its query.
     const done = handled?.get(text);
     if (done) candidates = candidates.filter((rule) => !done.has(rule));
-    for (const rule of active(candidates, INLINE_JSON)) {
-      try {
-        rule.transform(result, INLINE_JSON);
-      } catch (error) {
-        onError(rule, error);
-      }
-    }
-    return result;
+    const rules = active(candidates, INLINE_JSON);
+    if (!rules.length) return result;
+    // The rules edit in place, so a failed pass parses again for an unedited copy. Only then:
+    // a pass that works costs no copy. DROP means nothing here, since the page asked for a
+    // value, so a dropped document comes back as edited.
+    const accepted = applyRules(result, rules, INLINE_JSON, onError) === FAILED ? parse.apply(this, arguments) : result;
+    observeRules(accepted, rules, INLINE_JSON, onError);
+    return accepted;
   };
 }
 

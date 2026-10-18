@@ -18,6 +18,7 @@
 // seen. The list repeats on later lines, trimmed by then.
 
 import { walk } from '../../core/json-walk.js';
+import { later } from '../../core/net/payload.js';
 
 export const CHOICES = [
   { value: 'highest', label: 'The best it has' },
@@ -75,11 +76,31 @@ export function createCopyBook() {
   const copies = new Map(); // id -> { quality, best, answer, set }, oldest first; best is null when kept
   let answer = 0;
   let set = 0;
+  // The last checkpoint. Its copy of the book is taken on the first change after it, so an
+  // answer with only prefetch lists, which just reads, costs no copy.
+  let last = null;
+  const changing = () => {
+    if (last && !last.copies) last.copies = new Map(copies);
+  };
   const put = (id, entry) => {
+    changing();
     copies.delete(id);
     copies.set(id, entry);
   };
   return {
+    // The book as it is now, order included, put back by the function this returns, for an
+    // answer the page never got. Entries are replaced, never changed, so a shallow copy holds.
+    checkpoint() {
+      const at = { answer, set, copies: null };
+      last = at;
+      return () => {
+        if (at.copies) {
+          copies.clear();
+          for (const [id, entry] of at.copies) copies.set(id, entry);
+        }
+        ({ answer, set } = at);
+      };
+    },
     nextAnswer() {
       answer++;
     },
@@ -94,6 +115,7 @@ export function createCopyBook() {
           if (copies.size + count <= MAX_REMEMBERED || entry.answer >= answer) return;
           forgetting = entry.set;
         }
+        changing();
         copies.delete(id);
       }
     },
@@ -230,16 +252,22 @@ export default {
       // Facebook's own JSON.parse sees every answer and the page's inline data, so one place
       // covers them all.
       match: (ctx) => ctx.transport === 'json-parse',
-      transform(data) {
+      transform(data, ctx, stage) {
         const choice = option('quality') ?? 'highest';
         // A new choice starts a new book, so copies dropped under the old one come back.
         if (choice !== bookFor) {
           book = createCopyBook();
           bookFor = choice;
         }
+        // Later lines read the book, so an answer that fails takes its copies back out.
+        if (stage) stage.undo(book.checkpoint());
         const result = capAnswer(data, choice, book);
-        videos += result.videos;
-        if (result.videos) diagnostics?.changed();
+        if (result.videos) {
+          later(stage, () => {
+            videos += result.videos;
+            diagnostics?.changed();
+          });
+        }
         return result.changed;
       },
     });

@@ -14,6 +14,7 @@ import { storyFields } from '../../core/filters/story.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { inScope } from './ad-markers.js';
 import { looksLikeCss } from '../../core/css-text.js';
+import { later } from '../../core/net/payload.js';
 
 export const CSS_WARNING = "Those filter lines look like CSS. Hide posts by words matches words in posts, so put CSS in Custom CSS under Appearance instead.";
 const CSS_WARNED_KEY = 'hidePostsByWords.cssWarned';
@@ -121,14 +122,19 @@ export default {
         enabled,
         markers: ['"__isFeedUnit"'],
         match: (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql'),
-        transform(doc, ctx) {
+        transform(doc, ctx, stage) {
           if (!inScope(scope, ctx, route)) return false;
           const filter = current();
           if (!active(filter)) return false;
-          const reasons = pruneFiltered(doc, filter, (story, reason) => diagnostics?.decide({ post: story.post_id ?? story.id, rule: 'Filter', signal: reason, layer: 'data' }));
-          for (const reason of reasons) tally(hits, reason);
-          if (reasons.length) changed();
-          return reasons.length > 0;
+          const decisions = [];
+          const reasons = pruneFiltered(doc, filter, (story, reason) => decisions.push({ post: story.post_id ?? story.id, rule: 'Filter', signal: reason, layer: 'data' }));
+          if (!reasons.length) return false;
+          later(stage, () => {
+            for (const decision of decisions) diagnostics?.decide(decision);
+            for (const reason of reasons) tally(hits, reason);
+            changed();
+          });
+          return true;
         },
       });
     }
