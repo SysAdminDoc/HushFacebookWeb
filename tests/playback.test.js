@@ -353,6 +353,112 @@ test('a hold cut short by the window losing focus keeps no click', () => {
   assert.equal(click.defaultPrevented, false, 'the next click is an ordinary one');
 });
 
+// Each way a press or a hold can stop counting, and how it's undone.
+const changes = [
+  ['switched off or paused', ({ state }) => { state.on = false; }],
+  ['left Reels', ({ win }) => win.history.pushState({}, '', '/')],
+  ['the next reel in the same player', ({ video }) => video.setAttribute('src', 'blob:https://www.facebook.com/2')],
+];
+
+test('a press that stops counting before the hold time never starts 2x', () => {
+  for (const [name, change] of changes) {
+    for (const told of [false, true]) {
+      const win = page(`${FB}/reel/1234567890`);
+      const reel = fakeVideo(win);
+      reel.video.setAttribute('src', 'blob:https://www.facebook.com/1');
+      const state = { on: true };
+      const { hold, press, wait, timers } = holder(win, { on: () => state.on });
+      press(reel.video);
+      change({ state, win, video: reel.video });
+      if (told) {
+        hold.recheck();
+        assert.equal(timers.length, 0, `${name}: called off right away`);
+      }
+      wait();
+      assert.equal(reel.video.playbackRate, 1, name);
+      assert.equal(reel.video[HOLDING], undefined, name);
+      assert.deepEqual(hold.state(), { holding: false, holds: 0 }, name);
+    }
+  }
+});
+
+test('a hold that stops counting ends there, back at the speed it had, with no click kept', () => {
+  for (const [name, change] of changes) {
+    const win = page(`${FB}/reel/1234567890`);
+    const reel = fakeVideo(win);
+    reel.video.setAttribute('src', 'blob:https://www.facebook.com/1');
+    reel.video.playbackRate = 1.25;
+    const state = { on: true };
+    const { hold, press, wait } = holder(win, { on: () => state.on });
+    press(reel.video);
+    wait();
+    assert.equal(reel.video.playbackRate, FAST, name);
+    change({ state, win, video: reel.video });
+    // The player says when it loads another reel, and the feature hears about the rest.
+    if (name.startsWith('the next reel')) reel.video.dispatchEvent(new win.Event('loadstart'));
+    else hold.recheck();
+    assert.equal(hold.state().holding, false, name);
+    assert.equal(reel.video.playbackRate, 1.25, name);
+    assert.equal(reel.video[HOLDING], undefined, name);
+    const click = new win.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    reel.video.dispatchEvent(click);
+    assert.equal(click.defaultPrevented, false, `${name}: the next click is an ordinary one`);
+  }
+});
+
+test('a speed picked while holding stays when the hold ends', () => {
+  const win = page(`${FB}/reel/1234567890`);
+  const reel = fakeVideo(win);
+  const { press, lift, wait } = holder(win);
+  press(reel.video);
+  wait();
+  reel.video.playbackRate = 1.5;
+  lift(reel.video);
+  assert.equal(reel.video.playbackRate, 1.5);
+  assert.equal(reel.video[HOLDING], undefined);
+  // A reel the player reset on its own while it loaded isn't sped back up or slowed down either.
+  press(reel.video);
+  wait();
+  assert.equal(reel.video.playbackRate, FAST);
+  reel.video.setAttribute('src', 'blob:https://www.facebook.com/2');
+  reel.video.playbackRate = 1;
+  reel.video.dispatchEvent(new win.Event('loadstart'));
+  assert.equal(reel.video.playbackRate, 1);
+  assert.equal(reel.video[HOLDING], undefined, 'and the hold is over');
+});
+
+test('the feature ends a hold when a setting changes, from another tab too, or the page moves on', async () => {
+  const win = page(`${FB}/reel/1234567890`);
+  const reel = fakeVideo(win);
+  const fromSettings = [];
+  const fromRouter = [];
+  let on = true;
+  holdForSpeed.setup({
+    doc: win.document, win, enabled: () => on,
+    settings: { subscribe: (listener) => fromSettings.push(listener) },
+    router: { subscribe: (listener) => fromRouter.push(listener) },
+  });
+  const press = () => {
+    const event = new win.PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: 300, clientY: 400 });
+    Object.defineProperty(event, 'isTrusted', { get: () => true });
+    reel.video.dispatchEvent(event);
+  };
+  press();
+  await new Promise((resolve) => setTimeout(resolve, HOLD_MS + 100));
+  assert.equal(reel.video.playbackRate, FAST);
+  on = false;
+  for (const listener of fromSettings) listener({ keys: ['paused'], remote: true });
+  assert.equal(reel.video.playbackRate, 1, 'paused in another tab');
+  on = true;
+  press();
+  await new Promise((resolve) => setTimeout(resolve, HOLD_MS + 100));
+  assert.equal(reel.video.playbackRate, FAST);
+  win.history.pushState({}, '', '/');
+  for (const listener of fromRouter) listener();
+  assert.equal(reel.video.playbackRate, 1, 'left Reels');
+  assert.equal(reel.video[HOLDING], undefined);
+});
+
 // ---- Keep video controls on screen ----
 
 // A Watch player: the video, its controls layer that fades, and the volume pop-up.
