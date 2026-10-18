@@ -3,7 +3,8 @@
 // whether by its address, a click on the logo or the Home tab, or Facebook moving there itself.
 // The top bar keeps the Marketplace tab and the Menu, Messenger, Notifications and profile
 // buttons, and the other tabs and Find friends go. Links to anything else (a seller's profile, a
-// chat, a notification) still open where they lead. Works in content mode.
+// chat, a notification) still open where they lead. Switching it on while Home is open leaves
+// Home right away. Works in content mode.
 //
 // Live 2026-10-11: the logo and the Home tab are both a[href="/"] in the top bar, the tab inside
 // an li of the tab list and the logo outside it. This account's top bar has no Marketplace tab,
@@ -110,8 +111,22 @@ export default {
       log?.warn('Marketplace only stopped sending Home to Marketplace for a while, because Marketplace keeps sending this tab back. It may not be open to this account.');
     };
 
+    // null until the saved choices are in, when the start of the page decides.
+    let wasOn = null;
     onceLoaded(settings, () => {
-      if (enabled() && isHome(win.location.href) && claimHomeRedirect(win, 'marketplaceOnly')) leaveHome();
+      wasOn = enabled();
+      if (wasOn && isHome(win.location.href) && claimHomeRedirect(win, 'marketplaceOnly')) leaveHome();
+    });
+
+    // Switched on, or Pause turned off, in this tab or another, while Home is open. The CSS
+    // hides the feed at once, so Home is left now rather than at the next page. Settings tell
+    // listeners only once a change is saved, so the reload can't lose it.
+    settings?.subscribe?.(() => {
+      if (wasOn === null) return;
+      const on = enabled();
+      const turnedOn = on && !wasOn;
+      wasOn = on;
+      if (turnedOn && isHome(win.location.href)) leaveHome();
     });
 
     // Once per page is enough to start the bounce count over.

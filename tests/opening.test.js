@@ -6,6 +6,9 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
+import { createSettings } from '../src/core/settings.js';
+import { startFeatures } from '../src/core/start-features.js';
+import { createMemoryStorage } from '../src/core/storage.js';
 import followingFeed from '../src/features/opening/following-feed.js';
 import marketplaceOnly, { BOUNCE_MS, LOOP_MARK, MARKETPLACE_ONLY_CSS, STOP_MS, mayRedirect } from '../src/features/opening/marketplace-only.js';
 import openOnTab, { TABS, startPath } from '../src/features/opening/open-on-tab.js';
@@ -271,6 +274,100 @@ test('Marketplace only stops following Facebook back to Home in a loop, and warn
 test('without session storage, Marketplace only always goes', () => {
   const win = fakeWin('/', { storage: false });
   for (let i = 0; i < 6; i++) assert.equal(mayRedirect(win), true);
+});
+
+// A loaded page with the opening features started the way main.js starts them, on the real
+// settings store. remote() is another tab saving its settings.
+// late holds the saved settings back until arrive(), as the extension's storage does.
+function loaded(path, saved = {}, { store, late = false } = {}) {
+  const happy = testWindow(`${FB}${path}`);
+  windows.push(happy);
+  const win = { ...fakeWin(path, { store }), document: happy.document };
+  const storage = createMemoryStorage({ settings: saved });
+  const others = [];
+  storage.onChange = (key, fn) => others.push(fn);
+  const waiting = [];
+  let arrived = !late;
+  if (late) storage.whenReady = (run) => (arrived ? run() : waiting.push(run));
+  const arrive = () => {
+    arrived = true;
+    for (const run of waiting.splice(0)) run();
+  };
+  const settings = createSettings({ storage, features: [marketplaceOnly, openOnTab, followingFeed], migrations: [] });
+  const warnings = [];
+  const log = { info() {}, warn: (message) => warnings.push(message), error: (message, error) => { throw error ?? new Error(message); } };
+  const router = { listeners: [], subscribe(fn) { this.listeners.push(fn); } };
+  startFeatures({ features: [marketplaceOnly, openOnTab, followingFeed], settings, log, unavailable: new Map(), context: () => ({ win, router, log }) });
+  const remote = (values) => {
+    storage.set('settings', values);
+    for (const fn of others) fn(values);
+  };
+  return { win, settings, remote, warnings, arrive };
+}
+
+test('switching Marketplace only on while Home is open leaves Home at once, from this tab or another', async () => {
+  const here = loaded('/');
+  assert.deepEqual(here.win.sent, []);
+  await here.settings.set('marketplaceOnly', true);
+  assert.deepEqual(here.win.sent, [['replace', '/marketplace/']]);
+  await here.settings.set('followingFeed', true);
+  assert.deepEqual(here.win.sent, [['replace', '/marketplace/']], 'once, not on every later change');
+
+  const feeds = loaded('/?filter=all&sk=h_chr', { followingFeed: true });
+  await feeds.settings.set('marketplaceOnly', true);
+  assert.deepEqual(feeds.win.sent, [['replace', '/marketplace/']], 'Feeds is Home too');
+
+  const there = loaded('/');
+  there.remote({ marketplaceOnly: true });
+  assert.equal(there.settings.enabled('marketplaceOnly'), true);
+  assert.deepEqual(there.win.sent, [['replace', '/marketplace/']]);
+
+  for (const path of ['/groups/feed/', '/marketplace/item/123/', '/messages/t/']) {
+    const away = loaded(path);
+    await away.settings.set('marketplaceOnly', true);
+    away.remote({ marketplaceOnly: false });
+    away.remote({ marketplaceOnly: true });
+    assert.deepEqual(away.win.sent, [], path);
+  }
+});
+
+test('turning Pause off on Home with Marketplace only on leaves Home, and turning it on does not', async () => {
+  const page = loaded('/', { marketplaceOnly: true, paused: true });
+  assert.deepEqual(page.win.sent, [], 'paused at the start');
+  await page.settings.set('paused', false);
+  assert.deepEqual(page.win.sent, [['replace', '/marketplace/']]);
+  await page.settings.set('paused', true);
+  assert.deepEqual(page.win.sent, [['replace', '/marketplace/']]);
+
+  // Already on when the page started (and sent away then), nothing more on unrelated changes.
+  const started = loaded('/', { marketplaceOnly: true }, { store: new Map([['hfw:started', '1']]) });
+  assert.deepEqual(started.win.sent, [['replace', '/marketplace/']]);
+  await started.settings.set('followingFeed', true);
+  assert.deepEqual(started.win.sent, [['replace', '/marketplace/']]);
+
+  // Saved choices that arrive a moment after the page starts are the start of the page, not a
+  // switch turned on, so Home is sent away once.
+  const late = loaded('/', { marketplaceOnly: true }, { store: new Map([['hfw:started', '1']]), late: true });
+  assert.deepEqual(late.win.sent, []);
+  late.arrive();
+  assert.deepEqual(late.win.sent, [['replace', '/marketplace/']]);
+});
+
+test('switching it on while Marketplace keeps sending the tab back leaves Home usable', async () => {
+  const store = new Map([['hfw:marketplaceOnlyGuard', JSON.stringify({ stopped: Date.now() })]]);
+  const page = loaded('/', {}, { store });
+  await page.settings.set('marketplaceOnly', true);
+  assert.deepEqual(page.win.sent, []);
+  assert.ok(page.win.document.documentElement.hasAttribute(LOOP_MARK), 'the feed shows instead of a blank page');
+  assert.equal(page.warnings.length, 1);
+
+  // A send on switching on counts toward a loop like any other.
+  const fresh = new Map();
+  const first = loaded('/', {}, { store: fresh });
+  await first.settings.set('marketplaceOnly', true);
+  const bounces = Array.from({ length: 4 }, () => loaded('/', { marketplaceOnly: true }, { store: fresh }));
+  assert.deepEqual(bounces.map(({ win }) => win.sent.length), [1, 1, 1, 0]);
+  assert.ok(bounces[3].win.document.documentElement.hasAttribute(LOOP_MARK));
 });
 
 test('a click on the logo or Home goes to Marketplace in the page, or by address without a Marketplace link', () => {
