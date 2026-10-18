@@ -25,13 +25,13 @@ There are two ways to run it. They share every feature, so pick one, not both.
 
 ### As a userscript
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/) in Chrome, Edge, Firefox or another desktop browser. Both have been checked in Chrome. Firefox hasn't been checked yet.
+1. Install [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/) in a desktop browser: Chrome or Edge 120 or newer, Firefox 128 or newer, or Safari 17 or newer. Both managers have been checked in Chrome. Firefox hasn't been checked yet.
 2. In Chrome 138 or newer, open the manager's extension details and turn on **Allow User Scripts**. Chrome won't run any userscript without it.
 3. Open [hushfacebook-web.user.js](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest/download/hushfacebook-web.user.js) and your manager will offer to install it. It checks for updates on its own.
 
 ### As a Chrome extension
 
-Works in Chrome, Edge, Brave and other Chromium browsers from version 111, with no userscript manager and no Allow User Scripts switch to find.
+Works in Chrome, Edge, Brave and other Chromium browsers from version 120, with no userscript manager and no Allow User Scripts switch to find. Older ones won't load it. It's been checked in Chrome 120 itself and in current Chrome.
 
 1. Download `hushfacebook-web-extension.zip` from a release and unzip it somewhere you'll keep it.
 2. Open `chrome://extensions` (`edge://extensions` in Edge) and turn on **Developer mode**.
@@ -41,7 +41,7 @@ The extension is new in the development build, so the first release to carry the
 
 ### In Firefox
 
-The build also makes a Firefox copy of the extension, for Firefox 128 or newer. Mozilla hasn't signed it yet, so Firefox keeps it only until you close the browser.
+The build also makes a Firefox copy of the extension, for Firefox 128 or newer (128 itself hasn't been checked yet). Mozilla hasn't signed it yet, so Firefox keeps it only until you close the browser.
 
 1. Build it yourself (below), which gives you `dist/extension-firefox`.
 2. Open `about:debugging#/runtime/this-firefox` and click **Load Temporary Add-on**.

@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { EXTENSION_ZIP } from './lib/release.mjs';
-import { extensionManifest } from './manifest.mjs';
+import { BUNDLE_TARGET, extensionManifest } from './manifest.mjs';
 import { fileName, renderMetaBlock } from './meta.mjs';
 import { zip } from './zip.mjs';
 
@@ -27,7 +27,7 @@ const bundle = async (entry, { banner, target = 'userscript' } = {}) => (await b
   entryPoints: [fileURLToPath(new URL(entry, root))],
   bundle: true,
   format: 'iife',
-  target: ['chrome120', 'firefox128', 'safari17'],
+  target: BUNDLE_TARGET,
   minify: false,
   charset: 'utf8',
   // /*! */ notices (third-party MIT code) go to the end of the script, once each.

@@ -19,6 +19,13 @@ const scripts = (pages, frames) => [
 // The add-on id Firefox keeps the extension's storage under. It must never change.
 export const GECKO_ID = 'hushfacebook-web@sysadmindoc.github.io';
 
+// The oldest browsers the build supports. esbuild writes the bundles for these, and the
+// manifests refuse anything older, so the two can't drift apart. MAIN-world content scripts
+// alone would allow Chrome 111, but esbuild leaves anything Chrome 120 can run as written, and
+// nothing older than 120 has been checked.
+export const BROWSER_FLOORS = { chrome: 120, firefox: 128, safari: 17 };
+export const BUNDLE_TARGET = Object.entries(BROWSER_FLOORS).map(([browser, version]) => `${browser}${version}`);
+
 export function extensionManifest(pkg, { browser = 'chrome' } = {}) {
   const firefox = browser === 'firefox';
   return {
@@ -27,10 +34,9 @@ export function extensionManifest(pkg, { browser = 'chrome' } = {}) {
     version: pkg.version,
     description: value('description'),
     homepage_url: value('homepageURL'),
-    // MAIN-world content scripts, from Chrome 111 and Firefox 128.
     ...(firefox
-      ? { browser_specific_settings: { gecko: { id: GECKO_ID, strict_min_version: '128.0', data_collection_permissions: { required: ['none'] } } } }
-      : { minimum_chrome_version: '111' }),
+      ? { browser_specific_settings: { gecko: { id: GECKO_ID, strict_min_version: `${BROWSER_FLOORS.firefox}.0`, data_collection_permissions: { required: ['none'] } } } }
+      : { minimum_chrome_version: String(BROWSER_FLOORS.chrome) }),
     icons: ICONS,
     action: { default_title: 'HushFacebook Web settings', default_icon: ICONS },
     // Firefox runs the same classic script as an event page, since it has no extension workers.

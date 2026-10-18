@@ -2,8 +2,9 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { inflateRawSync } from 'node:zlib';
-import { extensionManifest } from '../scripts/manifest.mjs';
+import { BROWSER_FLOORS, BUNDLE_TARGET, extensionManifest } from '../scripts/manifest.mjs';
 import { unzipFile, zip } from '../scripts/zip.mjs';
 
 test('the manifest runs the isolated half first, the page half in MAIN, at document_start, on the userscript pages', () => {
@@ -35,6 +36,16 @@ test('the Firefox manifest runs the same scripts from an event page under a fixe
     return rest;
   };
   assert.deepEqual(shared(firefox), shared(chrome));
+});
+
+test('the manifests refuse browsers older than the ones the bundle is built for', async () => {
+  assert.deepEqual(BROWSER_FLOORS, { chrome: 120, firefox: 128, safari: 17 });
+  assert.deepEqual(BUNDLE_TARGET, ['chrome120', 'firefox128', 'safari17']);
+  assert.equal(extensionManifest({ version: '1.2.3' }).minimum_chrome_version, '120');
+  assert.equal(extensionManifest({ version: '1.2.3' }, { browser: 'firefox' }).browser_specific_settings.gecko.strict_min_version, '128.0');
+  const build = await readFile(new URL('../scripts/build.mjs', import.meta.url), 'utf8');
+  assert.match(build, /target: BUNDLE_TARGET,/);
+  assert.doesNotMatch(build, /['"](chrome|edge|firefox|safari|es)\d+['"]/, 'no browser target written out on its own');
 });
 
 // Reads a zip back through its central directory, the way unzip tools do.
