@@ -8,12 +8,12 @@ import { fixtureLines, parseLine } from './helpers/fixtures.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
-import { compileFilters, filterCache, firstMatch } from '../src/core/filters/engine.js';
+import { compileFilters, filterCache, firstMatch, matchingRules } from '../src/core/filters/engine.js';
 import { postFields } from '../src/core/filters/page.js';
 import { storyFields } from '../src/core/filters/story.js';
 import { parseRoute } from '../src/core/route.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
-import hidePostsByWords, { filterVerdict, pruneFiltered, skipNotice } from '../src/features/feed/filters.js';
+import hidePostsByWords, { createPreviewTally, filterMatches, filterVerdict, previewReport, pruneFiltered, skipNotice } from '../src/features/feed/filters.js';
 import { createSettings, EXPORT_SCHEMA } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 
@@ -168,6 +168,14 @@ test('no rule keeps state between tests, so the same text always gets the same a
   assert.ok(rules.every((rule) => !rule.re.global && !rule.re.sticky));
 });
 
+test('each rule knows its line in the list, and matchingRules finds every line that matches', () => {
+  const { rules } = compileFilters('# a note\ncat\n\nre:do+g\nbird');
+  assert.deepEqual(rules.map((rule) => [rule.line, rule.phrase]), [[2, 'cat'], [4, 're:do+g'], [5, 'bird']]);
+  assert.deepEqual(matchingRules(rules, ['A cat and a doooog', null]).map((rule) => rule.line), [2, 4]);
+  assert.deepEqual(matchingRules(rules, ['nothing']), []);
+  assert.deepEqual(matchingRules([], ['cat']), []);
+});
+
 test('filterCache compiles once per distinct text', () => {
   const cache = filterCache();
   const a = cache('cat');
@@ -263,9 +271,9 @@ test('page fields: text, author, alt, sites and kind, without the comments', () 
   assert.deepEqual([...fields.kinds].sort(), ['link', 'photo']);
 });
 
-function setupFeature(win, { words = '', kinds = {}, net = null, href, toast, storage } = {}) {
+function setupFeature(win, { words = '', kinds = {}, preview = false, net = null, href, toast, storage } = {}) {
   const doc = win.document;
-  const values = { words, ...kinds };
+  const values = { words, preview, ...kinds };
   const subscribers = [];
   const posts = createPostTracker({ doc });
   const hider = createHider({ doc, posts });
@@ -314,8 +322,7 @@ test('in page mode the data rule drops matching feed stories on Home and leaves 
   const rules = [];
   const win = page('');
   const { posts } = setupFeature(win, { words: 'bread', net: { transformResponses: (rule) => rules.push(rule) } });
-  assert.equal(rules.length, 1);
-  const [rule] = rules;
+  const rule = rules.find((candidate) => candidate.id === 'hidePostsByWords');
   assert.deepEqual(rule.markers, ['"__isFeedUnit"']);
   const answer = { data: { viewer: { news_feed: { edges: [{ node: story(), cursor: 'c1' }, { node: { ...story(), id: 's2', comet_sections: {} }, cursor: 'c2' }] } } } };
   const line = JSON.stringify(answer);
@@ -355,4 +362,76 @@ test('a filter decision keeps the matched words for the panel, out of what Copy 
   assert.equal(decision.detail, 'bread');
   assert.equal(decision.signal, '');
   posts.stop();
+});
+
+const FEED = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+const feedLine = (...nodes) => JSON.stringify({ data: { viewer: { news_feed: { edges: nodes.map((node, n) => ({ node, cursor: `c${n}` })) } } } });
+
+test("preview finds the same lines and kinds in a story's data as in the post Facebook draws from it", () => {
+  const extra = `<a href="/photo/?fbid=1"><img alt="May be an image of bread" src="x.jpg"></a>
+    <div role="article" aria-label="Comment by Someone"><h4><a href="/c">Commenter</a></h4><div data-ad-rendering-role="story_message">kittens</div></div>`;
+  const win = page(post(1, { author: 'Pat Example', text: 'Fresh bread at the market', extra }));
+  const filter = { ...compileFilters('market\nkittens\nPat Example\nre:image of\nnot there'), kinds: new Set(['photo', 'video']) };
+  const fromData = filterMatches(filter, storyFields(story()));
+  assert.deepEqual(fromData, ['photo posts', 'line 1', 'line 3', 'line 4']);
+  assert.deepEqual(filterMatches(filter, postFields(win.document.querySelector('[aria-posinset]'))), fromData);
+  const none = { ...compileFilters('kittens'), kinds: new Set(['video']) };
+  assert.deepEqual(filterMatches(none, storyFields(story())), []);
+  assert.equal(filterVerdict(none, storyFields(story())), null, 'no match in preview is no verdict when hiding');
+});
+
+test('preview hides nothing on the page or in the data, then Preview off hides what it counted', () => {
+  const rules = [];
+  const writes = [];
+  const win = page(post(1, { text: 'Big football game tonight' }) + post(2, { text: 'Garden photos' }) + post(3, { author: 'Loud Page', text: 'football again' }));
+  const { doc, posts, diagnostics, set } = setupFeature(win, {
+    words: 'football\nloud page\nbread', preview: true,
+    net: { transformResponses: (rule) => rules.push(rule) },
+    storage: { get: () => null, set: (key) => writes.push(key) },
+  });
+  assert.equal(doc.querySelector(`[${MARK}]`), null, 'no post is hidden');
+  const line = feedLine(story(), { ...story(), id: 's2', comet_sections: {} });
+  assert.equal(transformDocumentLine(line, rules, FEED), line, 'the answer reaches the page as Facebook sent it');
+  assert.equal(transformDocumentLine(line, rules, FEED), line, 'and a story seen twice counts once');
+  assert.equal(diagnostics.decisions().length, 0, 'preview records no decisions');
+  assert.deepEqual(writes, [], 'and keeps nothing in storage');
+  const rows = Object.fromEntries(diagnostics.rows().map(({ label, value, shareable }) => [label, { value, shareable }]));
+  assert.equal(rows['Posts hidden by your filters'].value, 'None yet');
+  assert.deepEqual(rows['Filter preview'], { value: 'data: 1 of 2 stories matches (line 3 1), page: 2 of 3 posts match (line 1 2, line 2 1)', shareable: true });
+  assert.equal(diagnostics.statusOf('hidePostsByWords'), "Preview is on, so nothing is hidden. In Facebook's data, 1 of 2 stories matches (line 3 \"bread\" 1). On the page, 2 of 3 posts match (line 1 \"football\" 2, line 2 \"loud page\" 1). Turn Preview off to hide them.");
+  set('preview', false);
+  assert.equal(doc.querySelectorAll(`[${MARK}]`).length, 2, 'the posts it counted are hidden now');
+  assert.equal(diagnostics.statusOf('hidePostsByWords'), null);
+  assert.equal(diagnostics.rows().find((row) => row.label === 'Filter preview').value, 'Off');
+  assert.deepEqual(JSON.parse(transformDocumentLine(line, rules, FEED)).data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null), [null, 's2']);
+  posts.stop();
+});
+
+test('preview tells nothing checked yet apart from nothing matching, and an empty list apart from both', () => {
+  const rules = [];
+  const status = (diagnostics) => diagnostics.statusOf('hidePostsByWords');
+  const empty = setupFeature(page(''), { words: 'zebra', preview: true, net: { transformResponses: (rule) => rules.push(rule) } });
+  assert.equal(status(empty.diagnostics), "Preview is on, so nothing is hidden. In Facebook's data, no stories checked yet. On the page, no posts checked yet. Open Home or a group and scroll a little.");
+  empty.posts.stop();
+  rules.length = 0;
+  const quiet = setupFeature(page(post(1)), { words: 'zebra', preview: true, net: { transformResponses: (rule) => rules.push(rule) } });
+  transformDocumentLine(feedLine(story()), rules, FEED);
+  assert.equal(status(quiet.diagnostics), "Preview is on, so nothing is hidden. In Facebook's data, no matches in 1 story. On the page, no matches in 1 post.");
+  quiet.set('words', 'bread');
+  assert.equal(status(quiet.diagnostics), "Preview is on, so nothing is hidden. In Facebook's data, no stories checked yet. On the page, no matches in 1 post.", 'a new list starts counting again, and the post on the page is looked at again');
+  quiet.posts.stop();
+  const blank = setupFeature(page(post(1)), { words: '', preview: true });
+  assert.equal(status(blank.diagnostics), 'Preview is on. Add a word or turn on a kind of post to see what it would hide.');
+  blank.posts.stop();
+});
+
+test('preview counts stop at their limit and say so', () => {
+  const tally = createPreviewTally(3);
+  for (let n = 0; n < 5; n += 1) tally.see(`p${n}`, n % 2 ? [] : ['line 1']);
+  tally.see('p0', ['line 2']);
+  const summary = tally.summary();
+  assert.equal(summary.checked, 3);
+  assert.equal(summary.full, true);
+  assert.deepEqual(summary.counts, [['line 1', 2], ['line 2', 1]]);
+  assert.equal(previewReport({ data: summary, page: null }), 'data: 2 of 3+ stories match (line 1 2, line 2 1)');
 });

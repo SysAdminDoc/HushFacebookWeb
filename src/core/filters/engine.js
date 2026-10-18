@@ -72,8 +72,9 @@ function phraseRegex(phrase) {
   return new RegExp(`(?<!${WORD})${body}(?!${WORD})`, 'iu');
 }
 
-// { rules: [{ phrase, re }], errors: [{ line, phrase, reason, message }] }. reason is the
-// plain-words cause above. message is RE2's own, for the log.
+// { rules: [{ line, phrase, re }], errors: [{ line, phrase, reason, message }] }. line counts
+// from 1 in the list as written. reason is the plain-words cause above. message is RE2's own,
+// for the log.
 export function compileFilters(text) {
   const rules = [];
   const errors = [];
@@ -84,14 +85,14 @@ export function compileFilters(text) {
       const source = line.slice(3).trim();
       if (!source) return;
       try {
-        rules.push({ phrase: line, re: regexFor(source) });
+        rules.push({ line: index + 1, phrase: line, re: regexFor(source) });
       } catch (error) {
         const message = error.cause?.message ?? error.message;
         errors.push({ line: index + 1, phrase: line, reason: error.message, message });
       }
       return;
     }
-    rules.push({ phrase: line, re: phraseRegex(line) });
+    rules.push({ line: index + 1, phrase: line, re: phraseRegex(line) });
   });
   return { rules, errors };
 }
@@ -105,6 +106,14 @@ export function firstMatch(rules, values) {
     for (const value of clean) if (rule.re.test(value)) return rule;
   }
   return null;
+}
+
+// Every rule that matches any of the values, in list order. For the preview, which counts each
+// line on its own rather than stopping at the one that would hide the post.
+export function matchingRules(rules, values) {
+  if (!rules.length) return [];
+  const clean = values.filter(Boolean).map(normalizeText);
+  return rules.filter((rule) => clean.some((value) => rule.re.test(value)));
 }
 
 // Compiles once per distinct text, since the setting rarely changes but posts arrive often.

@@ -482,6 +482,7 @@ test('Copy report leaves out setting text, row text, log details and post ids', 
   const { shadow, panel, settings, diagnostics, log, copied } = setup({ features: [feature] });
   settings.set('demo.words', 'PRIVATE-WORDS');
   diagnostics.add('Words matched', () => 'PRIVATE-ROW');
+  diagnostics.status('demo', () => 'PRIVATE-STATUS');
   diagnostics.decide({ post: 'PRIVATE-POST', rule: 'Filter', detail: 'PRIVATE-PHRASE', layer: 'page' });
   log.warn('A line was skipped', 'PRIVATE-DETAIL');
   panel.open('diagnostics');
@@ -513,6 +514,32 @@ test("a feature's own buttons show on its card while it's on, follow its state a
   settings.set('demo', false);
   await tick();
   assert.equal(button('Hide them again'), undefined, 'no buttons while the switch is off');
+});
+
+test("a feature's status line shows on its card while it's on and changes without taking focus", async () => {
+  const feature = { id: 'demo', section: 'feed', title: 'Demo', description: 'A demo switch.', default: true, options: [{ key: 'words', type: 'text', default: '', label: 'Words' }], setup() {} };
+  const { shadow, panel, settings, diagnostics } = setup({ features: [feature] });
+  let text = 'Counted 1 post';
+  diagnostics.status('demo', () => text);
+  panel.open('feed');
+  const line = () => shadow.querySelector('[data-status-for="demo"]');
+  assert.equal(line().textContent, 'Counted 1 post');
+  assert.equal(line().hidden, false);
+  const field = shadow.querySelector('[data-key="demo.words"]');
+  field.focus();
+  text = 'Counted 2 posts';
+  diagnostics.changed();
+  await tick();
+  assert.equal(line().textContent, 'Counted 2 posts');
+  assert.equal(shadow.activeElement, field, 'the list being typed in keeps its focus');
+  text = null;
+  diagnostics.changed();
+  await tick();
+  assert.equal(line().hidden, true, 'no line while the feature has nothing to say');
+  text = 'Back';
+  settings.set('demo', false);
+  await tick();
+  assert.equal(line(), null, 'no line while the switch is off');
 });
 
 test('the corner button hides when Settings in your account menu stands in for it, or when General says so', () => {

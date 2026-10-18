@@ -312,13 +312,15 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     // Stable ids, so the switch reads its help, why it's unavailable and the reload note.
     const ids = { desc: `hfw-${feature.id}-desc`, note: `hfw-${feature.id}-note`, reload: `hfw-${feature.id}-reload` };
     const describedBy = [ids.desc, blocked ? ids.note : null, feature.reload ? ids.reload : null].filter(Boolean).join(' ');
+    const status = on && diagnostics?.hasStatus?.(feature.id) ? diagnostics.statusOf(feature.id) : undefined;
     return h('div', { class: `card${blocked ? ' unavailable' : ''}` },
       h('div', { class: 'row' },
         h('div', { class: 'text' },
           h('div', { class: 'title', text: feature.title }),
           h('div', { class: 'desc', id: ids.desc, text: feature.description }),
           blocked ? h('div', { class: 'note', id: ids.note, text: `${UNAVAILABLE_NOTES[reason] ?? UNAVAILABLE_NOTES.failed}${on ? ' You can still turn it off.' : ''}` }) : null,
-          feature.reload ? h('div', { class: 'note', id: ids.reload, text: 'Applies after Facebook reloads.' }) : null),
+          feature.reload ? h('div', { class: 'note', id: ids.reload, text: 'Applies after Facebook reloads.' }) : null,
+          status === undefined ? null : h('div', { class: 'note', 'data-status-for': feature.id, role: 'status', hidden: status === null, text: status ?? '' })),
         toggle(feature.id, feature.title, { locked: blocked, describedBy })),
       (on || showOptions) && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option))) : null,
       on ? featureActions(feature) : null);
@@ -945,7 +947,22 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     toast(`${entry.message}. Details are in Diagnostics.`, { tone: 'error', action: { label: 'Open', run: () => open('diagnostics') } });
   };
   let renderQueued = false;
+  let statusQueued = false;
+  // A card's status line is rewritten where it is, so a list being typed into keeps its focus.
+  const refreshStatuses = () => {
+    if (!dialog.open || statusQueued || !root.querySelector('[data-status-for]')) return;
+    statusQueued = true;
+    requestAnimationFrame(() => {
+      statusQueued = false;
+      for (const node of root.querySelectorAll('[data-status-for]')) {
+        const text = diagnostics.statusOf(node.getAttribute('data-status-for'));
+        node.hidden = text === null;
+        if (node.textContent !== (text ?? '')) node.textContent = text ?? '';
+      }
+    });
+  };
   const refreshDiagnostics = () => {
+    refreshStatuses();
     if (!dialog.open || current !== 'diagnostics' || renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => {

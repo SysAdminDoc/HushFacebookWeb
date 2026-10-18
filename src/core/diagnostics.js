@@ -11,6 +11,9 @@
 //
 // A row's value goes in Copy report only when it's a plain count, or when the row is added with
 // { shareable: true } because its text is only the script's own words.
+//
+// A feature can also give its settings card a status line (status(featureId, read)). That one
+// shows only in the panel, under the feature's own switch, and never goes in Copy report.
 
 export const DECISIONS = 50;
 
@@ -27,6 +30,7 @@ export function postTag(id, salt = '') {
 
 export function createDiagnostics({ now = () => Date.now() } = {}) {
   const rows = new Map();
+  const statuses = new Map();
   const listeners = new Set();
   const decisions = [];
 
@@ -61,6 +65,22 @@ export function createDiagnostics({ now = () => Date.now() } = {}) {
         return { label, value, shareable };
       });
     },
+    // read() returns the line's text, or null for none.
+    status(featureId, read) {
+      statuses.set(featureId, read);
+      changed();
+    },
+    statusOf(featureId) {
+      const read = statuses.get(featureId);
+      if (!read) return null;
+      try {
+        const value = read();
+        return value === null || value === undefined || value === '' ? null : String(value);
+      } catch {
+        return null;
+      }
+    },
+    hasStatus: (featureId) => statuses.has(featureId),
     // layer: 'data' when it came out of Facebook's data, 'page' when it was hidden on the page.
     decide({ post, rule, signal, detail, layer }) {
       const text = (value) => (value === null || value === undefined ? '' : String(value));
