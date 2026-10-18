@@ -7,7 +7,9 @@ import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import forceDarkMode, { createDarkKeeper, DARK, LIGHT } from '../src/features/appearance/force-dark.js';
 import amoledTheme, { AMOLED_VARS } from '../src/features/appearance/amoled.js';
-import accentColor, { accentCss, ACCENTS, chosenColor, FILTERS_MARK, palette, parseHex, toHex, toHsl } from '../src/features/appearance/accent.js';
+import accentColor, {
+  accentCss, ACCENTS, chosenColor, contrast, FILTERS_MARK, over, palette, parseHex, SURFACES, toHex, toHsl,
+} from '../src/features/appearance/accent.js';
 import systemFont, { fontCss, fontName, SYSTEM_STACK } from '../src/features/appearance/system-font.js';
 import systemEmoji, { createEmojiSwapper, emojiText, ORIGINAL } from '../src/features/appearance/system-emoji.js';
 import noTransitions, { ANIMATED, NO_TRANSITIONS_CSS } from '../src/features/appearance/no-transitions.js';
@@ -267,8 +269,52 @@ test('color math matches Facebook\'s own blue', () => {
   const blue = palette('#0866FF');
   assert.equal(toHsl(parseHex(blue.light.link))[2].toFixed(0), '41');
   assert.equal(toHsl(parseHex(blue.dark.link))[2].toFixed(0), '68');
+  assert.equal(blue.light.focus, '#0866FF', 'the focus ring stays the color itself when it reads');
   assert.equal(blue.onBase, '#FFFFFF');
-  assert.equal(palette('#FFD54F').onBase, '#080809', 'dark text on a light color');
+  assert.equal(palette('#FFD54F').onBase, '#000000', 'dark text on a light color');
+});
+
+test('accent text and focus shades read on the surfaces they sit on, for every preset and your own colors', () => {
+  // Known WCAG pairs, so the checks below measure what they should.
+  assert.equal(contrast('#FFFFFF', '#000000'), 21);
+  assert.equal(contrast('#767676', '#FFFFFF').toFixed(2), '4.54');
+  assert.equal(contrast('#FFFFFF', '#E8590C').toFixed(2), '3.58', 'white on the orange preset, which it used to get');
+  assert.equal(over([0, 0, 0], '#FFFFFF', 0.2), '#CCCCCC');
+  const amoled = ['#000000', '#121212', '#1A1A1A'];
+  // #0014F0's outlined-button text reads on a dark card but not on the button's own tint.
+  const customs = ['#999999', '#D1D100', '#FFD54F', '#00FFFF', '#FFFFFF', '#000000', '#202020', '#000080', '#FF00AA', '#0866FF', '#0014F0'];
+  for (const hex of [...ACCENTS.map((accent) => accent.hex), ...customs]) {
+    const rgb = parseHex(hex);
+    const { base, onBase, light, dark } = palette(hex);
+    const reads = (shade, surfaces, ratio, what) => {
+      for (const surface of surfaces) {
+        const ratioThere = contrast(shade, surface);
+        assert.ok(ratioThere >= ratio, `${hex} ${what} ${shade} on ${surface} is ${ratioThere.toFixed(2)}`);
+      }
+    };
+    reads(onBase, [base], 4.5, 'button text');
+    reads(light.link, [SURFACES.white, SURFACES.wash, light.button, light.highlight, light.selected], 4.5, 'light link');
+    reads(light.toastLink, [SURFACES.white], 4.5, 'light toast link');
+    reads(light.focus, [SURFACES.white, SURFACES.wash], 3, 'light focus ring');
+    reads(dark.link, [SURFACES.card, SURFACES.bubble, ...amoled], 4.5, 'dark link');
+    reads(dark.label, [SURFACES.box, ...amoled], 4.5, 'dark field label');
+    reads(dark.toastLink, [SURFACES.box, ...amoled], 4.5, 'dark toast link');
+    reads(dark.deemphasized, [over(rgb, SURFACES.card, 0.2), over(rgb, '#000000', 0.2)], 4.5, 'dark outlined button');
+    reads(dark.focus, [SURFACES.card, SURFACES.bubble, ...amoled], 3, 'dark focus ring');
+    // The shades only get lighter or darker, so a colorful choice keeps its hue.
+    const [hue, saturation] = toHsl(rgb);
+    if (saturation < 20) continue;
+    for (const shade of [light.link, light.focus, dark.link, dark.deemphasized]) {
+      const [shadeHue, , lightness] = toHsl(parseHex(shade));
+      if (lightness < 10 || lightness > 90) continue;
+      assert.ok(Math.abs(((shadeHue - hue + 540) % 360) - 180) < 4, `${hex} keeps its hue in ${shade}`);
+    }
+  }
+  // A pale yellow can't be a light-mode link at Facebook's step, so it gets a deep olive.
+  const yellow = palette('#D1D100');
+  assert.ok(contrast('#D1D100', SURFACES.white) < 2);
+  assert.ok(toHsl(parseHex(yellow.light.link))[2] < 30);
+  assert.notEqual(yellow.light.focus, yellow.base);
 });
 
 test('accent color sets both themes, the dark one after the light one', () => {
@@ -288,6 +334,12 @@ test('accent color sets both themes, the dark one after the light one', () => {
   assert.notEqual(light['--blue-link'], dark['--blue-link']);
   assert.equal(light['--filter-accent'], 'url("#hfw-accent-base")');
   assert.equal(dark['--filter-blue-link-icon'], 'url("#hfw-accent-link-dark")');
+  const pale = palette('#D1D100');
+  const paleLight = varsOf(accentCss('#D1D100'), ':root, .__fb-light-mode');
+  const paleDark = varsOf(accentCss('#D1D100'), '.__fb-dark-mode');
+  assert.equal(paleLight['--focus-ring-blue'], pale.light.focus, 'light mode rings use the shade that shows on white');
+  assert.equal(paleDark['--focus-ring-blue'], pale.dark.focus);
+  assert.equal(paleLight['--primary-button-text'], '#000000');
   assert.equal(accentCss('nonsense'), '');
 });
 

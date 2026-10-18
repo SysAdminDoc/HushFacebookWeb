@@ -51,7 +51,7 @@ export function toHex([h, s, l]) {
   return `#${[channel(0), channel(8), channel(4)].map((x) => Math.round(x * 255).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
 }
 
-// WCAG relative luminance, to keep button text readable on a light color.
+// WCAG relative luminance.
 function luminance(rgb) {
   const [r, g, b] = rgb.map((c) => {
     const x = c / 255;
@@ -60,26 +60,67 @@ function luminance(rgb) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+// WCAG contrast of two #RRGGBB colors, from 1 to 21. Text needs 4.5, focus rings 3.
+export function contrast(a, b) {
+  const [x, y] = [luminance(parseHex(a)), luminance(parseHex(b))].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+}
+export const TEXT = 4.5;
+export const INDICATOR = 3;
+
+// What the shades sit on. Light mode: white cards, and #F0F2F5 for comment bubbles and the
+// page behind the cards. Dark mode (read live, see amoled.js): comment bubbles #333334, the
+// lightest place a link shows, cards #252728, text boxes and toasts #242526. AMOLED's
+// surfaces are all darker, so a shade that reads in dark mode reads there too.
+export const SURFACES = { white: '#FFFFFF', wash: '#F0F2F5', bubble: '#333334', card: '#252728', box: '#242526' };
+
+// Your color laid over a surface at some opacity, as Facebook draws dark mode's tinted buttons.
+export function over(rgb, surface, a) {
+  const under = parseHex(surface);
+  return `#${rgb.map((c, i) => Math.round(c * a + under[i] * (1 - a)).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+
+// Starts at Facebook's step and moves the lightness down (by -1) or up (by 1) until the shade
+// reaches the ratio on every surface given, so the hue and saturation stay yours.
+function readable([h, s], from, by, surfaces, ratio) {
+  for (let l = from; l >= 0 && l <= 100; l += by) {
+    const hex = toHex([h, s, l]);
+    if (surfaces.every((surface) => contrast(hex, surface) >= ratio)) return hex;
+  }
+  return by < 0 ? '#000000' : '#FFFFFF';
+}
+
 // Facebook's steps for its own blue (#0866FF, lightness 52): links #0064D1 (41) in light mode
 // and #5AA7FF (68) in dark mode, outlined buttons #DDEDFE (93), selected rows #EBF5FF (96).
+// A color too light or too dark for a step gets the nearest shade that still reads. Button
+// text is white or black, whichever stands out more on your color.
 export function palette(hex) {
   const rgb = parseHex(hex);
   if (!rgb) return null;
   const hsl = toHsl(rgb);
   const l = hsl[2];
+  const base = toHex(hsl);
   const at = (lightness) => toHex([hsl[0], hsl[1], lightness]);
+  const darker = (from, surfaces, ratio = TEXT) => readable(hsl, from, -1, surfaces, ratio);
+  const lighter = (from, surfaces, ratio = TEXT) => readable(hsl, from, 1, surfaces, ratio);
   const alpha = (a) => `rgba(${rgb.join(', ')}, ${a})`;
+  const button = at(93);
   return {
-    base: toHex(hsl),
-    onBase: luminance(rgb) > 0.45 ? '#080809' : '#FFFFFF',
+    base,
+    onBase: contrast(base, '#FFFFFF') >= contrast(base, '#000000') ? '#FFFFFF' : '#000000',
     alpha,
     light: {
-      link: at(Math.min(l, 41)), toastLink: at(Math.min(l, 49)), pressed: at(Math.max(l, 73)),
-      button: at(93), highlight: at(95), selected: at(96),
+      focus: darker(l, [SURFACES.white, SURFACES.wash], INDICATOR),
+      link: darker(Math.min(l, 41), [SURFACES.white, SURFACES.wash, button]),
+      toastLink: darker(Math.min(l, 49), [SURFACES.white]),
+      pressed: at(Math.max(l, 73)), button, highlight: at(95), selected: at(96),
     },
     dark: {
-      focus: at(Math.max(l, 55)), label: at(Math.max(l, 61)), toastLink: at(Math.max(l, 64)),
-      link: at(Math.max(l, 68)), deemphasized: at(Math.max(l, 73)),
+      focus: lighter(Math.max(l, 55), [SURFACES.card, SURFACES.bubble], INDICATOR),
+      label: lighter(Math.max(l, 61), [SURFACES.box]),
+      toastLink: lighter(Math.max(l, 64), [SURFACES.box]),
+      link: lighter(Math.max(l, 68), [SURFACES.card, SURFACES.bubble]),
+      deemphasized: lighter(Math.max(l, 73), [over(rgb, SURFACES.card, 0.2)]),
     },
   };
 }
@@ -121,7 +162,7 @@ export function accentCss(hex) {
   return [
     block(':root, .__fb-light-mode', {
       ...shared,
-      '--focus-ring-blue': base, '--primary-button-pressed': light.pressed,
+      '--focus-ring-blue': light.focus, '--primary-button-pressed': light.pressed,
       '--blue-link': light.link, '--primary-deemphasized-button-text': light.link, '--primary-deemphasized-button-icon': light.link,
       '--toggle-active-icon': light.link, '--toggle-active-text': light.link, '--input-label-color-highlighted': light.link,
       '--toast-text-link': light.toastLink, '--primary-deemphasized-button-background': light.button,
