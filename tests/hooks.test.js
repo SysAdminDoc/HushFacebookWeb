@@ -6,16 +6,18 @@ import { test } from 'node:test';
 import { DROP } from '../src/core/net/payload.js';
 import { createHandledLines, installNetworkHooks, lineKey } from '../src/core/net/hooks.js';
 
-function fakeWindow({ chunks = ['{}'], status = 200 } = {}) {
+// respond(input, init) stands in for the network when a test needs a particular Response.
+function fakeWindow({ chunks = ['{}'], status = 200, respond = null } = {}) {
   const calls = [];
   const beacons = [];
   const win = {
-    Request, Response, Headers, ReadableStream, Promise, Event, setTimeout,
+    Request, Response, Headers, ReadableStream, Promise, Event, setTimeout, clearTimeout,
     JSON: { parse: JSON.parse, stringify: JSON.stringify },
     location: { href: 'https://www.facebook.com/' },
     navigator: { sendBeacon: (url) => { beacons.push(url); return true; } },
     fetch(input, init) {
       calls.push({ input, init });
+      if (respond) return Promise.resolve(respond(input, init));
       const encoder = new TextEncoder();
       const body = new ReadableStream({
         start(controller) {
@@ -106,6 +108,158 @@ test('a broken rule is logged once and Facebook still gets its data', async () =
   assert.equal(await (await win.fetch('/x')).text(), '{"n":1}');
   await win.fetch('/x');
   assert.equal(log.errors.length, 1);
+});
+
+const seenRule = (calls) => ({
+  id: 'seen', enabled: () => true, fakeResponse: () => '{"held":true}',
+  match: (ctx) => { calls?.push(ctx); return ctx.path === '/api/graphql/' && ctx.friendlyName === 'storiesUpdateSeenStateMutation'; },
+});
+const GRAPHQL = 'https://www.facebook.com/api/graphql/';
+
+test('a Request that carries its form alone is judged by the operation in it, and goes out unread', async () => {
+  const { win, calls } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog() });
+  net.blockRequests(seenRule());
+  const held = await win.fetch(new Request(GRAPHQL, { method: 'POST', body: new URLSearchParams(graphqlBody('storiesUpdateSeenStateMutation')) }));
+  assert.equal(await held.text(), '{"held":true}');
+  const form = new FormData();
+  form.append('fb_api_req_friendly_name', 'storiesUpdateSeenStateMutation');
+  form.append('doc_id', '1');
+  assert.equal(await (await win.fetch(new Request(GRAPHQL, { method: 'POST', body: form }))).text(), '{"held":true}', 'multipart too');
+  assert.equal(calls.length, 0);
+
+  const other = new Request(GRAPHQL, { method: 'POST', body: new URLSearchParams(graphqlBody('SomethingElse')) });
+  await win.fetch(other);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].input, other, 'the page\'s own Request is sent');
+  assert.equal(other.bodyUsed, false, 'reading the form left it unread');
+  assert.equal(await other.text(), graphqlBody('SomethingElse'));
+});
+
+test('a form-only Request is read in a browser with no Request.body, as Firefox has none', async () => {
+  const { win, calls } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog() });
+  net.blockRequests(seenRule());
+  const noBody = (request) => {
+    Object.defineProperty(request, 'body', { value: undefined });
+    const clone = request.clone.bind(request);
+    Object.defineProperty(request, 'clone', { value: () => noBody(clone()) });
+    return request;
+  };
+  const held = await win.fetch(noBody(new Request(GRAPHQL, { method: 'POST', body: new URLSearchParams(graphqlBody('storiesUpdateSeenStateMutation')) })));
+  assert.equal(await held.text(), '{"held":true}');
+  const big = noBody(new Request(GRAPHQL, { method: 'POST', body: new URLSearchParams(`${graphqlBody('storiesUpdateSeenStateMutation')}&pad=${'x'.repeat(70 * 1024)}`) }));
+  await win.fetch(big);
+  assert.equal(calls.length, 1, 'too big to read there too, so it goes out');
+  assert.equal(calls[0].input, big);
+});
+
+test('a Request named in its header is judged at once, before any body is read', () => {
+  const { win, calls } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog() });
+  const seen = [];
+  net.blockRequests(seenRule(seen));
+  win.fetch(new Request(GRAPHQL, { method: 'POST', headers: { 'x-fb-friendly-name': 'Other', 'content-type': 'application/x-www-form-urlencoded' }, body: graphqlBody('storiesUpdateSeenStateMutation') }));
+  assert.equal(calls.length, 1, 'sent in the same turn');
+  assert.equal(seen[0].friendlyName, 'Other', 'the header names it, as for any fetch');
+});
+
+test('a Request made in another window is read by its URL and form', async () => {
+  const { win, calls } = fakeWindow();
+  // Another window's Request isn't an instance of this one's.
+  win.Request = class PageRequest extends Request {};
+  const net = installNetworkHooks({ win, log: quietLog() });
+  const seen = [];
+  net.blockRequests(seenRule(seen));
+  const held = await win.fetch(new Request(GRAPHQL, { method: 'POST', body: new URLSearchParams(graphqlBody('storiesUpdateSeenStateMutation')) }));
+  assert.equal(await held.text(), '{"held":true}');
+  assert.equal(seen[0].url, GRAPHQL);
+  assert.equal(seen[0].method, 'POST');
+  assert.equal(calls.length, 0);
+});
+
+test('a form too big to read, of another type, never finished or aborted goes out as it came', async () => {
+  const { win, calls } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog() });
+  const seen = [];
+  net.blockRequests(seenRule(seen));
+  const big = `${graphqlBody('storiesUpdateSeenStateMutation')}&pad=${'x'.repeat(70 * 1024)}`;
+  const tooBig = new Request(GRAPHQL, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: big });
+  await win.fetch(tooBig);
+  assert.equal(calls.at(-1).input, tooBig);
+  assert.equal(await tooBig.text(), big, 'nothing of it was used up');
+
+  const json = new Request(GRAPHQL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"fb_api_req_friendly_name":"storiesUpdateSeenStateMutation"}' });
+  win.fetch(json);
+  assert.equal(calls.at(-1).input, json, 'another type is sent in the same turn');
+
+  const formHeaders = { 'content-type': 'application/x-www-form-urlencoded' };
+  const endless = new Request(GRAPHQL, { method: 'POST', headers: formHeaders, duplex: 'half', body: new ReadableStream({ start() {} }) });
+  const started = Date.now();
+  await win.fetch(endless);
+  assert.equal(calls.at(-1).input, endless);
+  assert.ok(Date.now() - started < 2000, 'a stalled body is given up on');
+
+  const controller = new AbortController();
+  const aborted = new Request(GRAPHQL, { method: 'POST', headers: formHeaders, duplex: 'half', signal: controller.signal, body: new ReadableStream({ start() {} }) });
+  const pending = win.fetch(aborted);
+  controller.abort();
+  await pending;
+  assert.equal(calls.at(-1).input, aborted, 'an abort hands it straight to the browser, which rejects it');
+  assert.equal(calls.length, 4);
+  assert.ok(seen.every((ctx) => ctx.friendlyName === ''), 'no operation was claimed for any of them');
+});
+
+test('a rewritten response keeps where it came from, on its clones too', async () => {
+  const source = () => {
+    const response = new Response('{"n":1}\n{"n":2}', { status: 200, statusText: 'OK', headers: { 'x-kept': 'yes' } });
+    for (const [key, value] of Object.entries({ url: 'https://www.facebook.com/api/graphql/?moved=1', redirected: true, type: 'basic' })) {
+      Object.defineProperty(response, key, { value });
+    }
+    return response;
+  };
+  const { win } = fakeWindow({ respond: source });
+  const net = installNetworkHooks({ win, log: quietLog() });
+  net.transformResponses({ id: 'drop-2', enabled: () => true, match: () => true, transform: (doc) => (doc.n === 2 ? DROP : undefined) });
+  const response = await win.fetch('/api/graphql/');
+  const copy = response.clone();
+  for (const each of [response, copy]) {
+    assert.equal(each.url, 'https://www.facebook.com/api/graphql/?moved=1');
+    assert.equal(each.redirected, true);
+    assert.equal(each.type, 'basic');
+    assert.equal(each.statusText, 'OK');
+    assert.equal(each.headers.get('x-kept'), 'yes');
+    assert.ok(each instanceof win.Response);
+  }
+  assert.equal(copy.clone().url, 'https://www.facebook.com/api/graphql/?moved=1', 'a clone of a clone too');
+  assert.equal(await copy.text(), '{"n":1}\n');
+  assert.equal(await response.text(), '{"n":1}\n');
+});
+
+test('cancelling a rewritten body cancels the source, and an abort mid-body reaches the reader', async () => {
+  let cancelled = null;
+  const cancellable = () => new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode('{"n":1}\n')); },
+    cancel(reason) { cancelled = reason; },
+  }));
+  const { win } = fakeWindow({ respond: cancellable });
+  const net = installNetworkHooks({ win, log: quietLog() });
+  net.transformResponses({ id: 'touch', enabled: () => true, match: () => true, transform: () => undefined });
+  const response = await win.fetch('/api/graphql/');
+  const reader = response.body.getReader();
+  assert.equal(new TextDecoder().decode((await reader.read()).value), '{"n":1}\n');
+  await reader.cancel('page left');
+  assert.equal(cancelled, 'page left');
+
+  const aborting = () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"n":1}\n'));
+      setTimeout(() => controller.error(new DOMException('The operation was aborted.', 'AbortError')), 5);
+    },
+  }));
+  const second = fakeWindow({ respond: aborting });
+  installNetworkHooks({ win: second.win, log: quietLog() }).transformResponses({ id: 'touch', enabled: () => true, match: () => true, transform: () => undefined });
+  await assert.rejects((await second.win.fetch('/api/graphql/')).text(), { name: 'AbortError' });
 });
 
 test('inline JSON is pruned through JSON.parse, and only when a marker is present', () => {

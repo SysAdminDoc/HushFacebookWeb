@@ -173,6 +173,22 @@ test('a recognized fetch resumes when its saved switch is off', async () => {
   assert.match(await calls[0].input.text(), /value=before/);
 });
 
+test('a recognized Request that carries its form alone waits too, and leaves whole once its switch is off', async () => {
+  const control = startupControl();
+  const { win, calls } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog, startup: control.startup });
+  requestRule(net, () => false);
+  const body = new URLSearchParams({ fb_api_req_friendly_name: 'PrivateMutation', value: 'kept' }).toString();
+  const response = win.fetch(new Request('https://www.facebook.com/api/graphql/', { method: 'POST', body: new URLSearchParams(body) }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(calls.length, 0);
+  assert.equal(net.startupPending(), 1, 'held for the saved choices, not answered for them');
+  control.set('ready');
+  assert.equal(await (await response).text(), 'native');
+  assert.equal(calls.length, 1);
+  assert.equal(await calls[0].input.text(), body);
+});
+
 test('failure, account change, teardown and timeout never flush deferred privacy fetches', async (t) => {
   const scenarios = {
     failure: ({ control }) => control.set('error'),

@@ -15,6 +15,8 @@ const INLINE_JSON = Object.freeze({ transport: 'json-parse', method: '', url: ''
 const STARTUP_WAIT_MS = 16000;
 const STARTUP_MAX_PENDING = 32;
 const STARTUP_MAX_BYTES = 256 * 1024;
+const FORM_MAX_BYTES = 64 * 1024;
+const FORM_WAIT_MS = 250;
 
 export function describeRequest({ url, method = 'GET', body, headers, transport, base }) {
   let parsed;
@@ -70,6 +72,94 @@ function snapshotXhrBody(body) {
   const copy = new body.constructor();
   for (const [name, value] of body.entries()) copy.append(name, value);
   return copy;
+}
+
+// A Request from any window: one made in an iframe isn't an instance of this window's Request.
+function isRequestInput(win, input) {
+  if (typeof win.Request === 'function' && input instanceof win.Request) return true;
+  return Object.prototype.toString.call(input) === '[object Request]' && typeof input.clone === 'function';
+}
+
+// A Request can carry its form alone, with no body in init, so its operation name is only in the
+// body. Only a url-encoded or multipart form is read, from a clone so the page's Request stays
+// unread, and only while it stays under FORM_MAX_BYTES and FORM_WAIT_MS. Anything else (another
+// type, a bigger or stalled body, an abort) goes out as it came: rules see its URL, method and
+// headers but no operation name, so nothing keyed on the name runs or counts it.
+function requestFormType(win, input, init) {
+  if (input.bodyUsed || (init && Object.hasOwn(init, 'body'))) return '';
+  if (['GET', 'HEAD'].includes(String(init?.method ?? input.method).toUpperCase())) return '';
+  let type;
+  try {
+    type = init && Object.hasOwn(init, 'headers') ? new win.Headers(init.headers).get('content-type') : input.headers.get('content-type');
+  } catch {
+    return '';
+  }
+  const kind = String(type ?? '').toLowerCase();
+  return kind.startsWith('application/x-www-form-urlencoded') || kind.startsWith('multipart/form-data') ? type : '';
+}
+
+// Resolves { body, bytes } with the form, or null when it can't be read in time. Never rejects.
+function readRequestForm(win, request, type, signal) {
+  return new Promise((resolve) => {
+    let reader = null;
+    let settled = false;
+    const finish = (form) => {
+      if (settled) return;
+      settled = true;
+      (win.clearTimeout ?? clearTimeout)(timer);
+      signal?.removeEventListener?.('abort', stop);
+      if (!form) reader?.cancel().catch(() => {});
+      resolve(form);
+    };
+    const stop = () => finish(null);
+    const timer = (win.setTimeout ?? setTimeout)(stop, FORM_WAIT_MS);
+    if (signal?.aborted) return stop();
+    signal?.addEventListener?.('abort', stop, { once: true });
+    let copy;
+    try {
+      copy = request.clone();
+    } catch {
+      return stop();
+    }
+    const chunks = [];
+    let bytes = 0;
+    const parse = async () => {
+      const all = new Uint8Array(bytes);
+      let at = 0;
+      for (const chunk of chunks) {
+        all.set(chunk, at);
+        at += chunk.byteLength;
+      }
+      const body = type.toLowerCase().startsWith('multipart/form-data')
+        ? await new win.Response(all, { headers: { 'content-type': type } }).formData()
+        : new URLSearchParams(new TextDecoder().decode(all));
+      finish({ body, bytes });
+    };
+    // Firefox has no Request.body, and its request bodies are never streams, so there a Blob gives
+    // the size before anything is read.
+    if (!copy.body) {
+      copy.blob().then((blob) => {
+        if (settled) return undefined;
+        if (blob.size > FORM_MAX_BYTES) return stop();
+        return blob.arrayBuffer().then((buffer) => {
+          chunks.push(new Uint8Array(buffer));
+          bytes = buffer.byteLength;
+          return parse();
+        });
+      }).catch(stop);
+      return undefined;
+    }
+    reader = copy.body.getReader();
+    const pump = () => reader.read().then(({ done, value }) => {
+      if (settled) return undefined;
+      if (done) return parse();
+      bytes += value.byteLength;
+      if (bytes > FORM_MAX_BYTES) return stop();
+      chunks.push(value);
+      return pump();
+    });
+    pump().catch(stop);
+  });
 }
 
 function abortReason(win, signal) {
@@ -274,7 +364,8 @@ function patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, a
 
   win.fetch = function fetch(input, init) {
     const receiver = this;
-    const isRequest = typeof win.Request === 'function' && input instanceof win.Request;
+    const args = arguments;
+    const isRequest = isRequestInput(win, input);
     const ctx = describeRequest({
       transport: 'fetch',
       url: isRequest ? input.url : input,
@@ -283,35 +374,53 @@ function patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, a
       headers: init?.headers ?? (isRequest ? input.headers : undefined),
       base: win.location.href,
     });
-
-    if (startupGate.state() === 'ready') {
-      return sendFetch(win, { original, receiver, args: arguments, ctx, blockingRule, fakeAnswer, active, responseRules, lineTransformer, log });
-    }
-    const pending = startupRule(ctx);
-    if (!pending) {
-      return sendFetch(win, { original, receiver, args: arguments, ctx, blockingRule, fakeAnswer, active, responseRules, lineTransformer, log });
-    }
-    const queuedBody = init && Object.hasOwn(init, 'body') ? init.body : isRequest && input.body ? input.body : undefined;
-    const bytes = bodyBytes(queuedBody);
-    let request = null;
-    if (bytes !== null && typeof win.Request === 'function') {
-      try {
-        request = new win.Request(isRequest ? input : ctx.url, init);
-      } catch (error) {
-        return win.Promise.reject(error);
-      }
-    }
-    const signal = request?.signal ?? init?.signal ?? (isRequest ? input.signal : null);
-    const deferredCtx = { ...ctx, body: undefined };
-    if (!request) {
-      if (signal?.aborted) return win.Promise.reject(abortReason(win, signal));
-      return win.Promise.resolve(new win.Response(fakeAnswer(pending, deferredCtx), { status: 200 }));
-    }
-    return deferFetch(win, {
-      original, receiver, request, bytes, signal, ctx: deferredCtx, pending,
-      startupGate, blockingRule, fakeAnswer, active, responseRules, lineTransformer, log,
+    const route = (form) => routeFetch(win, {
+      input, init, isRequest, form, startupRule, startupGate,
+      original, receiver, args, ctx, blockingRule, fakeAnswer, active, responseRules, lineTransformer, log,
+    });
+    const formType = isRequest && !ctx.friendlyName ? requestFormType(win, input, init) : '';
+    if (!formType) return route(null);
+    return new win.Promise((resolve, reject) => {
+      readRequestForm(win, input, formType, init?.signal ?? input.signal).then((form) => {
+        if (form) {
+          ctx.body = form.body;
+          ctx.friendlyName = friendlyNameOf(form.body);
+        }
+        try {
+          resolve(route(form));
+        } catch (error) {
+          reject(error);
+        }
+      });
     });
   };
+}
+
+// send: what sendFetch takes. A recognized privacy fetch made before the saved choices are in
+// waits for them, or gets a held-back answer when it can't wait.
+function routeFetch(win, { input, init, isRequest, form, startupRule, startupGate, ...send }) {
+  const { ctx } = send;
+  if (startupGate.state() === 'ready') return sendFetch(win, send);
+  const pending = startupRule(ctx);
+  if (!pending) return sendFetch(win, send);
+  const queuedBody = init && Object.hasOwn(init, 'body') ? init.body : isRequest && input.body ? input.body : undefined;
+  // A form read off a Request has a known size, so it can wait like any other body.
+  const bytes = form ? form.bytes : bodyBytes(queuedBody);
+  let request = null;
+  if (bytes !== null && typeof win.Request === 'function') {
+    try {
+      request = new win.Request(isRequest ? input : ctx.url, init);
+    } catch (error) {
+      return win.Promise.reject(error);
+    }
+  }
+  const signal = request?.signal ?? init?.signal ?? (isRequest ? input.signal : null);
+  const deferredCtx = { ...ctx, body: undefined };
+  if (!request) {
+    if (signal?.aborted) return win.Promise.reject(abortReason(win, signal));
+    return win.Promise.resolve(new win.Response(send.fakeAnswer(pending, deferredCtx), { status: 200 }));
+  }
+  return deferFetch(win, { ...send, request, bytes, signal, ctx: deferredCtx, pending, startupGate });
 }
 
 function sendFetch(win, { original, receiver, args, ctx, blockingRule, fakeAnswer, active, responseRules, lineTransformer, log }) {
@@ -386,8 +495,22 @@ function rewriteFetchResponse(win, response, transformLine) {
   const headers = new win.Headers(response.headers);
   headers.delete('content-length');
   const rewritten = new win.Response(body, { status: response.status, statusText: response.statusText, headers });
-  Object.defineProperty(rewritten, 'url', { value: response.url });
-  return rewritten;
+  return keepResponseFacts(win, rewritten, { url: response.url, redirected: response.redirected, type: response.type });
+}
+
+// A Response built here would say it came from nowhere: no URL, no redirect, type "default". It
+// keeps the original's instead, and so does every clone made of it.
+function keepResponseFacts(win, response, facts) {
+  const nativeClone = win.Response.prototype.clone;
+  for (const [key, value] of Object.entries(facts)) Object.defineProperty(response, key, { value, configurable: true });
+  Object.defineProperty(response, 'clone', {
+    configurable: true,
+    writable: true,
+    value: function clone() {
+      return keepResponseFacts(win, nativeClone.call(this), facts);
+    },
+  });
+  return response;
 }
 
 function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineTransformer, log }) {
