@@ -41,7 +41,7 @@ The extension is new in the development build, so the first release to carry the
 
 ### In Firefox
 
-The build also makes a Firefox copy of the extension, for Firefox 128 or newer (128 itself hasn't been checked yet). Mozilla hasn't signed it yet, so Firefox keeps it only until you close the browser.
+The build also makes a Firefox copy of the extension, for Firefox 128 or newer. Mozilla hasn't signed it yet, so Firefox keeps it only until you close the browser.
 
 1. Build it yourself (below), which gives you `dist/extension-firefox`.
 2. Open `about:debugging#/runtime/this-firefox` and click **Load Temporary Add-on**.
