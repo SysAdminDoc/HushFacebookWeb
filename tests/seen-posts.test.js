@@ -106,10 +106,14 @@ test('the store drops old and surplus entries, skips junk, and merges other tabs
   assert.ok(store.has('newer'), 'the newest one stays under the cap');
   timers.run();
   assert.deepEqual(Object.keys(storage.get(SEEN_KEY)), ['newer'], 'the pruned list is saved');
+  const roomy = createSeenStore({ storage, now: () => now, schedule: timers.schedule, cancel: timers.cancel, every: null });
   storage.remote(SEEN_KEY, { newer: now - 5000, other: now - 10 });
-  assert.deepEqual([...store.since(0)].sort(), ['newer', 'other']);
-  assert.deepEqual([...store.since(now - 6000)].sort(), ['newer', 'other'], 'the earlier time wins');
-  assert.deepEqual([...store.since(0, now - 2000)], ['newer'], 'until leaves out later ones');
+  assert.deepEqual([...store.since(0)], ['other'], "another tab's list keeps to the cap too");
+  assert.deepEqual([...roomy.since(0)].sort(), ['newer', 'other']);
+  assert.deepEqual([...roomy.since(now - 6000)].sort(), ['newer', 'other'], 'the earlier time wins');
+  assert.deepEqual([...roomy.since(0, now - 2000)], ['newer'], 'until leaves out later ones');
+  storage.remote(SEEN_KEY, { newer: now - 100 });
+  assert.deepEqual([...roomy.since(0, now - 2000)], ['newer'], "another tab's later time doesn't replace it");
 });
 
 test('forgetting the list holds against another tab that still has the old one', () => {
@@ -132,6 +136,111 @@ test('forgetting the list holds against another tab that still has the old one',
   storage.set(SEEN_KEY, { ...stale, 't:new': clock });
   const reloaded = createSeenStore(options);
   assert.deepEqual([...reloaded.since(0)], ['t:new'], 'and a new tab skips what came before the clear');
+});
+
+test('a list that loads late or comes from another tab keeps to the days and the cap, and one within them is not written back', () => {
+  const now = 100 * DAY;
+  const storage = sharedStorage({ [SEEN_KEY]: { a: now - 3000, b: now - 2000, c: now - 1000 } });
+  let load;
+  storage.whenReady = (run) => { load = run; };
+  const timers = manualTimers();
+  const options = { storage, now: () => now, maxEntries: 2, schedule: timers.schedule, cancel: timers.cancel, every: null };
+  const store = createSeenStore(options);
+  load();
+  assert.deepEqual([...store.since(0)].sort(), ['b', 'c'], 'only the newest fit');
+  assert.equal(timers.queue.length, 1, 'the trimmed list is due to be saved');
+  timers.run();
+  assert.deepEqual(storage.get(SEEN_KEY), { b: now - 2000, c: now - 1000 });
+
+  storage.set(SEEN_KEY, { ...storage.get(SEEN_KEY), gone: now - 31 * DAY });
+  const expired = createSeenStore(options);
+  load();
+  assert.equal(expired.has('gone'), false, 'a post seen too long ago is dropped');
+  timers.run();
+  assert.deepEqual(storage.get(SEEN_KEY), { b: now - 2000, c: now - 1000 });
+
+  const reloaded = createSeenStore(options);
+  load();
+  assert.deepEqual([...reloaded.since(0)].sort(), ['b', 'c'], 'the recent ones survive a reload');
+  assert.equal(timers.queue.length, 0, 'a list within the limits is not written back');
+
+  // Another tab wrote before it heard from these, so its list isn't the newest two.
+  storage.remote(SEEN_KEY, { a: now - 3000, d: now - 500 });
+  assert.deepEqual([...reloaded.since(0)].sort(), ['c', 'd']);
+  assert.ok(timers.queue.length > 0, 'the newest two are due to be saved over it');
+  timers.run();
+  assert.deepEqual(storage.get(SEEN_KEY), { c: now - 1000, d: now - 500 });
+});
+
+// Tabs that read and write one list, each told about the others' writes as they land.
+function tabsSharing() {
+  const saved = new Map();
+  const tabs = new Set();
+  let writes = 0;
+  const copy = (value) => JSON.parse(JSON.stringify(value));
+  return {
+    writes: () => writes,
+    saved: (key) => saved.get(key),
+    tab() {
+      const listeners = new Map();
+      const storage = {
+        get: (key, fallback) => (saved.has(key) ? copy(saved.get(key)) : fallback),
+        set(key, value) {
+          if (key === SEEN_KEY) writes++;
+          saved.set(key, copy(value));
+          for (const other of tabs) if (other !== storage) other.hear(key, copy(value));
+        },
+        onChange(key, fn) { listeners.set(key, [...(listeners.get(key) ?? []), fn]); },
+        hear: (key, value) => listeners.get(key)?.forEach((fn) => fn(value)),
+      };
+      tabs.add(storage);
+      return storage;
+    },
+  };
+}
+
+test('two tabs with different posts settle on the newest within the cap, without writing back and forth', () => {
+  let clock = 10 * DAY;
+  const shared = tabsSharing();
+  const timers = manualTimers();
+  const open = () => createSeenStore({
+    storage: shared.tab(), now: () => clock, maxEntries: 3, schedule: timers.schedule, cancel: timers.cancel, every: null,
+  });
+  const settle = () => {
+    for (let round = 0; round < 10 && timers.queue.length; round++) timers.run();
+    assert.equal(timers.queue.length, 0, 'the tabs stop writing');
+  };
+  const here = open();
+  const there = open();
+  for (const [store, id] of [[here, 'a1'], [there, 'b1'], [here, 'a2'], [there, 'b2'], [here, 'a3'], [there, 'b3']]) {
+    clock += 1000;
+    store.add(id);
+  }
+  settle();
+  const newest = ['a3', 'b2', 'b3'];
+  assert.deepEqual([...here.since(0)].sort(), newest);
+  assert.deepEqual([...there.since(0)].sort(), newest);
+  assert.deepEqual(Object.keys(shared.saved(SEEN_KEY)).sort(), newest);
+  assert.equal(shared.writes(), 2, 'one write from each tab');
+
+  // Forgetting wins over a tab that writes its old copy late.
+  const old = shared.saved(SEEN_KEY);
+  clock += 1000;
+  here.clear();
+  shared.tab().set(SEEN_KEY, old);
+  settle();
+  assert.equal(here.size() + there.size(), 0);
+  assert.equal(open().size(), 0, 'a new tab skips the old copy too');
+
+  clock += 1000;
+  there.add('c1');
+  settle();
+  const writes = shared.writes();
+  const reloaded = open();
+  assert.deepEqual([...reloaded.since(0)], ['c1'], 'what was seen since survives a reload');
+  assert.deepEqual([...here.since(0)], ['c1']);
+  settle();
+  assert.equal(shared.writes(), writes, 'and nobody writes it back');
 });
 
 test('a text key ignores case, spacing, punctuation and emoji, and short texts get none', () => {

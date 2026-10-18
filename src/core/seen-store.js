@@ -1,9 +1,10 @@
 // Posts you've scrolled past, by post id, with when you first saw each one. They're kept in
 // the userscript manager's storage under their own key, beside the settings. Anything older
-// than the longest choice (30 days) is dropped when the script starts and once a day after,
-// and only the newest 5,000 are kept. Writes wait a few seconds so a quick scroll is one write.
-// Another tab's writes are merged in as they happen. Forgetting the list writes the time it
-// happened under a second key, so another tab's older copy can't bring the posts back.
+// than the longest choice (30 days) is dropped, and only the newest 5,000 are kept, whenever
+// the saved list loads or another tab's arrives, and once a day. Writes wait a few seconds so
+// a quick scroll is one write. Another tab's writes are merged in as they happen. Forgetting
+// the list writes the time it happened under a second key, so another tab's older copy can't
+// bring the posts back.
 
 export const SEEN_KEY = 'seenPosts';
 export const CLEARED_KEY = 'seenPostsCleared';
@@ -47,13 +48,11 @@ export function createSeenStore({
   // The extension's storage fills a few milliseconds in, so the saved list joins whatever was
   // seen before then rather than the other way round.
   const read = () => {
+    let trimmed = false;
     try {
       const get = storage?.getAtLoad ? storage.getAtLoad.bind(storage) : storage?.get?.bind(storage);
       cleared = Math.max(cleared, clearedAt(get?.(CLEARED_KEY, 0)));
-      for (const [id, at] of parse(get?.(SEEN_KEY, null), cleared)) {
-        const mine = entries.get(id);
-        if (mine === undefined || at < mine) entries.set(id, at);
-      }
+      trimmed = merge(parse(get?.(SEEN_KEY, null), cleared));
     } catch (error) {
       log?.error("Couldn't read the seen posts list, starting a new one", error);
     }
@@ -61,9 +60,23 @@ export function createSeenStore({
     if (savedBeforeReady) {
       savedBeforeReady = false;
       save();
-    }
+    } else if (trimmed) later();
     tell(waiting.splice(0), 'ready');
   };
+
+  // Joins a saved list into this one, keeping the first time each post was seen, then keeps to
+  // the limits. True when that left out some of the saved list, so storage should get the
+  // trimmed one. A tab that receives a list already within the limits writes nothing back, so
+  // two tabs settle on the same list instead of answering each other.
+  function merge(saved) {
+    for (const [id, at] of saved) {
+      const mine = entries.get(id);
+      if (mine === undefined || at < mine) entries.set(id, at);
+    }
+    prune();
+    for (const id of saved.keys()) if (!entries.has(id)) return true;
+    return false;
+  }
 
   function save() {
     timer = null;
@@ -94,7 +107,6 @@ export function createSeenStore({
     return before - entries.size;
   }
 
-  if (prune()) later();
   const daily = every?.(() => {
     if (prune()) later();
   }, DAY);
@@ -102,10 +114,7 @@ export function createSeenStore({
   daily?.unref?.();
 
   storage?.onChange?.(SEEN_KEY, (raw) => {
-    for (const [id, at] of parse(raw, cleared)) {
-      const mine = entries.get(id);
-      if (mine === undefined || at < mine) entries.set(id, at);
-    }
+    if (merge(parse(raw, cleared))) later();
   });
   // Another tab forgot the list.
   storage?.onChange?.(CLEARED_KEY, (raw) => {
