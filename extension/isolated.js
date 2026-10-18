@@ -143,6 +143,7 @@ const FACEBOOK_VALUES = new Map([
   ['resumeVideos.positions', positionRecord],
   [GAME_KEY, (value) => typeof value === 'boolean'],
   ['hidePostsByWords.cssWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
+  ['hidePostsByWords.skipWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
 ]);
 
 function storageAccessFor(doc) {

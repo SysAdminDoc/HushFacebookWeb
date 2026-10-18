@@ -1785,6 +1785,23 @@ test("the page reads the release check's record as the worker saves it now and a
   }
 });
 
+test("the word filter's told-you records load and save, so each warning comes once and not on every page load", async () => {
+  const keys = ['hidePostsByWords.cssWarned', 'hidePostsByWords.skipWarned'];
+  const saved = Object.fromEntries(keys.map((key) => [key, '12:abc']));
+  const first = page();
+  await startIsolated(first, fakeChrome(saved));
+  const loaded = await forgedChannel(first).send('storage:load', {});
+  for (const key of keys) assert.equal(loaded.result[key], '12:abc', key);
+  const win = page();
+  const chrome = fakeChrome(saved);
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  await settle();
+  for (const key of keys) storage.set(key, '9:def');
+  await settle();
+  for (const key of keys) assert.equal(chrome.data[key], '9:def', key);
+});
+
 test('settings wait for the saved copy, then migrate through the worker once before recording it', async () => {
   const win = page();
   const chrome = fakeChrome({ settings: { alpha: false }, 'settings.migrated': [] });
