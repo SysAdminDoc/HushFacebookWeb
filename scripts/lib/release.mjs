@@ -1,7 +1,9 @@
 // Pure pieces of the release script: stage order, the state it keeps between stages,
-// the CHANGELOG section that becomes the release notes, and SHA-256 sum files.
+// the CHANGELOG section that becomes the release notes, SHA-256 sum files, and the check
+// of what a published release serves.
 
 import { createHash } from 'node:crypto';
+import { unzipFile } from '../zip.mjs';
 
 // Each stage needs every stage before it, recorded for the same version and commit.
 export const STAGES = ['preflight', 'build', 'notes', 'publish'];
@@ -79,4 +81,44 @@ export function parseSums(text) {
 export function bannerVersion(script) {
   const block = script.match(/\/\/ ==UserScript==([\s\S]*?)\/\/ ==\/UserScript==/);
   return block?.[1].match(/^\/\/ @version\s+(\S+)/m)?.[1] ?? null;
+}
+
+// The version in the manifest of an extension zip, or why it couldn't be read.
+function zippedVersion(packed) {
+  try {
+    const manifest = unzipFile(packed, 'manifest.json');
+    if (!manifest) return { why: 'has no manifest.json' };
+    return { version: JSON.parse(manifest.toString('utf8')).version };
+  } catch (error) {
+    return { why: `can't be read (${error.message})` };
+  }
+}
+
+// What's wrong with the files a published release serves, against the sums and version the
+// build stage recorded. served maps each asset name to the bytes downloaded back, or to
+// undefined when nothing came down. An empty list means GitHub serves exactly the build.
+export function servedProblems(served, { sums, version }) {
+  const problems = [];
+  for (const name of [...PUBLISHED, SUMS_FILE]) {
+    if (!served[name]) problems.push(`GitHub doesn't serve ${name}.`);
+    else if (sha256(served[name]) !== sums[name]) problems.push(`The ${name} GitHub serves doesn't match the build.`);
+  }
+  for (const name of ASSETS) {
+    if (!served[name]) continue;
+    const found = bannerVersion(served[name].toString('utf8'));
+    if (found !== version) problems.push(`The served ${name} says @version ${found}, not ${version}.`);
+  }
+  if (served[EXTENSION_ZIP]) {
+    const zipped = zippedVersion(served[EXTENSION_ZIP]);
+    if (zipped.why) problems.push(`The served ${EXTENSION_ZIP} ${zipped.why}.`);
+    else if (zipped.version !== version) problems.push(`The manifest in the served ${EXTENSION_ZIP} says version ${zipped.version}, not ${version}.`);
+  }
+  if (served[SUMS_FILE]) {
+    const listed = parseSums(served[SUMS_FILE].toString('utf8'));
+    for (const name of PUBLISHED) {
+      if (!listed[name]) problems.push(`The served ${SUMS_FILE} doesn't list ${name}.`);
+      else if (served[name] && listed[name] !== sha256(served[name])) problems.push(`The served ${SUMS_FILE} gives a different sum for ${name} than the file GitHub serves.`);
+    }
+  }
+  return problems;
 }

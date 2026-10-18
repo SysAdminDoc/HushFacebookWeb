@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { inflateRawSync } from 'node:zlib';
 import { extensionManifest } from '../scripts/manifest.mjs';
-import { zip } from '../scripts/zip.mjs';
+import { unzipFile, zip } from '../scripts/zip.mjs';
 
 test('the manifest runs the isolated half first, the page half in MAIN, at document_start, on the userscript pages', () => {
   const manifest = extensionManifest({ version: '1.2.3' });
@@ -49,4 +49,17 @@ test('the zip holds every file intact, and the same files give the same zip', ()
   const packed = zip(files);
   assert.deepEqual(unzip(packed), Object.fromEntries(files.map(({ name, data }) => [name, data.toString('utf8')])));
   assert.deepEqual(zip(files), packed);
+});
+
+test('one file reads back out of the zip, and a damaged one is refused', () => {
+  const packed = zip([
+    { name: 'icons/icon-16.png', data: Buffer.from('not really a png') },
+    { name: 'manifest.json', data: Buffer.from('{"version":"1.2.3"}') },
+  ]);
+  assert.equal(unzipFile(packed, 'manifest.json').toString('utf8'), '{"version":"1.2.3"}');
+  assert.equal(unzipFile(packed, 'missing.json'), null);
+  const damaged = Buffer.from(packed);
+  damaged[30 + 'icons/icon-16.png'.length + 2] ^= 0xff;
+  assert.throws(() => unzipFile(damaged, 'icons/icon-16.png'));
+  assert.throws(() => unzipFile(Buffer.from('<html>Not Found</html>'), 'manifest.json'), /no zip directory/);
 });

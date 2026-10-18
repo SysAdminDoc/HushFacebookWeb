@@ -15,7 +15,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ASSETS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, record, refusal, sha256, sumsText } from './lib/release.mjs';
+import { ASSETS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, record, refusal, servedProblems, sha256, sumsText } from './lib/release.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DIST = path.join(ROOT, 'dist');
@@ -167,14 +167,17 @@ async function publish(head, state, { dryRun }) {
   }
   exec('gh', args);
 
-  const served = JSON.parse(exec('gh', ['release', 'view', head.tag, '--repo', head.repo, '--json', 'assets']).out).assets.map((asset) => asset.name);
-  const missing = [...PUBLISHED, SUMS_FILE].filter((name) => !served.includes(name));
+  const names = [...PUBLISHED, SUMS_FILE];
+  const listed = JSON.parse(exec('gh', ['release', 'view', head.tag, '--repo', head.repo, '--json', 'assets']).out).assets.map((asset) => asset.name);
+  const missing = names.filter((name) => !listed.includes(name));
   if (missing.length) throw new Refused(`${head.tag} is up but GitHub doesn't list ${missing.join(', ')}.`);
   const scratch = await mkdtemp(path.join(tmpdir(), 'hfw-release-'));
   try {
-    exec('gh', ['release', 'download', head.tag, '--repo', head.repo, '--pattern', ASSETS[0], '--dir', scratch]);
-    const downloaded = sha256(await readFile(path.join(scratch, ASSETS[0])));
-    if (downloaded !== state.stages.build.sums[ASSETS[0]]) throw new Refused(`The ${ASSETS[0]} GitHub serves doesn't match the build.`);
+    exec('gh', ['release', 'download', head.tag, '--repo', head.repo, ...names.flatMap((name) => ['--pattern', name]), '--dir', scratch]);
+    const served = {};
+    for (const name of names) served[name] = existsSync(path.join(scratch, name)) ? await readFile(path.join(scratch, name)) : undefined;
+    const problems = servedProblems(served, { sums: state.stages.build.sums, version: head.version });
+    if (problems.length) throw new Refused(`${head.tag} is up, but what GitHub serves isn't the build:\n  ${problems.join('\n  ')}`);
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }

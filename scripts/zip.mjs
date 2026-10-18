@@ -1,7 +1,8 @@
 // A plain zip writer for the extension package, so the build needs no zip tool. Files are
-// deflated, stored with a fixed date so the same input gives the same zip.
+// deflated, stored with a fixed date so the same input gives the same zip. The reader lets
+// the release script check the manifest inside the zip GitHub serves.
 
-import { crc32, deflateRawSync } from 'node:zlib';
+import { crc32, deflateRawSync, inflateRawSync } from 'node:zlib';
 
 const DOS_DATE = ((2026 - 1980) << 9) | (1 << 5) | 1; // 2026-01-01
 const DOS_TIME = 0;
@@ -53,4 +54,31 @@ export function zip(files) {
   end.writeUInt32LE(directory.length, 12);
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, directory, end]);
+}
+
+// Reads one file back out of a zip through its central directory, the way unzip tools do.
+// Returns null when the zip has no such file, and throws when the zip is broken.
+export function unzipFile(buffer, wanted) {
+  const end = buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (end === -1) throw new Error('no zip directory');
+  const count = buffer.readUInt16LE(end + 10);
+  let at = buffer.readUInt32LE(end + 16);
+  for (let i = 0; i < count; i++) {
+    if (buffer.readUInt32LE(at) !== 0x02014b50) throw new Error('broken zip directory');
+    const nameLength = buffer.readUInt16LE(at + 28);
+    const name = buffer.toString('utf8', at + 46, at + 46 + nameLength);
+    if (name === wanted) {
+      const method = buffer.readUInt16LE(at + 10);
+      const local = buffer.readUInt32LE(at + 42);
+      if (buffer.readUInt32LE(local) !== 0x04034b50) throw new Error(`broken zip entry for ${name}`);
+      const start = local + 30 + buffer.readUInt16LE(local + 26) + buffer.readUInt16LE(local + 28);
+      const packed = buffer.subarray(start, start + buffer.readUInt32LE(at + 20));
+      if (method !== 0 && method !== 8) throw new Error(`${name} uses zip method ${method}`);
+      const data = method === 8 ? inflateRawSync(packed) : Buffer.from(packed);
+      if (crc32(data) !== buffer.readUInt32LE(at + 16)) throw new Error(`${name} fails its zip checksum`);
+      return data;
+    }
+    at += 46 + nameLength + buffer.readUInt16LE(at + 30) + buffer.readUInt16LE(at + 32);
+  }
+  return null;
 }
