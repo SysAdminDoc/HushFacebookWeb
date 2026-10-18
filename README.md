@@ -39,6 +39,14 @@ Works in Chrome, Edge, Brave and other Chromium browsers from version 111, with 
 
 The extension is new in the development build, so the first release to carry the zip is the one after 0.0.2. Until then, build it yourself (below) and load `dist/extension`.
 
+### In Firefox
+
+The build also makes a Firefox copy of the extension, for Firefox 128 or newer. Mozilla hasn't signed it yet, so Firefox keeps it only until you close the browser.
+
+1. Build it yourself (below), which gives you `dist/extension-firefox`.
+2. Open `about:debugging#/runtime/this-firefox` and click **Load Temporary Add-on**.
+3. Pick `manifest.json` in that folder.
+
 A loaded-unpacked extension can't update itself, so once a day it asks GitHub for the latest release. When there's a newer one, the toolbar button shows NEW, Facebook shows a one-time note, and General in the settings says how to update: unzip the new release over the same folder and click Reload on the extensions page. Your settings stay. The extension asks for storage (your settings), downloads (saving photos and videos), alarms (the daily release check) and the tab you click its button on. It runs only on facebook.com and in Instant Games frames, and the only other place it contacts is GitHub's release API.
 
 ## Settings
@@ -95,7 +103,7 @@ npm install
 npm run build
 ```
 
-That writes `dist/hushfacebook-web.user.js`, which you open in your userscript manager to install, plus the extension unpacked in `dist/extension` and zipped as `dist/hushfacebook-web-extension.zip`. `npm test` runs the tests and `npm run check` runs the lint and version checks. [CONTRIBUTING.md](CONTRIBUTING.md) explains how the code is laid out.
+That writes `dist/hushfacebook-web.user.js`, which you open in your userscript manager to install, plus the extension unpacked in `dist/extension` and zipped as `dist/hushfacebook-web-extension.zip`, and its Firefox copy in `dist/extension-firefox`. `npm test` runs the tests and `npm run check` runs the lint and version checks. [CONTRIBUTING.md](CONTRIBUTING.md) explains how the code is laid out.
 
 ## Thanks
 

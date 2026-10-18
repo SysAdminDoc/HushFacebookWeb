@@ -102,7 +102,7 @@ npm run build
 
 Then install `dist/hushfacebook-web.user.js` in Violentmonkey or Tampermonkey and try the feature on facebook.com. Note what you checked in the pull request.
 
-The extension is the same bundle built with `__HFW_TARGET__` set to `extension`. In the page, `core/extension.js` stands in for the manager, and storage reads come from a copy in memory that fills from `chrome.storage` a few milliseconds after the page starts. Anything decided once as the page loads, like a redirect, goes through `settings.whenLoaded` so it sees the saved choices rather than the defaults. To try it, load `dist/extension` with Load unpacked.
+The extension is the same bundle built with `__HFW_TARGET__` set to `extension`. In the page, `core/extension.js` stands in for the manager, and storage reads come from a copy in memory that fills from `chrome.storage` a few milliseconds after the page starts. Anything decided once as the page loads, like a redirect, goes through `settings.whenLoaded` so it sees the saved choices rather than the defaults. To try it, load `dist/extension` with Load unpacked. `dist/extension-firefox` holds the same files with Firefox's manifest (see `scripts/manifest.mjs`), which runs `background.js` as an event page because Firefox has no extension service workers. Load its `manifest.json` from `about:debugging` with Load Temporary Add-on.
 
 ## Releasing
 

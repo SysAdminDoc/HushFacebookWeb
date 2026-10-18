@@ -1,5 +1,6 @@
 // Bundles src/ into one readable userscript plus a small .meta.js for update checks, and the
 // same source into a Chrome extension: dist/extension/ to load unpacked, and a zip of it.
+// dist/extension-firefox/ holds the same files with Firefox's manifest.
 // Greasy Fork and reviewers need readable code, so nothing is minified.
 
 import { build } from 'esbuild';
@@ -13,12 +14,14 @@ import { zip } from './zip.mjs';
 const root = new URL('../', import.meta.url);
 const dist = new URL('dist/', root);
 const unpacked = new URL('extension/', dist);
+const firefox = new URL('extension-firefox/', dist);
 const pkg = JSON.parse(await readFile(new URL('package.json', root), 'utf8'));
 const meta = renderMetaBlock(pkg.version);
 const kib = (text) => `${(text.length / 1024).toFixed(1)} KiB`;
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(new URL('icons/', unpacked), { recursive: true });
+await mkdir(new URL('icons/', firefox), { recursive: true });
 
 const bundle = async (entry, { banner, target = 'userscript' } = {}) => (await build({
   entryPoints: [fileURLToPath(new URL(entry, root))],
@@ -47,9 +50,12 @@ const parts = {
   'background.js': notice + await readFile(new URL('extension/background.js', root), 'utf8'),
   'manifest.json': `${JSON.stringify(extensionManifest(pkg), null, 2)}\n`,
 };
-for (const [name, text] of Object.entries(parts)) await writeFile(new URL(name, unpacked), text);
-for (const icon of await readdir(new URL('assets/icons/', root))) {
-  if (/^icon-(16|32|48|128)\.png$/.test(icon)) await copyFile(new URL(`assets/icons/${icon}`, root), new URL(`icons/${icon}`, unpacked));
+const firefoxParts = { ...parts, 'manifest.json': `${JSON.stringify(extensionManifest(pkg, { browser: 'firefox' }), null, 2)}\n` };
+for (const [dir, files] of [[unpacked, parts], [firefox, firefoxParts]]) {
+  for (const [name, text] of Object.entries(files)) await writeFile(new URL(name, dir), text);
+  for (const icon of await readdir(new URL('assets/icons/', root))) {
+    if (/^icon-(16|32|48|128)\.png$/.test(icon)) await copyFile(new URL(`assets/icons/${icon}`, root), new URL(`icons/${icon}`, dir));
+  }
 }
 
 const files = [];
@@ -62,4 +68,4 @@ const walk = async (dir, prefix = '') => {
 await walk(unpacked);
 const packed = zip(files);
 await writeFile(new URL(EXTENSION_ZIP, dist), packed);
-console.log(`Built extension/ and ${EXTENSION_ZIP} v${pkg.version} (main.js ${kib(parts['main.js'])}, zip ${(packed.length / 1024).toFixed(1)} KiB)`);
+console.log(`Built extension/, extension-firefox/ and ${EXTENSION_ZIP} v${pkg.version} (main.js ${kib(parts['main.js'])}, zip ${(packed.length / 1024).toFixed(1)} KiB)`);

@@ -21,6 +21,22 @@ test('the manifest runs the isolated half first, the page half in MAIN, at docum
   for (const entry of manifest.content_scripts) assert.equal(entry.run_at, 'document_start');
 });
 
+test('the Firefox manifest runs the same scripts from an event page under a fixed add-on id', () => {
+  const chrome = extensionManifest({ version: '1.2.3' });
+  const firefox = extensionManifest({ version: '1.2.3' }, { browser: 'firefox' });
+  assert.deepEqual(firefox.background, { scripts: ['background.js'] });
+  assert.equal(firefox.minimum_chrome_version, undefined);
+  assert.deepEqual(firefox.browser_specific_settings.gecko, {
+    id: 'hushfacebook-web@sysadmindoc.github.io', strict_min_version: '128.0', data_collection_permissions: { required: ['none'] },
+  });
+  const shared = (manifest) => {
+    const rest = { ...manifest };
+    for (const key of ['background', 'minimum_chrome_version', 'browser_specific_settings']) delete rest[key];
+    return rest;
+  };
+  assert.deepEqual(shared(firefox), shared(chrome));
+});
+
 // Reads a zip back through its central directory, the way unzip tools do.
 function unzip(buffer) {
   const end = buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
