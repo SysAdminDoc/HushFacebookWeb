@@ -13,7 +13,8 @@
 //               net is null in content mode (needsPage features never get that far)
 //               diagnostics.add('Row label', () => 'value') adds a Diagnostics row (src/core/diagnostics.js)
 //               actions.add('Button label', run) puts a button on the feature's card (src/core/actions.js)
-//               storage.get(key, fallback) / storage.set(key, value): GM storage beside the settings
+//               storage.get(key, fallback) / storage.set(key, value): GM storage beside the settings.
+//               Keys in ACTIVITY_KEYS (src/core/activity.js) are kept for each account
 //               toast('Message', { tone: 'error' }): a short note at the bottom of the page
 //               openSettings(sectionId?): opens the settings panel, at that section if given
 //               posts.on('post/add' | 'post/update' | 'post/remove' | 'reset', fn) (src/core/dom/posts.js)

@@ -20,15 +20,19 @@ export function accountFromCookie(cookie) {
   return found.size === 1 ? [...found][0] : null;
 }
 
-// FNV-1a, enough to tell a few accounts apart without writing their ids down.
-export function storageKeyFor(account) {
-  if (!account) return STORAGE_KEY;
+// FNV-1a, enough to tell a few accounts apart without writing their ids down. Only base-36
+// digits, so a tag can't look like anything else kept beside it.
+export function accountTag(account) {
   let hash = 0x811c9dc5;
   for (const char of String(account)) {
     hash ^= char.charCodeAt(0);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
-  return `${STORAGE_KEY}@${hash.toString(36)}`;
+  return hash.toString(36);
+}
+
+export function storageKeyFor(account) {
+  return account ? `${STORAGE_KEY}@${accountTag(account)}` : STORAGE_KEY;
 }
 
 // One-time changes to stored settings. Each runs once for each settings key, recorded under a

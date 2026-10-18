@@ -21,6 +21,7 @@ import {
   connectBridge,
   createBridgeStorage,
 } from '../src/core/bridge.js';
+import { activityKeyFor } from '../src/core/activity.js';
 import { createSettings, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 import { applyObjectMutation } from '../src/core/storage.js';
@@ -2143,6 +2144,46 @@ test('a page that says hello first can only reach its own account and the shared
   await chrome.storage.local.set({ 'keepSpeed.rate': 3 });
   await settle();
   assert.deepEqual(forged.pushes.map((push) => push.data), [{ 'keepSpeed.rate': 3 }]);
+});
+
+test("a page reads and writes its own account's activity and the shared lists from before, never another account's", async () => {
+  const account = '615000000000035';
+  const other = '615000000000036';
+  const spot = { 2234567890: { t: 60, d: 900, at: 5 } };
+  const chrome = fakeChrome({
+    seenPosts: { 't:shared': 10 },
+    [activityKeyFor('seenPosts', account)]: { 't:mine': 20 },
+    [activityKeyFor('seenPosts', other)]: { 't:theirs': 30 },
+    [activityKeyFor('seenPosts', null)]: { 't:out': 40 },
+    [activityKeyFor('resumeVideos.positions', account)]: spot,
+    [activityKeyFor('keepSpeed.rate', account)]: 99,
+  });
+  const win = page(account);
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+
+  const loaded = await forged.send('storage:load', {});
+  assert.deepEqual(Object.keys(loaded.result).sort(), ['seenPosts', activityKeyFor('seenPosts', account), activityKeyFor('resumeVideos.positions', account)].sort(), 'each kept in its own shape, so a bad speed stays out');
+  for (const [key, value] of [
+    [activityKeyFor('keepSpeed.rate', account), 1.5],
+    [activityKeyFor('keepVolume.state', account), { volume: 0.5, muted: false }],
+    [activityKeyFor('seenPostsCleared', account), 50],
+  ]) {
+    assert.equal((await forged.send('storage:set', { key, value })).ok, true, key);
+    assert.deepEqual(chrome.data[key], value);
+  }
+  await refused(forged.send('storage:set', { key: activityKeyFor('keepSpeed.rate', account), value: 99 }), /not allowed/);
+  await refused(forged.send('storage:set', { key: activityKeyFor('seenPosts', other), value: {} }), /not allowed/);
+  await refused(forged.send('storage:remove', { key: activityKeyFor('seenPosts', null) }), /not allowed/, 'signed out is another account here');
+  assert.equal((await forged.send('storage:remove', { key: 'seenPosts' })).ok, true, 'the shared list can be deleted');
+  assert.equal(Object.hasOwn(chrome.data, 'seenPosts'), false);
+  assert.deepEqual(chrome.data[activityKeyFor('seenPosts', other)], { 't:theirs': 30 });
+
+  // Signed out, the page gets the signed-out lists and none of an account's.
+  const outChrome = fakeChrome({ [activityKeyFor('seenPosts', null)]: { 't:out': 40 }, [activityKeyFor('seenPosts', account)]: { 't:mine': 20 } });
+  const out = page();
+  await startIsolated(out, outChrome);
+  assert.deepEqual(Object.keys((await forgedChannel(out).send('storage:load', {})).result), [activityKeyFor('seenPosts', null)]);
 });
 
 test('a game frame sees and changes only the game ads switch', async () => {

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { afterEach, mock, test } from 'node:test';
 import { Window } from 'happy-dom';
 import { createActions } from '../src/core/actions.js';
+import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider } from '../src/core/dom/hide.js';
 import { createLog } from '../src/core/log.js';
@@ -1019,6 +1020,61 @@ test('without an update source General has no notice', () => {
   panel.open('general');
   assert.ok(!shadow.querySelector('[data-key="update"]'));
   assert.ok(!shadow.querySelector('main, .main')?.textContent.includes('null'), 'no stray text');
+});
+
+test('General offers to add or delete the activity from before accounts were kept apart, and never does either alone', async () => {
+  const now = Date.now();
+  const storage = createMemoryStorage({
+    seenPosts: { 't:1': now - 1000, 't:2': now - 2000 },
+    'resumeVideos.positions': { 2234567890: { t: 60, d: 900, at: now } },
+    'keepSpeed.rate': 1.5,
+  });
+  let account = '615000000000051';
+  const activity = createActivityStorage({ storage, account, currentAccount: () => account, log: { warn() {}, error() {} } });
+  const { shadow, panel } = setup({ environment: { activity } });
+  panel.open('general');
+  const card = () => shadow.querySelector('[data-key="legacy-activity"]');
+  assert.equal(card().querySelector('.desc').textContent, "This browser still has 2 seen posts, 1 video spot and a kept video speed from before each Facebook account kept its own. They aren't tied to any account. Add them to the account you're signed in to, or delete them.");
+  for (const key of ['seenPosts', 'resumeVideos.positions', 'keepSpeed.rate']) {
+    assert.equal(storage.get(activityKeyFor(key, account)), undefined, 'showing it adds nothing');
+  }
+
+  card().querySelector('[data-key="legacy:add"]').click();
+  await tick();
+  assert.deepEqual(Object.keys(storage.get(activityKeyFor('seenPosts', account))).sort(), ['t:1', 't:2']);
+  assert.equal(storage.get(activityKeyFor('keepSpeed.rate', account)), 1.5);
+  assert.ok(storage.get('seenPosts'), 'the shared copy stays');
+  assert.ok([...shadow.querySelectorAll('.toast span')].some((span) => span.textContent === "Added to the account you're signed in to. The shared copy stays until you delete it."));
+  assert.ok(card(), 'still offered, since the shared copy is there');
+
+  card().querySelector('[data-key="legacy:delete"]').click();
+  await tick();
+  assert.equal(storage.get('seenPosts'), undefined);
+  assert.equal(storage.get('keepSpeed.rate'), undefined);
+  assert.equal(card(), null, 'nothing left to offer');
+  assert.equal(storage.get(activityKeyFor('keepSpeed.rate', account)), 1.5, "the account's own copy stays");
+  [...shadow.querySelectorAll('.toast button')].find((button) => button.textContent === 'Undo').click();
+  await tick();
+  assert.deepEqual(Object.keys(storage.get('seenPosts')).sort(), ['t:1', 't:2']);
+  assert.equal(storage.get('keepSpeed.rate'), 1.5);
+  assert.ok(card(), 'back after Undo');
+
+  // Once the page is someone else's (another tab signed in, nothing here noticed yet), the card
+  // goes rather than adding to either account.
+  account = '615000000000052';
+  assert.equal(activity.switched(), false);
+  panel.refresh();
+  assert.equal(card(), null);
+});
+
+test('signed out, the activity card keeps it for signed-out browsing', () => {
+  const storage = createMemoryStorage({ 'keepVolume.state': { volume: 0.5, muted: false } });
+  const activity = createActivityStorage({ storage, account: null, log: { warn() {}, error() {} } });
+  const { shadow, panel } = setup({ environment: { activity } });
+  panel.open('general');
+  const card = shadow.querySelector('[data-key="legacy-activity"]');
+  assert.match(card.querySelector('.desc').textContent, /still has a kept volume from before .* Add them to signed-out browsing, or delete them\.$/);
+  assert.equal(card.querySelector('[data-key="legacy:add"]').textContent, 'Use while signed out');
 });
 
 test('General keeps a failed extension storage load visible and offers retry', async () => {

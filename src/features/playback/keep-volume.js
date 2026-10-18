@@ -103,7 +103,14 @@ export function createVolumeKeeper({
   let unsaved = null; // your newest pick, while it waits for the next write
   let writeQueued = false;
   const writes = [];
-  const kept = () => unsaved ?? readVolume(storage.get(VOLUME_KEY, null));
+  // Read first: the read is what notices a new account, which drops the old one's pick.
+  const kept = () => {
+    const saved = readVolume(storage.get(VOLUME_KEY, null));
+    return unsaved ?? saved;
+  };
+  storage.onAccountChange?.(() => {
+    unsaved = null;
+  });
   function writeUnsaved() {
     writeQueued = false;
     if (!unsaved) return;

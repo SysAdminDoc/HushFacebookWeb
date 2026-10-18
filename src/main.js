@@ -3,6 +3,7 @@
 
 import { managerInfo, pageAccess, pageWindow, registerMenuCommand, version, whenBodyReady, whenRootReady } from './core/env.js';
 import { createActions } from './core/actions.js';
+import { ACCOUNT_CHANGED, createActivityStorage } from './core/activity.js';
 import { availableUpdate, UPDATE_KEY, UPDATE_TOLD_KEY } from './core/extension.js';
 import { createDiagnostics, hideListener } from './core/diagnostics.js';
 import { createHider, hideCss } from './core/dom/hide.js';
@@ -89,6 +90,20 @@ function boot() {
   });
   installLogoLongPress({ doc: document, openSettings });
 
+  // Seen posts and playback state are kept for each account too. They stop saving once the
+  // page is signed in to someone else, which a page change or coming back to the tab checks.
+  const activity = createActivityStorage({
+    storage, account, currentAccount: signedInAccount, log,
+    onSwitch: () => {
+      panel?.refresh();
+      toast(`${ACCOUNT_CHANGED}.`, { action: { label: 'Reload', run: () => pageWindow.location.reload() }, duration: 20000 });
+    },
+  });
+  activity.watch({ router, doc: document });
+  diagnostics.add('Activity kept for', () => (activity.switched()
+    ? 'Nobody until you reload, since the account changed'
+    : activity.perAccount ? 'This Facebook account' : 'This browser while signed out'), shareable);
+
   if (!net) {
     log.warn('Your userscript manager is running HushFacebook Web as a content script, so features that need the page are off. Diagnostics has the details.');
   }
@@ -112,7 +127,7 @@ function boot() {
         net,
         diagnostics,
         actions: actions.for(feature.id),
-        storage,
+        storage: activity.storage,
         router,
         posts,
         hider,
@@ -157,7 +172,7 @@ function boot() {
   whenBodyReady(() => {
     panel = mountPanel({
       settings, features, log, hider, diagnostics, actions, unavailable,
-      environment: { version, ...managerInfo(), update, storage, accountMatches: () => settings.startup.matchesAccount(signedInAccount()) },
+      environment: { version, ...managerInfo(), update, storage, activity, accountMatches: () => settings.startup.matchesAccount(signedInAccount()) },
     });
     for (const [message, options] of waiting.splice(0)) panel.toast(message, options);
     if (pendingSettingsOpen) {

@@ -466,9 +466,40 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('button', { class: 'button', type: 'button', text: 'Dismiss', dataset: { key: 'reset:dismiss' }, disabled: pending.has('reset:undo'), onclick: dismissUndo })));
   }
 
+  // Seen posts and playback state from before each account kept its own (core/activity.js).
+  // They're only added to an account or deleted when you say so here.
+  function legacyActivityCard(found) {
+    const activity = environment.activity;
+    const parts = [
+      found.seen ? `${found.seen} seen ${found.seen === 1 ? 'post' : 'posts'}` : null,
+      found.spots ? `${found.spots} video ${found.spots === 1 ? 'spot' : 'spots'}` : null,
+      found.speed ? 'a kept video speed' : null,
+      found.volume ? 'a kept volume' : null,
+    ].filter(Boolean);
+    const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
+    const target = activity.perAccount ? "the account you're signed in to" : 'signed-out browsing';
+    return h('div', { class: 'card', dataset: { key: 'legacy-activity' } },
+      h('div', { class: 'title', text: 'Activity from before accounts were kept apart' }),
+      h('div', { class: 'desc', text: `This browser still has ${list} from before each Facebook account kept its own. They aren't tied to any account. Add them to ${target}, or delete them.` }),
+      h('div', { class: 'actions' },
+        actionButton('legacy:add', activity.perAccount ? 'Add to this account' : 'Use while signed out', () => {
+          activity.addLegacy();
+          toast(`Added to ${target}. The shared copy stays until you delete it.`);
+        }, { primary: true, busyLabel: 'Adding...' }),
+        actionButton('legacy:delete', 'Delete them', () => {
+          const undo = activity.clearLegacy();
+          toast('Deleted the activity from before accounts were kept apart.', { action: { label: 'Undo', run: () => {
+            undo();
+            if (dialog.open) render();
+          } } });
+        }, { busyLabel: 'Deleting...' })));
+  }
+
   function generalRows() {
     const update = environment.update?.();
     const storageState = environment.storage?.status?.().state;
+    // Once the account changed, here or in another tab, nothing goes to any account until a reload.
+    const legacy = environment.activity?.check() ? environment.activity.legacy() : null;
     return [
       ...(storageState && storageState !== 'ready' ? [{
         id: 'storage-recovery', section: 'general', title: storageState === 'loading' ? 'Loading saved settings' : "Saved settings aren't available",
@@ -489,6 +520,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         id: 'update', section: 'general', title: `HushFacebook Web ${update.version} is out`,
         description: `You have ${environment.version}. Download the new extension files, then reload HushFacebook Web in your browser.`,
         options: [{ label: 'Open the release' }], focusKey: 'update', render: () => updateCard(update),
+      }] : []),
+      ...(legacy ? [{
+        id: 'legacy-activity', section: 'general', title: 'Activity from before accounts were kept apart',
+        description: `Seen posts and video spots shared by everyone on this browser. ${environment.activity.perAccount ? 'Add them to this account' : 'Use them while signed out'} or delete them.`,
+        options: [{ label: environment.activity.perAccount ? 'Add to this account' : 'Use while signed out' }, { label: 'Delete them' }], focusKey: 'legacy:add', render: () => legacyActivityCard(legacy),
       }] : []),
       { id: 'quick-setups', section: 'general', title: 'Quick setups', description: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.', options: QUICK_SETUPS.map((setup) => ({ label: setup.label })), focusKey: 'quick:quiet', render: quickSetupsCard },
       { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: `The sliders button in Facebook's bottom-left corner. ${ALWAYS_OPENS} always opens settings too.`, render: launcherCard },

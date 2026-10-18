@@ -21,6 +21,7 @@ import {
   storageRevisionEpoch,
   validStorageRevisions,
 } from '../src/core/bridge.js';
+import { ACTIVITY_KEYS, activityKeyFor } from '../src/core/activity.js';
 import { accountFromCookie, storageKeyFor } from '../src/core/settings.js';
 
 const SECRET = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -168,6 +169,14 @@ function storageAccessFor(doc) {
   const writable = new Set([...FACEBOOK_VALUES.keys()].filter((key) => key !== READ_ONLY_KEY));
   writable.add(settingsKey);
   writable.add(receiptKey);
+  // This account's activity, in the same shapes. The plain keys stay readable and writable,
+  // since they hold the lists from before accounts were kept apart until those are added to
+  // an account or deleted. Other accounts' lists stay out of this page.
+  for (const key of ACTIVITY_KEYS) {
+    const scoped = activityKeyFor(key, account);
+    values.set(scoped, FACEBOOK_VALUES.get(key));
+    writable.add(scoped);
+  }
   return { kind: 'facebook', values, writable, settingsKey, receiptKey };
 }
 

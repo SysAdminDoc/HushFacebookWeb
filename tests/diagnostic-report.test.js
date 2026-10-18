@@ -157,6 +157,7 @@ test('scrubbing takes out addresses, ids and emails', () => {
 // checked by hand: ids and titles the script defines, counts, and parameters its callers only
 // ever fill with fixed text.
 const SAFE = {
+  'core/activity.js': ['ACCOUNT_CHANGED'],
   'core/dom/posts.js': ['type'],
   'core/modules.js': ['name'],
   'core/net/hooks.js': ['rule.id'],

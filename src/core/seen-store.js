@@ -8,8 +8,8 @@
 export const SEEN_KEY = 'seenPosts';
 export const CLEARED_KEY = 'seenPostsCleared';
 const DAY = 24 * 60 * 60 * 1000;
-const MAX_AGE = 30 * DAY;
-const MAX_ENTRIES = 5000;
+export const MAX_AGE = 30 * DAY;
+export const MAX_ENTRIES = 5000;
 const SAVE_DELAY = 3000;
 
 // Entries from before the list was last forgotten don't count.
@@ -109,6 +109,13 @@ export function createSeenStore({
     if (at <= cleared) return;
     cleared = at;
     for (const [id, seen] of entries) if (seen < cleared) entries.delete(id);
+  });
+  // The page is signed in to someone else now (core/activity.js), and this list was the old account's.
+  storage?.onAccountChange?.(() => {
+    entries.clear();
+    if (timer !== null) cancel(timer);
+    timer = null;
+    savedBeforeReady = false;
   });
 
   return {

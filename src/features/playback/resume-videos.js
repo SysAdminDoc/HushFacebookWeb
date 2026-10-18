@@ -12,7 +12,7 @@ import { nearestVideoLink, pageTarget } from '../downloads/find.js';
 
 export const POSITIONS_KEY = 'resumeVideos.positions';
 export const LENGTHS = [2, 5, 10, 20]; // minutes
-const MAX_KEPT = 200;
+export const MAX_KEPT = 200; // core/activity.js keeps the same number when it adds older spots
 const SAVE_EVERY = 5; // seconds of playback between saves
 export const START_AFTER = 30; // seconds; before this there's nothing worth picking up
 export const DONE_WITHIN = 20; // seconds from the end counts as watched
