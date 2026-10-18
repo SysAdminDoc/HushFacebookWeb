@@ -26,7 +26,7 @@ const ENGLISH = [['Most relevant', "Show friends' comments and the most engaging
 const GERMAN = [['Relevanteste', 'Kommentare von Freunden zuerst.'], ['Neueste', 'Neueste zuerst.'], ['Alle Kommentare', 'Auch möglichen Spam.']];
 
 // A comment order button that opens Facebook's menu, and a log of what was picked.
-function orderMenu(doc, button, rows) {
+function orderMenu(doc, button, rows, delay = 20) {
   const picked = [];
   button.addEventListener('click', () => {
     const open = doc.querySelector('[role="menu"]');
@@ -48,7 +48,7 @@ function orderMenu(doc, button, rows) {
       menu.append(item);
     });
     // Facebook opens the menu a moment later, in a layer of its own.
-    setTimeout(() => doc.body.append(menu), 20);
+    setTimeout(() => doc.body.append(menu), delay);
   });
   return picked;
 }
@@ -218,6 +218,87 @@ test('a dialog Facebook reuses for the next post gets that post put in order too
 });
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('a menu still on its way when something changes gets no click, and a later try picks the order', async () => {
+  const changes = [
+    ['switched off or paused', ({ state }) => { state.on = false; }, ({ state }) => { state.on = true; }, [1]],
+    ['another order', ({ state }) => { state.order = 'all'; }, () => {}, [2]],
+    ['a settings change', ({ drive }) => drive.cancel(), () => {}, [1]],
+    ['the next photo in the same dialog', ({ win }) => win.history.pushState({}, '', '/photo/?fbid=2'), () => {}, [1]],
+    ['the button moved to another dialog', ({ doc, button }) => doc.querySelector('.other').append(button), () => {}, [1]],
+  ];
+  for (const [name, change, undo, after] of changes) {
+    const win = page('<div role="dialog"><div role="button">Most relevant</div></div><div role="dialog" class="other"></div>', 'https://www.facebook.com/photo/?fbid=1');
+    const doc = win.document;
+    const button = doc.querySelector('[role="button"]');
+    const picked = orderMenu(doc, button, ENGLISH, 150);
+    const state = { on: true, order: 'newest' };
+    const done = [];
+    const drive = createOrderDriver({
+      doc, titles: createOrderTitles(), menuWait: 600,
+      wanted: () => (state.on ? ORDERS.find((o) => o.value === state.order) : null),
+      pageKey: () => null,
+      onDone: () => done.push(state.order),
+    });
+    const scanning = drive.scan();
+    await wait(30);
+    change({ state, drive, win, doc, button });
+    await wait(200);
+    assert.equal(await scanning, null, name);
+    assert.deepEqual(picked, [], `${name}: nothing picked`);
+    assert.ok(doc.querySelector('[role="menu"]'), `${name}: the menu it opened is left as it is`);
+    assert.deepEqual(done, []);
+    // Closed by hand. Once it's wanted again the order is picked after all.
+    doc.querySelector('[role="menu"]').remove();
+    undo({ state });
+    assert.equal(await drive.scan(), true, `${name}: tried again`);
+    assert.deepEqual(picked, after, name);
+    assert.equal(button.textContent, ENGLISH[after[0]][0]);
+  }
+});
+
+test('a section whose menu never opens is tried twice, then left alone', async () => {
+  const win = page('<div role="dialog"><div role="button">Most relevant</div></div>');
+  const button = win.document.querySelector('[role="button"]');
+  let clicks = 0;
+  button.addEventListener('click', () => clicks++);
+  const quiet = driver(win.document, { menuWait: 100 });
+  assert.equal(await quiet.drive.scan(), false);
+  assert.equal(await quiet.drive.scan(), false);
+  assert.equal(await quiet.drive.scan(), null);
+  assert.equal(clicks, 2);
+  assert.equal(quiet.warnings.length, 2);
+});
+
+test('switching it off and on, or pausing, while the menu is on its way stops that try', async () => {
+  const win = page('<div role="dialog"><div role="button">Most relevant</div></div>');
+  const doc = win.document;
+  const button = doc.querySelector('[role="button"]');
+  const picked = orderMenu(doc, button, ENGLISH, 450);
+  const listeners = [];
+  let on = true;
+  commentOrder.setup({
+    doc, win,
+    settings: { subscribe: (listener) => listeners.push(listener) },
+    enabled: () => on,
+    option: () => 'newest',
+  });
+  // A change on the page starts a scan a moment later, and that opens the menu.
+  doc.body.append(doc.createElement('div'));
+  await wait(350);
+  for (const listener of listeners) listener({ keys: ['paused'] });
+  for (const listener of listeners) listener({ keys: ['paused'] });
+  await wait(500);
+  assert.deepEqual(picked, []);
+  assert.ok(doc.querySelector('[role="menu"]'));
+  // Other settings don't stop it.
+  doc.querySelector('[role="menu"]').remove();
+  await wait(350);
+  for (const listener of listeners) listener({ keys: ['hideSponsored'] });
+  await wait(600);
+  assert.deepEqual(picked, [1]);
+  on = false;
+});
 
 test('every folded reply is opened, new ones too, and the rounds rest after five with nothing', async () => {
   const win = page(`<div role="dialog">
