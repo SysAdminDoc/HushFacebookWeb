@@ -17,7 +17,7 @@
 
 HushFacebook Web is a userscript for Facebook in a desktop browser, and a Chrome extension built from the same code. It's the web sibling of [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app, and it's working toward the same list: a feed without ads or suggested posts, less Meta AI, downloads, privacy switches and playback controls.
 
-It's still early. The current development build is 0.0.4 and the latest published release is 0.0.2. What changed in each build is in the [changelog](CHANGELOG.md), and [docs/feature-parity.md](docs/feature-parity.md) goes through every Hushfacebook patch and says what the web version does with it.
+It's still early. The latest release is 0.0.4. What changed in each build is in the [changelog](CHANGELOG.md), and [docs/feature-parity.md](docs/feature-parity.md) goes through every Hushfacebook patch and says what the web version does with it.
 
 ## Install
 
@@ -37,7 +37,7 @@ Works in Chrome, Edge, Brave and other Chromium browsers from version 120, with 
 2. Open `chrome://extensions` (`edge://extensions` in Edge) and turn on **Developer mode**.
 3. Click **Load unpacked** and pick the unzipped folder.
 
-The extension is new in the development build, so the first release to carry the zip is the one after 0.0.2. Until then, build it yourself (below) and load `dist/extension`.
+0.0.4 is the first release with the extension zip. You can also build it yourself (below) and load `dist/extension`.
 
 ### In Firefox
 
@@ -67,7 +67,7 @@ Settings are in English for now. General has a Language choice that's ready for 
 
 <p>
   <img src="assets/screenshots/panel-feed.jpg" width="49%" alt="News feed settings with an icon sidebar, grouped rows and lavender switches">
-  <img src="assets/screenshots/panel-general.jpg" width="49%" alt="General settings with Quick setups, backup and problem report rows">
+  <img src="assets/screenshots/panel-general.jpg" width="49%" alt="General settings with Quick setups, the Language choice and backup rows">
 </p>
 
 ### What it can do
