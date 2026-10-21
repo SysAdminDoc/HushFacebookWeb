@@ -3,8 +3,8 @@
 //   npm run release -- --stage preflight   clean main, unreleased version, notes, lint, tests
 //   npm run release -- --stage build       fresh dist/ with SHA256SUMS.txt
 //   npm run release -- --stage notes       dist/release-notes.txt from the CHANGELOG section
-//   npm run release -- --stage live        optional: the local Playwright check, through the build queue
-//   npm run release -- --stage publish     gh release create, then checks what GitHub serves
+//   npm run release -- --stage live        the local Playwright walk of the build, through the build queue
+//   npm run release -- --stage publish     needs notes and live, then gh release create and checks what GitHub serves
 //
 // Add --dry-run to publish to see the gh command without creating anything. State lives in
 // .release/state.json and is tied to the version and commit, so a new commit starts over.
@@ -162,7 +162,7 @@ async function publish(head, state, { dryRun }) {
   await requireBuildUnchanged(state);
   const notesPath = path.join(DIST, NOTES_FILE);
   if (sha256(await readFile(notesPath, 'utf8')) !== state.stages.notes.hash) throw new Refused(`dist/${NOTES_FILE} changed since the notes stage. Run --stage notes again.`);
-  console.log(state.stages.live ? `Live check for this build: ${state.stages.live.out}` : 'Live check: not run for this build.');
+  console.log(`Live check for this build: ${state.stages.live.out}`);
 
   // gh runs from the repo root, so short relative paths keep the printed command readable.
   const files = [...PUBLISHED, SUMS_FILE].map((name) => `dist/${name}`);

@@ -11,21 +11,24 @@ const run = (...stages) => stages.reduce((state, stage) => record(state, stage, 
 test('the first stage needs nothing, and every later one needs all before it', () => {
   assert.equal(refusal('preflight', null, head), null);
   assert.match(refusal('build', null, head), /--stage preflight for v1\.2\.3 at aaaaaaa first/);
-  assert.match(refusal('publish', run('preflight'), head), /--stage build, then --stage notes/);
+  assert.match(refusal('publish', run('preflight'), head), /--stage build, then --stage notes, then --stage live/);
   assert.equal(refusal('notes', run('preflight', 'build'), head), null);
-  assert.equal(refusal('publish', run('preflight', 'build', 'notes'), head), null);
+  assert.equal(refusal('publish', run('preflight', 'build', 'live', 'notes'), head), null);
 });
 
-test('the live stage needs a build and publish does not need it', () => {
+test('the live stage needs a build, and nothing is published without it', () => {
   assert.match(refusal('live', run('preflight'), head), /--stage build/);
   assert.equal(refusal('live', run('preflight', 'build'), head), null);
-  assert.equal(refusal('publish', run('preflight', 'build', 'notes'), head), null);
+  assert.match(refusal('publish', run('preflight', 'build', 'notes'), head), /^Run --stage live for v1\.2\.3/);
+  assert.equal(refusal('publish', run('preflight', 'build', 'notes', 'live'), head), null);
+  // A new build forgets the walk of the old one.
+  assert.match(refusal('publish', record(run('preflight', 'build', 'live', 'notes'), 'build', head), head), /--stage notes, then --stage live/);
 });
 
 test('stages recorded for another commit or version count for nothing', () => {
   const state = run('preflight', 'build', 'notes');
   const moved = { ...head, commit: 'b'.repeat(40) };
-  assert.match(refusal('publish', state, moved), /--stage preflight, then --stage build, then --stage notes .* The last run was for v1\.2\.3 at aaaaaaa\./);
+  assert.match(refusal('publish', state, moved), /--stage preflight, then --stage build, then --stage notes, then --stage live .* The last run was for v1\.2\.3 at aaaaaaa\./);
   assert.match(refusal('build', state, { ...head, version: '1.2.4' }), /--stage preflight for v1\.2\.4/);
   assert.deepEqual(Object.keys(record(state, 'preflight', moved).stages), ['preflight']);
 });

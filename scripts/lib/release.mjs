@@ -7,8 +7,11 @@ import { unzipFile } from '../zip.mjs';
 
 // Each stage needs every stage before it, recorded for the same version and commit.
 export const STAGES = ['preflight', 'build', 'notes', 'publish'];
-// Optional stages that need a build and don't block publishing.
+// Stages off that line, each with the one stage it needs.
 export const EXTRA_STAGES = { live: 'build' };
+// Nothing goes public until the whole script has been walked on Facebook with this build, so
+// publish needs the live check too.
+export const PUBLISH_NEEDS = ['live'];
 
 export const ASSETS = ['hushfacebook-web.user.js', 'hushfacebook-web.meta.js'];
 // The Chrome extension, built from the same source. Its version is in its manifest.
@@ -27,7 +30,9 @@ const sameHead = (state, head) => state?.version === head.version && state?.comm
 // Returns why a stage can't run yet, or null when it can.
 export function refusal(stage, state, head) {
   if (!isStage(stage)) return `There's no "${stage}" stage. Stages: ${[...STAGES, ...Object.keys(EXTRA_STAGES)].join(', ')}.`;
-  const needed = Object.hasOwn(EXTRA_STAGES, stage) ? [EXTRA_STAGES[stage]] : STAGES.slice(0, STAGES.indexOf(stage));
+  const needed = Object.hasOwn(EXTRA_STAGES, stage)
+    ? [EXTRA_STAGES[stage]]
+    : [...STAGES.slice(0, STAGES.indexOf(stage)), ...(stage === 'publish' ? PUBLISH_NEEDS : [])];
   if (!needed.length) return null;
   const done = sameHead(state, head) ? state.stages ?? {} : {};
   const missing = needed.filter((name) => !done[name]);

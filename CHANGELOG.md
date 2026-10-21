@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* A release can't go public anymore until the live check has walked that exact build on Facebook. Publishing used to go ahead without it, and now it stops and says to run the live stage first. A new build means a new walk.
+
 ## v0.0.4 (2026-10-18)
 
 * General has a Language choice now. The panel and every notice the script raises read from one list of phrases with English as the fallback, so a translation can drop in without touching anything else. No translation ships yet. Two test layouts stand in for one. Long text accents every letter and makes each phrase about 40% longer, and right to left mirrors the panel while keeping the English readable. Search still finds a setting by its English words whatever the language. The log and Copy report stay in English, and so do the values in Diagnostics. Facebook's own language doesn't change the choice. A backup keeps it, and Reset to defaults leaves it alone. At phone width the search box now grows to fit a longer phrase. Checked in Chromium at 320, 360, 640 and 1024 px in English and both test layouts, across every section, Diagnostics, search, a field error, an error notice and the recovery cards. Nothing spilled sideways or got cut off, apart from one long choice in a closed dropdown that ends in an ellipsis at phone width, and no phrase skipped the list. Not tried in Firefox or with a real translation yet.
