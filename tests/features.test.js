@@ -2,7 +2,7 @@
 // for text people read in the panel.
 
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { features } from '../src/features/index.js';
 import { SECTIONS } from '../src/features/sections.js';
@@ -39,6 +39,20 @@ test('panel text follows the voice rules', () => {
       assert.doesNotMatch(text, /[–—;]/, `${feature.id}: no dashes or semicolons in "${text}"`);
     }
   }
+});
+
+test("no two features add a Diagnostics row with the same label, since one would replace the other's", async () => {
+  const dir = new URL('../src/features/', import.meta.url);
+  const labels = new Map();
+  for (const file of await readdir(dir, { recursive: true })) {
+    if (!file.endsWith('.js')) continue;
+    const source = await readFile(new URL(file.replaceAll('\\', '/'), dir), 'utf8');
+    for (const [, label] of source.matchAll(/diagnostics\??\.add\(\s*'([^']+)'/g)) {
+      assert.ok(!labels.has(label), `"${label}" in ${file} and ${labels.get(label)}`);
+      labels.set(label, file);
+    }
+  }
+  assert.ok(labels.size > 20, `found ${labels.size} rows`);
 });
 
 test('the settings schema builds and every option default is valid', () => {
