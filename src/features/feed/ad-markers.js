@@ -36,6 +36,9 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 const LABEL_TYPENAME = 'CometStorySponsoredLabelStrategy';
 const FOLLOW_TYPENAME = 'CometFeedStoryFollowButtonStrategy';
 const JOIN_TYPENAME = 'GroupJoinForumAction';
+// Rows of people or groups Facebook puts between posts, each a feed edge of its own.
+const PYMK_TYPENAME = 'PaginatedPeopleYouMayKnowFeedUnit';
+const GROUPS_TYPENAME = 'GroupsYouShouldJoinFeedUnit';
 
 // Looks for a value inside one story. Nested edges and a shared post's attached story speak
 // for themselves, so a friend's share of an ad or a group page holding an ad doesn't count
@@ -238,6 +241,28 @@ export const AD_MARKERS = [
       && Array.isArray(value.showcase_item) && value.showcase_item.length > 0,
     action: 'empty-list',
     empty: { showcase_item: [] },
+  },
+  // Before follow_button and group_join: the group row's cards carry Join buttons too, and the
+  // first row that matches names the drop.
+  {
+    id: 'people_you_may_know',
+    feature: 'hideSuggestedPosts',
+    surface: 'news feed (the People you may know row)',
+    seen: '2026-10-21: 6 in two Home scrolls, each the first edge of a feed page, titled "People you may know" with 7 people; none in 84 units on 2026-10-11 or 140 posts on 2026-10-22',
+    text: [`"${PYMK_TYPENAME}"`],
+    scope: FEEDS,
+    match: (edge, node) => isObject(node) && 'cursor' in edge && node.__typename === PYMK_TYPENAME,
+    action: 'drop-node',
+  },
+  {
+    id: 'group_suggestions',
+    feature: 'hideSuggestedPosts',
+    surface: 'news feed (the Your group suggestions row)',
+    seen: '2026-10-21: 15 in three Home scrolls, each the first edge of a feed page, titled "Your group suggestions" with 20 groups',
+    text: [`"${GROUPS_TYPENAME}"`],
+    scope: FEEDS,
+    match: (edge, node) => isObject(node) && 'cursor' in edge && node.__typename === GROUPS_TYPENAME,
+    action: 'drop-node',
   },
   {
     id: 'follow_button',

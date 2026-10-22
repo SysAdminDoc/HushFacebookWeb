@@ -254,6 +254,28 @@ test('the suggested post in the captured Home page goes, the rest of the page st
   for (const line of lines) assert.equal(transformDocumentLine(line, [suggested], search), line, 'not outside the feeds');
 });
 
+// Captured 2026-10-21: each row came as the first edge of a feed page.
+for (const [name, id, typename] of [
+  ['CometNewsFeedPaginationQuery-pymk.jsonl', 'people_you_may_know', 'PaginatedPeopleYouMayKnowFeedUnit'],
+  ['CometNewsFeedPaginationQuery-group-suggestions.jsonl', 'group_suggestions', 'GroupsYouShouldJoinFeedUnit'],
+]) {
+  test(`the ${id} row in a captured Home page goes, and its edge keeps the cursor`, async () => {
+    const [line] = await fixtureLines(name);
+    const fired = [];
+    const suggested = adRule('hideSuggestedPosts', () => true, (ids) => fired.push(...ids), { route: () => parseRoute('https://www.facebook.com/') });
+    const ctx = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+    const before = parseLine(line).data.viewer.news_feed.edges;
+    assert.equal(before[0].node.__typename, typename);
+    const after = parseLine(transformDocumentLine(line, [suggested], ctx)).data.viewer.news_feed.edges;
+    assert.equal(after.length, before.length);
+    assert.deepEqual(after.map((edge) => edge.cursor), before.map((edge) => edge.cursor));
+    assert.ok(!('node' in after[0]) && !('rendering_strategy' in after[0]));
+    assert.deepEqual(fired, [id]);
+    const search = { ...ctx, friendlyName: 'SearchCometResultsPaginatedResultsQuery' };
+    assert.equal(transformDocumentLine(line, [suggested], search), line, 'not outside the feeds');
+  });
+}
+
 test('the AI-labeled story in a captured Home page goes, and the story next to it stays', async () => {
   const lines = await fixtureLines('CometNewsFeedPaginationQuery-ai-label.jsonl');
   assert.equal(lines.length, 2);

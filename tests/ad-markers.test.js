@@ -89,6 +89,9 @@ const SAMPLES = {
   }),
   follow_button: () => titled('suggested', followTitle),
   group_join: () => titled('suggested', joinTitle),
+  // Their own feed edges, as captured on 2026-10-21 (the -pymk and -group-suggestions fixtures).
+  people_you_may_know: () => edge2026('pymk', {}, { __typename: 'PaginatedPeopleYouMayKnowFeedUnit', title: { text: 'People you may know' }, all_users: { edges: [] } }),
+  group_suggestions: () => edge2026('groups', {}, { __typename: 'GroupsYouShouldJoinFeedUnit', title: { text: 'Your group suggestions' }, items: [] }),
   genai_label: () => labeled('ai'),
 };
 
@@ -312,7 +315,7 @@ test('the network rule prunes a GraphQL line end to end', () => {
 });
 
 test('suggested posts go only on Home and the groups feed, never in search or on a Page', () => {
-  const answer = () => ({ data: { viewer: { news_feed: { edges: [edge2026('friend'), SAMPLES.follow_button(), SAMPLES.group_join()] } } } });
+  const answer = () => ({ data: { viewer: { news_feed: { edges: [edge2026('friend'), SAMPLES.follow_button(), SAMPLES.group_join(), SAMPLES.people_you_may_know(), SAMPLES.group_suggestions()] } } } });
   const fired = [];
   const route = { current: parseRoute('https://www.facebook.com/') };
   const suggested = adRule('hideSuggestedPosts', () => true, (ids) => fired.push(...ids), { route: () => route.current });
@@ -323,18 +326,20 @@ test('suggested posts go only on Home and the groups feed, never in search or on
     return kept(doc);
   };
   const query = (friendlyName) => ({ transport: 'xhr', path: '/api/graphql/', friendlyName });
-  assert.deepEqual(run(query('CometNewsFeedPaginationQuery')), ['friend', null, null]);
-  assert.deepEqual(run(query('GroupsCometCrossGroupFeedPaginationQuery')), ['friend', null, null]);
+  const gone = ['friend', null, null, null, null];
+  const untouched = ['friend', 'suggested', 'suggested', 'pymk', 'groups'];
+  assert.deepEqual(run(query('CometNewsFeedPaginationQuery')), gone);
+  assert.deepEqual(run(query('GroupsCometCrossGroupFeedPaginationQuery')), gone);
   for (const name of ['SearchCometResultsPaginatedResultsQuery', 'ProfileCometTimelineFeedRefetchQuery', 'GroupsCometFeedRegularStoriesPaginationQuery', '']) {
-    assert.deepEqual(run(query(name)), ['friend', 'suggested', 'suggested'], name || 'no name');
+    assert.deepEqual(run(query(name)), untouched, name || 'no name');
   }
   const inline = { transport: 'json-parse', path: '', friendlyName: '' };
-  assert.deepEqual(run(inline), ['friend', null, null], 'inline data on Home');
+  assert.deepEqual(run(inline), gone, 'inline data on Home');
   for (const [href, expected] of [['/groups/feed/', null], ['/groups/123/', 'suggested'], ['/search/top/?q=x', 'suggested'], ['/somepage', 'suggested'], ['/home.php', null]]) {
     route.current = parseRoute(`https://www.facebook.com${href}`);
     assert.equal(run(inline)[1], expected, href);
   }
-  assert.deepEqual(fired.slice(0, 2), ['follow_button', 'group_join']);
+  assert.deepEqual(fired.slice(0, 4), ['follow_button', 'group_join', 'people_you_may_know', 'group_suggestions']);
   assert.equal(inScope({ scope: FEEDS }, inline, null), false, 'no router, no inline pruning');
   assert.equal(inScope({}, query('anything'), null), true, 'a row without a scope runs everywhere');
 });

@@ -94,7 +94,7 @@ test('in page mode the data rule is added, scoped to the feeds', () => {
     posts: null, hider: null, diagnostics: createDiagnostics(), settings: { subscribe() {} }, enabled: () => true,
   });
   assert.equal(rules.length, 1);
-  assert.deepEqual(rules[0].markers.sort(), ['"CometFeedStoryFollowButtonStrategy"', '"GroupJoinForumAction"']);
+  assert.deepEqual(rules[0].markers.sort(), ['"CometFeedStoryFollowButtonStrategy"', '"GroupJoinForumAction"', '"GroupsYouShouldJoinFeedUnit"', '"PaginatedPeopleYouMayKnowFeedUnit"']);
 });
 
 test('watchPostChecks stops retrying once a check is done, and retries until then', () => {

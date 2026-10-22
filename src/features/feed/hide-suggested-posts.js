@@ -4,6 +4,8 @@
 // feeds, since search results and a Page's own timeline carry the same buttons. The page
 // check hides one that gets drawn anyway, by the Follow or Join button after the author's
 // name (live 2026-10-11: h4 > ... > div[role=button] > span "Follow"), English first.
+// The People you may know and group suggestion rows go by data only (rows
+// people_you_may_know and group_suggestions); content mode has no page check for them yet.
 
 import { adRule, FEEDS } from './ad-markers.js';
 import { CANDIDATE_SELECTOR } from '../../core/dom/posts.js';
@@ -32,7 +34,7 @@ export default {
   section: 'feed',
   android: 'Hide suggested and promoted posts',
   title: 'Hide suggested posts',
-  description: "Hides posts from Pages, people and groups you don't follow that Facebook mixes into Home and your groups feed.",
+  description: "Hides posts from Pages, people and groups you don't follow that Facebook mixes into Home and your groups feed, plus the People you may know and group suggestion rows on Home.",
   default: true,
 
   setup({ net, router, posts, hider, settings, diagnostics, enabled }) {
