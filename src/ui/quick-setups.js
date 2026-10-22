@@ -29,6 +29,7 @@ export const QUICK_SETUPS = Object.freeze([
     label: 'Privacy',
     keys: Object.freeze([
       'noWatchHistory',
+      'noSearchHistory',
       'anonymousStories',
       'hideReadReceipts',
       'hideTyping',

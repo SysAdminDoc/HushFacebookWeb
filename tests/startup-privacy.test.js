@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { installNetworkHooks } from '../src/core/net/hooks.js';
 import anonymousStories from '../src/features/stories/anonymous-stories.js';
 import noWatchHistory from '../src/features/reels/no-watch-history.js';
+import noSearchHistory from '../src/features/search/no-search-history.js';
 import holdBackLogs from '../src/features/privacy/usage-logs.js';
 import hideCommentTyping from '../src/features/comments/hide-comment-typing.js';
 import sanitizeLinks from '../src/features/links/sanitize-links.js';
@@ -183,7 +184,7 @@ test('supported privacy fetches wait for saved choices while unknown traffic lea
   const net = installNetworkHooks({ win, log: quietLog, startup: control.startup });
   const choices = new Map();
   const diagnostics = { add() {}, changed() {} };
-  for (const feature of [anonymousStories, noWatchHistory, holdBackLogs, hideCommentTyping, sanitizeLinks]) {
+  for (const feature of [anonymousStories, noWatchHistory, noSearchHistory, holdBackLogs, hideCommentTyping, sanitizeLinks]) {
     choices.set(feature.id, true);
     feature.setup({ win, net, diagnostics, enabled: () => choices.get(feature.id) });
   }
@@ -191,6 +192,7 @@ test('supported privacy fetches wait for saved choices while unknown traffic lea
   const pending = [
     win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('storiesUpdateSeenStateMutation') }),
     win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('FBUnifiedVideoSeenStateMutation') }),
+    win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('CometAddTypeaheadRecentSearchMutation') }),
     win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('CometUFILiveTypingBroadcastMutation_StartMutation') }),
     win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('useLinkSharingCreateWrappedUrlMutation') }),
     win.fetch('/ajax/bnzai', { method: 'POST', body: new URLSearchParams({ q: '[]' }) }),
@@ -198,7 +200,7 @@ test('supported privacy fetches wait for saved choices while unknown traffic lea
   const unknown = await win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('CometNewsFeedPaginationQuery') });
   assert.equal(await unknown.text(), 'native');
   assert.equal(calls.length, 1);
-  assert.equal(net.startupPending(), 5);
+  assert.equal(net.startupPending(), 6);
 
   control.set('ready');
   const answers = await Promise.all(pending);

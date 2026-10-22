@@ -38,6 +38,7 @@ import cleanUpReels from './reels/clean-up-reels.js';
 import anonymousStories from './stories/anonymous-stories.js';
 import stopStoryAdvance from './stories/stop-advance.js';
 import hideSponsoredSearch from './search/hide-sponsored-search.js';
+import noSearchHistory from './search/no-search-history.js';
 import hideSponsoredMarketplace from './marketplace/hide-sponsored-marketplace.js';
 import sellerProfileLink from './marketplace/seller-profile.js';
 import hideReadReceipts from './chats/hide-read-receipts.js';
@@ -87,7 +88,7 @@ import blockInstantGamesAds from './games/block-ads.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts, keepPostDates, keepFeedPlace, hideFollowButtons, expandLongPosts,
-  hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, holdBackLogs,
+  hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, holdBackLogs,
   commentOrder, showAllReplies, hideCommentStickers, hideCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
   keepSpeed, keepVolume, holdForSpeed, pictureInPicture, keepControls, videoQuality,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton,

@@ -78,7 +78,7 @@ Every switch starts off except the ones that only remove things nobody asked for
 
 - **News feed:** Hide sponsored posts, Hide suggested posts, Hide reel rows in the feed, Hide Stories tray, Hide posts by words, Hide seen posts, Hide AI-detected posts, Show full post dates, Keep your place in the feed, Hide Follow and Join buttons, Expand long posts.
 - **Reels:** Hide sponsored reels, Don't send watch history, Clean up Reels, Hold a reel for 2x.
-- **Search and Marketplace:** Hide sponsored search results, Hide sponsored Marketplace listings, View profile on Marketplace sellers, Marketplace only.
+- **Search and Marketplace:** Hide sponsored search results, Don't save search history, Hide sponsored Marketplace listings, View profile on Marketplace sellers, Marketplace only.
 - **Messages and privacy:** Hide read receipts, Hide typing indicator, Hide that you're writing a comment, View stories anonymously, Hold back usage logs, Sanitize sharing links, Skip Facebook's link redirect, Trim the share menu, Open Messenger as a full page. (Read receipt and typing switches can't reach end-to-end encrypted chats.)
 - **Comments:** Default comment order, Show every reply, Hide GIF and sticker buttons, Tag suggestions only after @, Show comments as written.
 - **Notifications and navigation:** Hide kinds of notifications, Following feed on Home, Open on a chosen tab, Hide tabs, Hide tab badges, Hide the New message button.
