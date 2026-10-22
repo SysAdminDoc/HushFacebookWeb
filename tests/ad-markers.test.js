@@ -455,9 +455,15 @@ test('a post Facebook files as ORGANIC keeps its Join button, and its group is r
   const storyTo = { ...joinTitle, story: { to: { __typename: 'Group', id: '77', url: 'https://www.facebook.com/groups/seventy/' } } };
   assert.deepEqual([...joinGroups(titled('to', storyTo).node)].sort(), ['77', 'seventy'], "the title story's group");
   assert.deepEqual([...joinGroups(edge2026('page', {}, { to: { __typename: 'User', id: '9', url: '/groups/x/' } }).node)], [], 'not a group');
+  const otherJoin = { ...joinTitle, if_viewer_can_join_group: { join_action: { __typename: 'GroupJoinForumAction', group: { id: '999' } } } };
+  const sharing = edge2026('share', {}, { to: groupPost('own', 'ORGANIC', '501').node.to, attached_story: titled('shared', otherJoin).node });
+  assert.deepEqual([...joinGroups(sharing.node)].sort(), ['123', 'bakers'], "a shared post's Join action is for its own group");
 
   const answer = () => ({ data: { viewer: { news_feed: { edges: [groupPost('own', 'ORGANIC', '501'), groupPost('other', 'ENGAGEMENT', '502'), edge2026('friend')] } } } });
   assert.deepEqual(ownGroupPosts(answer()).map((groups) => [...groups].sort()), [['123', 'bakers']]);
+  const holder = groupPost('other', 'ENGAGEMENT', '502');
+  holder.node.items = { edges: [{ ...groupPost('inner', 'ORGANIC', '504'), node: { ...groupPost('inner', 'ORGANIC', '504').node, to: { __typename: 'Group', id: '444' } } }] };
+  assert.deepEqual(ownGroupPosts({ data: { viewer: { news_feed: { edges: [holder] } } } }), [], 'an edge inside another speaks for itself');
   const doc = answer();
   adRule('hideSuggestedPosts', () => true, null).transform(doc, { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' });
   assert.deepEqual(doc.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null), ['own', null, 'friend']);
