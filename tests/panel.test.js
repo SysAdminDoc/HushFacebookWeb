@@ -546,6 +546,7 @@ test("a feature's own buttons show on its card while it's on, follow its state a
   const feature = { id: 'demo', section: 'feed', title: 'Demo', description: 'A demo switch.', default: true, setup() {} };
   const actions = createActions();
   let showing = false;
+  actions.for('demo').add(() => (showing ? '' : 'Show nothing'), () => {});
   actions.for('demo').add(() => (showing ? 'Hide them again' : 'Show them'), () => { showing = !showing; });
   actions.for('other').add('Not mine', () => {});
   const { shadow, panel, settings } = setup({ features: [feature], actions });
@@ -558,6 +559,8 @@ test("a feature's own buttons show on its card while it's on, follow its state a
   await tick();
   assert.equal(showing, true);
   assert.ok(button('Hide them again'), 'the label follows the state');
+  assert.equal(shadow.querySelectorAll('[data-key^="action:demo:"]').length, 1, 'an empty label leaves its button off the card');
+  assert.equal(button('Hide them again').dataset.key, 'action:demo:1', 'and the next button keeps its place');
   assert.equal(shadow.activeElement, button('Hide them again'), 'focus follows the replacement action');
   settings.set('demo', false);
   await tick();

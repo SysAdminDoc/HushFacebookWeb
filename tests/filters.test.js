@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
+import { createActions } from '../src/core/actions.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
@@ -15,7 +16,7 @@ import { storyFields } from '../src/core/filters/story.js';
 import { parseRoute } from '../src/core/route.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
 import { adRule } from '../src/features/feed/ad-markers.js';
-import hidePostsByWords, { createPreviewTally, filterMatches, filterVerdict, previewReport, pruneFiltered, siteNotice, skipNotice } from '../src/features/feed/filters.js';
+import hidePostsByWords, { createFilterFuse, createPreviewTally, filterMatches, filterVerdict, fuseReport, previewFiltered, previewReport, pruneFiltered, siteNotice, skipNotice } from '../src/features/feed/filters.js';
 import { createSettings, EXPORT_SCHEMA } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 
@@ -273,7 +274,7 @@ test('page fields: text, author, alt, sites and kind, without the comments', () 
   assert.deepEqual([...fields.kinds].sort(), ['link', 'photo']);
 });
 
-function setupFeature(win, { words = '', lists = {}, kinds = {}, preview = false, net = null, href, toast, storage } = {}) {
+function setupFeature(win, { words = '', lists = {}, kinds = {}, preview = false, net = null, href, toast, storage, actions = createActions() } = {}) {
   const doc = win.document;
   const values = { words, preview, ...lists, ...kinds };
   const subscribers = [];
@@ -282,7 +283,7 @@ function setupFeature(win, { words = '', lists = {}, kinds = {}, preview = false
   const diagnostics = createDiagnostics();
   const warnings = [];
   hidePostsByWords.setup({
-    net, router: { current: () => parseRoute(href ?? win.location.href) }, posts, hider, diagnostics, toast, storage,
+    net, router: { current: () => parseRoute((typeof href === 'function' ? href() : href) ?? win.location.href) }, posts, hider, diagnostics, toast, storage, actions: actions.for('hidePostsByWords'),
     log: { warn: (message) => warnings.push(message), error() {}, info() {} },
     settings: { subscribe: (fn) => subscribers.push(fn) }, enabled: () => true, option: (key) => values[key],
   });
@@ -290,7 +291,8 @@ function setupFeature(win, { words = '', lists = {}, kinds = {}, preview = false
     values[key] = value;
     for (const fn of subscribers) fn({});
   };
-  return { doc, posts, hider, diagnostics, warnings, set };
+  const buttons = () => actions.list('hidePostsByWords');
+  return { doc, posts, hider, diagnostics, warnings, set, buttons };
 }
 
 test('on the page, a matching post is hidden with the phrase in its note, and a new list applies at once', () => {
@@ -583,4 +585,222 @@ test('a list saved before the new lists keeps matching as it did, and backups ke
     assert.equal(restored.get(key), value, key);
     assert.ok(applied.includes(key), key);
   }
+});
+
+// The fuse: stories that all say one thing, each with its own id so each one counts.
+let serial = 0;
+const stories = (count, text) => Array.from({ length: count }, () => ({ ...story({ comet_sections: { message_container: { story: { message: { text } } } } }), id: `f${++serial}` }));
+const keptIds = (line) => JSON.parse(line).data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null).filter(Boolean);
+const toasted = (toasts) => (message, options) => toasts.push({ message, options });
+
+test('the fuse pauses a line once a layer has seen six posts and four in five of them match', () => {
+  const fuse = createFilterFuse();
+  for (let n = 0; n < 5; n += 1) fuse.see('data', `s${n}`, ['line 1', 'people line 1', 'photo posts']);
+  assert.deepEqual(fuse.trip(), [], 'five posts are too few to judge');
+  fuse.see('data', 's5', []);
+  assert.deepEqual(fuse.trip(), ['line 1'], 'five of six is enough, and only word and site lines count');
+  assert.deepEqual(fuse.trip(), [], 'a paused line trips once');
+  assert.equal(fuseReport(fuse.paused), 'line 1 (data: 5 of 6)');
+  fuse.clear();
+  assert.equal(fuseReport(fuse.paused), 'None');
+
+  const share = createFilterFuse();
+  for (let n = 0; n < 10; n += 1) share.see('page', n, n < 7 ? ['sites line 2'] : []);
+  assert.deepEqual(share.trip(), [], 'seven of ten is under the share');
+  share.see('page', 3, ['line 4']);
+  assert.deepEqual(share.trip(), [], 'a post seen again counts once');
+  share.see('page', 7, ['sites line 2']);
+  assert.deepEqual(share.trip(), ['sites line 2'], 'a later look that matches counts, and eight of ten is at the share');
+
+  const kept = createFilterFuse({ kept: (id) => id === 'line 1' });
+  for (let n = 0; n < 6; n += 1) kept.see('page', n, ['line 1', 'line 2']);
+  assert.deepEqual(kept.trip(), ['line 2'], 'a line kept on purpose is never paused');
+
+  const window = createFilterFuse({ window: 6 });
+  for (let n = 0; n < 6; n += 1) window.see('data', n, []);
+  assert.equal(window.counting('data'), false, 'a layer stops counting at its window');
+  assert.equal(window.counting('page'), true);
+});
+
+test('a word line that matches most stories on a page is paused there, and the answer that trips it keeps them', () => {
+  const rules = [];
+  const toasts = [];
+  const { posts, diagnostics, warnings } = setupFeature(page(''), { words: 'tulip\nzzqx', net: { transformResponses: (rule) => rules.push(rule) }, toast: toasted(toasts) });
+  assert.deepEqual(keptIds(transformDocumentLine(feedLine(...stories(2, 'tulip bulbs')), rules, FEED)), [], 'two stories are too few to judge, so both go');
+  assert.equal(diagnostics.rows().find(({ label }) => label === 'Filter lines paused on this page').value, 'None');
+  const tripping = feedLine(...stories(3, 'tulip bulbs'), ...stories(1, 'garden news'));
+  assert.equal(keptIds(transformDocumentLine(tripping, rules, FEED)).length, 4, 'five of six tripped it, so this answer keeps all four');
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0].message, 'Filter line 1, "tulip", matched 5 of the 6 posts here, so it\'s paused on this page.');
+  assert.equal(toasts[0].options.tone, 'error');
+  assert.deepEqual(toasts[0].options.actions.map(({ label }) => label), ['Keep hiding']);
+  const row = diagnostics.rows().find(({ label }) => label === 'Filter lines paused on this page');
+  assert.deepEqual({ value: row.value, shareable: row.shareable }, { value: 'line 1 (data: 5 of 6)', shareable: true }, 'Copy report gets the line number and counts, never the line');
+  assert.equal(diagnostics.statusOf('hidePostsByWords'), 'Paused on this page because it matched almost every post: line 1 "tulip". Choose Keep hiding to hide by it anyway, or edit the line. Posts it hid before the pause come back on a reload.');
+  assert.equal(warnings.length, 1);
+  assert.equal(keptIds(transformDocumentLine(feedLine(...stories(2, 'tulip bulbs')), rules, FEED)).length, 2, 'it stays paused on this page');
+  assert.equal(toasts.length, 1, 'and the notice comes once');
+  posts.stop();
+});
+
+test('a busy line under the fuse still hides: five of five, seven of ten, and the switches it never counts', () => {
+  const run = ({ words = 'tulip', matching, plain = 0, lists = {}, kinds = {} }) => {
+    const rules = [];
+    const toasts = [];
+    const { posts } = setupFeature(page(''), { words, lists, kinds, net: { transformResponses: (rule) => rules.push(rule) }, toast: toasted(toasts) });
+    const kept = keptIds(transformDocumentLine(feedLine(...stories(matching, 'tulip bulbs'), ...stories(plain, 'garden news')), rules, FEED)).length;
+    posts.stop();
+    return { kept, toasts: toasts.length };
+  };
+  assert.deepEqual(run({ matching: 5 }), { kept: 0, toasts: 0 });
+  assert.deepEqual(run({ matching: 7, plain: 3 }), { kept: 3, toasts: 0 });
+  assert.deepEqual(run({ matching: 8, plain: 2 }), { kept: 10, toasts: 1 }, 'eight of ten is at the share');
+  assert.deepEqual(run({ words: 'zzqx', matching: 6, lists: { people: 'Pat Example' } }), { kept: 0, toasts: 0 }, 'a people line only matches who it names, even beside a word line');
+  assert.deepEqual(run({ words: 'zzqx', matching: 6, kinds: { photos: true } }), { kept: 0, toasts: 0 }, 'a kind of post is meant to hide them all');
+  assert.deepEqual(run({ words: 're:.', matching: 6, lists: { showPeople: 'Pat Example' } }), { kept: 6, toasts: 0 }, 'posts an always-show line keeps never count as matched');
+});
+
+test('the captured feed answers carry about one story each, and re:. is paused by the sixth one counted', async () => {
+  const files = ['CometNewsFeedPaginationQuery.jsonl', 'CometNewsFeedPaginationQuery-ai-label.jsonl', 'CometNewsFeedPaginationQuery-ad.jsonl', 'CometNewsFeedPaginationQuery-group-suggestions.jsonl', 'CometNewsFeedPaginationQuery-pymk.jsonl'];
+  const lines = (await Promise.all(files.map((file) => fixtureLines(file)))).flat();
+  const count = (line) => {
+    let n = 0;
+    previewFiltered(parseLine(line), { rules: [], kinds: new Set() }, () => (n += 1));
+    return n;
+  };
+  const rules = [];
+  const toasts = [];
+  const { posts } = setupFeature(page(''), { words: 're:.', net: { transformResponses: (rule) => rules.push(rule) }, toast: toasted(toasts) });
+  const seen = [];
+  for (const line of lines) {
+    const before = count(line);
+    if (!before) continue;
+    seen.push({ before, after: count(transformDocumentLine(line, rules, FEED)), toasts: toasts.length });
+  }
+  assert.ok(seen.every(({ before }) => before === 1), 'one story an answer');
+  assert.equal(seen.length, 7);
+  // The group suggestions unit (the sixth) has no id, so it goes without being counted, and the
+  // seventh story is the sixth one counted.
+  assert.deepEqual(seen.map(({ after }) => after), [0, 0, 0, 0, 0, 0, 1], 'six go before the sixth counted story trips it');
+  assert.deepEqual(seen.map(({ toasts: n }) => n), [0, 0, 0, 0, 0, 0, 1]);
+  assert.match(toasts[0].message, /^Filter line 1, "re:\.", matched 6 of the 6 posts here/);
+  posts.stop();
+});
+
+test('on the page the fuse brings back what a paused line hid, and Keep hiding hides it again for good', async () => {
+  const html = (count) => Array.from({ length: count }, (_, n) => post(n + 1, { text: 'Hello there' })).join('');
+  const storage = createMemoryStorage();
+  const toasts = [];
+  const first = setupFeature(page(html(6)), { words: 're:.', storage, toast: toasted(toasts) });
+  const hidden = (doc) => doc.querySelectorAll(`[${MARK}]`).length;
+  assert.equal(hidden(first.doc), 5, 'the sixth post trips it');
+  await Promise.resolve();
+  assert.equal(hidden(first.doc), 0, 'and the five it hid come back');
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0].message, 'Filter line 1, "re:.", matched 6 of the 6 posts here, so it\'s paused on this page.');
+  assert.equal(first.diagnostics.rows().find(({ label }) => label === 'Filter lines paused on this page').value, 'line 1 (page: 6 of 6)');
+  toasts[0].options.actions[0].run();
+  assert.equal(hidden(first.doc), 6, 'Keep hiding hides them again');
+  assert.equal(first.diagnostics.rows().find(({ label }) => label === 'Filter lines paused on this page').value, 'None');
+  assert.equal(first.diagnostics.statusOf('hidePostsByWords'), null);
+  const prints = storage.get('hidePostsByWords.fuseKept', []);
+  assert.equal(prints.length, 1);
+  assert.ok(!JSON.stringify(prints).includes('re:'), 'storage keeps a fingerprint, not the line');
+  first.posts.stop();
+
+  const again = setupFeature(page(html(6)), { words: 're:.', storage, toast: toasted(toasts) });
+  await Promise.resolve();
+  assert.equal(hidden(again.doc), 6, 'a kept line stays kept on the next page load');
+  assert.equal(toasts.length, 1);
+  again.posts.stop();
+  const edited = setupFeature(page(html(6)), { words: 're:..', storage, toast: toasted(toasts) });
+  await Promise.resolve();
+  assert.equal(hidden(edited.doc), 0, 'an edited line is a new line');
+  assert.equal(toasts.length, 2);
+  edited.posts.stop();
+});
+
+test('Keep hiding keeps the line that tripped, after an edit too, with any line that reads the same', async () => {
+  const html = Array.from({ length: 6 }, (_, n) => post(n + 1, { text: 'Hello there' })).join('');
+  const storage = createMemoryStorage();
+  const toasts = [];
+  const edited = setupFeature(page(html), { words: 're:.\nre:.\ncats', storage, toast: toasted(toasts) });
+  await Promise.resolve();
+  assert.equal(toasts.length, 2, 'both copies of the line trip');
+  assert.equal(edited.diagnostics.rows().find(({ label }) => label === 'Filter lines paused on this page').value, 'line 1 (page: 6 of 6), line 2 (page: 6 of 6)');
+  edited.set('words', 'cats');
+  toasts[0].options.actions[0].run();
+  const kept = storage.get('hidePostsByWords.fuseKept', []);
+  assert.equal(kept.length, 1);
+  edited.posts.stop();
+  const cats = setupFeature(page(Array.from({ length: 6 }, (_, n) => post(n + 1, { text: 'cats' })).join('')), { words: 'cats', storage, toast: toasted(toasts) });
+  await Promise.resolve();
+  assert.equal(toasts.length, 3, 'cats moved up to line 1 but was never kept');
+  cats.posts.stop();
+
+  const card = setupFeature(page(html), { words: 're:.\nre:.', storage: createMemoryStorage(), toast: toasted(toasts) });
+  await Promise.resolve();
+  assert.deepEqual(card.buttons().map(({ label }) => label), ['Keep hiding the paused lines'], 'the card keeps the choice after the notice goes');
+  toasts.at(-1).options.actions[0].run();
+  assert.equal(card.diagnostics.rows().find(({ label }) => label === 'Filter lines paused on this page').value, 'None', 'keeping one keeps the line that reads the same');
+  assert.deepEqual(card.buttons(), [], 'and the button goes with the pause');
+  assert.equal(card.doc.querySelectorAll(`[${MARK}]`).length, 6);
+  card.posts.stop();
+
+  const button = setupFeature(page(html), { words: 're:.', storage: createMemoryStorage(), toast: toasted(toasts) });
+  await Promise.resolve();
+  await button.buttons()[0].run();
+  assert.equal(button.doc.querySelectorAll(`[${MARK}]`).length, 6, "the card's button hides them again");
+  button.posts.stop();
+});
+
+test('a site line is paused by its list, and an always-show post is shown either way', async () => {
+  const linked = Array.from({ length: 6 }, (_, n) => post(n + 1, { author: n < 2 ? 'Garden Swap Group' : 'Friend', extra: linkTo('https://shop.example/x') })).join('');
+  const toasts = [];
+  const { doc, posts } = setupFeature(page(linked), { lists: { sites: 'shop.example', showPeople: 'Garden Swap Group' }, toast: toasted(toasts) });
+  await Promise.resolve();
+  assert.equal(doc.querySelectorAll(`[${MARK}]`).length, 4, 'the two always-show posts count as unmatched, so four of six stays under the share');
+  assert.equal(toasts.length, 0);
+  posts.stop();
+  const all = Array.from({ length: 6 }, (_, n) => post(n + 1, { extra: linkTo('https://shop.example/x') })).join('');
+  const sites = setupFeature(page(all), { lists: { sites: 'news.example\nshop.example' }, toast: toasted(toasts) });
+  await Promise.resolve();
+  assert.equal(sites.doc.querySelectorAll(`[${MARK}]`).length, 0);
+  assert.equal(toasts[0].message, 'Line 2 of your site list, "shop.example", matched 6 of the 6 posts here, so it\'s paused on this page.');
+  assert.equal(sites.diagnostics.rows().find(({ label }) => label === 'Filter lines paused on this page').value, 'sites line 2 (page: 6 of 6)');
+  sites.posts.stop();
+});
+
+test('another feed or a new list starts the fuse over, and an answer that fails un-pauses the line it tripped', () => {
+  let href = 'https://www.facebook.com/';
+  const rules = [];
+  const toasts = [];
+  const { posts, set, diagnostics } = setupFeature(page(''), { words: 'tulip', href: () => href, net: { transformResponses: (rule) => rules.push(rule) }, toast: toasted(toasts) });
+  assert.equal(keptIds(transformDocumentLine(feedLine(...stories(6, 'tulip bulbs')), rules, FEED)).length, 6);
+  assert.equal(toasts.length, 1);
+  href = 'https://www.facebook.com/photo/?fbid=1';
+  assert.equal(keptIds(transformDocumentLine(feedLine(...stories(1, 'tulip bulbs')), rules, FEED)).length, 1, 'a photo open on top of Home keeps the pause');
+  href = 'https://www.facebook.com/someone';
+  assert.equal(diagnostics.rows().find(({ label }) => label === 'Filter lines paused on this page').value, 'None', "a profile doesn't list Home's pauses");
+  assert.equal(diagnostics.statusOf('hidePostsByWords'), null);
+  href = 'https://www.facebook.com/';
+  assert.match(diagnostics.statusOf('hidePostsByWords'), /^Paused on this page/);
+  href = 'https://www.facebook.com/groups/feed/';
+  assert.equal(keptIds(transformDocumentLine(feedLine(...stories(2, 'tulip bulbs')), rules, FEED)).length, 0, 'the groups feed counts again from nothing');
+  assert.equal(keptIds(transformDocumentLine(feedLine(...stories(4, 'tulip bulbs')), rules, FEED)).length, 4);
+  assert.equal(toasts.length, 2);
+  set('words', 'tulip\nzzqx');
+  assert.equal(keptIds(transformDocumentLine(feedLine(...stories(2, 'tulip bulbs')), rules, FEED)).length, 0, 'a new list counts again from nothing');
+  posts.stop();
+
+  const failing = [];
+  const later = setupFeature(page(''), { words: 'tulip', net: { transformResponses: (rule) => failing.push(rule) }, toast: toasted(toasts) });
+  const broken = { id: 'broken', transform() { throw new Error('boom'); } };
+  const line = feedLine(...stories(6, 'tulip bulbs'));
+  assert.equal(transformDocumentLine(line, [failing[0], broken], FEED, () => {}), line);
+  assert.equal(toasts.length, 2, 'no notice for an answer the page never got');
+  assert.equal(later.diagnostics.rows().find(({ label }) => label === 'Filter lines paused on this page').value, 'None');
+  assert.equal(keptIds(transformDocumentLine(feedLine(...stories(1, 'tulip bulbs')), failing, FEED)).length, 1, 'the next answer trips it again');
+  assert.equal(toasts.length, 3);
+  later.posts.stop();
 });

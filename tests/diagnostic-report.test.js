@@ -169,7 +169,7 @@ const SAFE = {
   'core/tasks.js': ['task.id', 'result.cause ? STORAGE_FAILED : result.message'],
   'features/comments/comment-order.js': ['order.english'],
   'features/downloads/button.js': ['failText'],
-  'features/feed/filters.js': ['CSS_WARNING', 'error.line', 'error.reason', 'error.list'],
+  'features/feed/filters.js': ['CSS_WARNING', 'error.line', 'error.reason', 'error.list', 'id', 'counts.matched', 'counts.checked', 'counts.layer'],
   'features/feed/hide-sponsored-posts.js': ['signal', "corroborated ? ', with an ad button' : ''", 'unreadCount'],
   'features/games/sdk.js': ['message'],
   'core/start-features.js': ['feature.title'],

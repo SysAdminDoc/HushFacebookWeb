@@ -308,7 +308,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function featureActions(feature) {
     const list = actions?.list(feature.id) ?? [];
     if (!list.length) return null;
-    return h('div', { class: 'actions' }, list.map(({ label, run }, index) => actionButton(`action:${feature.id}:${index}`, label, run)));
+    return h('div', { class: 'actions' }, list.map(({ label, run, index }) => actionButton(`action:${feature.id}:${index}`, label, run)));
   }
 
   // label and busyLabel in English: the log keeps the English, the button shows t().

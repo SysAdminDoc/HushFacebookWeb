@@ -19,6 +19,15 @@
 // together. The counts stay in memory, at most PREVIEW_LIMIT posts a layer, start over when
 // the list changes, and hold no post text. The card shows them with the lines they belong to,
 // and Copy report gets only line numbers and counts.
+//
+// The fuse counts the same way while hiding. A word or site line that matches nearly every post
+// on a page is far more likely a slip (re:. or a site line like com) than a wish to see nothing,
+// and in page mode it leaves Facebook nothing to draw. Once one layer has checked FUSE_MIN posts
+// on this page and a line matched FUSE_SHARE of them, that line is paused until the page or the
+// list changes, and a notice names it. Keep hiding on the notice puts it back and remembers the
+// line (by fingerprint) so it's never paused again. People lines and kinds of post aren't
+// fused: they only match what they name. Live 2026-10-22 with re:. on Home, page mode dropped
+// every story from ten feed pages in 24 s of scrolling and content mode hid 41 of 42 units.
 
 import { walk, SKIP } from '../../core/json-walk.js';
 import { filterCache, firstMatch, matchingRules } from '../../core/filters/engine.js';
@@ -156,6 +165,7 @@ export function createPreviewTally(limit = PREVIEW_LIMIT) {
       for (const id of matches) ids.add(id);
     },
     clear: () => posts.clear(),
+    size: () => posts.size,
     summary() {
       const counts = new Map();
       let matched = 0;
@@ -166,6 +176,61 @@ export function createPreviewTally(limit = PREVIEW_LIMIT) {
       return { checked: posts.size, full: posts.size >= limit, matched, counts: [...counts].sort((a, b) => b[1] - a[1]) };
     },
   };
+}
+
+export const FUSE_MIN = 6;
+export const FUSE_SHARE = 0.8;
+// A layer stops counting for the fuse after this many posts on one page.
+export const FUSE_WINDOW = 200;
+const FUSE_KEPT_KEY = 'hidePostsByWords.fuseKept';
+const FUSE_KEPT_LIMIT = 50;
+const fusible = (id) => /^(?:sites )?line \d+$/.test(id);
+
+// One page's fuse: a tally per layer, the lines paused here and the ones kept for good.
+export function createFilterFuse({ min = FUSE_MIN, share = FUSE_SHARE, kept = () => false, window = FUSE_WINDOW } = {}) {
+  const layers = { data: createPreviewTally(window), page: createPreviewTally(window) };
+  const paused = new Map();
+  return {
+    paused,
+    counting: (layer) => layers[layer].size() < window,
+    see(layer, key, matches) {
+      layers[layer].see(key, matches.filter(fusible));
+    },
+    // Pauses each line that now matches too much on one layer, and returns the ids it paused.
+    trip() {
+      const fresh = [];
+      for (const [layer, tally] of Object.entries(layers)) {
+        const { checked, counts } = tally.summary();
+        if (checked < min) continue;
+        for (const [id, matched] of counts) {
+          if (matched < checked * share || paused.has(id) || kept(id)) continue;
+          paused.set(id, { layer, matched, checked });
+          fresh.push(id);
+        }
+      }
+      return fresh;
+    },
+    clear() {
+      layers.data.clear();
+      layers.page.clear();
+      paused.clear();
+    },
+  };
+}
+
+// The notice for a line the fuse paused.
+export function fuseNotice(id, phrase, { matched, checked }) {
+  const line = Number(id.match(/\d+$/)[0]);
+  const values = { line, phrase: shortPhrase(phrase), matched, checked };
+  return id.startsWith('sites ')
+    ? t("Line {line} of your site list, \"{phrase}\", matched {matched} of the {checked} posts here, so it's paused on this page.", values)
+    : t("Filter line {line}, \"{phrase}\", matched {matched} of the {checked} posts here, so it's paused on this page.", values);
+}
+
+// The paused lines for Copy report: line numbers and counts, never the lines.
+export function fuseReport(paused) {
+  if (!paused.size) return 'None';
+  return [...paused].map(([id, { layer, matched, checked }]) => `${id} (${layer}: ${matched} of ${checked})`).join(', ');
 }
 
 const MAX_NAMED = 8;
@@ -242,7 +307,7 @@ export default {
   default: false,
   options: OPTIONS,
 
-  setup({ net, router, posts, hider, log, toast, storage, settings, diagnostics, enabled, option }) {
+  setup({ net, router, posts, hider, log, toast, storage, settings, diagnostics, actions, enabled, option }) {
     const compile = filterCache();
     const warned = new Set();
     // Skipped pattern lines and CSS pasted here (which would only ever match posts that quote
@@ -318,6 +383,72 @@ export default {
     const preview = { data: net ? createPreviewTally() : null, page: posts && hider ? createPreviewTally() : null };
     const summaries = () => ({ data: preview.data?.summary() ?? null, page: preview.page?.summary() ?? null });
 
+    // The fuse (see the top of this file). A kept line is stored as a fingerprint of its list and
+    // text, so an edited line is a new line, and storage never holds the line itself.
+    const keptHere = new Set();
+    const keptPrints = () => {
+      const saved = storage?.get(FUSE_KEPT_KEY, []);
+      return Array.isArray(saved) ? saved : [];
+    };
+    const printOf = (id, phrase = phrasesOf(current()).get(id)) => (phrase === undefined
+      ? null : fingerprint(`${id.startsWith('sites ') ? 'sites' : 'words'}\n${phrase}`));
+    const fuse = createFilterFuse({
+      kept: (id) => {
+        const print = printOf(id);
+        return print !== null && (keptHere.has(print) || keptPrints().includes(print));
+      },
+    });
+    const fusing = (filter) => filter.rules.length > 0 || filter.sites.length > 0;
+    const unpaused = (filter) => (fuse.paused.size ? {
+      ...filter,
+      rules: filter.rules.filter((rule) => !fuse.paused.has(lineId('words', rule))),
+      sites: filter.sites.filter((entry) => !fuse.paused.has(lineId('sites', entry))),
+    } : filter);
+    // The fuse counts one feed at a time, and a different feed starts it over. Only Home and
+    // group feeds count as a page here: a feed answer can arrive while a post or photo is open on
+    // top of the feed, and that leaves the counts alone.
+    const pageOf = (now = route()) => (now ? `${now.type}:${now.path}:${now.feed}` : '');
+    let fusePage = null;
+    const fuseHere = () => {
+      const now = route();
+      if (!FILTERED.routes(now) || pageOf(now) === fusePage) return;
+      fusePage = pageOf(now);
+      fuse.clear();
+    };
+    const pausedHere = () => fuse.paused.size > 0 && pageOf() === fusePage;
+    // Trips the fuse and notes each new pause's line as it reads now, for the notice and Keep hiding.
+    const tripHere = () => {
+      const fresh = fuse.trip();
+      const phrases = phrasesOf(current());
+      for (const id of fresh) {
+        const phrase = phrases.get(id) ?? '';
+        Object.assign(fuse.paused.get(id), { phrase, print: printOf(id, phrase) });
+      }
+      return fresh;
+    };
+    let recheck = null;
+    // Keeps a line for good, with every paused line that reads the same.
+    function keep(print) {
+      if (print === null) return;
+      keptHere.add(print);
+      storage?.set(FUSE_KEPT_KEY, [...keptPrints().filter((saved) => saved !== print), print].slice(-FUSE_KEPT_LIMIT));
+      for (const [id, entry] of fuse.paused) {
+        if (entry.print === print) fuse.paused.delete(id);
+      }
+      recheck?.();
+      changed();
+    }
+    function tripped(ids) {
+      for (const id of ids) {
+        const counts = fuse.paused.get(id);
+        if (!counts) continue;
+        log?.warn(`Filter ${id} matched ${counts.matched} of ${counts.checked} posts on this page (${counts.layer}), so it's paused here`);
+        toast?.(fuseNotice(id, counts.phrase, counts), { tone: 'error', duration: 15000, actions: [{ label: 'Keep hiding', run: () => keep(counts.print) }] });
+      }
+      recheck?.();
+      changed();
+    }
+
     if (net) {
       const scope = { scope: FILTERED };
       const markers = ['"__isFeedUnit"'];
@@ -331,8 +462,27 @@ export default {
           if (previewing() || !inScope(scope, ctx, route)) return false;
           const filter = current();
           if (!active(filter)) return false;
+          // The fuse looks at the whole answer before anything goes, so the answer that trips it
+          // still carries the posts the paused line would have taken.
+          if (fusing(filter)) {
+            fuseHere();
+            if (fuse.counting('data')) {
+              previewFiltered(doc, filter, (id, matches) => {
+                if (id !== null) fuse.see('data', String(id), matches);
+              });
+              const fresh = tripHere();
+              if (fresh.length) {
+                stage?.undo(() => {
+                  for (const id of fresh) fuse.paused.delete(id);
+                });
+                later(stage, () => tripped(fresh));
+              }
+            }
+          }
+          const live = unpaused(filter);
+          if (!active(live)) return false;
           const decisions = [];
-          const reasons = pruneFiltered(doc, filter, (story, reason) => decisions.push({ post: story.post_id ?? story.id, rule: 'Filter', detail: reason, layer: 'data' }));
+          const reasons = pruneFiltered(doc, live, (story, reason) => decisions.push({ post: story.post_id ?? story.id, rule: 'Filter', detail: reason, layer: 'data' }));
           if (!reasons.length) return false;
           later(stage, () => {
             for (const decision of decisions) diagnostics?.decide(decision);
@@ -370,8 +520,18 @@ export default {
       return named.length ? named.join(', ') : 'None';
     });
     diagnostics?.add('Filter preview', () => (enabled() && previewing() ? previewReport(summaries()) || 'Nothing to count here' : 'Off'), { shareable: true });
+    diagnostics?.add('Filter lines paused on this page', () => (pausedHere() ? fuseReport(fuse.paused) : 'None'), { shareable: true });
+    // The notice goes after a while, so the card keeps the same choice while a line is paused here.
+    actions?.add(() => (enabled() && pausedHere() ? 'Keep hiding the paused lines' : ''), () => {
+      for (const { print } of [...fuse.paused.values()]) keep(print);
+    });
     diagnostics?.status?.('hidePostsByWords', () => {
-      if (!enabled() || !previewing()) return null;
+      if (!enabled()) return null;
+      if (!previewing()) {
+        if (!pausedHere()) return null;
+        const named = [...fuse.paused].map(([id, { phrase }]) => `${id} "${shortPhrase(phrase)}"`);
+        return `Paused on this page because it matched almost every post: ${named.join(', ')}. Choose Keep hiding to hide by it anyway, or edit the line. Posts it hid before the pause come back on a reload.`;
+      }
       const filter = current();
       return previewStatus({ ...summaries(), filter, active: active(filter) });
     });
@@ -380,13 +540,13 @@ export default {
     // fresh look at the posts on the page (recheck, once the page check is set up).
     const state = () => JSON.stringify([enabled(), ...OPTIONS.map(({ key }) => option(key))]);
     let last = state();
-    let recheck = null;
     settings?.subscribe(() => {
       const next = state();
       if (next === last) return;
       last = next;
       preview.data?.clear();
       preview.page?.clear();
+      fuse.clear();
       recheck?.();
       changed();
     });
@@ -394,7 +554,7 @@ export default {
 
     // The page check in preview: each post is counted once and keeps every match it showed on
     // any look, since its text can fill in after the first one. It never hides, so it says
-    // "not done" and keeps getting the post's later looks.
+    // "not done" and keeps getting the post's later looks. The fuse keys posts the same way.
     const pageKeys = new WeakMap();
     let nextKey = 0;
     const keyOf = (element) => {
@@ -414,7 +574,17 @@ export default {
           changed();
           return false;
         }
-        const reason = filterVerdict(filter, postFields(element));
+        const fields = postFields(element);
+        if (fusing(filter)) {
+          fuseHere();
+          if (fuse.counting('page')) {
+            fuse.see('page', keyOf(element), filterMatches(filter, fields));
+            const fresh = tripHere();
+            // Once this check is done, so the posts it hid come back through the hider.
+            if (fresh.length) queueMicrotask(() => tripped(fresh));
+          }
+        }
+        const reason = filterVerdict(unpaused(filter), fields);
         if (reason === null) return false;
         if (hider.hide(element, 'Filter', reason)) {
           tally(hits, reason);

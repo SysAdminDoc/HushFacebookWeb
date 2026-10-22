@@ -21,6 +21,8 @@ test('the template holds what each kind of call shows, and no names that stay as
     'Reload', // a toast's button, passed from main.js
     'Copying...', // a busyLabel
     'Downloads', // a Diagnostics row label
+    'Show seen posts in this tab', // a card button's label that follows state
+    'Keep hiding the paused lines', // one that only shows now and then
     'it took too long', // an error message a toast shows
     "Couldn't find this photo's file.", // a plan's error, from the file it's imported from
     'always-show sites', // a property in the same file

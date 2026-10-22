@@ -1,7 +1,7 @@
 // Every phrase the script can show through t(), plural() or english(), in English, for the
 // translation template. Three sources: the feature list's own words (titles, descriptions,
 // option labels and choices, section and quick setup names), Diagnostics' row labels
-// (diagnostics.add), and every call in src, read with a parser. An argument is followed to the
+// (diagnostics.add), card buttons' labels (actions.add), and every call in src, read with a parser. An argument is followed to the
 // words it can end up as: a string, either side of ?: ?? or ||, a const or a lookup table in
 // the same file or one it imports, a parameter of the function it's in (through that
 // function's callers in the same file), or a property (the strings that property gets in the
@@ -112,6 +112,9 @@ export async function collectPhrases() {
         const found = both.map((part) => resolve(file, part, ancestors, seen));
         return found.includes(null) ? null : found.flat();
       }
+      // A label that follows state, () => (showing ? 'Hide' : 'Show'): what its body can return.
+      case 'ArrowFunctionExpression':
+        return node.body.type === 'BlockStatement' ? null : resolve(file, node.body, [...ancestors, node], seen);
       case 'ObjectExpression': {
         const values = node.properties.map((property) => (property.type === 'Property' ? resolve(file, property.value, ancestors, seen) : null));
         return values.includes(null) ? null : values.flat();
@@ -202,8 +205,8 @@ export async function collectPhrases() {
         const [one, other] = [node.arguments[1], node.arguments[2]].map((arg) => resolve(file, arg, ancestors));
         if (one?.length === 1 && other?.length === 1) plurals.set(other[0], { one: one[0], other: other[0] });
         else missed();
-      } else if (node.callee.type === 'MemberExpression' && calleeName(node) === 'add' && node.callee.object.name === 'diagnostics') {
-        // Diagnostics' row labels, shown through t(label).
+      } else if (node.callee.type === 'MemberExpression' && calleeName(node) === 'add' && ['diagnostics', 'actions'].includes(node.callee.object.name)) {
+        // Diagnostics' row labels and card buttons' labels, shown through t(label).
         const found = resolve(file, node.arguments[0], ancestors);
         if (found === null) missed();
         else add(found);
