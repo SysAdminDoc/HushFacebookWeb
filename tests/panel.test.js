@@ -40,7 +40,7 @@ function lendGlobals(win) {
   });
 }
 
-function setup({ features = [], actions = null, unavailable = new Map(), storage = createMemoryStorage(), update, environment = {}, beforeMount, migrations } = {}) {
+function setup({ features = [], actions = null, unavailable = new Map(), storage = createMemoryStorage(), update, environment = {}, beforeMount, migrations, tabPaused } = {}) {
   const win = testWindow('https://www.facebook.com/');
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
@@ -54,7 +54,7 @@ function setup({ features = [], actions = null, unavailable = new Map(), storage
   };
   win.document.body.innerHTML = '<div role="main"><div class="feed"><div aria-posinset="1"><div>Post</div></div></div></div>';
   const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
-  const settings = createSettings({ storage, features, log, migrations });
+  const settings = createSettings({ storage, features, log, migrations, tabPaused });
   beforeMount?.(settings);
   const hider = createHider({ doc: win.document, log });
   const diagnostics = createDiagnostics();
@@ -1463,4 +1463,37 @@ test('General keeps a failed extension storage load visible and offers retry', a
   await tick();
   assert.equal(shadow.querySelector('[data-key="storage-recovery"]'), null);
   assert.match(shadow.querySelector('.toast').textContent, /saved settings loaded/i);
+});
+
+test('A notice can carry several buttons, and one marked keep leaves it up', async () => {
+  const { shadow, panel } = setup();
+  const ran = [];
+  panel.toast('Stuck', { actions: [{ label: 'Pause for this tab', run: () => ran.push('pause') }, { label: 'Copy report', run: () => ran.push('copy'), keep: true }] });
+  const notice = shadow.querySelector('.toast:last-child');
+  assert.deepEqual([...notice.querySelectorAll('button')].map((entry) => entry.textContent), ['Pause for this tab', 'Copy report']);
+  button(shadow, 'Copy report').click();
+  assert.ok(notice.isConnected, 'a kept button leaves the notice up');
+  button(shadow, 'Pause for this tab').click();
+  assert.equal(notice.isConnected, false);
+  assert.deepEqual(ran, ['copy', 'pause']);
+});
+
+test('copyReport is there for notices outside the panel', async () => {
+  const { panel, copied } = setup();
+  await panel.copyReport();
+  assert.equal(copied.length, 1);
+  assert.match(copied[0], /^HushFacebook Web 0.0.1/);
+});
+
+test('In a tab paused after a stuck feed, the power switch turns it back on with a reload', async () => {
+  const resumed = [];
+  const { shadow, panel, settings, win } = setup({ tabPaused: true, environment: { resumeTab: () => resumed.push(true) } });
+  panel.open();
+  const power = shadow.querySelector('[data-key="power"]');
+  assert.equal(power.checked, false);
+  assert.equal(shadow.querySelector('.power-state').textContent, 'Paused in this tab');
+  power.checked = true;
+  power.dispatchEvent(new win.Event('change'));
+  assert.deepEqual(resumed, [true]);
+  assert.equal(Object.hasOwn(settings.snapshot(), 'paused'), false, 'nothing about the tab is saved');
 });

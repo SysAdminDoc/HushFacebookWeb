@@ -126,7 +126,9 @@ export function isValid(spec, value) {
   }
 }
 
-export function createSettings({ storage, features, log, version = 'dev', account = null, migrations = MIGRATIONS }) {
+// tabPaused: the person paused the script for this tab only (load-watchdog.js). paused reads true
+// for this page, and nothing about it is saved.
+export function createSettings({ storage, features, log, version = 'dev', account = null, migrations = MIGRATIONS, tabPaused = false }) {
   const schema = buildSchema(features);
   const listeners = new Set();
   // The name the panel shows for a setting, so an error can point at the right row.
@@ -998,6 +1000,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   };
 
   function get(key) {
+    if (key === 'paused' && tabPaused) return true;
     return Object.hasOwn(values, key) ? values[key] : spec(key).default;
   }
 
@@ -1008,6 +1011,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   return {
     schema,
     perAccount: key !== STORAGE_KEY,
+    tabPaused,
     startup,
     // Runs once the saved choices are in: at once from a userscript manager, a few
     // milliseconds in from the extension's storage. For decisions made only as the page starts.

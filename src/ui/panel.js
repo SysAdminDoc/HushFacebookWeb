@@ -132,7 +132,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // Checked means running, so the switch agrees with the "On" chip beside it.
   const power = h('input', {
     class: 'switch', type: 'checkbox', role: 'switch', dataset: { key: 'power' },
-    onchange: (event) => apply('paused', !event.target.checked),
+    // A pause for this tab ends with a reload, since the page started without the script's hooks.
+    onchange: (event) => (settings.tabPaused && event.target.checked ? environment.resumeTab?.() : apply('paused', !event.target.checked)),
   });
   const closeButton = h('button', { class: 'icon-button', type: 'button', dataset: { key: 'close' }, onclick: () => close() }, navigationIcon('close'));
   const subtitle = h('span', { class: 'brand-subtitle' });
@@ -213,17 +214,20 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // duration Infinity keeps the notice until dismiss() on what this returns, or its action.
   // message can be a function, read as the notice goes up, so one that waited for the panel
   // comes in the language chosen by then.
-  function toast(message, { tone = 'info', action, duration } = {}) {
+  // actions: buttons in order. One with keep: true leaves the notice up after its click. The
+  // buttons share one box, so a narrow window wraps them together under the message.
+  function toast(message, { tone = 'info', action, actions = action ? [action] : [], duration } = {}) {
     const el = h('div', { class: `toast ${tone}`, role: tone === 'error' ? 'alert' : null },
       h('span', { text: typeof message === 'function' ? message() : message }),
-      action ? h('button', { type: 'button', text: t(action.label), onclick: () => { el.remove(); action.run(); } }) : null);
+      actions.length ? h('div', { class: 'actions' },
+        ...actions.map((entry) => h('button', { type: 'button', text: t(entry.label), onclick: () => { if (!entry.keep) el.remove(); entry.run(); } }))) : null);
     toasts.append(el);
     // A notice the pointer is over, or that holds focus, stays until both move off it, then
     // gets its full time again.
     let hovered = false;
     let focused = false;
     let timer = null;
-    const wait = duration ?? (action ? 7000 : 4000);
+    const wait = duration ?? (actions.length ? 7000 : 4000);
     const schedule = () => {
       clearTimeout(timer);
       if (Number.isFinite(wait)) timer = setTimeout(() => { if (!hovered && !focused) el.remove(); }, wait);
@@ -784,7 +788,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function refreshChrome() {
     const paused = settingValue('paused') === true;
     power.checked = !paused;
-    pauseState.textContent = t(paused ? 'Paused' : 'On');
+    pauseState.textContent = t(settings.tabPaused ? 'Paused in this tab' : paused ? 'Paused' : 'On');
     // Settings in your account menu can stand in for the button, unless it couldn't start or
     // stopped working.
     const inMenu = hasMenuEntry && settings.enabled('menuEntry') && settings.get('menuEntry.hideButton') === true && !unavailable.has('menuEntry');
@@ -1059,5 +1063,5 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (dialog.open) render();
   };
   reopenAfterReload();
-  return { open, close, toast, refresh };
+  return { open, close, toast, refresh, copyReport };
 }

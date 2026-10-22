@@ -10,6 +10,7 @@ import { setLanguage, t } from './core/i18n.js';
 import { createHider, hideCss } from './core/dom/hide.js';
 import { createPostTracker, postIdOf } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
+import { LOAD_WAIT_MS, readTabPause, setTabPause, watchFeedLoads } from './core/load-watchdog.js';
 import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
 import { startFeatures } from './core/start-features.js';
@@ -43,12 +44,14 @@ function boot() {
   const log = createLog();
   const storage = createGmStorage({ log });
   const account = signedInAccount();
-  const settings = createSettings({ storage, features, log, version, account });
+  // Paused for this tab after a feed that wouldn't load: no hooks and no features, only the panel.
+  const tabPaused = readTabPause(pageWindow);
+  const settings = createSettings({ storage, features, log, version, account, tabPaused });
   // Before any feature's own listeners, so the notices they raise come in the chosen language.
   const followLanguage = () => setLanguage(settings.get('ui.language'));
   settings.whenLoaded(followLanguage);
   settings.subscribe(followLanguage);
-  const net = pageAccess === 'page' ? installNetworkHooks({
+  const net = pageAccess === 'page' && !tabPaused ? installNetworkHooks({
     win: pageWindow,
     log,
     startup: {
@@ -72,11 +75,12 @@ function boot() {
   diagnostics.add('Settings kept in', () => ({ gm: 'Your userscript manager', extension: "The extension's own storage" })[storage.kind] ?? "Facebook's page, which clears them", shareable);
   if (storage.status) {
     diagnostics.add('Saved settings', () => ({ loading: 'Loading', ready: 'Loaded', error: 'Unavailable. Open General to retry.' })[storage.status().state] ?? 'Unavailable', shareable);
-    diagnostics.add('Startup privacy protection', () => ({
+    // A tab paused for itself installed no hooks, so there's nothing to confirm.
+    diagnostics.add('Startup privacy protection', () => (tabPaused ? 'Paused in this tab' : ({
       loading: 'Waiting for saved choices',
       ready: 'Confirmed',
       error: 'Unconfirmed. Recognized requests are held back. Open General to retry.',
-    })[net?.startupState?.() ?? settings.startup.status()] ?? 'Unconfirmed', shareable);
+    })[net?.startupState?.() ?? settings.startup.status()] ?? 'Unconfirmed'), shareable);
     storage.onStatus(() => diagnostics.changed());
   }
   // A count only, so it goes in Copy report too. See LINE_LIMIT in payload.js.
@@ -129,33 +133,78 @@ function boot() {
     ? 'Nobody until you reload, since the account changed'
     : activity.perAccount ? 'This Facebook account' : 'This browser while signed out'), shareable);
 
-  if (!net) {
+  if (pageAccess !== 'page') {
     log.warn('Your userscript manager is running HushFacebook Web as a content script, so features that need the page are off. Diagnostics has the details.');
   }
   // The script's marks for the tab stay out of the storage report Facebook's page sends home.
-  if (net) keepOutOfStorageReport({ win: pageWindow, log, diagnostics });
+  if (pageAccess === 'page') keepOutOfStorageReport({ win: pageWindow, log, diagnostics });
   if (!keepsSettings(storage)) {
     log.warn(UNKEPT_SETTINGS);
     toast(() => t(UNKEPT_SETTINGS), { tone: 'error' });
   }
 
-  startFeatures({
-    features, net, settings, log, unavailable,
-    context: (feature) => ({
-      win: pageWindow,
-      doc: document,
-      diagnostics,
-      actions: actions.for(feature.id),
-      storage: activity.storage,
-      router,
-      posts,
-      hider,
-      log,
-      toast,
-      openSettings,
-    }),
-    changed: () => panel?.refresh(),
-  });
+  const resumeTab = () => {
+    try {
+      setTabPause(pageWindow, false);
+    } catch (error) {
+      log.error("Couldn't clear this tab's pause", error);
+      toast(() => t("Couldn't turn it back on in this tab. Facebook opened in a new tab runs it as usual."), { tone: 'error' });
+      return;
+    }
+    pageWindow.location.reload();
+  };
+  const pauseTab = () => {
+    try {
+      setTabPause(pageWindow, true);
+    } catch (error) {
+      log.error("Couldn't pause HushFacebook Web for this tab", error);
+      toast(() => t("Couldn't pause for this tab. The switch at the top of the settings pauses it everywhere."), { tone: 'error' });
+      return;
+    }
+    pageWindow.location.reload();
+  };
+  if (tabPaused) {
+    log.info('Paused in this tab, so only the settings panel is running');
+    toast(() => t('HushFacebook Web is paused in this tab.'), { action: { label: 'Turn back on', run: resumeTab }, duration: 10000 });
+    diagnostics.add('Feed load check', () => 'Paused in this tab', shareable);
+  } else {
+    const loads = watchFeedLoads({
+      win: pageWindow, doc: document, router, log,
+      signedIn: () => signedInAccount() !== null,
+      paused: () => settings.get('paused') === true,
+      onStuck: () => {
+        diagnostics.changed();
+        toast(() => t("Facebook's feed is still loading after {seconds} seconds. If HushFacebook Web is getting in the way, pause it for this tab.", { seconds: LOAD_WAIT_MS / 1000 }), {
+          duration: 60000,
+          actions: [
+            { label: 'Pause for this tab', run: pauseTab },
+            { label: 'Copy report', run: () => panel?.copyReport(), keep: true },
+          ],
+        });
+      },
+    });
+    diagnostics.add('Feed load check', loads.status, shareable);
+  }
+
+  if (!tabPaused) {
+    startFeatures({
+      features, net, settings, log, unavailable,
+      context: (feature) => ({
+        win: pageWindow,
+        doc: document,
+        diagnostics,
+        actions: actions.for(feature.id),
+        storage: activity.storage,
+        router,
+        posts,
+        hider,
+        log,
+        toast,
+        openSettings,
+      }),
+      changed: () => panel?.refresh(),
+    });
+  }
 
   mountFeatureStyles({ features, settings, log, base: [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') === true }) }] });
 
@@ -182,7 +231,7 @@ function boot() {
   whenBodyReady(() => {
     panel = mountPanel({
       settings, features, log, hider, diagnostics, actions, unavailable,
-      environment: { version, ...managerInfo(), update, checkForUpdate: host?.checkForUpdate ?? null, storage, activity, accountMatches: () => settings.startup.matchesAccount(signedInAccount()) },
+      environment: { version, ...managerInfo(), update, resumeTab, checkForUpdate: host?.checkForUpdate ?? null, storage, activity, accountMatches: () => settings.startup.matchesAccount(signedInAccount()) },
     });
     for (const entry of waiting.splice(0)) {
       if (!entry.gone) entry.shown = panel.toast(entry.message, entry.options);

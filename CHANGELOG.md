@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+* When Home or a group's feed is still loading about 20 seconds after it opened, a notice says so and offers two buttons. Pause for this tab reloads the page with HushFacebook Web off in that tab only, so you can tell whether the script is what's in the way. Turn back on, or the switch at the top of the settings, brings it back. Copy report copies the details for a GitHub issue. The script never reloads by itself, stays quiet while you're signed out, and gives a tab that was hidden or offline the full wait again once it's back. It goes by Facebook's own loading signs, the splash screen or the gray cards where posts go, because Home's first post arrives with the page before anything else has loaded. Diagnostics has a Feed load check row too. Checked on facebook.com on 2026-10-22. It stayed quiet on Home, a group feed, the Following feed, an empty Favorites feed and a very tall window. It spoke up on two loads broken on purpose (Facebook's scripts blocked, and a word filter that hid every post), and Pause for this tab, Copy report and Turn back on all worked there.
+* Notices with two buttons keep them together on a narrow screen.
+
 ## v0.0.5 (2026-10-22)
 
 * Hide sponsored posts now covers the Sponsored box in Home's right column, the one above Friend requests. Facebook sends that box already drawn when Home first loads, so the script hides it before it shows. When Home is drawn again after a visit elsewhere, the script takes the box out of Facebook's data instead. Friend requests and the rest of the column stay where they were. Checked on facebook.com on 2026-10-21 with the userscript (page and content mode) and with the extension in Brave. The box never showed, on a fresh load or after going to Marketplace and back. Those runs also had 7 to 18 feed ads each in Facebook's data, and none of them got drawn.
