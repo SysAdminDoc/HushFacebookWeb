@@ -80,7 +80,7 @@ Every switch starts off except the ones that only remove things nobody asked for
 - **Reels:** Hide sponsored reels, Don't send watch history, Clean up Reels, Hold a reel for 2x.
 - **Search and Marketplace:** Hide sponsored search results, Don't save search history, Hide sponsored Marketplace listings, View profile on Marketplace sellers, Marketplace only.
 - **Messages and privacy:** Hide read receipts, Hide typing indicator, Hide that you're writing a comment, View stories anonymously, Hold back usage logs, Sanitize sharing links, Skip Facebook's link redirect, Trim the share menu, Open Messenger as a full page. (Read receipt and typing switches can't reach end-to-end encrypted chats.)
-- **Comments:** Default comment order, Show every reply, Hide GIF and sticker buttons, Tag suggestions only after @, Show comments as written.
+- **Comments:** Default comment order, Show every reply, Hide GIF and sticker buttons, Tag suggestions only after @, Show comments as written, Hide when others are writing a comment.
 - **Notifications and navigation:** Hide kinds of notifications, Following feed on Home, Open on a chosen tab, Hide tabs, Hide tab badges, Hide the New message button.
 - **Downloads:** Download any photo, video, reel or story. A video Facebook only streams gets put together from its picture and sound right in the browser. Tampermonkey opens a tab of its own the first time you save, asking to allow downloads. If you close it instead of clicking Ok, the file still saves.
 - **Playback:** Tap to play, Turn off HDR brightness, Resume long videos, Keep your video speed, Remember your volume, Picture-in-picture button, Keep video controls on screen, Default video quality, Stop stories moving on.
