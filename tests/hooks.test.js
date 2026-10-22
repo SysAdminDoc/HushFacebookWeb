@@ -379,6 +379,25 @@ test('a GraphQL line Facebook parses again with JSON.parse is judged by its quer
   assert.deepEqual(seen, ['fetch', 'json-parse']);
 });
 
+// Live 2026-10-22: Facebook's ghlParseRelayResponse parses each line as {"q7z": line}, a
+// one-key box, so a pruner keyed on data.viewer misses it.
+test('a GraphQL line Facebook parses again inside a one-key box is still judged by its query', async () => {
+  const line = '{"data":{"node":{"__typename":"Story","id":"s1"}},"extensions":{"is_final":true}}';
+  const { win } = fakeWindow({ chunks: [line] });
+  const net = installNetworkHooks({ win, log: quietLog() });
+  const seen = [];
+  net.transformResponses({
+    id: 'scoped', enabled: () => true, markers: ['"Story"'], match: () => true,
+    transform: (doc, ctx) => { seen.push(ctx.transport); return false; },
+  });
+  const text = await (await win.fetch('/api/graphql/', { method: 'POST', body: graphqlBody('ProfileCometTimelineFeedRefetchQuery') })).text();
+  assert.equal(text, line);
+  assert.deepEqual(win.JSON.parse(`{"q7z":${text}}`), { q7z: JSON.parse(line) });
+  assert.deepEqual(seen, ['fetch']);
+  win.JSON.parse(`{"q7z":{"data":{"node":{"__typename":"Story","id":"inline"}}}}`);
+  assert.deepEqual(seen, ['fetch', 'json-parse'], 'a boxed line nobody fetched is page data');
+});
+
 test('a line is remembered by a short key that ignores the guard and whitespace around it', () => {
   const big = `{"data":{"node":{"__typename":"Story","text":"${'x'.repeat(5000)}"}}}`;
   const handled = createHandledLines(2);
@@ -386,6 +405,9 @@ test('a line is remembered by a short key that ignores the guard and whitespace 
   assert.equal(handled.has(big), true);
   assert.equal(handled.has(big.replace('Story', 'Stori')), false, 'a different line of the same length');
   assert.ok(lineKey(big).length < 600, 'a long line is not kept whole');
+  assert.equal(handled.has(`{"q7z":${big}}`), true, 'the line inside a box');
+  assert.equal(handled.has(`{"q7z":${big.replace('Story', 'Stori')}}`), false);
+  assert.equal(handled.has(`{"q7z":[${big}]}`), false, 'a box around something else');
   handled.add('{"a":1}');
   handled.add('{"b":2}');
   assert.equal(handled.has(big), false, 'only the newest lines are kept');

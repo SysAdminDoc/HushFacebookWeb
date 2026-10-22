@@ -1104,8 +1104,25 @@ export function lineKey(line) {
   return `${n}:${text.slice(0, ENDS)}${sample}${text.slice(-ENDS)}`;
 }
 
+// Facebook parses a line it fetched a second time inside a one-key box, {"q7z": line}, with
+// a key of its own choosing (live 2026-10-22, ghlParseRelayResponse), so a pruner keyed on
+// data.viewer misses it. The line inside, or null.
+const BOX = /^\{"[^"\\]{1,32}":/;
+function unboxed(line) {
+  const text = line.trim();
+  const head = BOX.exec(text);
+  return head && text.endsWith('}') ? text.slice(head[0].length, -1) : null;
+}
+
 export function createHandledLines(limit = 64) {
   const lines = new Map(); // key -> Set of rules
+  const find = (line) => {
+    const key = lineKey(line);
+    if (lines.has(key)) return key;
+    const inner = unboxed(line);
+    const boxed = inner === null ? null : lineKey(inner);
+    return boxed !== null && lines.has(boxed) ? boxed : undefined;
+  };
   return {
     add(line, rules = []) {
       const key = lineKey(line);
@@ -1115,9 +1132,12 @@ export function createHandledLines(limit = 64) {
       lines.set(key, done);
       if (lines.size > limit) lines.delete(lines.keys().next().value);
     },
-    // The rules that already looked at this line, or undefined.
-    get: (line) => lines.get(lineKey(line)),
-    has: (line) => lines.has(lineKey(line)),
+    // The rules that already looked at this line, or at the line inside its box, or undefined.
+    get: (line) => {
+      const key = find(line);
+      return key === undefined ? undefined : lines.get(key);
+    },
+    has: (line) => find(line) !== undefined,
   };
 }
 

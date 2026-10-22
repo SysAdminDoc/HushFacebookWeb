@@ -276,6 +276,23 @@ for (const [name, id, typename] of [
   });
 }
 
+// Live 2026-10-22: before each feed line Facebook parses this, padded with spaces to a fixed
+// length, and checks what comes back (isBoxedParseEffective). A JSON.parse hook that edits
+// it shows itself, so every data rule has to leave it exactly as it was. The token is a
+// stand-in.
+test("Facebook's SponsoredData canary goes through every data rule untouched", () => {
+  const node = '{"node":{"s":{"__typename":"SponsoredData"}}}';
+  const canary = `{"q7z":{"data":${node},"edges":[${node}],"require":[${node}],"t8":"0123456789abcdef","extensions":{"is_final":true}${' '.repeat(4096)}}}`;
+  const home = () => parseRoute('https://www.facebook.com/');
+  const features = [...new Set(AD_MARKERS.map((row) => row.feature))];
+  const rules = features.map((feature) => adRule(feature, () => true, () => assert.fail(`${feature} fired on the canary`), { route: home }));
+  for (const ctx of [{ transport: 'json-parse', path: '', friendlyName: '' }, { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' }]) {
+    assert.equal(transformDocumentLine(canary, rules, ctx), canary, ctx.transport);
+  }
+  const pruner = { id: 'pruner', enabled: () => true, markers: ['"SponsoredData"'], match: () => true, transform: (doc) => delete doc.q7z.edges };
+  assert.notEqual(transformDocumentLine(canary, [pruner], { transport: 'json-parse', path: '', friendlyName: '' }), canary, 'an edit would show');
+});
+
 test('the AI-labeled story in a captured Home page goes, and the story next to it stays', async () => {
   const lines = await fixtureLines('CometNewsFeedPaginationQuery-ai-label.jsonl');
   assert.equal(lines.length, 2);
