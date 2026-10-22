@@ -10,8 +10,11 @@
 // when it has none for you. Every list goes, whatever the surface: an account reminder sent as
 // a quick promotion is taken out too, and the description says so. Needs the script running
 // in the page.
+// Home's own promotion units go too, by the category Facebook gives their feed edge (row
+// promotion category in ad-markers.js). None has come up on the test account yet.
 
 import { later } from '../../core/net/payload.js';
+import { adRule } from '../feed/ad-markers.js';
 
 export const MARKERS = ['"eligible_promotions"', '"jewel_qp"'];
 const LISTS = ['eligible_promotions', 'jewel_qp'];
@@ -42,14 +45,16 @@ export default {
   section: 'meta',
   android: 'Hide the Get Messenger card',
   title: "Hide Facebook's own cards and tips",
-  description: 'Takes out the cards Facebook puts up for its own things, like Get the Messenger app over your chats or in the Messenger menu and the tips in stories. Reminders Facebook sends the same way go too.',
+  description: 'Takes out the cards Facebook puts up for its own things, like Get the Messenger app over your chats or in the Messenger menu, the tips in stories and the promotions it puts between posts on Home. Reminders Facebook sends the same way go too.',
   default: false,
   needsPage: true,
 
-  setup({ net, enabled, diagnostics }) {
+  setup({ net, router, enabled, diagnostics }) {
     let removed = 0;
     net.transformResponses({
-      id: 'hidePromotions',
+      // Its own id: the hooks log a rule's first failure only, by id, and the Home rule below
+      // takes the switch's.
+      id: 'hidePromotions:lists',
       enabled,
       markers: MARKERS,
       // Facebook parses every answer with JSON.parse, so one place covers them all.
@@ -64,6 +69,10 @@ export default {
         return true;
       },
     });
+    net.transformResponses(adRule('hidePromotions', enabled, (fired) => {
+      removed += fired.length;
+      diagnostics?.changed();
+    }, { route: () => router?.current(), diagnostics, reason: 'Promotion' }));
     diagnostics?.add('Cards and tips held back', () => String(removed));
   },
 };

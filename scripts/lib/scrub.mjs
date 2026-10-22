@@ -8,6 +8,7 @@
 // in a row, which is what the fixture test looks for.
 
 import { createHmac } from 'node:crypto';
+import { categoryHash, readCategoryHash } from '../../src/features/feed/feed-category.js';
 
 let secretKey = null;
 
@@ -287,9 +288,18 @@ export function scrubValue(value, key) {
   if (value !== null && typeof value === 'object') {
     const out = {};
     for (const [k, v] of Object.entries(value)) out[scrubKey(k)] = scrubValue(v, k);
-    return out;
+    return keepCategory(value, out);
   }
   return value;
+}
+
+// A feed edge's hashed category is worked out from its post id (feed-category.js), so it's
+// hashed again from the stand-in id and the fixture keeps its category. One that doesn't read
+// back keeps the stand-in hex it was given.
+function keepCategory(value, out) {
+  const category = readCategoryHash(value.node?.post_id, value.cat_sensitive?.enc);
+  if (category && out.node?.post_id != null) out.cat_sensitive.enc = categoryHash(out.node.post_id, category);
+  return out;
 }
 
 // trims: [{ path: 'data.results.edges', keep: [0, 2] }]. Shortens arrays in a document

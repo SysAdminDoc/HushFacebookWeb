@@ -1,6 +1,7 @@
 // Posts Facebook mixes into Home and the groups feed from Pages, people and groups you don't
 // follow. Two layers, like Hide sponsored posts. The data rules (ad-markers.js, rows
-// follow_button and group_join) drop them before Facebook draws them, and only on those two
+// follow_button and group_join, and suggested category for the ones Facebook files as
+// ENGAGEMENT with no button) drop them before Facebook draws them, and only on those two
 // feeds, since search results and a Page's own timeline carry the same buttons. The page
 // check hides one that gets drawn anyway, by the Follow or Join button after the author's
 // name (live 2026-10-11: h4 > ... > div[role=button] > span "Follow"), English first.

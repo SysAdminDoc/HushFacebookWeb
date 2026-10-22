@@ -27,15 +27,17 @@ function countMatches(value, predicate, seen = { n: 0 }) {
   return seen.n;
 }
 
-test('a feed page with no ad goes through untouched, and the markers skip the parse', async () => {
+test('a feed page with no ad goes through untouched, and only a page with stories is parsed, for their categories', async () => {
   const lines = await fixtureLines('CometNewsFeedPaginationQuery.jsonl');
   assert.equal(lines.length, 3);
   const first = parseLine(lines[0]);
   assert.equal(first.data.viewer.news_feed.edges.length, 1);
   assert.ok('th_dat_spo' in first.data.viewer.news_feed.edges[0].node, 'the renamed sponsored_data field is in the capture');
   assert.ok('cat_sensitive' in first.data.viewer.news_feed.edges[0], 'the hashed category is in the capture');
+  const withStories = lines.filter((line) => line.includes('"cat_sensitive":{"enc":"'));
+  assert.equal(withStories.length, 2);
   for (const line of lines) {
-    assert.equal(rulesFor(line, [rule]).length, 0, 'an organic page carries none of the ad markers');
+    assert.equal(rulesFor(line, [rule]).length, withStories.includes(line) ? 1 : 0, 'an organic page carries no ad markers, only the hashed category');
     assert.equal(transformDocumentLine(line, [rule]), line);
     const doc = parseLine(line);
     const before = structuredClone(doc);
@@ -50,14 +52,16 @@ test("the home page's inline feed data reaches the JSON.parse hook and comes bac
   const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/' } };
   const net = installNetworkHooks({ win, log: { error: () => {}, warn() {}, info() {}, debug() {} } });
   let transforms = 0;
-  net.transformResponses({ ...rule, match: (ctx) => ctx.transport === 'json-parse', transform: (doc) => { transforms++; return pruneAds(doc).length > 0; } });
+  let pruned = 0;
+  net.transformResponses({ ...rule, match: (ctx) => ctx.transport === 'json-parse', transform: (doc) => { transforms++; pruned += pruneAds(doc).length; return false; } });
   for (const line of lines) {
     const hooked = win.JSON.parse(line);
     assert.deepEqual(hooked, JSON.parse(line));
     const cache = JSON.stringify(hooked).includes('RelayPrefetchedStreamCache');
     assert.ok(cache, 'the blob carries a RelayPrefetchedStreamCache entry');
   }
-  assert.equal(transforms, 0, 'no marker, so the organic first screen is never walked');
+  assert.equal(transforms, lines.length, "each blob's stories carry a hashed category, so the first screen is walked");
+  assert.equal(pruned, 0, 'and nothing in the organic first screen goes');
   assert.match(lines[0], /"news_feed":\{"edges":\[\{/);
   assert.match(lines[0], /"th_dat_spo":null/);
 });

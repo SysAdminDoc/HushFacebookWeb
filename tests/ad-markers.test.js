@@ -9,6 +9,7 @@ import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, hasAiLabel, has
 import { parseRoute } from '../src/core/route.js';
 import { features } from '../src/features/index.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
+import { categoryHash } from '../src/features/feed/feed-category.js';
 
 const rule = { id: 'hideSponsoredPosts', markers: AD_MARKER_TEXT, transform: (doc) => pruneAds(doc).length > 0 };
 
@@ -43,6 +44,11 @@ const labelOnly = () => {
   delete edge.node.th_dat_spo;
   return edge;
 };
+
+// A story with Facebook's category hashed from its post id, as every Home story came on
+// 2026-10-22, and a unit with a plain one.
+const categorized = (id, category, postId, node = {}) => edge2026(id, { cat_sensitive: { enc: categoryHash(postId, category), cat: null } }, { post_id: postId, ...node });
+const plainCategory = (id, category, node = {}) => edge2026(id, { cat_sensitive: { enc: null, cat: category } }, { __typename: 'FeedUnit', ...node });
 
 // The title section of a story, where the Follow and Join buttons live (2026-10-11 capture).
 const titled = (id, title) => edge2026(id, {}, { comet_sections: { context_layout: { story: { comet_sections: { title } } } } });
@@ -93,6 +99,9 @@ const SAMPLES = {
   people_you_may_know: () => edge2026('pymk', {}, { __typename: 'PaginatedPeopleYouMayKnowFeedUnit', title: { text: 'People you may know' }, all_users: { edges: [] } }),
   group_suggestions: () => edge2026('groups', {}, { __typename: 'GroupsYouShouldJoinFeedUnit', title: { text: 'Your group suggestions' }, items: [] }),
   genai_label: () => labeled('ai'),
+  'sponsored category': () => categorized('ad', 'SPONSORED', '1000000000000201'),
+  'suggested category': () => categorized('suggested', 'ENGAGEMENT', '1000000000000202'),
+  'promotion category': () => categorized('promotion', 'PROMOTION', '1000000000000203'),
 };
 
 test('every row says where it was seen, what lets it past the prefilter and what it does', () => {
@@ -302,11 +311,76 @@ test('search ads go with the story beside their node, other search modules stay'
   assert.doesNotMatch(JSON.stringify(doc), /th_dat_spo|CometStorySponsoredLabelStrategy/);
 });
 
-test('markers: a 2026 ad line is picked up, an organic line with null ad fields is not', () => {
+test('markers: a 2026 ad line is picked up, and an organic line only for its category, which leaves it as it was', () => {
   const organic = JSON.stringify({ data: { viewer: { news_feed: { edges: [edge2026('o1')] } } } });
   const ad = JSON.stringify({ data: { viewer: { news_feed: { edges: [SAMPLES.th_dat_spo()] } } } });
-  assert.equal(rulesFor(organic, [rule]).length, 0);
   assert.equal(rulesFor(ad, [rule]).length, 1);
+  assert.equal(rulesFor(organic, [rule]).length, 1, 'every Home story carries a hashed category to read');
+  assert.equal(transformDocumentLine(organic, [rule]), organic);
+  const uncategorized = JSON.stringify({ data: { viewer: { news_feed: { edges: [{ ...edge2026('o1'), cat_sensitive: null }] } } } });
+  assert.equal(rulesFor(uncategorized, [rule]).length, 0);
+  for (const feature of ['hideSponsoredMarketplace', 'hideSponsoredSearch', 'hideSponsoredReels', 'hideAiPosts', 'hideReelsInFeed']) {
+    assert.equal(rulesFor(organic, [adRule(feature, () => true)]).length, 0, `${feature} doesn't read categories`);
+  }
+});
+
+test("Facebook's category backs up the rows that name an ad, a suggestion or a promotion", () => {
+  const home = { route: () => parseRoute('https://www.facebook.com/') };
+  const run = (feature, edges, ctx = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' }) => {
+    const doc = { data: { viewer: { news_feed: { edges } } } };
+    const fired = [];
+    adRule(feature, () => true, (ids) => fired.push(...ids), home).transform(doc, ctx);
+    return { fired, kept: doc.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null) };
+  };
+  // Two people's photo posts on 2026-10-22 were ENGAGEMENT with no Follow or Join button.
+  const photo = { comet_sections: { content: { story: { attachments: [{ __typename: 'PhotoAttachment' }] } } } };
+  const feed = () => [
+    categorized('friend', 'ORGANIC', '1000000000000210', photo),
+    categorized('photo', 'ENGAGEMENT', '1000000000000211', photo),
+    plainCategory('qp', 'ENGAGEMENT_QP'),
+    categorized('ad', 'SPONSORED', '1000000000000212'),
+    plainCategory('plain-ad', 'SPONSORED'),
+    categorized('high', 'HIGH_VALUE_PROMOTION', '1000000000000213'),
+    plainCategory('friendly', 'FRIENDLY_FEED_PROMOTION'),
+  ];
+  assert.deepEqual(run('hideSuggestedPosts', feed()), {
+    fired: ['suggested category', 'suggested category'],
+    kept: ['friend', null, null, 'ad', 'plain-ad', 'high', 'friendly'],
+  });
+  assert.deepEqual(run('hideSponsoredPosts', feed()), {
+    fired: ['sponsored category', 'cat_sensitive'],
+    kept: ['friend', 'photo', 'qp', null, null, 'high', 'friendly'],
+  });
+  assert.deepEqual(run('hidePromotions', feed()), {
+    fired: ['promotion category', 'promotion category'],
+    kept: ['friend', 'photo', 'qp', 'ad', 'plain-ad', null, null],
+  });
+  const search = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'SearchCometResultsPaginatedResultsQuery' };
+  assert.deepEqual(run('hideSuggestedPosts', feed(), search).fired, [], 'suggestions stay in search, as with the buttons');
+  assert.deepEqual(run('hidePromotions', feed(), search).fired, []);
+  assert.deepEqual(run('hideSponsoredPosts', feed(), search).fired, ['sponsored category', 'cat_sensitive'], 'ads go everywhere');
+});
+
+test("the rows that see an ad or a suggestion themselves still name the drop, and an edge with nothing to draw isn't counted", () => {
+  const ad = categorized('ad', 'SPONSORED', '1000000000000220', { th_dat_spo: { is_demo_ad: false } });
+  const suggestion = categorized('suggested', 'ENGAGEMENT', '1000000000000221', titled('x', followTitle).node);
+  assert.equal(adMarkerFor(ad)?.id, 'th_dat_spo');
+  assert.equal(adMarkerFor(suggestion)?.id, 'follow_button');
+  const doc = { data: { viewer: { news_feed: { edges: [ad, suggestion, plainCategory('qp', 'ENGAGEMENT_QP'), plainCategory('plain-ad', 'SPONSORED')] } } } };
+  assert.deepEqual(pruneAds(doc), ['th_dat_spo', 'follow_button', 'suggested category', 'cat_sensitive']);
+  assert.deepEqual(pruneAds(doc), [], 'a second pass changes nothing');
+  for (const category of ['ENGAGEMENT_QP', 'PROMOTION']) {
+    assert.equal(adMarkerFor({ ...plainCategory('x', category), node: null }), null, `${category} with a null node`);
+  }
+});
+
+test('categories that only say where a unit goes are left alone by every row', () => {
+  const others = ['UNKNOWN', 'ORGANIC', 'FIXED_POSITION', 'END_OF_FEED_CONTENT', 'FB_STORIES', 'FB_STORIES_ENGAGEMENT', 'SHOWCASE', 'FB_SHORTS', 'TRENDING',
+    'MULTI_FB_STORIES_TRAY', 'END_OF_FEED_REELS', 'FB_SHORTS_FALLBACK', 'FRIENDLY_FEED_MID_CARD', 'INJECTED_STORY', 'LIMITED_PERSONALIZATION_NOTICE'];
+  others.forEach((category, n) => {
+    assert.equal(adMarkerFor(categorized('story', category, `10000000000003${String(n).padStart(2, '0')}`)), null, `${category}, hashed`);
+    assert.equal(adMarkerFor(plainCategory('unit', category)), null, `${category}, plain`);
+  });
 });
 
 test('the network rule prunes a GraphQL line end to end', () => {

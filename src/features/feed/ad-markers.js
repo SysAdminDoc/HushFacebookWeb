@@ -27,9 +27,30 @@
 // friends were on in the 2026-10-10 capture): sponsored_data arrives as th_dat_spo and the
 // edge category is hashed into cat_sensitive {enc, cat: null}. Field names rotate, typenames
 // don't, so the label section's typename is the row that lasts.
+//
+// Facebook's own category for an edge (feed-category.js) backs the specific rows up. Every
+// category in 250 Home answers on 2026-10-22, against the switch that drops it:
+//   ORGANIC                 kept (posts from friends, Pages, people and groups you follow)
+//   ENGAGEMENT              Hide suggested posts (Facebook's suggestions, with or without a
+//                           Follow or Join button)
+//   ENGAGEMENT_QP           Hide suggested posts (the People you may know and group rows)
+//   SPONSORED               Hide sponsored posts
+//   FB_SHORTS               Hide reels in the feed, by its own row (the row of reels)
+//   PROMOTION, HIGH_VALUE_PROMOTION, FRIENDLY_FEED_PROMOTION
+//                           Hide Facebook's own cards and tips. Not seen yet, kept from the
+//                           names
+// The rest are left alone. UNKNOWN, FIXED_POSITION, END_OF_FEED_CONTENT, END_OF_FEED_REELS,
+// SHOWCASE, TRENDING, INJECTED_STORY, FB_SHORTS_FALLBACK and FRIENDLY_FEED_MID_CARD say
+// where a unit goes rather than whether it's an ad or a suggestion, the FB_STORIES ones and
+// MULTI_FB_STORIES_TRAY are the stories tray, and LIMITED_PERSONALIZATION_NOTICE is
+// Facebook's notice about the feed itself, which shouldn't be hidden. None of them came up.
+// Edges in the groups feed carry no category. No survey, events you may like or Pages top
+// card units came up either (FCMF hides those): every edge was a Story, the reels row or one
+// of the two suggestion rows, and events only came as attachments inside ordinary posts.
 
 import { walk, SKIP } from '../../core/json-walk.js';
 import { later } from '../../core/net/payload.js';
+import { feedCategory } from './feed-category.js';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -39,6 +60,11 @@ const JOIN_TYPENAME = 'GroupJoinForumAction';
 // Rows of people or groups Facebook puts between posts, each a feed edge of its own.
 const PYMK_TYPENAME = 'PaginatedPeopleYouMayKnowFeedUnit';
 const GROUPS_TYPENAME = 'GroupsYouShouldJoinFeedUnit';
+// Every story on Home carries a hashed category, so a row reading it lets every feed page past
+// the prefilter. Its plain names are added for the edges that carry one.
+const HASHED = '"cat_sensitive":{"enc":"';
+const SUGGESTED = new Set(['ENGAGEMENT', 'ENGAGEMENT_QP']);
+const PROMOTED = new Set(['PROMOTION', 'HIGH_VALUE_PROMOTION', 'FRIENDLY_FEED_PROMOTION']);
 
 // Looks for a value inside one story. Nested edges and a shared post's attached story speak
 // for themselves, so a friend's share of an ad or a group page holding an ad doesn't count
@@ -172,6 +198,16 @@ export const AD_MARKERS = [
     match: (edge, node) => isObject(node) && 'cursor' in edge && hasSponsoredLabel(node),
     action: 'drop-node',
   },
+  // After the rows above, which name the drop when they see it too.
+  {
+    id: 'sponsored category',
+    feature: 'hideSponsoredPosts',
+    surface: "news feed (Facebook's category for the edge)",
+    seen: '2026-10-22: 41 hashed SPONSORED stories and 2 plain ones in 250 Home answers, every one caught by th_dat_spo or cat_sensitive as well',
+    text: [HASHED, '"SPONSORED"'],
+    match: (edge, node) => isObject(node) && feedCategory(edge) === 'SPONSORED',
+    action: 'drop-node',
+  },
   {
     id: 'AdsSideFeedUnit',
     feature: 'hideSponsoredPosts',
@@ -285,6 +321,16 @@ export const AD_MARKERS = [
     action: 'drop-node',
   },
   {
+    id: 'suggested category',
+    feature: 'hideSuggestedPosts',
+    surface: "news feed (Facebook's category for the edge)",
+    seen: "2026-10-22: 269 hashed ENGAGEMENT stories in 250 Home answers, 267 with a Follow or Join button and 2 people's photo posts with neither; ENGAGEMENT_QP plain on every People you may know and group suggestions row",
+    text: [HASHED, '"ENGAGEMENT"', '"ENGAGEMENT_QP"'],
+    scope: FEEDS,
+    match: (edge, node) => isObject(node) && SUGGESTED.has(feedCategory(edge)),
+    action: 'drop-node',
+  },
+  {
     id: 'genai_label',
     feature: 'hideAiPosts',
     surface: 'news feed, groups feed and search results (posts labeled as made with AI)',
@@ -292,6 +338,16 @@ export const AD_MARKERS = [
     text: [`"${GENAI_TYPENAME}"`],
     scope: FEEDS_AND_SEARCH,
     match: (edge, node) => 'cursor' in edge && hasAiLabel(storyOf(edge, node)),
+    action: 'drop-node',
+  },
+  {
+    id: 'promotion category',
+    feature: 'hidePromotions',
+    surface: "news feed (Facebook's category for the edge: its own promotions)",
+    seen: 'not yet: none in 250 Home answers on 2026-10-22',
+    text: [HASHED, '"PROMOTION"', '"HIGH_VALUE_PROMOTION"', '"FRIENDLY_FEED_PROMOTION"'],
+    scope: FEEDS,
+    match: (edge, node) => isObject(node) && PROMOTED.has(feedCategory(edge)),
     action: 'drop-node',
   },
 ];

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import {
   extractDataSjs, fakeDigits, fakeHex, fakeToken, findLeftovers, findRealText, scrubDomText, scrubDomTree, scrubLine, scrubNumber, scrubString, scrubUrl, scrubValue, setScrubKey, trimArrays,
 } from '../scripts/lib/scrub.mjs';
+import { categoryHash, feedCategory } from '../src/features/feed/feed-category.js';
 
 const KEY = 'test-key-for-the-scrubber-tests';
 setScrubKey(KEY);
@@ -140,6 +141,22 @@ test('stand-ins keep the kind of value they replace', () => {
   assert.equal(typeof node.post_id, 'number');
   assert.ok(node.post_id < 1e9);
   assert.equal(String(node.top_story_cache_score).replace(/\D/g, '').length <= 9, true);
+});
+
+test("a feed edge's hashed category is hashed again from the stand-in post id, so the fixture keeps it", () => {
+  for (const [postId, category] of [[STORY_ID, 'ENGAGEMENT'], [Number(STORY_ID), 'SPONSORED']]) {
+    const edge = sample().data.viewer.news_feed.edges[0];
+    edge.node.post_id = postId;
+    edge.cat_sensitive.enc = categoryHash(postId, category);
+    const out = scrubValue(edge);
+    assert.notEqual(String(out.node.post_id), String(postId));
+    assert.notEqual(out.cat_sensitive.enc, edge.cat_sensitive.enc, 'the real id can\'t be checked against it');
+    assert.equal(out.cat_sensitive.enc, categoryHash(out.node.post_id, category));
+    assert.equal(feedCategory(out), category);
+  }
+  const unread = scrubValue(sample().data.viewer.news_feed.edges[0]);
+  assert.equal(feedCategory(unread), null, 'one that never read back stays a stand-in');
+  assert.equal(unread.cat_sensitive.enc, fakeHex('d41d8cd98f00b204e9800998ecf8427ed41d8cd98f00b204e9800998ecf8427e', 64));
 });
 
 test('the same input always gives the same stand-in, and different inputs differ', () => {
