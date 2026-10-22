@@ -25,6 +25,8 @@ import { activityKeyFor } from '../src/core/activity.js';
 import { claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 import { applyObjectMutation, createGmStorage } from '../src/core/storage.js';
+import { features } from '../src/features/index.js';
+import { featureKeys } from '../src/ui/new-dots.js';
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 const deferred = () => {
@@ -1840,6 +1842,20 @@ test("the settings the panel has shown load and save, so an update's new ones ge
     await settle();
     assert.deepEqual(chrome.data[key], ['hideReels'], JSON.stringify(bad).slice(0, 40));
   }
+});
+
+test('a settings record with every switch and option set still fits what the extension saves', async () => {
+  // The isolated half takes up to 256 names in one settings record (extension/isolated.js
+  // settingsRecord), so the day the switches and their options outgrow that, nothing would save.
+  const keys = features.flatMap(featureKeys);
+  const record = Object.fromEntries(keys.map((key) => [key, true]));
+  const win = page();
+  const chrome = fakeChrome({});
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  await settle();
+  await storage.mutate('settings', { set: record });
+  assert.deepEqual(chrome.data.settings, record, `${keys.length} settings`);
 });
 
 test('settings wait for the saved copy, then migrate through the worker once before recording it', async () => {
