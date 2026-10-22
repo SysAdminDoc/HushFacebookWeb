@@ -94,7 +94,9 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
 
   function record(value) {
     const id = typeof value.id === 'string' ? value.id : null;
-    if (id && value.__typename === 'Video') {
+    // A video's own page asks for it by id and gets it back as the answer's data with no
+    // __typename (live 2026-10-22), so its delivery fragment marks it as a video too.
+    if (id && (value.__typename === 'Video' || (value.__typename === undefined && isObject(value.videoDeliveryResponseFragment)))) {
       const { files, dash, stream } = videoFiles(value);
       const old = items.get(id);
       // A bare reference to a video ({__typename, id}) carries nothing to save. A stream that

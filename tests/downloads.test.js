@@ -105,6 +105,27 @@ test("a video with no file keeps what its manifest offers, a live one says so, a
   assert.equal(index.get('600').stream.live, true);
 });
 
+test("a video's own page sends the video as its answer's data with no type, and the index takes it all the same", async () => {
+  // The shape seen live on 2026-10-22 on /<page>/videos/<id>/: the server's answer holds the
+  // video's fields and its delivery fragment at __bbox.result.data, with no __typename, and the
+  // fragment and its result repeat the video's id.
+  const page = (data) => ({ require: [['ScheduledServerJS', 'handle', null, [{ __bbox: { require: [['RelayPrefetchedStreamCache', 'next', [],
+    ['adp_CometTahoeRootQueryRelayPreloader_1', { __bbox: { complete: true, result: { data } } }]]] } }]]] });
+  const untyped = (value) => {
+    delete value.__typename;
+    value.videoDeliveryResponseFragment.id = value.id;
+    value.videoDeliveryResponseFragment.videoDeliveryResponseResult.id = value.id;
+    return value;
+  };
+  const index = createMediaIndex();
+  index.scan(page(untyped(await streamedVideo('700'))));
+  assert.equal(index.get('700').stream.video.length, 8, 'a streamed one keeps its manifest');
+  index.scan(page(untyped(video('701'))));
+  assert.deepEqual(index.get('701').files.map((f) => f.quality), ['HD', 'SD'], 'and one with files keeps them');
+  index.scan({ s: { ...video('702'), __typename: 'Story' } });
+  assert.equal(index.get('702'), null, 'something else carrying a fragment is not the video');
+});
+
 test('a photo is saved from its largest copy with an address', () => {
   assert.equal(photoFile(photo('5')).url, 'https://cdn.example.invalid/5-big.jpg');
   const noBig = { ...photo('6'), viewer_image: { width: 2048, height: 1230 } };
