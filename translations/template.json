@@ -238,6 +238,7 @@
   "Less promotion, more room for you.": "Less promotion, more room for you.",
   "Line {line} of the {list} list isn't a site name, so it's skipped.": "Line {line} of the {list} list isn't a site name, so it's skipped.",
   "Line {line} of your site list, \"{phrase}\", matched {matched} of the {checked} posts here, so it's paused on this page.": "Line {line} of your site list, \"{phrase}\", matched {matched} of the {checked} posts here, so it's paused on this page.",
+  "Lines between posts": "Lines between posts",
   "Links": "Links",
   "Loading saved settings": "Loading saved settings",
   "Long posts and comments open in full as you scroll to them, instead of stopping at \"See more\".": "Long posts and comments open in full as you scroll to them, instead of stopping at \"See more\".",

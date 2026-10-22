@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import forceDarkMode, { createDarkKeeper, DARK, LIGHT } from '../src/features/appearance/force-dark.js';
-import amoledTheme, { AMOLED_VARS } from '../src/features/appearance/amoled.js';
+import amoledTheme, { AMOLED_VARS, LINE } from '../src/features/appearance/amoled.js';
+import { createSettings } from '../src/core/settings.js';
+import { createMemoryStorage } from '../src/core/storage.js';
+import { renderFeatureCss } from '../src/core/style.js';
 import accentColor, {
   accentCss, ACCENTS, chosenColor, contrast, FILTERS_MARK, over, palette, parseHex, SURFACES, toHex, toHsl,
 } from '../src/features/appearance/accent.js';
@@ -256,6 +259,37 @@ test('AMOLED turns dark mode surfaces black and leaves light mode alone', () => 
   assert.equal(vars['--popover-background'], '#1A1A1A');
   assert.deepEqual(vars, AMOLED_VARS);
   assert.ok(!(typeof css === 'function' ? css() : css).includes('__fb-light-mode'));
+});
+
+test('Lines between posts draws a gray line in the gap under each feed post, in dark mode only, and only when asked', () => {
+  const settings = createSettings({ storage: createMemoryStorage(), features: [amoledTheme] });
+  settings.set('amoledTheme', true);
+  const css = () => renderFeatureCss([amoledTheme], settings);
+  assert.equal(settings.get('amoledTheme.lines'), false, 'off by default');
+  assert.doesNotMatch(css(), /::after|aria-posinset/);
+  settings.set('amoledTheme.lines', true);
+  const rules = css().split('\n').filter((line) => line.includes('aria-posinset'));
+  assert.deepEqual(rules, [
+    '.__fb-dark-mode [aria-posinset]:not([role]) { position: relative; }',
+    `.__fb-dark-mode [aria-posinset]:not([role])::after { content: ""; position: absolute; inset-inline: 0; bottom: -7px; height: 1px; background: ${LINE}; pointer-events: none; }`,
+  ]);
+  assert.equal(LINE, '#1D1E23', "Android's line color");
+  assert.deepEqual(varsOf(css(), '.__fb-dark-mode'), AMOLED_VARS, 'the theme itself is unchanged');
+  settings.set('amoledTheme', false);
+  assert.equal(css(), '', 'nothing without the theme');
+
+  // A permalink post (role=article) has no feed gap under it, and a light page gets no line.
+  const posts = (mode) => {
+    const win = page(`<div aria-posinset="1"><p>One</p></div><div aria-posinset="2" role="article"><p>Two</p></div>`, `_9dls ${mode}`);
+    const sheet = win.document.createElement('style');
+    sheet.textContent = rules.join('\n');
+    win.document.head.append(sheet);
+    return [...win.document.querySelectorAll('[aria-posinset]')].map((post) => win.getComputedStyle(post).position);
+  };
+  const [feed, permalink] = posts(DARK);
+  assert.equal(feed, 'relative');
+  assert.notEqual(permalink, 'relative');
+  assert.notEqual(posts(LIGHT)[0], 'relative');
 });
 
 test('color math matches Facebook\'s own blue', () => {

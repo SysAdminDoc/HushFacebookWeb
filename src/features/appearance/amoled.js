@@ -6,10 +6,18 @@
 // their edges. Facebook also draws some parts dark inside a light page (the video player, for
 // one), and those go black too. Light mode is left alone, so it needs Facebook's dark mode or
 // Force dark mode.
+//
+// With the page and the cards both black, posts without a photo run together. Lines between
+// posts draws a 1px gray line in the gap Facebook leaves between feed posts: live 2026-10-22 the
+// div[aria-posinset] boxes end where their cards do and sit 12px apart, so the line goes 6px
+// below each post, in the middle of that gap.
 
 export const BLACK = '#000000';
 export const RAISED = '#121212';
 export const POPOVER = '#1A1A1A';
+// The step above black that Android paints its feed gap with (Hushfacebook ea245b87, issue #206 there).
+export const LINE = '#1D1E23';
+const FEED_POST = '.__fb-dark-mode [aria-posinset]:not([role])';
 
 export const AMOLED_VARS = {
   '--web-wash': BLACK,
@@ -27,9 +35,13 @@ export const AMOLED_VARS = {
   '--popover-background': POPOVER,
 };
 
-export function amoledCss() {
+export function amoledCss(get = () => false) {
   const lines = Object.entries(AMOLED_VARS).map(([name, value]) => `  ${name}: ${value} !important;`);
-  return `.__fb-dark-mode {\n${lines.join('\n')}\n}`;
+  const theme = `.__fb-dark-mode {\n${lines.join('\n')}\n}`;
+  if (get('amoledTheme.lines') !== true) return theme;
+  return `${theme}
+${FEED_POST} { position: relative; }
+${FEED_POST}::after { content: ""; position: absolute; inset-inline: 0; bottom: -7px; height: 1px; background: ${LINE}; pointer-events: none; }`;
 }
 
 export default {
@@ -39,5 +51,8 @@ export default {
   title: 'AMOLED black theme',
   description: "Pure black in place of Facebook's dark gray. It changes dark mode only, so turn on Facebook's dark mode or Force dark mode with it.",
   default: false,
+  options: [
+    { key: 'lines', type: 'toggle', label: 'Lines between posts', default: false },
+  ],
   css: amoledCss,
 };
