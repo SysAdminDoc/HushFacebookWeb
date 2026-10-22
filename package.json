@@ -17,11 +17,13 @@
     "build": "node scripts/build.mjs",
     "check": "node scripts/check-versions.mjs && eslint .",
     "lint": "eslint .",
+    "phrases": "node scripts/phrases.mjs",
     "release": "node scripts/release.mjs",
     "test": "node --test --test-timeout=30000 \"tests/**/*.test.js\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "acorn": "8.19.0",
     "esbuild": "0.28.2",
     "eslint": "^10.12.0",
     "globals": "^17.13.0",

@@ -47,6 +47,7 @@ export const LANGUAGES = Object.freeze([
 
 // A reviewed translation goes here as value: { 'English phrase': 'translation' }, with a plural
 // phrase keyed by its English plural form: { '{count} settings': { one: '...', other: '...' } }.
+// A translator starts from translations/template.json, which npm run phrases writes.
 const CATALOGS = {};
 
 let active = LANGUAGES[0];
