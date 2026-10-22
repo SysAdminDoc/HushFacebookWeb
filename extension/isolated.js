@@ -151,6 +151,12 @@ const FACEBOOK_VALUES = new Map([
     && value.length <= 50
     && value.every((print) => boundedString(print, 64) && /^\d+:[0-9a-f]+$/.test(print))
   )],
+  // The settings the panel has shown, so one an update adds gets a dot (src/ui/new-dots.js).
+  ['panel.seenSettings', (value) => (
+    Array.isArray(value)
+    && value.length <= 4000
+    && value.every((key) => typeof key === 'string' && SAFE_FIELD.test(key))
+  )],
 ]);
 
 function storageAccessFor(doc) {

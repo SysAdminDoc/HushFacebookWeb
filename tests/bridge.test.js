@@ -1822,6 +1822,26 @@ test('the lines the fuse keeps for good load and save, and nothing else goes und
   }
 });
 
+test("the settings the panel has shown load and save, so an update's new ones get a dot", async () => {
+  const key = 'panel.seenSettings';
+  const first = page();
+  await startIsolated(first, fakeChrome({ [key]: ['hideReels', 'hideReels.mode'] }));
+  assert.deepEqual((await forgedChannel(first).send('storage:load', {})).result[key], ['hideReels', 'hideReels.mode']);
+  const win = page();
+  const chrome = fakeChrome({});
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  await settle();
+  storage.set(key, ['hideReels']);
+  await settle();
+  assert.deepEqual(chrome.data[key], ['hideReels']);
+  for (const bad of [['__proto__'], ['has space'], [1], 'hideReels', Array.from({ length: 4001 }, (_, i) => `k${i}`)]) {
+    storage.set(key, bad);
+    await settle();
+    assert.deepEqual(chrome.data[key], ['hideReels'], JSON.stringify(bad).slice(0, 40));
+  }
+});
+
 test('settings wait for the saved copy, then migrate through the worker once before recording it', async () => {
   const win = page();
   const chrome = fakeChrome({ settings: { alpha: false }, 'settings.migrated': [] });

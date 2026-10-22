@@ -16,6 +16,7 @@ import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js
 import { features as allFeatures } from '../src/features/index.js';
 import { startFeatures } from '../src/core/start-features.js';
 import { mountPanel } from '../src/ui/panel.js';
+import { SEEN_SETTINGS_KEY } from '../src/ui/new-dots.js';
 import { QUICK_SETUPS } from '../src/ui/quick-setups.js';
 import menuEntry from '../src/features/menu/menu-entry.js';
 
@@ -1499,4 +1500,105 @@ test('In a tab paused after a stuck feed, the power switch turns it back on with
   power.dispatchEvent(new win.Event('change'));
   assert.deepEqual(resumed, [true]);
   assert.equal(Object.hasOwn(settings.snapshot(), 'paused'), false, 'nothing about the tab is saved');
+});
+
+// Settings an update added (src/ui/new-dots.js). One storage holds both settings and the seen
+// list, as boot.js gives the panel.
+const DOT_FEED = { id: 'dotFeed', section: 'feed', title: 'Dot feed', description: 'A feed switch.', default: false, options: [{ key: 'words', type: 'text', default: '', label: 'Words' }], setup() {} };
+const DOT_ON = { id: 'dotOn', section: 'feed', title: 'Dot on', description: 'A switch that starts on.', default: true, options: [{ key: 'quiet', type: 'toggle', default: false, label: 'Quietly' }, { key: 'size', type: 'number', default: 2, min: 1, max: 9, label: 'Size' }], setup() {} };
+const DOT_SEARCH = { id: 'dotSearch', section: 'search', title: 'Dot search', description: 'A search switch.', default: false, setup() {} };
+const dotsIn = (root) => [...root.querySelectorAll('.new-dot')].map((dot) => {
+  const holder = dot.closest('[data-key], .title, label');
+  return holder.dataset?.key ?? holder.textContent.replace(/New$/, '');
+});
+
+test('the first time settings open nothing has a dot, and every setting counts as seen from then on', async () => {
+  const storage = createMemoryStorage();
+  const { shadow, panel } = setup({ features: [DOT_FEED, DOT_SEARCH], storage, environment: { storage } });
+  panel.open('feed');
+  assert.deepEqual(dotsIn(shadow), []);
+  assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed', 'dotFeed.words', 'dotSearch']);
+  panel.close();
+  await tick();
+  panel.open('search');
+  assert.deepEqual(dotsIn(shadow), []);
+});
+
+test('a setting an update added keeps its dot, and its section its own, until settings close after that section was shown', async () => {
+  const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotFeed', 'gone'] });
+  const { shadow, panel } = setup({ features: [DOT_FEED, DOT_SEARCH], storage, environment: { storage } });
+  panel.open('feed');
+  // dotFeed is off, so its new option hides with it and the card carries the dot.
+  assert.deepEqual(dotsIn(shadow), ['nav:feed', 'nav:search', 'Dot feed']);
+  assert.equal(shadow.querySelector('.title .new-dot').textContent, 'New', 'a screen reader hears it');
+  panel.close();
+  await tick();
+  assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed', 'gone', 'dotFeed.words'], 'only what was shown, and a removed setting stays');
+  panel.open('feed');
+  assert.deepEqual(dotsIn(shadow), ['nav:search'], 'Search was never shown');
+  shadow.querySelector('[data-key="nav:search"]').click();
+  assert.deepEqual(dotsIn(shadow), ['nav:search', 'Dot search'], 'dots stay while settings are open');
+  panel.close();
+  await tick();
+  panel.open('search');
+  assert.deepEqual(dotsIn(shadow), []);
+});
+
+test("a new option on a switch that's on has its own dot, and the card has one too", () => {
+  const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotOn', 'dotOn.size'] });
+  const { shadow, panel } = setup({ features: [DOT_ON], storage, environment: { storage } });
+  panel.open('feed');
+  assert.deepEqual(dotsIn(shadow), ['nav:feed', 'Dot on', 'Quietly']);
+  assert.equal(shadow.querySelectorAll('label:has([data-key="dotOn.size"]) .new-dot').length, 0, 'Size was there before');
+});
+
+test('opening settings again while they are open keeps what was already shown', async () => {
+  const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotFeed'] });
+  const { shadow, panel } = setup({ features: [DOT_FEED, DOT_SEARCH], storage, environment: { storage } });
+  panel.open('feed');
+  panel.open('search');
+  assert.deepEqual(dotsIn(shadow), ['nav:feed', 'nav:search', 'Dot search']);
+  panel.close();
+  await tick();
+  assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed', 'dotFeed.words', 'dotSearch']);
+});
+
+test('search results show no dots and searching counts as nothing shown', async () => {
+  const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotFeed.words'] });
+  const { shadow, panel } = setup({ features: [DOT_FEED], storage, environment: { storage } });
+  panel.open('feed', 'Dot');
+  assert.equal(shadow.querySelectorAll('main .new-dot').length, 0);
+  assert.deepEqual(dotsIn(shadow), ['nav:feed'], 'the section still says it has something new');
+  panel.close();
+  await tick();
+  assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed.words']);
+});
+
+test("storage that hasn't loaded, or can't be read, shows no dots and saves nothing, and the list stays out of backups", async () => {
+  const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotFeed'] });
+  let state = 'loading';
+  storage.status = () => ({ state, error: null });
+  const { shadow, panel, settings } = setup({ features: [DOT_FEED, DOT_SEARCH], storage, environment: { storage } });
+  panel.open('feed');
+  assert.deepEqual(dotsIn(shadow), []);
+  panel.close();
+  await tick();
+  assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed']);
+  state = 'ready';
+  panel.open('feed');
+  assert.deepEqual(dotsIn(shadow), ['nav:feed', 'nav:search', 'Dot feed'], 'once loaded, the next open has them');
+  assert.equal(Object.hasOwn(JSON.parse(settings.exportJson()), SEEN_SETTINGS_KEY), false);
+  assert.doesNotMatch(settings.exportJson(), /seenSettings|dotFeed\.words/);
+  panel.close();
+  await tick();
+
+  const broken = createMemoryStorage();
+  broken.get = (key, fallback) => {
+    if (key === SEEN_SETTINGS_KEY) throw new Error('gone');
+    return fallback;
+  };
+  const second = setup({ features: [DOT_FEED], storage: broken, environment: { storage: broken } });
+  second.panel.open('feed');
+  assert.deepEqual(dotsIn(second.shadow), []);
+  assert.equal(second.shadow.querySelector('[data-key="dotFeed"]').checked, false, 'settings still draw');
 });

@@ -137,6 +137,8 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .switch:checked::after { transform: translateX(calc(var(--flip) * 24px)); background: var(--accent-ink); }
 .switch:disabled, .switch[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.new-dot { position: relative; display: inline-block; flex: none; width: 8px; height: 8px; margin-inline-start: 8px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+nav button .new-dot { margin-inline-start: auto; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .button { min-height: 40px; max-width: 100%; border: 1px solid var(--surface1); background: var(--surface0); padding: 9px 16px; border-radius: 8px; transition: background 0.15s ease; }
 .button:hover { background: var(--surface1); }
@@ -235,5 +237,6 @@ nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surfac
   .switch { appearance: auto; }
   .switch::after { display: none; }
   nav button[aria-current="page"] { border: 1px solid Highlight; }
+  .new-dot { forced-color-adjust: none; background: Highlight; }
 }
 `;

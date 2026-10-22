@@ -14,6 +14,7 @@ import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
 import { SLIDERS_ICON } from './icons.js';
 import { navigationIcon } from './navigation-icons.js';
+import { createNewDots } from './new-dots.js';
 import { buildDiagnosticReport } from './diagnostic-report.js';
 import { buildProblemReport } from './problem-report.js';
 import { applyQuickSetup, QUICK_SETUPS } from './quick-setups.js';
@@ -73,6 +74,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   let current = sections[0].id;
   let query = '';
   let opener = null;
+  const newDots = createNewDots({ storage: environment.storage, features, log });
+  const newDot = () => h('span', { class: 'new-dot' }, h('span', { class: 'visually-hidden', text: t('New') }));
   const drafts = new Map();
   const fieldErrors = new Map();
   const pending = new Set();
@@ -160,6 +163,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) close();
   });
   dialog.addEventListener('close', () => {
+    newDots.finish();
     announceSearch('');
     root.append(toasts);
     if (opener?.isConnected && !opener.hidden && opener !== document.body && opener !== document.documentElement) opener.focus({ preventScroll: true });
@@ -266,21 +270,22 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     });
   }
 
-  function optionControl(feature, option) {
+  function optionControl(feature, option, dots) {
     const key = `${feature.id}.${option.key}`;
     const value = drafts.get(key) ?? settingValue(key);
     const errorId = `hfw-error-${key}`;
+    const dot = dots && newDots.isNew(key) ? newDot() : null;
     const props = {
       dataset: { key }, 'aria-invalid': fieldErrors.has(key) ? 'true' : null,
       'aria-describedby': fieldErrors.has(key) ? errorId : null,
       disabled: quickSetupPending(),
       oninput: (event) => drafts.set(key, event.target.value),
     };
-    const field = (control) => h('div', { class: 'field' }, h('label', null, t(option.label), control),
+    const field = (control) => h('div', { class: 'field' }, h('label', null, dot ? h('span', null, t(option.label), dot) : t(option.label), control),
       fieldErrors.has(key) ? h('p', { class: 'field-error', id: errorId, role: 'alert', text: fieldErrors.get(key) }) : null);
     switch (option.type) {
       case 'toggle':
-        return h('label', { class: 'option-toggle' }, toggle(key, option.label), h('span', { text: t(option.label) }));
+        return h('label', { class: 'option-toggle' }, toggle(key, option.label), h('span', null, t(option.label), dot));
       case 'select':
         return field(h('select', { ...props, onchange: (event) => apply(key, option.choices.find((choice) => String(choice.value) === event.target.value)?.value, event.target) },
             option.choices.map((choice) => h('option', { value: String(choice.value), selected: choice.value === value, text: t(choice.label) }))));
@@ -333,7 +338,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     });
   }
 
-  function featureCard(feature, { showOptions = false } = {}) {
+  // dots: marks what an update added (new-dots.js), in a section's own view only.
+  function featureCard(feature, { showOptions = false, dots = false } = {}) {
     const reason = unavailable.get(feature.id);
     const blocked = reason !== undefined;
     const on = settingValue(feature.id) === true;
@@ -344,18 +350,18 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return h('div', { class: `card${blocked ? ' unavailable' : ''}` },
       h('div', { class: 'row' },
         h('div', { class: 'text' },
-          h('div', { class: 'title', text: t(feature.title) }),
+          h('div', { class: 'title' }, t(feature.title), dots && newDots.featureIsNew(feature) ? newDot() : null),
           h('div', { class: 'desc', id: ids.desc, text: t(feature.description) }),
           blocked ? h('div', { class: 'note', id: ids.note, text: `${t(UNAVAILABLE_NOTES[reason] ?? UNAVAILABLE_NOTES.failed)}${on ? ` ${t('You can still turn it off.')}` : ''}` }) : null,
           feature.reload ? h('div', { class: 'note', id: ids.reload, text: t('Applies after Facebook reloads.') }) : null,
           status === undefined ? null : h('div', { class: 'note', 'data-status-for': feature.id, role: 'status', hidden: status === null, text: t(status ?? '') })),
         toggle(feature.id, feature.title, { locked: blocked, describedBy })),
-      (on || showOptions) && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option))) : null,
+      (on || showOptions) && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option, dots))) : null,
       on ? featureActions(feature) : null);
   }
 
   function sectionView(section) {
-    return features.filter((feature) => feature.section === section.id).map(featureCard);
+    return features.filter((feature) => feature.section === section.id).map((feature) => featureCard(feature, { dots: true }));
   }
 
   function clearSearch() {
@@ -737,7 +743,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         type: 'button', dataset: { key: `nav:${section.id}` },
         'aria-current': !searching && section.id === current ? 'page' : null,
         onclick: () => { clearSearch(); current = section.id; main.scrollTop = 0; render(); },
-      }, navigationIcon(section.id), h('span', { text: t(section.title) })),
+      }, navigationIcon(section.id), h('span', { text: t(section.title) }), newDots.sectionIsNew(section.id) ? newDot() : null),
     ]).filter(Boolean));
     if (searching) {
       const found = findFeatures([...features, ...generalRows()], sections, query);
@@ -751,6 +757,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       announceSearch(searchCount(found.length));
     } else {
       announceSearch('');
+      newDots.visit(current);
       const section = sections.find((entry) => entry.id === current);
       const count = current === 'general' ? generalRows().length : features.filter((feature) => feature.section === current).length;
       main.replaceChildren(
@@ -977,7 +984,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         clearSearch();
       }
     }
-    if (!dialog.open) opener = shadow.activeElement ?? document.activeElement;
+    if (!dialog.open) {
+      opener = shadow.activeElement ?? document.activeElement;
+      newDots.start();
+    }
     render();
     dialog.append(toasts);
     if (!dialog.open) dialog.showModal();
