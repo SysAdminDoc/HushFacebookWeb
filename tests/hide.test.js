@@ -225,6 +225,24 @@ test('a post hidden for two reasons stays hidden until both are taken off', () =
   assert.deepEqual(hider.counts(), { Filter: 1 }, 'counted once, under the first reason');
 });
 
+test('show with a reason takes only that one off the one post', () => {
+  const win = page(feed(post(1), post(2)));
+  const [a, b] = win.document.querySelectorAll('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  const mark = () => a.querySelector(`[${MARK}]`);
+  hider.hide(a, 'Reels');
+  hider.hide(a, 'Filter', 'cats');
+  hider.hide(b, 'Reels');
+  hider.show(a, 'Reels');
+  assert.equal(mark().getAttribute(NOTE), 'Hidden: Filter: cats. Show');
+  assert.equal(hider.isHidden(b), true, 'the other post keeps its reason');
+  hider.show(a, 'Reels');
+  hider.show(a, 'Filter');
+  assert.equal(hider.isHidden(a), false);
+  hider.show(a, 'Filter');
+  assert.equal(hider.hide(a, 'Filter'), true, 'not a reveal by the person');
+});
+
 test('a recycled post forgets that it was shown and is cleared', () => {
   const win = page(feed(post(1)));
   const element = win.document.querySelector('[aria-posinset]');

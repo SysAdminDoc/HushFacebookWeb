@@ -131,6 +131,14 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     return reasons;
   }
 
+  // Takes one reason off a mark, and the mark off once none is left.
+  function unmark(marker, reason) {
+    const reasons = reasonsOf(marker);
+    if (!reasons.delete(reason)) return;
+    if (reasons.size) write(marker, reasons);
+    else if (marker.parentElement) clear(marker.parentElement);
+  }
+
   // Counts a post the first time it's hidden. Returns whether it was new.
   function count(element, reason) {
     const id = postIdOf(element).id;
@@ -243,18 +251,18 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       }
       return true;
     },
-    show(element) {
-      clear(element);
-    },
-    // Takes one reason off every post, for a feature that was just switched off. A post still
-    // hidden for another reason stays hidden, under that one.
-    showAll(reason) {
-      for (const marker of doc.querySelectorAll(`[${MARK}]`)) {
-        const reasons = reasonsOf(marker);
-        if (!reasons.delete(reason)) continue;
-        if (reasons.size) write(marker, reasons);
-        else if (marker.parentElement) clear(marker.parentElement);
+    // Shows the post again. With a reason, takes only that one off, for a post that no longer
+    // fits it: one still hidden for another reason stays hidden, under that one.
+    show(element, reason) {
+      if (reason === undefined) clear(element);
+      else {
+        const marker = markOf(element);
+        if (marker) unmark(marker, reason);
       }
+    },
+    // Takes one reason off every post, for a feature that was just switched off.
+    showAll(reason) {
+      for (const marker of doc.querySelectorAll(`[${MARK}]`)) unmark(marker, reason);
     },
     // Makes each note a button again, or not, after pausing or the note setting changed.
     refresh() {

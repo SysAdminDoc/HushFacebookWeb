@@ -119,12 +119,18 @@ test('watchPostChecks stops retrying once a check is done, and retries until the
 
 const shelf = (ids, extra = '') => `<div class="row shelf"><div><h3>Reels and short videos</h3>${ids.map((id) => `<a href="/reel/${id}/?s=feed">reel</a>`).join('')}${extra}</div></div>`;
 
+// The row each reel link resolves to, by its aria-posinset or 'row' for a shelf. A failed
+// deepEqual on elements tries to print all of happy-dom and runs out of memory.
+const rowsOf = (root) => [...root.querySelectorAll('a[href*="/reel/"]')].map((a) => {
+  const row = reelRowOf(a);
+  return row ? row.getAttribute('aria-posinset') ?? 'row' : null;
+});
+
 test('a row of reels between posts is a reel row, a reel inside a post is not', () => {
   const win = page(post(1) + shelf([11, 12, 13]) + post(2, { shared: '<a href="/reel/21/">a friend\'s reel</a><a href="/reel/22/">another</a>' }) + shelf([31, 31]) + post(3));
-  const doc = win.document;
-  const rows = [...doc.querySelectorAll('a[href*="/reel/"]')].map(reelRowOf);
-  const shelves = doc.querySelectorAll('.shelf');
-  assert.deepEqual(rows, [shelves[0], shelves[0], shelves[0], null, null, null, null]);
+  const shelves = win.document.querySelectorAll('.shelf');
+  assert.ok([...shelves[0].querySelectorAll('a')].every((a) => reelRowOf(a) === shelves[0]));
+  assert.deepEqual(rowsOf(win.document), ['row', 'row', 'row', null, null, null, null]);
 });
 
 test('reels linked from a post with a comment under it are part of the post', () => {
@@ -132,7 +138,7 @@ test('reels linked from a post with a comment under it are part of the post', ()
   const comment = '<div class="comments"><div role="article" aria-label="Comment by Sam"><a href="/sam">Sam</a> nice</div></div>';
   const html = `<div class="row"><div aria-posinset="1"><h4><a href="/p1">Friend</a></h4><div>${text}${comment}</div></div></div>${post(2)}`;
   const win = page(html);
-  assert.deepEqual([...win.document.querySelectorAll('a[href*="/reel/"]')].map(reelRowOf), [null, null]);
+  assert.deepEqual(rowsOf(win.document), [null, null]);
 });
 
 test('the Stories tray, the right column and the sidebar are never reel rows', () => {
@@ -142,7 +148,74 @@ test('the Stories tray, the right column and the sidebar are never reel rows', (
     <div role="navigation"><a href="/reel/?s=tab">Reels</a></div>
     <div role="complementary"><a href="/reel/3/">r</a><a href="/reel/4/">r</a></div>`;
   const win = page(html);
-  assert.deepEqual([...win.document.querySelectorAll('a[href*="/reel/"]')].map(reelRowOf), [null, null, null, null, null]);
+  assert.deepEqual(rowsOf(win.document), [null, null, null, null, null]);
+});
+
+// Home's Reels row as drawn on 2026-10-22 (test account, content mode), trimmed: a feed unit of
+// its own with a decoy block, an actions button, a Reels heading and a grid of reel cards, each
+// a link holding a Menu button.
+const reelCard = (id) => `<div data-type="hscroll-child" role="gridcell" tabindex="0"><a aria-label="Reel by Someone" href="/reel/${id}/?s=fb&amp;__cft__[0]=x" role="link" tabindex="0"><div><img></div><div><span><div aria-expanded="false" aria-haspopup="dialog" aria-label="Menu" role="button" tabindex="0"><svg aria-hidden="true"><path></path></svg></div></span></div></a></div>`;
+const reelUnit = (n, ids) => `<div class="row"><div aria-posinset="${n}"><div><div data-virtualized="false">
+  <div aria-hidden="true" data-0="0" data-1="1"><blockquote>Facebook</blockquote><div aria-hidden="true" role="button" tabindex="-1"></div></div>
+  <h3><span>Reels</span></h3><div aria-label="Actions for this post" aria-haspopup="menu" role="button" tabindex="0"><svg></svg></div>
+  <div aria-hidden="true"><div aria-disabled="true" aria-label="Previous items" role="button" tabindex="-1"><svg aria-hidden="true"><path></path></svg></div></div>
+  <div><div aria-label="Reels" role="grid"><div role="row">${ids.map(reelCard).join('')}</div></div></div>
+  <div aria-label="Next items" role="button" tabindex="0"><svg></svg></div>
+</div></div></div></div>`;
+const friendsReel = (n) => post(n, { shared: `<a href="/reel/9${n}/?s=fb" aria-label="Open reel in Reels Viewer">reel</a><a href="/somepage">Page</a>` });
+
+test("Home's Reels row is a feed unit of its own, a friend's reel or two reels in a post are not", () => {
+  const win = page(post(1) + reelUnit(2, [51, 52, 53, 54, 55, 56]) + friendsReel(3)
+    + post(4, { shared: '<a href="/reel/61/">one</a><a href="/reel/62/">two</a>' }) + reelUnit(5, [71, 71]) + reelUnit(6, [81])
+    + reelUnit(7, [91, 92]).replace('<h3>', '<h3><a href="/reel/?s=tab">See all</a><a href="https://www.facebook.com/reels/">Reels</a>'));
+  assert.deepEqual(rowsOf(win.document), ['2', '2', '2', '2', '2', '2', null, null, null, null, null, null, '7', '7', '7']);
+});
+
+test('a Reels unit inside a post, with a link that is not a reel, or an article of reels is not the row', () => {
+  const win = page(post(1, { shared: reelUnit(9, [11, 12]) }) + reelUnit(2, [21, 22]).replace('<h3>', '<h3><a href="/watch/?ref=tab">Watch</a>')
+    + reelUnit(3, [23, 24]).replace('<h3>', '<h3><a href="#">Soon</a>')
+    + '<div role="article"><a href="/reel/31/">one</a><a href="/reel/32/">two</a></div>');
+  assert.deepEqual(rowsOf(win.document), [null, null, null, null, null, null, null, null]);
+});
+
+test('Hide reel rows hides the Reels unit on Home as it arrives, keeps the posts and brings it back', async () => {
+  const win = page(post(1));
+  const doc = win.document;
+  const hider = createHider({ doc });
+  const subscribers = [];
+  let on = true;
+  hideReelsInFeed.setup({
+    doc, win, router: { current: () => parseRoute(win.location.href), subscribe() {} }, hider, diagnostics: createDiagnostics(),
+    settings: { subscribe: (fn) => subscribers.push(fn) }, enabled: () => on,
+  });
+  doc.querySelector('.feed').insertAdjacentHTML('beforeend', reelUnit(2, [41, 42, 43]) + friendsReel(3));
+  await tick(400);
+  const shown = () => [1, 2, 3].map((n) => hider.isHidden(doc.querySelector(`[aria-posinset="${n}"]`)));
+  assert.deepEqual(shown(), [false, true, false]);
+  on = false;
+  for (const fn of subscribers) fn({});
+  assert.deepEqual(shown(), [false, false, false]);
+});
+
+test('a hidden Reels unit Facebook reuses for a post comes back, one that gains a reel stays hidden', async () => {
+  const win = page(post(1) + reelUnit(2, [41, 42]) + reelUnit(3, [43, 44]));
+  const doc = win.document;
+  const hider = createHider({ doc });
+  hideReelsInFeed.setup({
+    doc, win, router: { current: () => parseRoute(win.location.href), subscribe() {} }, hider, diagnostics: createDiagnostics(),
+    settings: { subscribe() {} }, enabled: () => true,
+  });
+  await tick(400);
+  const unit = (n) => doc.querySelector(`[aria-posinset="${n}"]`);
+  const hidden = () => [1, 2, 3].map((n) => hider.isHidden(unit(n)));
+  assert.deepEqual(hidden(), [false, true, true]);
+  // The mark stays on the unit's first child, so only the sweep can take it off.
+  unit(2).querySelector('[data-virtualized]').innerHTML = '<h4><a href="/p9">Friend</a></h4><a href="/p9/posts/pfbid0P9">2h</a><div>Text 9</div>';
+  await tick(400);
+  assert.deepEqual(hidden(), [false, false, true]);
+  unit(3).querySelector('[role="row"]').insertAdjacentHTML('beforeend', reelCard(45));
+  await tick(400);
+  assert.deepEqual(hidden(), [false, false, true]);
 });
 
 test('Hide reel rows hides rows on Home as they arrive, and brings them back when switched off', async () => {
