@@ -28,16 +28,20 @@ export function accessFor(info, pageRealm) {
   return !pageRealm || info?.injectInto === 'content' || info?.sandboxMode === 'dom' ? 'content' : 'page';
 }
 
-const unsafe = typeof unsafeWindow !== 'undefined' ? unsafeWindow : null;
-const pageRealm = inPageRealm(unsafe);
-
-export const pageWindow = unsafe && pageRealm ? unsafe : globalThis;
-
 export const version = typeof __HFW_VERSION__ !== 'undefined' ? __HFW_VERSION__ : 'dev';
 
 const info = typeof GM_info !== 'undefined' ? GM_info : null;
+const unsafe = typeof unsafeWindow !== 'undefined' ? unsafeWindow : null;
 
-export const pageAccess = accessFor(info, pageRealm);
+export const pageAccess = accessFor(info, inPageRealm(unsafe));
+
+// Content mode gets the script's own window. Violentmonkey's unsafeWindow there isn't its own
+// top on Firefox, so the script took itself for a frame and never started.
+export const pageWindow = windowFor(unsafe, pageAccess, globalThis);
+
+export function windowFor(unsafe, access, own) {
+  return unsafe && access === 'page' ? unsafe : own;
+}
 
 export function managerInfo() {
   if (extensionHost()) return { manager: 'Browser extension', managerVersion: version, mode: 'page', pageAccess };

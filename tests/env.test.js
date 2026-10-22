@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { accessFor, inPageRealm } from '../src/core/env.js';
+import { accessFor, inPageRealm, windowFor } from '../src/core/env.js';
 
 test('a window from our own realm is the page, and so is no unsafe window at all', () => {
   assert.equal(inPageRealm(globalThis), true);
@@ -39,3 +39,12 @@ test('page access needs the page realm and a manager in page mode', () => {
   assert.equal(accessFor(null, true), 'page', 'the extension');
 });
 
+// Violentmonkey 2.49 in content mode on Firefox hands over an unsafeWindow whose top isn't
+// itself, and the script read that as a frame and never started (live 2026-10-22).
+test('only page mode works on the unsafe window, content mode on its own', () => {
+  const unsafe = { name: 'unsafe' };
+  const own = { name: 'own' };
+  assert.equal(windowFor(unsafe, 'page', own), unsafe);
+  assert.equal(windowFor(unsafe, 'content', own), own);
+  assert.equal(windowFor(null, 'page', own), own, 'the extension');
+});
