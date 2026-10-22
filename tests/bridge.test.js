@@ -1802,6 +1802,26 @@ test("the word filter's told-you records load and save, so each warning comes on
   for (const key of keys) assert.equal(chrome.data[key], '9:def', key);
 });
 
+test('the lines the fuse keeps for good load and save, and nothing else goes under that key', async () => {
+  const key = 'hidePostsByWords.fuseKept';
+  const first = page();
+  await startIsolated(first, fakeChrome({ [key]: ['12:abc'] }));
+  assert.deepEqual((await forgedChannel(first).send('storage:load', {})).result[key], ['12:abc']);
+  const win = page();
+  const chrome = fakeChrome({});
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  await settle();
+  storage.set(key, ['12:abc', '9:def']);
+  await settle();
+  assert.deepEqual(chrome.data[key], ['12:abc', '9:def']);
+  for (const bad of [['x'], '12:abc', Array.from({ length: 51 }, (_, i) => `${i + 1}:a`)]) {
+    storage.set(key, bad);
+    await settle();
+    assert.deepEqual(chrome.data[key], ['12:abc', '9:def'], JSON.stringify(bad).slice(0, 40));
+  }
+});
+
 test('settings wait for the saved copy, then migrate through the worker once before recording it', async () => {
   const win = page();
   const chrome = fakeChrome({ settings: { alpha: false }, 'settings.migrated': [] });

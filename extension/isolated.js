@@ -145,6 +145,12 @@ const FACEBOOK_VALUES = new Map([
   ['hidePostsByWords.cssWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
   ['hidePostsByWords.skipWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
   ['hidePostsByWords.sitesWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
+  // The word filter keeps up to 50 lines the fuse may not pause (src/features/feed/filters.js).
+  ['hidePostsByWords.fuseKept', (value) => (
+    Array.isArray(value)
+    && value.length <= 50
+    && value.every((print) => boundedString(print, 64) && /^\d+:[0-9a-f]+$/.test(print))
+  )],
 ]);
 
 function storageAccessFor(doc) {
