@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import holdBackLogs, { EMPTY_ANSWER, isUsageLog } from '../src/features/privacy/usage-logs.js';
+import { EMPTY_SUCCESS } from '../src/features/reels/no-watch-history.js';
 import { describeRequest, installNetworkHooks } from '../src/core/net/hooks.js';
 
 function fakeWindow() {
@@ -26,7 +27,11 @@ function setUp(on = true) {
   const net = installNetworkHooks({ win, log: quietLog });
   const rows = new Map();
   holdBackLogs.setup({ net, enabled: () => on, diagnostics: { add: (name, read) => rows.set(name, read), changed() {} } });
-  return { win, calls, beacons, held: () => rows.get('Usage log batches held back')() };
+  return {
+    win, calls, beacons,
+    held: () => rows.get('Usage log batches held back')(),
+    times: () => rows.get('Time on site reports held back')(),
+  };
 }
 
 // The batch as it went live (run 46): a multipart POST with Facebook's usual query.
@@ -65,12 +70,43 @@ test('everything else goes through, and so does the log with the switch off', as
   assert.equal(off.held(), '0');
 });
 
+// The time-on-site report as it went live (2026-10-22), its variables cut to their field names.
+const graphql = (name) => new URLSearchParams({
+  fb_api_req_friendly_name: name,
+  variables: JSON.stringify({ input: { actor_id: '1', client_mutation_id: '1', trigger_reason: 'x' } }),
+  doc_id: '1',
+}).toString();
+const TIME_REPORT = graphql('FBScreenTimeLogger_syncMutation');
+
+test("the time-on-site report never leaves, and the page gets the empty success Facebook gives", async () => {
+  const { win, calls, held, times } = setUp();
+  const answer = await win.fetch('/api/graphql/', { method: 'POST', body: TIME_REPORT,
+    headers: { 'content-type': 'application/x-www-form-urlencoded' } });
+  assert.equal(calls.length, 0);
+  assert.equal(await answer.text(), EMPTY_SUCCESS);
+  assert.equal(times(), '1');
+  assert.equal(held(), '0', 'counted apart from the usage log batches');
+});
+
+test("the report menu's log and the time-on-site report with the switch off go through", async () => {
+  const { win, calls } = setUp();
+  await win.fetch('/api/graphql/', { method: 'POST', body: graphql('useCIXLogMutation') });
+  assert.equal(calls.length, 1);
+  const off = setUp(false);
+  await off.win.fetch('/api/graphql/', { method: 'POST', body: TIME_REPORT });
+  assert.equal(off.calls.length, 1);
+  assert.equal(off.times(), '0');
+});
+
 test('only facebook.com addresses count', () => {
   const ctx = (url) => describeRequest({ url, transport: 'fetch', base: 'https://www.facebook.com/' });
   assert.equal(isUsageLog(ctx('/ajax/bnzai')), true);
   assert.equal(isUsageLog(ctx('https://web.facebook.com/ajax/bnzai?__a=1')), true);
   assert.equal(isUsageLog(ctx('https://facebook.com.example.invalid/ajax/bnzai')), false);
   assert.equal(isUsageLog(ctx('https://www.facebook.com/ajax/bnzai/extra')), false);
+  const report = (url) => describeRequest({ url, transport: 'fetch', base: 'https://www.facebook.com/', body: TIME_REPORT });
+  assert.equal(isUsageLog(report('/api/graphql/')), true);
+  assert.equal(isUsageLog(report('https://graph.example.invalid/api/graphql/')), false);
 });
 
 test('the switch starts off, sits under Privacy and needs the page', () => {
