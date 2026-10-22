@@ -4,9 +4,10 @@
 // <use href="#id">) and removes that text within a frame, so by the time a post is checked
 // the target is gone. The observer callback runs before that, so it records the text then.
 // The idea is FB Feed Filter 0.1.0.17's ephemeral label cache (content.js 1172-1203, MIT,
-// see THIRD_PARTY_NOTICES.txt).
+// see THIRD_PARTY_NOTICES.txt). It watches from the document's root, not its body: the first
+// screen of Home streams in as finished HTML before the body is complete, labels and all.
 
-import { whenBodyReady } from '../env.js';
+import { whenRootReady } from '../env.js';
 import { normalizeText } from './visible-text.js';
 
 const MAX_TEXT = 40;
@@ -43,11 +44,11 @@ export function createLabelCache({ doc = globalThis.document, max = 500 } = {}) 
         for (const entry of records) for (const node of entry.addedNodes) capture(node);
       });
       const begin = () => {
-        if (!observer) return; // stopped before the page had a body
-        observer.observe(doc.body, { childList: true, subtree: true });
-        capture(doc.body);
+        if (!observer) return; // stopped before the page had a root
+        observer.observe(doc.documentElement, { childList: true, subtree: true });
+        capture(doc.documentElement);
       };
-      whenBodyReady(begin, doc);
+      whenRootReady(begin, doc);
     },
     stop() {
       observer?.disconnect();

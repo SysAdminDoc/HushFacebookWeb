@@ -13,9 +13,10 @@
 // on the feed's own children have been seen to stall infinite scroll.
 //
 // The observer starts with the first subscriber, so the page pays nothing until a feature
-// needs posts.
+// needs posts. It watches from the document's root, not its body: Home's first posts stream
+// in as finished HTML a second or more before DOMContentLoaded (live 2026-10-21).
 
-import { whenBodyReady } from '../env.js';
+import { whenRootReady } from '../env.js';
 
 // Feed posts are plain div[aria-posinset]. aria-posinset on something with another role
 // (a list option, a carousel item) is a widget, not a post.
@@ -240,11 +241,12 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
       }
     });
     const begin = () => {
+      if (!observer) return; // stopped before the page had a root
       // href: timestamp links fill in late. aria-posinset and role: a node can become a post.
-      observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'aria-posinset', 'role'] });
-      scan(doc.body);
+      observer.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'aria-posinset', 'role'] });
+      scan(doc.documentElement);
     };
-    whenBodyReady(begin, doc);
+    whenRootReady(begin, doc);
   }
 
   return {
