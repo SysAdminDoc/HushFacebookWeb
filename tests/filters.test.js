@@ -217,6 +217,30 @@ test('story fields: text, authors, alt text, linked sites and kind, without the 
   assert.ok(!storyFields(story({ text_format_metadata: null })).kinds.has('colored'));
 });
 
+// The media of a video post, as the attachment renderer carries it.
+const videoStory = (media) => story({ attachments: [{ styles: { __typename: 'StoryAttachmentVideoStyleRenderer', attachment: { media: { __typename: 'Video', id: '901', ...media } } } }] });
+const sharedStory = () => story({ attached_story: { __typename: 'Story', id: 's0', comet_sections: { message: { story: { message: { text: 'The post that was shared' } } } } } });
+
+test('story fields: a share carries the post it shared, and live is a video Facebook broadcast', () => {
+  assert.ok(storyFields(sharedStory()).kinds.has('shared'));
+  const beside = story();
+  beside.comet_sections.attached_story = { __typename: 'CometStoryAttachedStoryStrategy', story: { id: 's0' } };
+  assert.ok(storyFields(beside).kinds.has('shared'), 'the copy Facebook keeps beside the content counts too');
+  assert.ok(!storyFields(story()).kinds.has('shared'));
+  assert.ok(!storyFields(story({ attached_story: null })).kinds.has('shared'), 'an empty slot is no share');
+  const commented = story();
+  commented.comet_sections.feedback.story.attached_story = { __typename: 'Story', id: 'c1' };
+  assert.ok(!storyFields(commented).kinds.has('shared'), 'a share inside the comments is not this post');
+  const live = (media) => storyFields(videoStory(media)).kinds.has('live');
+  assert.ok(live({ broadcast_status: 'LIVE', is_live_streaming: true, is_video_broadcast: true }), 'on the air');
+  assert.ok(live({ broadcast_status: 'VOD_READY', is_live_streaming: false, is_video_broadcast: true }), 'over, and kept as a recording');
+  assert.ok(live({ broadcast_status: 'LIVE' }));
+  assert.ok(live({ is_live_streaming: true }));
+  assert.ok(!live({ broadcast_status: null, is_live_streaming: false, is_video_broadcast: false }), 'a video that was never live');
+  assert.ok(!live({}));
+  assert.ok(!storyFields(story({ actors: [{ __typename: 'Page', name: 'News Page', is_live_streaming: true }] })).kinds.has('live'), 'only a video can be live');
+});
+
 test('a verdict names the phrase or the kind of post', () => {
   const filter = (text, kinds = []) => ({ ...compileFilters(text), kinds: new Set(kinds) });
   const fields = storyFields(story());
@@ -272,6 +296,30 @@ test('page fields: text, author, alt, sites and kind, without the comments', () 
   assert.deepEqual(fields.alt, ['May be an image of a dog']);
   assert.deepEqual(fields.sites, ['shop.example']);
   assert.deepEqual([...fields.kinds].sort(), ['link', 'photo']);
+});
+
+// A shared post as Facebook draws it on Home: the sharer's header in an h4, then the original
+// post's own header in an h5 (live 2026-10-22).
+const header = (name, href = `/${name}`, tag = 'h4') => `<div data-ad-rendering-role="profile_name"><${tag}><a href="${href}">${name}</a></${tag}></div>`;
+const sharedPost = (n, text = 'Look at this') => `
+  <div><div aria-posinset="${n}">
+    ${header('Sharer')}<a href="/p${n}/posts/pfbid0P${n}">2h</a>
+    <div data-ad-rendering-role="story_message"><div>${text}</div></div>
+    <div>${header('Original Poster', '/original', 'h5')}<div data-ad-rendering-role="story_message"><div>The post that was shared</div></div></div>
+  </div></div>`;
+const livePost = (n, text = 'Come watch') => post(n, { text, extra: '<video></video><div><span>LIVE</span></div>' });
+
+test('page fields: a share draws a second author header, and live shows the badge or links a past live video', () => {
+  const win = page(sharedPost(1)
+    + `<div><div aria-posinset="2">${header('Garden Swap Group', '/groups/garden')}<div data-ad-rendering-role="story_message"><div>Group post</div></div></div></div>`
+    + post(3, { extra: `<div role="article" aria-label="Comment by Someone">${header('Commenter')}</div>${header('Friend')}` })
+    + livePost(4)
+    + post(5, { extra: '<a href="/watch/live/?v=901">Watch again</a>' })
+    + post(6, { text: 'LIVE', extra: '<video></video>' })
+    + post(7, { extra: '<div><span>LIVE</span></div>' })
+    + post(8, { extra: '<video></video><div><span>Live</span></div><div role="article" aria-label="Comment by Someone"><span>LIVE</span></div>' }));
+  const kinds = [...win.document.querySelectorAll('[aria-posinset]')].map((p) => [...postFields(p).kinds].filter((kind) => kind === 'shared' || kind === 'live'));
+  assert.deepEqual(kinds, [['shared'], [], [], ['live'], ['live'], [], [], []]);
 });
 
 function setupFeature(win, { words = '', lists = {}, kinds = {}, preview = false, net = null, href, toast, storage, actions = createActions() } = {}) {
@@ -382,6 +430,21 @@ test("preview finds the same lines and kinds in a story's data as in the post Fa
   const none = { ...compileFilters('kittens'), kinds: new Set(['video']) };
   assert.deepEqual(filterMatches(none, storyFields(story())), []);
   assert.equal(filterVerdict(none, storyFields(story())), null, 'no match in preview is no verdict when hiding');
+});
+
+test('preview counts shared posts and live videos in the data and on the page, then Preview off hides them', () => {
+  const rules = [];
+  const win = page(sharedPost(1) + livePost(2) + post(3, { text: 'Garden photos' }));
+  const { doc, posts, diagnostics, set } = setupFeature(win, { preview: true, kinds: { shared: true, live: true }, net: { transformResponses: (rule) => rules.push(rule) } });
+  const line = feedLine({ ...sharedStory(), id: 's1' }, { ...videoStory({ broadcast_status: 'LIVE', is_live_streaming: true }), id: 's2' }, { ...story(), id: 's3' });
+  assert.equal(transformDocumentLine(line, rules, FEED), line);
+  assert.equal(doc.querySelector(`[${MARK}]`), null);
+  assert.equal(diagnostics.rows().find((row) => row.label === 'Filter preview').value, 'data: 2 of 3 stories match (shared posts 1, live videos 1), page: 2 of 3 posts match (shared posts 1, live videos 1)');
+  set('preview', false);
+  const notes = [...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+  assert.deepEqual(notes, ['Hidden: Filter: shared posts. Show', 'Hidden: Filter: live videos. Show', null]);
+  assert.deepEqual(JSON.parse(transformDocumentLine(line, rules, FEED)).data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null), [null, null, 's3']);
+  posts.stop();
 });
 
 test('preview hides nothing on the page or in the data, then Preview off hides what it counted', () => {

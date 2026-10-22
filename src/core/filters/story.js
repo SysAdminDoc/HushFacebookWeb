@@ -10,7 +10,10 @@
 //   sites    external_url, web_link.url and action_links[].url that leave Facebook
 //   kinds    photo (StoryAttachmentPhotoStyleRenderer, Album, AlbumFrame), video
 //            (UnifiedLightweightVideo, FBReels, Video), link (Share), colored
-//            (text_format_metadata with a background)
+//            (text_format_metadata with a background), shared (an attached_story: the post
+//            that was shared, on 79 of 622 Home stories in saved answers), live (a Video
+//            Facebook marks as a broadcast: broadcast_status LIVE and is_live_streaming while
+//            it's on, is_video_broadcast after it ends too; live 2026-10-22)
 
 import { isOutbound, unshim } from '../url.js';
 
@@ -55,6 +58,8 @@ export function storyFields(node) {
     if ((key === 'actors' || key === 'to') && typeof value.name === 'string') authors.add(value.name);
     if (typeof value.accessibility_caption === 'string') alt.add(value.accessibility_caption);
     if (KINDS.has(value.__typename)) kinds.add(KINDS.get(value.__typename));
+    if (key === 'attached_story') kinds.add('shared');
+    if (value.__typename === 'Video' && (value.broadcast_status === 'LIVE' || value.is_live_streaming === true || value.is_video_broadcast === true)) kinds.add('live');
     if (key === 'text_format_metadata' && (value.background_color || value.preset_id || value.background_image)) kinds.add('colored');
     for (const [childKey, child] of Object.entries(value)) {
       if (SKIP_KEYS.has(childKey)) continue;

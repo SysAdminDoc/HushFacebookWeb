@@ -74,6 +74,8 @@ const KINDS = [
   { key: 'videos', kind: 'video', label: 'video posts' },
   { key: 'links', kind: 'link', label: 'link posts' },
   { key: 'colored', kind: 'colored', label: 'colored background posts' },
+  { key: 'shared', kind: 'shared', label: 'shared posts' },
+  { key: 'live', kind: 'live', label: 'live videos' },
 ];
 
 export const FILTERED = {
