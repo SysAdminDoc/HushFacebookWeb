@@ -87,6 +87,11 @@ What the status words mean:
 | Tag suggestions only after @ | Tested | Same name on the web. A comment box, like the box for a new post, loads two lists of people when it opens, and those are what match a first name typed without @. The script empties just those two, so a name on its own offers no one, while @ still asks Facebook's search and finds everyone. Live, a friend's name without @ brought up no suggestions and no request, and with @ the usual ten came up. The same held in the box for a new post, where a name alone had brought up four before. Needs the script running in the page. |
 | Send chat photos and videos at original quality | Needs research | Where the web chat shrinks a photo can only be seen by sending one, and the test account's chats are end-to-end encrypted. It needs a chat with a second account. |
 | Hide the Get Messenger card | Written | Called "Hide Facebook's own cards and tips" on the web. Facebook sends its own cards as quick promotions, in lists the Messenger chat list banner, the Messenger menu and the story viewer each ask for, and the script empties those lists before the page reads them. Live, the story viewer's tip was held back and the Messenger menu and stories worked as usual. The test account hasn't been offered a Get Messenger card on the web yet, so that one hasn't been seen go. Needs the script running in the page. |
+| Don't save search history | Planned | Holds back the request that adds a search to your Facebook search history. Search itself keeps working. The request the website sends still has to be captured on the test account. |
+| Keep feed videos muted | Planned | A choice under Remember your volume that starts every feed video and reel muted, while the speaker button still turns one on. |
+| Frame step | Planned | Buttons that step a paused video back or forward one frame, next to the player's controls. No keyboard shortcuts. |
+| Skip silent parts | Needs research | The page would have to listen to the video's sound to find the quiet stretches. That has to be shown not to mute or stall playback first. |
+| Upload Stories in HD | Needs research | Whether the website's story upload shrinks photos and videos hasn't been checked, and checking it means posting a story. |
 | Allow screenshots | Android only | Browsers don't block screenshots. |
 | Block screenshot detection | Android only | Websites can't see screenshots. |
 | Disable Audience Network | Android only | It's about ads inside other phone apps. |
@@ -99,6 +104,9 @@ What the status words mean:
 | Tab bar at the bottom | Android only | The web layout has no bottom tab bar. |
 | Turn off haptics | Android only | Browsers don't vibrate on Facebook. |
 | Unlock app icons | Android only | Home screen icons. |
+| Hide carrier data banners | Android only | Mobile carrier data offers don't show on the website. |
+| Open comments at full height | Android only | The website opens comments in a dialog or on the post's own page, with no sheet to pull up. |
+| Open comments with a gesture | Android only | A click on Comment already opens them, and the website has no long press or double tap on posts. |
 
 ## Only on the web
 
