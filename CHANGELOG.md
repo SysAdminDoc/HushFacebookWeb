@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Hide sponsored posts now covers the Sponsored box in Home's right column, the one above Friend requests. Facebook sends that box already drawn when Home first loads, so the script hides it before it shows. When Home is drawn again after a visit elsewhere, the box is taken out of Facebook's data instead. Friend requests and the rest of the column stay where they were. Checked on facebook.com on 2026-10-21 with the userscript (page and content mode) and with the extension in Brave. The box never showed, on a fresh load or after going to Marketplace and back. Those runs also had 7 to 18 feed ads each in Facebook's data, and none of them got drawn.
 * A release can't go public anymore until the live check has walked that exact build on Facebook. Publishing used to go ahead without it, and now it stops and says to run the live stage first. A new build means a new walk.
 
 ## v0.0.4 (2026-10-18)

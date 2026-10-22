@@ -80,7 +80,7 @@ Titles, descriptions, toasts and docs should read like a person wrote them. Keep
 
 ## Fixtures
 
-`tests/fixtures/` holds scrubbed captures of what facebook.com sent on 2026-10-10: a feed page (`CometNewsFeedPaginationQuery`), the home page's inline feed blobs, a Marketplace page with an ad card, a search page with an ad, and the story seen request. `tests/captured.test.js` runs the shipped rules against them. Raw captures stay in `captures/`, which git ignores, because they carry account data.
+`tests/fixtures/` holds scrubbed captures of what facebook.com sent on 2026-10-10: a feed page (`CometNewsFeedPaginationQuery`), the home page's inline feed blobs, a Marketplace page with an ad card, a search page with an ad, and the story seen request. Home's right column with its Sponsored box (`home-right-column.jsonl`, the inline blob matched by `"auxColumnUnits"`) is from 2026-10-21. `tests/captured.test.js` runs the shipped rules against them. Raw captures stay in `captures/`, which git ignores, because they carry account data.
 
 To add one, run the scrubber over the raw file:
 

@@ -88,6 +88,30 @@ test('Marketplace: the ad card loses its node, listings and paging stay', async 
   assert.equal(first.data.marketplace_home_feed.edges[0].node.__typename, 'MarketplaceFeedGeneralListingObject');
 });
 
+// Home's right column, captured 2026-10-21: the inline CometRightSideHeaderCardsQuery blob lists
+// the Sponsored box (two ads) and then Friend requests.
+test("the right column's Sponsored box leaves Facebook's inline data, Friend requests stays", async () => {
+  const [line] = await fixtureLines('home-right-column.jsonl');
+  const units = (doc) => {
+    let found = null;
+    countMatches(doc, (value) => {
+      if (Array.isArray(value.auxColumnUnits?.nodes)) found = value.auxColumnUnits.nodes;
+      return false;
+    });
+    return found.map((unit) => unit.__typename);
+  };
+  assert.deepEqual(units(parseLine(line)), ['AdsSideFeedUnit', 'FriendingRequestsSideFeedUnit']);
+  assert.deepEqual(pruneAds(parseLine(line)), ['AdsSideFeedUnit'], 'the column row catches it, and nothing else does');
+  const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/' } };
+  const net = installNetworkHooks({ win, log: { error: () => {}, warn() {}, info() {}, debug() {} } });
+  const fired = [];
+  net.transformResponses(adRule('hideSponsoredPosts', () => true, (ids) => fired.push(...ids)));
+  const after = win.JSON.parse(line);
+  assert.deepEqual(units(after), ['FriendingRequestsSideFeedUnit']);
+  assert.doesNotMatch(JSON.stringify(after), /"rhc_ad"|"AdsSideFeedUnit"/);
+  assert.deepEqual(fired, ['AdsSideFeedUnit']);
+});
+
 // The captured Home page's second line is a friend's share. It carries the shared post four
 // times: the story's own attached_story, another under content.story, the section that draws it
 // and that section's own copy. A sponsored label in any of them is the shared post's, so the share

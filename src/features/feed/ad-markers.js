@@ -20,6 +20,8 @@
 //                          rendering_strategy, beside the node)
 //              empty-list  the row's `empty` keys are set to what Facebook sends when there's
 //                          nothing to show
+//              drop-items  the row's `list` key keeps only the items `drop` says no to, in
+//                          order, so one box leaves a list of boxes and the rest stay
 //
 // Facebook renames ad fields per relay provider (GHLShouldChangeSponsoredDataFieldName and
 // friends were on in the 2026-10-10 capture): sponsored_data arrives as th_dat_spo and the
@@ -108,6 +110,13 @@ export function hasAiLabel(story) {
   return shared !== story && isObject(shared) && hasAiLabel(shared);
 }
 
+// Home's right column (live 2026-10-21): viewer.auxColumnUnits.nodes lists its boxes in order,
+// an AdsSideFeedUnit for the Sponsored box (its ads under item_collection.nodes[].rhc_ad) and
+// a FriendingRequestsSideFeedUnit for Friend requests. Without the ad unit in the list Facebook
+// draws the column the way it does for someone it has no ads for.
+const SIDE_AD_TYPENAME = 'AdsSideFeedUnit';
+const isSideAdUnit = (value) => isObject(value) && value.__typename === SIDE_AD_TYPENAME;
+
 // The story an edge draws: its node in a feed, or the story behind a search result.
 const storyOf = (edge, node) => (isObject(node) && node.__typename === 'Story'
   ? node
@@ -159,6 +168,18 @@ export const AD_MARKERS = [
     // Only on real edges (with a cursor): a wrapper holding an ad deep inside isn't an ad.
     match: (edge, node) => isObject(node) && 'cursor' in edge && hasSponsoredLabel(node),
     action: 'drop-node',
+  },
+  {
+    id: 'AdsSideFeedUnit',
+    feature: 'hideSponsoredPosts',
+    surface: "Home's right column (the Sponsored box)",
+    seen: '2026-10-21: inline CometRightSideHeaderCardsQuery data on every Home load, the Sponsored box first in viewer.auxColumnUnits.nodes with two ads, Friend requests after it',
+    text: [`"${SIDE_AD_TYPENAME}"`],
+    kind: 'object',
+    match: (value) => Array.isArray(value.nodes) && value.nodes.some(isSideAdUnit),
+    action: 'drop-items',
+    list: 'nodes',
+    drop: isSideAdUnit,
   },
   {
     id: 'MarketplaceFeedAdStory',
@@ -319,6 +340,8 @@ export function pruneAds(doc, rows = AD_MARKERS, report) {
     report?.(row, value);
     if (row.action === 'empty-list') {
       for (const [key, empty] of Object.entries(row.empty)) if (key in value) value[key] = Array.isArray(empty) ? [] : empty;
+    } else if (row.action === 'drop-items') {
+      value[row.list] = value[row.list].filter((item) => !row.drop(item));
     } else {
       for (const key of DROPPED_BY[row.action]) delete value[key];
     }

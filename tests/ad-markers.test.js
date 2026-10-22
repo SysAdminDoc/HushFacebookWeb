@@ -66,6 +66,13 @@ const SAMPLES = {
   sponsored_data: () => ({ node: { __typename: 'Story', id: 'ad', sponsored_data: { ad_id: '1' } }, cursor: 'c' }),
   th_dat_spo: () => edge2026('ad', {}, { th_dat_spo: { is_demo_ad: false } }),
   'sponsored label': labelOnly,
+  // Home's right column as captured on 2026-10-21 (tests/fixtures/home-right-column.jsonl).
+  AdsSideFeedUnit: () => ({
+    nodes: [
+      { __typename: 'AdsSideFeedUnit', item_collection: { nodes: [{ rhc_ad: { title: 'Shop', subtitle: 'shop.example' }, sponsored_data: { ad_id: '1' }, id: 'ad-1' }] } },
+      { __typename: 'FriendingRequestsSideFeedUnit' },
+    ],
+  }),
   MarketplaceFeedAdStory: () => ({ node: { __typename: 'MarketplaceFeedAdStory', id: 'ad', ad_id_string: '1' }, cursor: 'm' }),
   SEARCH_ADS: () => ({ cursor: 's', node: { __typename: 'SearchRenderable', role: 'SEARCH_ADS' }, rendering_strategy: { __typename: 'SearchResultsAdRenderingStrategy' } }),
   // The shape is the live empty answer (tests/fixtures/useInstreamAdsHaloFetcherQuery.jsonl) with one break in it.
@@ -94,9 +101,28 @@ test('every row says where it was seen, what lets it past the prefilter and what
     assert.ok(switches.has(row.feature), `${row.id} belongs to a real switch`);
     assert.ok(row.text.length > 0 && row.text.every((text) => AD_MARKER_TEXT.includes(text)), `${row.id} has prefilter text`);
     assert.equal(typeof row.match, 'function');
-    assert.ok(['drop-node', 'empty-list'].includes(row.action), `${row.id} has a known action`);
-    if (row.action === 'empty-list') assert.equal(row.kind, 'object', `${row.id}: empty-list works on objects`);
+    assert.ok(['drop-node', 'empty-list', 'drop-items'].includes(row.action), `${row.id} has a known action`);
+    if (row.action !== 'drop-node') assert.equal(row.kind, 'object', `${row.id}: ${row.action} works on objects`);
+    if (row.action === 'drop-items') assert.ok(row.list && typeof row.drop === 'function', `${row.id} names its list and what leaves it`);
   }
+});
+
+test("the right column loses its Sponsored box and keeps the boxes around it, in order", () => {
+  const column = SAMPLES.AdsSideFeedUnit();
+  column.nodes.unshift({ __typename: 'BirthdaysSideFeedUnit' });
+  const answer = { data: { viewer: { auxColumnUnits: column } }, extensions: { is_final: true } };
+  const line = JSON.stringify(answer);
+  const posts = adRule('hideSponsoredPosts', () => true);
+  assert.equal(rulesFor(line, [posts]).length, 1, 'the line gets past the prefilter');
+  for (const ctx of [{ transport: 'json-parse', friendlyName: '' }, { transport: 'fetch', path: '/api/graphql/', friendlyName: 'CometRightSideHeaderCardsQuery' }]) {
+    const out = JSON.parse(transformDocumentLine(line, [posts], ctx));
+    assert.deepEqual(out.data.viewer.auxColumnUnits.nodes.map((unit) => unit.__typename), ['BirthdaysSideFeedUnit', 'FriendingRequestsSideFeedUnit'], ctx.transport);
+  }
+  assert.equal(transformDocumentLine(line, [adRule('hideSponsoredSearch', () => true)]), line, 'only Hide sponsored posts takes it');
+  // A column with no ad box, and the ads' own list inside the box, are no match.
+  const quiet = { nodes: [{ __typename: 'FriendingRequestsSideFeedUnit' }] };
+  assert.deepEqual(pruneAds(structuredClone(quiet)), []);
+  assert.equal(adMarkerFor(SAMPLES.AdsSideFeedUnit().nodes[0].item_collection), null);
 });
 
 test('a row only fires under its own switch', () => {
