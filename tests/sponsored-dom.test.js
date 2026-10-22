@@ -139,6 +139,45 @@ test('svg: <text> in the header, and a <use> target live or cached', async () =>
   cache.stop();
 });
 
+// The 2026-10-21 label (a video ad that got through, seen on a real feed): the header's <use>
+// points at the first of a row of sibling svgs in a hidden box under body, each pointing at
+// the next, the last link a <text>. Six links. Its aria-labelledby targets were already gone.
+const chain = (ids, text) => `<div style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true"><div>${
+  ids.slice(0, -1).map((id, i) => `<svg id="${id}" style="overflow:visible"><use xlink:href="#${ids[i + 1]}"></use></svg>`).join('')
+}<svg style="overflow:visible"><text id="${ids.at(-1)}" y="0">${text}</text></svg><div></div></div></div>`;
+const LINKS = ['wl1', 'wl2', 'wl3', 'wl4', 'wl5', 'wl6', 'wl7'];
+const CHAINED = '<a href="?x=1#?dba"><span aria-labelledby="lb1 lb2"><svg style="height:17px;overflow:visible"><use xlink:href="#wl1" y="13"></use></svg></span></a>';
+
+test('svg: a <use> chain is followed to the <text> it ends in', async () => {
+  const ad = page(post({ byline: CHAINED, extra: CTA }));
+  ad.document.body.insertAdjacentHTML('beforeend', chain(LINKS, 'Ad'));
+  assert.deepEqual(read(ad), { signal: 'svg', label: 'Ad', corroborated: true });
+
+  const stamp = page(post({ byline: CHAINED }));
+  stamp.document.body.insertAdjacentHTML('beforeend', chain(LINKS, '3h'));
+  assert.equal(read(stamp), null, 'a chain that ends in a timestamp');
+
+  // The last link already gone: the label cache kept its text.
+  const gone = page(post({ byline: CHAINED }));
+  const cache = createLabelCache({ doc: gone.document });
+  cache.start();
+  gone.document.body.insertAdjacentHTML('beforeend', chain(LINKS, 'Sponsored'));
+  await tick();
+  gone.document.getElementById('wl7').remove();
+  assert.equal(read(gone), null, 'without the cache there is nothing to read');
+  assert.equal(read(gone, { labelCache: cache }).label, 'Sponsored');
+  cache.stop();
+});
+
+test('svg: a <use> chain that loops or never ends is given up on', () => {
+  const loop = page(post({ byline: CHAINED }));
+  loop.document.body.insertAdjacentHTML('beforeend', '<svg id="wl1"><use href="#wl2"></use></svg><svg id="wl2"><use href="#wl1"></use></svg>');
+  assert.equal(read(loop), null);
+  const endless = page(post({ byline: CHAINED }));
+  endless.document.body.insertAdjacentHTML('beforeend', chain(Array.from({ length: 40 }, (_, i) => `wl${i + 1}`), 'Ad'));
+  assert.equal(read(endless), null);
+});
+
 test('glyph order: shuffled letters are put back in flex order, skipping hidden and absolute decoys', () => {
   const byline = `<span style="display:flex">
     <span style="order:4">r</span><span style="order:3;position:absolute">x</span>

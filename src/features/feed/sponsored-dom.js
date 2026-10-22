@@ -30,7 +30,7 @@
 // the post's header. Signals, first match wins:
 //   header label   the exact label as visible text in the header region
 //   labelledby     an aria-labelledby target's text, read live or from the label cache
-//   svg            an SVG <text>, or a <use href="#id"> target, live or cached
+//   svg            an SVG <text>, or where a <use href="#id"> chain ends, live or cached
 //   glyph order    letters split into spans and shuffled with flex `order`, put back in
 //                  order (live 2026-10-10: the label's letters come scrambled this way, with
 //                  absolutely positioned decoys among them)
@@ -160,6 +160,42 @@ function decodeGlyphs(container, layout) {
   return glyphStrings(glyphRecords(container, { layout, accept })).map(adLabel).find(Boolean) ?? null;
 }
 
+// The header's <use href="#a"> can point at <svg id="a"><use href="#b"></svg>, then the next
+// link, until a <text> (live 2026-10-21: six links, each a sibling svg in a hidden box under
+// body). Collects the texts along the chain, the label cache standing in for a link already
+// gone. The first link's next sibling counts too, where the text sat in earlier pages.
+const MAX_USE_LINKS = 16;
+const useTarget = (use) => {
+  const ref = use.getAttribute('href') ?? use.getAttribute('xlink:href') ?? '';
+  return ref.startsWith('#') ? ref.slice(1) : null;
+};
+
+function referencedTexts(use, doc, labelCache) {
+  const values = [];
+  const seen = new Set();
+  let ids = [useTarget(use)];
+  for (let link = 0; link < MAX_USE_LINKS && ids.length; link++) {
+    const next = [];
+    for (const id of ids) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const target = doc.getElementById(id);
+      if (!target) {
+        values.push(labelCache?.get(id));
+        continue;
+      }
+      for (const source of link ? [target] : [target, target.nextElementSibling]) {
+        if (source && !namesSomeone(source)) values.push(source.textContent);
+      }
+      if (namesSomeone(target)) continue;
+      const inner = target.localName === 'use' ? [target] : [...target.querySelectorAll('use')].slice(0, 8);
+      next.push(...inner.map(useTarget));
+    }
+    ids = next;
+  }
+  return values;
+}
+
 function readsAsLabel(element) {
   const values = [element.getAttribute('aria-label'), element.getAttribute('title'), element.innerText, element.textContent];
   return values.map(adLabel).find(Boolean) ?? null;
@@ -230,15 +266,7 @@ export function readAdSignals(post, { labelCache } = {}) {
   for (const svg of post.querySelectorAll('svg')) {
     if (!inHeader(svg)) continue;
     const values = [...svg.querySelectorAll('text')].map((text) => text.textContent);
-    for (const use of svg.querySelectorAll('use')) {
-      const ref = use.getAttribute('href') ?? use.getAttribute('xlink:href') ?? '';
-      if (!ref.startsWith('#')) continue;
-      const target = doc.getElementById(ref.slice(1));
-      if (target) {
-        for (const source of [target, target.nextElementSibling]) if (source && !namesSomeone(source)) values.push(source.textContent);
-      }
-      else values.push(labelCache?.get(ref.slice(1)));
-    }
+    for (const use of svg.querySelectorAll('use')) values.push(...referencedTexts(use, doc, labelCache));
     const label = values.map(adLabel).find(Boolean);
     if (label) return found('svg', label);
   }
