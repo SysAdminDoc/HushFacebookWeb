@@ -14,6 +14,9 @@
 //          is the last part of the story viewer's address. The cards sit in their bucket's
 //          unified_stories_with_notes.edges, and the bucket's story_bucket_owner.name is whose
 //          story it is (a card's own actors only carry an id).
+//   Owner  a video's owner is {__typename, id} on its own page, with no name. The name comes
+//          in another answer in the same load (currentVideo.owner, {id, name}), so names are
+//          kept by owner id from any owner that has both (live 2026-10-22).
 
 import { readManifest } from './dash.js';
 import { walk } from './json-walk.js';
@@ -128,6 +131,8 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
   const items = new Map(); // media id -> { kind, id, ... }
   const cards = new Map(); // story card id -> media id
   const owners = new Map(); // story card id -> whose story it is
+  const videoOwners = new Map(); // video id -> its owner's id
+  const names = new Map(); // owner id -> name
 
   // Newest last, and the oldest go once there are too many.
   const put = (map, key, value) => {
@@ -141,6 +146,7 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
     // A video's own page asks for it by id and gets it back as the answer's data with no
     // __typename (live 2026-10-22), so its delivery fragment marks it as a video too.
     if (id && (value.__typename === 'Video' || (value.__typename === undefined && isObject(value.videoDeliveryResponseFragment)))) {
+      if (typeof value.owner?.id === 'string') put(videoOwners, id, value.owner.id);
       const { files, dash, stream, sharper } = videoFiles(value);
       const old = items.get(id);
       // A bare reference to a video ({__typename, id}) carries nothing to save. A stream that
@@ -163,6 +169,9 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
       const media = value.attachments.map((attachment) => attachment?.media).find((m) => typeof m?.id === 'string');
       if (media) put(cards, id, media.id);
     }
+    if (typeof value.owner?.id === 'string' && typeof value.owner.name === 'string' && value.owner.name.trim()) {
+      put(names, value.owner.id, value.owner.name);
+    }
     const owner = value.story_bucket_owner?.name;
     if (typeof owner === 'string' && Array.isArray(value.unified_stories_with_notes?.edges)) {
       for (const edge of value.unified_stories_with_notes.edges) {
@@ -184,6 +193,8 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
       const item = items.get(cards.get(cardId));
       return item ? { ...item, author: owners.get(cardId) ?? null } : null;
     },
+    // The name of whoever posted a video, when Facebook's data has said it.
+    ownerName: (id) => names.get(videoOwners.get(String(id))) ?? null,
     size: () => items.size,
   };
 }

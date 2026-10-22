@@ -92,7 +92,8 @@ export function videoTarget(element, page) {
   return (page?.kind === 'video' || page?.kind === 'reel') && pagePlayer(element) ? page : null;
 }
 
-// The name on the post a photo or video is in, for the file name.
+// The name on the post a photo or video is in, for the file name. A video's own page has no
+// post around its player, so its file is named after the video's owner instead (findMedia).
 export function authorOf(element) {
   const post = element.closest(POST);
   if (!post) return null;
@@ -133,7 +134,8 @@ export function findMedia(element, { href, index }) {
     const target = videoTarget(element, page);
     const feature = (target?.kind ?? page?.kind) === 'reel' ? 'downloadReels' : 'downloadVideos';
     const id = target?.id ?? null;
-    return { feature, kind: 'video', id, item: asKind(index?.get(id), 'video'), author: authorOf(element), fallback: null };
+    const author = authorOf(element) ?? index?.ownerName(id) ?? null;
+    return { feature, kind: 'video', id, item: asKind(index?.get(id), 'video'), author, fallback: null };
   }
 
   // On a photo's own page the address names the photo, but not a picture inside a comment.

@@ -327,6 +327,40 @@ test("on a video's own page the address names only its player, never a video in 
   assert.equal(findMedia(reel.document.querySelector('video'), { href: reel.location.href, index }).id, null, 'nor on a reel');
 });
 
+test("a video's own page names its file after the video's owner, whose name comes in another answer", () => {
+  const tahoe = (data) => ({ require: [['ScheduledServerJS', 'handle', null, [{ __bbox: { require: [['RelayPrefetchedStreamCache', 'next', [],
+    ['adp_CometTahoeRootQueryRelayPreloader_1', { __bbox: { complete: true, result: { data } } }]]] } }]]] });
+  // The player's own node has no __typename, and its owner no name (live 2026-10-22).
+  const node = (id, owner = '61550001') => {
+    const value = video(id, [['HD', 'own']], { owner: { __typename: 'User', id: owner, __isVideoOwner: 'User', has_professional_features_for_watch: true } });
+    delete value.__typename;
+    return value;
+  };
+  const named = { q: { data: { currentVideo: { id: '3333333', owner: { __typename: 'User', name: ' Harbor Band ', __isVideoOwner: 'User', uri_token: 'harborband', id: '61550001' } } } } };
+  const own = page('<div><video></video></div>', 'https://www.facebook.com/harborband/videos/3333333/');
+  const save = (index, win = own) => planSave(findMedia(win.document.querySelector('video'), { href: win.location.href, index }));
+
+  const index = createMediaIndex();
+  index.scan(tahoe(node('3333333')));
+  assert.equal(save(index).name, 'video 3333333 HD.mp4', 'until the name comes, the file has none in front');
+  index.scan(named);
+  assert.equal(save(index).name, 'Harbor Band video 3333333 HD.mp4');
+  const early = createMediaIndex();
+  early.scan(named);
+  early.scan(tahoe(node('3333333')));
+  assert.equal(save(early).name, 'Harbor Band video 3333333 HD.mp4', 'the name can come first');
+
+  // On a video's own page the player can sit in the post itself.
+  const inPost = page('<div role="article"><h4><a href="/pat">Pat Example</a></h4><div><video></video></div></div>', 'https://www.facebook.com/harborband/videos/3333333/');
+  assert.equal(save(index, inPost).name, 'Pat Example video 3333333 HD.mp4', "a post's own name still wins");
+  index.scan(tahoe(node('4444444', '61550002')));
+  assert.equal(save(index, page('<video></video>', 'https://www.facebook.com/watch/?v=4444444')).name, 'video 4444444 HD.mp4', "someone else's video doesn't get that name");
+  index.scan({ v: video('5555555', [['HD', 'feed']], { owner: { __typename: 'Page', id: '61550003', name: 'Pier Cafe' } }), blank: { owner: { id: '61550002', name: '  ' } } });
+  assert.equal(index.ownerName('5555555'), 'Pier Cafe', 'a video that names its owner itself');
+  assert.equal(index.ownerName('4444444'), null, 'and a blank name is no name');
+  assert.equal(index.ownerName(null), null);
+});
+
 test('a photo is found by its photo link, and pictures that are not post photos are left alone', () => {
   const win = page(POST('<a href="/photo/?fbid=9999999&set=a.1"><img class="p" src="https://cdn.example.invalid/shown.jpg"></a>')
     + '<a href="/pat"><img class="avatar" src="https://cdn.example.invalid/face.jpg"></a><img class="loose" src="x.jpg">');
