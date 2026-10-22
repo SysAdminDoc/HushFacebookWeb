@@ -4,6 +4,13 @@
 // author's h2, and the video itself sits outside the group, two levels up. The Follow button is in the h2's row
 // after a hidden " · ", a role=button whose label holds the author's name ("Follow <name>" in
 // English), which finds it in any language. Works in content mode.
+//
+// The audio line under the name ("<name> · Original audio", or the song) was live 2026-10-22 the
+// box right after the name's row, five levels up from the h2: a box whose one role=button has no
+// label and holds the music note (an <i>) and a span. The caption sits further out, and its See
+// more and Hide translation buttons hold no icon. Android hides the same line (754f4570). Its
+// other reel switch, Hide Save, has nothing to take here: the web viewer's side buttons are Like,
+// Comment, Share and Menu, and Save reel sits inside that Menu.
 
 import { whenBodyReady } from '../../core/env.js';
 
@@ -12,6 +19,7 @@ const DELAY = 150;
 
 export const CLEAN_REELS_CSS = (get) => [
   get('cleanUpReels.follow') ? `[${MARK}="follow"] { display: none !important; }` : '',
+  get('cleanUpReels.audio') ? `[${MARK}="audio"] { display: none !important; }` : '',
   // Only where there's a pointer to hover with. On a touch screen the caption stays.
   get('cleanUpReels.caption') ? `@media (hover: hover) {\n[${MARK}="overlay"] { transition: opacity 0.2s ease; }\n[${MARK}="player"]:not(:hover) [${MARK}="overlay"] { opacity: 0 !important; }\n}` : '',
 ].filter(Boolean).join('\n');
@@ -64,6 +72,21 @@ export function followOf(heading, player) {
   return button;
 }
 
+// The audio line: the first box after one of the heading's boxes, up to the block over the video,
+// whose only button is unlabelled and holds an icon and a span.
+export function audioOf(heading, bound) {
+  const isAudio = (box) => {
+    const buttons = box.querySelectorAll('[role="button"]');
+    return buttons.length === 1 && !buttons[0].hasAttribute('aria-label') && Boolean(buttons[0].querySelector('i')) && Boolean(buttons[0].querySelector('span'));
+  };
+  for (let node = heading; node && node !== bound; node = node.parentElement) {
+    for (let next = node.nextElementSibling; next; next = next.nextElementSibling) {
+      if (isAudio(next)) return next;
+    }
+  }
+  return null;
+}
+
 export function markReels(doc, styleOf) {
   let marked = 0;
   const mark = (element, kind) => {
@@ -76,8 +99,10 @@ export function markReels(doc, styleOf) {
     const player = playerOf(heading);
     if (!player) continue;
     mark(player, 'player');
-    mark(overlayOf(heading, player, styleOf), 'overlay');
+    const overlay = overlayOf(heading, player, styleOf);
+    mark(overlay, 'overlay');
     mark(followOf(heading, player), 'follow');
+    mark(audioOf(heading, overlay ?? player), 'audio');
   }
   return marked;
 }
@@ -111,11 +136,12 @@ export default {
   section: 'reels',
   android: 'Clean up Reels',
   title: 'Clean up Reels',
-  description: "Takes the Follow button off reels, and keeps a reel's name and caption off the video until you point at it.",
+  description: "Takes the Follow button off reels, and keeps a reel's name and caption off the video until you point at it. It can also hide the line that names a reel's sound.",
   default: false,
   options: [
     { key: 'follow', type: 'toggle', label: 'Hide the Follow button', default: true },
     { key: 'caption', type: 'toggle', label: 'Show the name and caption only when you point at the reel', default: true },
+    { key: 'audio', type: 'toggle', label: 'Hide the audio line', default: false },
   ],
   css: CLEAN_REELS_CSS,
 
