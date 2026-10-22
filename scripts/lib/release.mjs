@@ -13,6 +13,28 @@ export const EXTRA_STAGES = { live: 'build' };
 // publish needs the live check too.
 export const PUBLISH_NEEDS = ['live'];
 
+// The live stage's walk, as scenario labels of .claude/live-review/inject.py: Home, groups,
+// Marketplace, Reels, Watch, Messenger and a profile with every switch on and with every switch
+// off, Home in content mode, every settings panel section, ads on search, the twenty-switch loads
+// React #418 was chased on, Keep your place on Feeds, sponsored and suggested posts, chat privacy
+// and the Messenger button. Each ends PASS or FAIL and the walk takes about ten minutes, where
+// every scenario (--full) takes over an hour.
+export const RELEASE_WALK = [
+  ...['home', 'groups', 'marketplace', 'reels', 'watch', 'messages', 'profile'].flatMap((page) => [`walk-on-${page}`, `walk-off-${page}`]),
+  'walk-content-home', 'walk-panel', 'walk-search',
+  'r418-user-feeds-0', 'r418-user-feeds-1', 'r418-user-groups-0', 'r418-user-groups-1', 'r418-user-groups-2', 'r418-user-groups-3',
+  'kfix-early-feeds', 'late-kfix-feeds-0', 'cleanup-on', 'cleanup-content', 'chat-on', 'chat-off', 'messenger-on',
+];
+export const LIVE_BUDGET_MS = 15 * 60_000;
+
+// The PowerShell line the live stage hands the build queue. It runs the release walk, or the
+// scenarios HFW_ONLY already names, or with full every scenario there is.
+export function liveCommand({ script, out, userAgent, only = '', full = false }) {
+  if (only && !/^[\w-]+(,[\w-]+)*$/.test(only)) throw new Error(`HFW_ONLY should be scenario labels split by commas, not "${only}"`);
+  const pick = full ? '$env:HFW_ONLY = $null' : `$env:HFW_ONLY = '${only || RELEASE_WALK.join(',')}'`;
+  return `${pick}; & py -3.13 '${script}' '${out}' '${userAgent}'; exit $LASTEXITCODE`;
+}
+
 export const ASSETS = ['hushfacebook-web.user.js', 'hushfacebook-web.meta.js'];
 // The Chrome extension, built from the same source. Its version is in its manifest.
 export const EXTENSION_ZIP = 'hushfacebook-web-extension.zip';

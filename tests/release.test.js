@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { ASSETS, EXTENSION_ZIP, PUBLISHED, STAGES, SUMS_FILE, bannerVersion, changelogSection, parseSums, record, refusal, servedProblems, sha256, sumsText, testCommand } from '../scripts/lib/release.mjs';
+import { ASSETS, EXTENSION_ZIP, PUBLISHED, RELEASE_WALK, STAGES, SUMS_FILE, bannerVersion, changelogSection, liveCommand, parseSums, record, refusal, servedProblems, sha256, sumsText, testCommand } from '../scripts/lib/release.mjs';
 import { renderMetaBlock } from '../scripts/meta.mjs';
 import { zip } from '../scripts/zip.mjs';
 
@@ -74,6 +74,26 @@ test('the preflight runs the tests under the memory cap when there is one, and n
   assert.ok(args.includes('-Suite'));
   assert.equal(args[args.indexOf('-MemoryMB') + 1], '1536');
   assert.equal(args[args.indexOf('-Seconds') + 1], '300');
+});
+
+const walkArgs = { script: 'C:/repo/.claude/live-review/inject.py', out: 'C:/repo/captures/x', userAgent: 'UA' };
+
+test('the live stage hands the queue the whole release walk', () => {
+  const command = liveCommand(walkArgs);
+  const only = command.match(/^\$env:HFW_ONLY = '([^']+)'; /)?.[1];
+  assert.deepEqual(only?.split(','), RELEASE_WALK);
+  assert.match(command, /; & py -3\.13 'C:\/repo\/\.claude\/live-review\/inject\.py' 'C:\/repo\/captures\/x' 'UA'; exit \$LASTEXITCODE$/);
+  for (const page of ['home', 'groups', 'marketplace', 'reels', 'watch', 'messages', 'profile']) {
+    assert.ok(RELEASE_WALK.includes(`walk-on-${page}`) && RELEASE_WALK.includes(`walk-off-${page}`), page);
+  }
+  for (const label of ['walk-panel', 'walk-content-home', 'cleanup-on', 'chat-on', 'kfix-early-feeds', 'r418-user-groups-3']) assert.ok(RELEASE_WALK.includes(label), label);
+  assert.equal(new Set(RELEASE_WALK).size, RELEASE_WALK.length);
+});
+
+test('HFW_ONLY picks other scenarios, --full runs all of them, and a malformed list is refused', () => {
+  assert.match(liveCommand({ ...walkArgs, only: 'home,home-2' }), /^\$env:HFW_ONLY = 'home,home-2'; /);
+  assert.match(liveCommand({ ...walkArgs, full: true, only: 'home' }), /^\$env:HFW_ONLY = \$null; /);
+  assert.throws(() => liveCommand({ ...walkArgs, only: "home'; Remove-Item x" }), /scenario labels split by commas/);
 });
 
 test('sum files use sha256sum format and read back', () => {

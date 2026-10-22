@@ -3,10 +3,11 @@
 //   npm run release -- --stage preflight   clean main, unreleased version, notes, lint, tests
 //   npm run release -- --stage build       fresh dist/ with SHA256SUMS.txt
 //   npm run release -- --stage notes       dist/release-notes.txt from the CHANGELOG section
-//   npm run release -- --stage live        the local Playwright walk of the build, through the build queue
+//   npm run release -- --stage live        the release walk of the build on Facebook, through the build queue
 //   npm run release -- --stage publish     needs notes and live, then gh release create and checks what GitHub serves
 //
-// Add --dry-run to publish to see the gh command without creating anything. State lives in
+// Add --dry-run to publish to see the gh command without creating anything. Live runs the
+// RELEASE_WALK scenarios unless HFW_ONLY names others, and --full runs every one. State lives in
 // .release/state.json and is tied to the version and commit, so a new commit starts over.
 
 import { spawnSync } from 'node:child_process';
@@ -15,7 +16,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ASSETS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, record, refusal, servedProblems, sha256, sumsText, testCommand } from './lib/release.mjs';
+import { ASSETS, LIVE_BUDGET_MS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, liveCommand, record, refusal, servedProblems, sha256, sumsText, testCommand } from './lib/release.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DIST = path.join(ROOT, 'dist');
@@ -27,10 +28,11 @@ const LIVE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/5
 class Refused extends Error {}
 
 function parseArgs(argv) {
-  const args = { stage: null, dryRun: false };
+  const args = { stage: null, dryRun: false, full: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--dry-run') args.dryRun = true;
+    else if (arg === '--full') args.full = true;
     else if (arg === '--stage') args.stage = argv[++i] ?? null;
     else if (arg.startsWith('--stage=')) args.stage = arg.slice('--stage='.length);
     else throw new Refused(`Unknown argument: ${arg}`);
@@ -139,19 +141,28 @@ async function notes(head, state) {
   return { hash: sha256(text) };
 }
 
-async function live(head, state) {
+async function live(head, state, { full }) {
   await requireBuildUnchanged(state);
   if (!existsSync(LIVE_SCRIPT)) throw new Refused('The live check needs .claude/live-review/inject.py and its signed-in browser profile, which stay on the maintainer\'s PC.');
   const queue = process.env.BUILD_QUEUE_SCRIPT;
   if (!queue || !existsSync(queue)) throw new Refused('Set BUILD_QUEUE_SCRIPT to build-queue.ps1 so the browser check waits its turn.');
   const out = path.join(ROOT, 'captures', `${new Date().toISOString().slice(0, 10)}-release-${head.tag}`);
   await mkdir(out, { recursive: true });
-  const inner = `& py -3.13 '${LIVE_SCRIPT}' '${out}' '${LIVE_USER_AGENT}'; exit $LASTEXITCODE`;
+  const only = full ? '' : process.env.HFW_ONLY ?? '';
+  let inner;
+  try {
+    inner = liveCommand({ script: LIVE_SCRIPT, out, userAgent: LIVE_USER_AGENT, only, full });
+  } catch (error) {
+    throw new Refused(error.message);
+  }
   console.log(`\n> build-queue: ${inner}`);
+  const started = Date.now();
   const result = spawnSync('pwsh', ['-NoProfile', '-File', queue, '-Label', `hushfacebook-web ${head.tag} live check`, '-Run', inner], { cwd: ROOT, stdio: 'inherit', windowsHide: true });
-  if (result.status !== 0) throw new Refused(`The live check failed (exit ${result.status}). Results are in ${out}.`);
-  console.log(`\nLive results: ${path.join(out, 'results.json')}. Read them before publishing.`);
-  return { out };
+  if (result.status !== 0) throw new Refused(`The live check failed (exit ${result.status}). Verdicts are in ${path.join(out, 'walk.json')}.`);
+  const walk = full ? 'every scenario' : only ? `HFW_ONLY ${only}` : 'release walk';
+  if (!full && !only && Date.now() - started > LIVE_BUDGET_MS) console.warn('The release walk went over its 15 minute budget. Find what got slow before the next release.');
+  console.log(`\nWalk passed (${walk}). Verdicts: ${path.join(out, 'walk.json')}, results: ${path.join(out, 'results.json')}.`);
+  return { out, walk };
 }
 
 async function publish(head, state, { dryRun }) {

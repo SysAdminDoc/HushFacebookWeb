@@ -11,6 +11,7 @@
 * Translators have a file to start from. translations/template.json lists all 484 phrases the settings, notices and Diagnostics can show, in English, and the README explains how to send a translation in. A test keeps it in step with the script, so a new phrase can't be left out.
 * Violentmonkey on Firefox set to run the script as a content script didn't start it at all. It does now, with the page-only features off as in Chrome.
 * A release can't go public anymore until the live check has walked that exact build on Facebook. Publishing used to go ahead without it, and now it stops and says to run the live stage first. A new build means a new walk.
+* The live check before a release is a fixed walk of 30 checks now, and each one ends PASS or FAIL. It loads Home, groups, Marketplace, Reels, Watch, Messenger and a profile with every switch on and again with every switch off. It also opens every section of the settings panel, counts the ads left on screen and opens chats to see whether read receipts go out. The walk takes about nine minutes, where the old check ran for over an hour. `npm run release -- --stage live --full` still runs every check there is.
 
 ## v0.0.4 (2026-10-18)
 
