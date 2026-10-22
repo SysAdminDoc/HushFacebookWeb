@@ -14,7 +14,12 @@ const NOTICE_AFTER = 1500;
 
 export const QUALITY_OPTION = {
   key: 'quality', type: 'select', label: 'Video quality', default: 'best',
-  choices: [{ value: 'best', label: 'Best (HD when there is one)' }, { value: 'sd', label: 'Smaller file (SD)' }],
+  choices: [
+    { value: 'best', label: 'Best (HD when there is one)' },
+    { value: 'sd', label: 'Smaller file (SD)' },
+    // Facebook's sharpest copy is mostly AV1 (2026-10-22), which older players can't open.
+    { value: 'sharpest', label: "Sharpest (often AV1, which some players can't open)" },
+  ],
 };
 
 function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() }) {

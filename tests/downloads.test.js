@@ -52,7 +52,7 @@ test('a video lists its progressive files HD first, and says when it only stream
   assert.deepEqual(videoFiles(failed).files, []);
   assert.deepEqual(videoFiles({ __typename: 'Video', id: '3', playable_url: 'https://v.example.invalid/a.mp4', playable_url_quality_hd: 'https://v.example.invalid/b.mp4' }).files,
     [{ url: 'https://v.example.invalid/b.mp4', quality: 'HD' }, { url: 'https://v.example.invalid/a.mp4', quality: 'SD' }], 'the older fields still count');
-  assert.deepEqual(videoFiles({ __typename: 'Video', id: '4' }), { files: [], dash: false, stream: null });
+  assert.deepEqual(videoFiles({ __typename: 'Video', id: '4' }), { files: [], dash: false, stream: null, sharper: null });
 });
 
 // The captured video with a static manifest, its files taken away, or a live one.
@@ -103,6 +103,64 @@ test("a video with no file keeps what its manifest offers, a live one says so, a
     progressive_urls: [{ progressive_url: null, failure_reason: { type: 'NoProgressiveUrlForLive' } }],
   } } } });
   assert.equal(index.get('600').stream.live, true);
+});
+
+// A captured video as it came, with its HD and SD files and its manifest.
+async function filedVideo(id, line = 0) {
+  const lines = await fixtureLines('video-delivery-dash.jsonl');
+  return { __typename: 'Video', ...parseLine(lines[line]).data.video, id };
+}
+
+// A file whose address carries Facebook's efg parameter, naming the width it was coded at.
+const efgFor = (width, extra = {}) => btoa(JSON.stringify({ vencode_tag: `xpv_progressive.FACEBOOK..C2.${width}.progressive_h264-basic-gen2_720p`, ...extra }));
+const tagged = (width) => `https://video.example.invalid/f.mp4?efg=${encodeURIComponent(efgFor(width))}&x=1`;
+
+test('beside its file, a video keeps the streamed copies sharper than it, but none blown up past its own size', async () => {
+  const { files, stream, sharper } = videoFiles(await filedVideo('6'));
+  assert.equal(files[0].quality, 'HD');
+  assert.equal(stream, null);
+  // Every copy under the 1080p one is coded 720 wide, no bigger than an HD file.
+  assert.deepEqual(sharper.video.map((copy) => [copy.width, copy.height]), [[1080, 1920]]);
+  assert.equal(sharper.audio.codecs, 'mp4a.40.5');
+  assert.equal(sharper.duration, 28.552799);
+  assert.equal(sharper.live, false);
+  assert.deepEqual(videoFiles(await filedVideo('6', 1)).sharper.video.map((copy) => [copy.width, copy.height]), [[1080, 1440]]);
+
+  const withFile = async (url, quality = 'HD', size = {}) => {
+    const value = await filedVideo('6');
+    value.videoDeliveryResponseFragment.videoDeliveryResponseResult.progressive_urls = [{ progressive_url: url, failure_reason: null, metadata: { quality } }];
+    return { ...value, ...size };
+  };
+  const sides = (value) => videoFiles(value).sharper?.video.map((copy) => Math.min(copy.width, copy.height)) ?? null;
+  const past480 = [1080, 720, 720, 720, 720, 720, 720, 720];
+  assert.deepEqual(sides(await withFile(tagged(480))), past480, 'a file coded 480 wide');
+  assert.equal(sides(await withFile(tagged(480), 'HD', { original_width: 480, original_height: 854 })), null, 'nothing past the size of the video itself');
+  assert.deepEqual(sides(await withFile(tagged(1280))), [1080], 'HD stays at 720 or under with no size to go on');
+  assert.deepEqual(sides(await withFile(tagged(1280), 'HD', { original_width: 2560, original_height: 1080 })), past480, 'a very wide video coded 1280 by 540');
+  const plus = efgFor(480, { urlgen_source: '~~~' });
+  assert.ok(plus.includes('+'));
+  assert.deepEqual(sides(await withFile(`https://video.example.invalid/f.mp4?efg=${plus}`)), past480, 'a + left unescaped in the address');
+  assert.deepEqual(sides(await withFile('https://video.example.invalid/f.mp4?efg=bm90IGpzb24')), [1080], 'an HD file with no tag');
+  assert.deepEqual(sides(await withFile('https://video.example.invalid/f.mp4', 'SD')), past480, 'an SD file with no tag');
+  assert.equal(sides(await withFile(tagged(1080), 'HD', { original_width: 1080, original_height: 1920 })), null, 'a file as sharp as the best copy');
+  assert.equal(sides(await withFile(tagged(1040), 'HD', { original_width: 1080, original_height: 1920 })), null, 'or one not much smaller');
+
+  const xml = (await filedVideo('6')).videoDeliveryResponseFragment.videoDeliveryResponseResult.dash_manifests[0].manifest_xml;
+  const swapManifest = async (text, extra = {}) => {
+    const value = await filedVideo('6');
+    value.videoDeliveryResponseFragment.videoDeliveryResponseResult.dash_manifests[0].manifest_xml = text;
+    return { ...value, ...extra };
+  };
+  const timeless = xml.replace(/ (?:mediaPresentationDuration|duration)="[^"]*"/g, '');
+  assert.equal(videoFiles(await swapManifest(timeless)).sharper, null, "with no length there's no telling the size");
+  assert.equal(videoFiles(await swapManifest(timeless, { length_in_second: 28.5 })).sharper.duration, 28.5, "the video's own length will do");
+  assert.equal(videoFiles(await swapManifest(xml.replace(/bandwidth="5960517"/, 'bandwidth="0"'))).sharper, null, 'nor with a copy that gives no bandwidth');
+  assert.equal(videoFiles(await swapManifest(xml.replace(/<MPD\b/, '<MPD type="dynamic"'))).sharper, null, 'a live manifest has no whole copies');
+  assert.equal(videoFiles(await streamedVideo('6')).sharper, null, 'a video with no file uses the stream instead');
+
+  const index = createMediaIndex();
+  index.scan({ v: await filedVideo('6') });
+  assert.equal(index.get('6').sharper.video[0].width, 1080, 'the index keeps them with the files');
 });
 
 test("a video's own page sends the video as its answer's data with no type, and the index takes it all the same", async () => {
@@ -321,6 +379,23 @@ test('a video Facebook only streams is saved from its picture and sound copies, 
   assert.match(planSave(live).error, /This video is live/);
   const unreadable = { ...found, item: { ...found.item, stream: { ...stream, video: [] } } };
   assert.match(planSave(unreadable).error, /only streams this video in small pieces/, 'a manifest with no whole copies keeps the old answer');
+  assert.deepEqual(planSave(found, { quality: 'sharpest' }), planSave(found), 'the sharpest of a streamed video is its best');
+});
+
+test('Sharpest joins the streamed copy sharper than the HD file, and saves the file when none is or it would be too big', async () => {
+  const { files, sharper } = videoFiles(await filedVideo('6'));
+  const found = { feature: 'downloadVideos', kind: 'video', id: '6', author: 'Pat', item: { kind: 'video', id: '6', files, dash: true, stream: null, sharper } };
+  assert.deepEqual(planSave(found, { quality: 'sharpest' }), { name: 'Pat video 6 1080p.mp4', quality: '1080p', parts: [sharper.video[0].url, sharper.audio.url] });
+  assert.equal(planSave(found).url, files[0].url, 'Best stays with the HD file');
+  assert.equal(planSave(found, { quality: 'sd' }).quality, 'SD');
+  const silent = { ...found, item: { ...found.item, sharper: { ...sharper, audio: null } } };
+  assert.deepEqual(planSave(silent, { quality: 'sharpest' }), { name: 'Pat video 6 1080p.mp4', quality: '1080p', url: sharper.video[0].url });
+  // 28.55 seconds of the 1080p copy and its sound come to about 21 MB.
+  assert.deepEqual(planSave(found, { quality: 'sharpest', limit: 20e6 }), planSave(found), 'past the limit, the HD file');
+  assert.deepEqual(planSave({ ...found, item: { ...found.item, sharper: null } }, { quality: 'sharpest' }), planSave(found), 'nothing sharper, the HD file');
+
+  const offered = [downloadVideos, downloadReels, downloadStories].map((feature) => feature.options.find((option) => option.key === 'quality').choices.map((choice) => choice.value));
+  assert.deepEqual(offered, [['best', 'sd', 'sharpest'], ['best', 'sd', 'sharpest'], ['best', 'sd', 'sharpest']]);
 });
 
 test('file names lose characters a file system or a reader could trip on', () => {

@@ -143,26 +143,34 @@ export function findMedia(element, { href, index }) {
   return { feature: 'downloadPhotos', kind: 'photo', id: target.id, item: asKind(index?.get(target.id), 'photo'), author: authorOf(element), fallback };
 }
 
+// A video put together from a picture copy and its sound, or the picture alone when it's silent.
+function joinedPlan(found, label, item, pick) {
+  const name = fileName([found.author, label, item.id, `${pick.video.quality}p`], 'mp4');
+  const plan = { name, quality: `${pick.video.quality}p` };
+  return pick.audio ? { ...plan, parts: [pick.video.url, pick.audio.url] } : { ...plan, url: pick.video.url };
+}
+
 // The address and file name to save, or { error, params } saying why there's nothing to save.
 // A video Facebook only streams comes as parts instead of an address: its picture and its
-// sound, to be joined. quality: 'best' or 'sd'.
+// sound, to be joined. quality: 'best', 'sd', or 'sharpest', which joins a streamed copy
+// sharper than the HD file when there's one that fits, and otherwise is 'best'.
 export function planSave(found, { quality = 'best', limit = STREAM_LIMIT } = {}) {
   const label = LABELS[found.feature] ?? 'media';
   if (found.kind === 'video') {
     const { item } = found;
     if (!item && !found.id) return { error: "Couldn't tell which video this is. Open it from its post and try again." };
     if (!item) return { error: "Facebook hasn't sent this video's file yet. Let it play for a moment, or open it, and try again." };
+    if (quality === 'sharpest' && item.sharper) {
+      const pick = pickCopies(item.sharper, { limit });
+      if (pick?.video) return joinedPlan(found, label, item, pick);
+    }
     const file = (quality === 'sd' ? item.files.find((f) => f.quality === 'SD') : null) ?? item.files[0];
     if (!file) {
       const { stream } = item;
       if (stream?.live) return { error: 'This video is live. Facebook has a file to save once it ends.' };
       const pick = stream ? pickCopies(stream, { quality, limit }) : null;
       if (pick?.tooBig) return { error: "This video is too long to put together in the browser (about {size} MB at its smallest).", params: { size: Math.round(pick.tooBig / 1e6) } };
-      if (pick) {
-        const name = fileName([found.author, label, item.id, `${pick.video.quality}p`], 'mp4');
-        const plan = { name, quality: `${pick.video.quality}p` };
-        return pick.audio ? { ...plan, parts: [pick.video.url, pick.audio.url] } : { ...plan, url: pick.video.url };
-      }
+      if (pick) return joinedPlan(found, label, item, pick);
       return { error: item.dash ? 'Facebook only streams this video in small pieces, so there is no single file to save.' : "Facebook didn't send a file for this video." };
     }
     const name = fileName([found.author, label, item.id, file.quality === 'HD' ? 'HD' : null], extensionOf(file.url, 'mp4'));

@@ -8,7 +8,7 @@ export default {
   section: 'downloads',
   android: 'Download any reel',
   title: 'Download any reel',
-  description: 'Shows a Download button on reels when you point at them or Tab to them. Reels save in the best quality Facebook offers unless you pick smaller files.',
+  description: 'Shows a Download button on reels when you point at them or Tab to them. Reels save in HD when Facebook has it, or you can pick smaller files or the sharpest copy Facebook streams.',
   default: true,
   needsPage: true,
   options: [QUALITY_OPTION],
