@@ -129,13 +129,13 @@ export function joinGroups(node) {
 // 250 Home answers on 2026-10-22. Facebook's own category says it isn't a suggestion.
 const isOwnGroupPost = (edge, node) => titleHas(node, JOIN_TYPENAME) && feedCategory(edge) === 'ORGANIC';
 
-// The groups of each such post in an answer, one set per post.
+// The groups of each such post in an answer, one set per post. A post inside another is read
+// on its own, the way pruneAds judges it.
 export function ownGroupPosts(doc) {
   const posts = [];
   walk(doc, (value) => {
-    if (!('cursor' in value) || !isObject(value.node)) return undefined;
-    if (isOwnGroupPost(value, value.node)) posts.push(joinGroups(value.node));
-    return SKIP;
+    if ('cursor' in value && isObject(value.node) && isOwnGroupPost(value, value.node)) posts.push(joinGroups(value.node));
+    return undefined;
   });
   return posts;
 }

@@ -458,12 +458,23 @@ test('a post Facebook files as ORGANIC keeps its Join button, and its group is r
   const otherJoin = { ...joinTitle, if_viewer_can_join_group: { join_action: { __typename: 'GroupJoinForumAction', group: { id: '999' } } } };
   const sharing = edge2026('share', {}, { to: groupPost('own', 'ORGANIC', '501').node.to, attached_story: titled('shared', otherJoin).node });
   assert.deepEqual([...joinGroups(sharing.node)].sort(), ['123', 'bakers'], "a shared post's Join action is for its own group");
+  const sharingOwn = edge2026('share2', {}, { if_viewer_can_join_group: { join_action: { __typename: 'GroupJoinForumAction', group: { id: '555' } } }, attached_story: titled('shared', otherJoin).node });
+  assert.deepEqual([...joinGroups(sharingOwn.node)], ['555'], "and the sharing post's own Join action counts");
 
   const answer = () => ({ data: { viewer: { news_feed: { edges: [groupPost('own', 'ORGANIC', '501'), groupPost('other', 'ENGAGEMENT', '502'), edge2026('friend')] } } } });
   assert.deepEqual(ownGroupPosts(answer()).map((groups) => [...groups].sort()), [['123', 'bakers']]);
-  const holder = groupPost('other', 'ENGAGEMENT', '502');
-  holder.node.items = { edges: [{ ...groupPost('inner', 'ORGANIC', '504'), node: { ...groupPost('inner', 'ORGANIC', '504').node, to: { __typename: 'Group', id: '444' } } }] };
-  assert.deepEqual(ownGroupPosts({ data: { viewer: { news_feed: { edges: [holder] } } } }), [], 'an edge inside another speaks for itself');
+  // A post inside another is read on its own, whatever its holder is, and never adds to it.
+  const inner = () => categorized('inner', 'ORGANIC', '504', {
+    to: { __typename: 'Group', id: '444' },
+    comet_sections: { context_layout: { story: { comet_sections: { title: { ...joinTitle, if_viewer_can_join_group: { join_action: { __typename: 'GroupJoinForumAction', group: { id: '444' } } } } } } } },
+  });
+  const holding = (outer) => {
+    outer.node.items = { edges: [inner()] };
+    return ownGroupPosts({ data: { viewer: { news_feed: { edges: [outer] } } } }).map((groups) => [...groups].sort());
+  };
+  assert.deepEqual(holding(edge2026('friend')), [['444']], 'inside a post that stays');
+  assert.deepEqual(holding(groupPost('other', 'ENGAGEMENT', '502')), [['444']], 'inside a suggestion');
+  assert.deepEqual(holding(groupPost('own', 'ORGANIC', '501')), [['123', 'bakers'], ['444']], 'inside another of these');
   const doc = answer();
   adRule('hideSuggestedPosts', () => true, null).transform(doc, { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' });
   assert.deepEqual(doc.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null), ['own', null, 'friend']);
