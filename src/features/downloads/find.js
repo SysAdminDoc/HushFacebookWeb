@@ -7,6 +7,7 @@
 // live on 2026-10-11). The address only names the page's own viewer, never a photo or video
 // in a comment or a post below it.
 
+import { pickCopies } from '../../core/dash.js';
 import { fileName, extensionOf } from '../../core/download.js';
 import { isComment } from '../../core/dom/posts.js';
 import { normalizeText } from '../../core/dom/visible-text.js';
@@ -16,6 +17,9 @@ const POST = '[aria-posinset], [role="article"]';
 const COMMENT_LINK = /[?&](?:reply_comment_id|comment_id)=/;
 const MAX_LEVELS = 14;
 const LABELS = { downloadVideos: 'video', downloadReels: 'reel', downloadStories: 'story', downloadPhotos: 'photo' };
+// A video put together from its pieces is held whole in the tab twice over (both copies, then
+// the joined file), so a copy whose estimate runs past this steps down to a smaller one.
+export const STREAM_LIMIT = 750e6;
 
 // What a link or address points at: a reel, a video or a photo, with its id.
 export function linkTarget(href) {
@@ -139,9 +143,10 @@ export function findMedia(element, { href, index }) {
   return { feature: 'downloadPhotos', kind: 'photo', id: target.id, item: asKind(index?.get(target.id), 'photo'), author: authorOf(element), fallback };
 }
 
-// The address and file name to save, or { error } saying why there's nothing to save.
-// quality: 'best' or 'sd'.
-export function planSave(found, { quality = 'best' } = {}) {
+// The address and file name to save, or { error, params } saying why there's nothing to save.
+// A video Facebook only streams comes as parts instead of an address: its picture and its
+// sound, to be joined. quality: 'best' or 'sd'.
+export function planSave(found, { quality = 'best', limit = STREAM_LIMIT } = {}) {
   const label = LABELS[found.feature] ?? 'media';
   if (found.kind === 'video') {
     const { item } = found;
@@ -149,6 +154,15 @@ export function planSave(found, { quality = 'best' } = {}) {
     if (!item) return { error: "Facebook hasn't sent this video's file yet. Let it play for a moment, or open it, and try again." };
     const file = (quality === 'sd' ? item.files.find((f) => f.quality === 'SD') : null) ?? item.files[0];
     if (!file) {
+      const { stream } = item;
+      if (stream?.live) return { error: 'This video is live. Facebook has a file to save once it ends.' };
+      const pick = stream ? pickCopies(stream, { quality, limit }) : null;
+      if (pick?.tooBig) return { error: "This video is too long to put together in the browser (about {size} MB at its smallest).", params: { size: Math.round(pick.tooBig / 1e6) } };
+      if (pick) {
+        const name = fileName([found.author, label, item.id, `${pick.video.quality}p`], 'mp4');
+        const plan = { name, quality: `${pick.video.quality}p` };
+        return pick.audio ? { ...plan, parts: [pick.video.url, pick.audio.url] } : { ...plan, url: pick.video.url };
+      }
       return { error: item.dash ? 'Facebook only streams this video in small pieces, so there is no single file to save.' : "Facebook didn't send a file for this video." };
     }
     const name = fileName([found.author, label, item.id, file.quality === 'HD' ? 'HD' : null], extensionOf(file.url, 'mp4'));

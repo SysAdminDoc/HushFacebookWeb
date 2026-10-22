@@ -5,6 +5,11 @@
 // types on its list, for one), the file is fetched and handed to a download link instead,
 // through GM_xmlhttpRequest when the manager has it, since Facebook's servers don't let the
 // page itself read their files, and through fetch otherwise.
+//
+// A video Facebook only streams comes as two parts, its picture and its sound. Both are
+// fetched the same way, joined into one MP4 (mp4-merge.js) and saved through the link.
+
+import { mergeTracks } from './mp4-merge.js';
 
 // A long HD video on a slow connection takes minutes, and the limit covers the whole transfer.
 const TIMEOUT = 600000;
@@ -71,12 +76,14 @@ function viaManager(download, url, name, timeout) {
   return { done, abort: () => handle?.abort?.() };
 }
 
-function fetchBlob(url, { request, win, timeout }) {
+// type: 'blob', or 'arraybuffer' for a part to be joined, so it isn't held as a Blob and a
+// copy of it at once.
+function fetchBlob(url, { request, win, timeout, type = 'blob' }) {
   if (request) {
     let handle = null;
     const done = new Promise((resolve, reject) => {
       handle = request({
-        method: 'GET', url, responseType: 'blob', timeout, anonymous: true,
+        method: 'GET', url, responseType: type, timeout, anonymous: true,
         onload: (response) => (response.status >= 200 && response.status < 300 && response.response
           ? resolve(response.response)
           : reject(new Error(`the server answered ${response.status}`))),
@@ -89,18 +96,52 @@ function fetchBlob(url, { request, win, timeout }) {
   const controller = new (win.AbortController ?? AbortController)();
   const done = win.fetch(url, { credentials: 'omit', signal: controller.signal }).then((response) => {
     if (!response.ok) throw new Error(`the server answered ${response.status}`);
-    return response.blob();
+    return type === 'arraybuffer' ? response.arrayBuffer() : response.blob();
   });
   return { done, abort: () => controller.abort() };
 }
 
+// A video's parts, fetched at once. One failing stops the rest, since the save is over then.
+function fetchParts(parts, options) {
+  const tries = parts.map((part) => fetchBlob(part, { ...options, type: 'arraybuffer' }));
+  const abort = () => tries.forEach((step) => step.abort());
+  const done = Promise.all(tries.map((step) => step.done));
+  done.catch(abort);
+  return { done, abort };
+}
+
+// Any fault in the parts (a file cut short reads past its end too) gets the reason a save's
+// notice shows, with the merger's own kept for the log.
+function joinParts(picture, sound) {
+  try {
+    return mergeTracks(new Uint8Array(picture), sound ? new Uint8Array(sound) : null);
+  } catch (error) {
+    throw new Error("the video and its sound didn't fit together", { cause: error });
+  }
+}
+
+function saveThroughLink(blob, name, doc, container) {
+  const href = URL.createObjectURL(blob);
+  const link = doc.createElement('a');
+  link.href = href;
+  link.download = name;
+  link.rel = 'noopener';
+  link.style.display = 'none';
+  (container ?? doc.body ?? doc.documentElement).append(link);
+  link.click();
+  link.remove();
+  // The browser has the file by then. In Node (the tests) the timer mustn't hold the process.
+  setTimeout(() => URL.revokeObjectURL(href), 60000).unref?.();
+}
+
 // api: { download, request } from the manager (env.js gmApi), either may be null.
+// parts: in place of url, a picture and a sound address to fetch together and join.
 // container: where the temporary link goes, so nothing is added to Facebook's markup.
 // Returns { done, cancel }. done resolves 'manager' or 'link', the way it was saved, or rejects
 // (error.cancelled when the person cancelled, here or in the browser). It settles once, and
 // whatever ends it first (the save, an error, cancel() or the deadline) stops the try that's
 // running. A cancel or the deadline never starts the next try.
-export function startSave({ url, name, api = {}, doc = globalThis.document, win = globalThis, container = null, deadline = TIMEOUT }) {
+export function startSave({ url, parts = null, name, api = {}, doc = globalThis.document, win = globalThis, container = null, deadline = TIMEOUT }) {
   let over = false;
   let running = null;
   let settle;
@@ -133,6 +174,13 @@ export function startSave({ url, name, api = {}, doc = globalThis.document, win 
   };
 
   const run = async () => {
+    if (parts) {
+      const [picture, sound] = await attempt(fetchParts(parts, { request: api.request, win, timeout: deadline }));
+      if (over) return undefined;
+      const pieces = joinParts(picture, sound);
+      saveThroughLink(new (win.Blob ?? Blob)(pieces, { type: 'video/mp4' }), name, doc, container);
+      return 'link';
+    }
     if (api.download) {
       try {
         await attempt(viaManager(api.download, url, name, deadline));
@@ -146,17 +194,7 @@ export function startSave({ url, name, api = {}, doc = globalThis.document, win 
     }
     const blob = await attempt(fetchBlob(url, { request: api.request, win, timeout: deadline }));
     if (over) return undefined;
-    const href = URL.createObjectURL(blob);
-    const link = doc.createElement('a');
-    link.href = href;
-    link.download = name;
-    link.rel = 'noopener';
-    link.style.display = 'none';
-    (container ?? doc.body ?? doc.documentElement).append(link);
-    link.click();
-    link.remove();
-    // The browser has the file by then. In Node (the tests) the timer mustn't hold the process.
-    setTimeout(() => URL.revokeObjectURL(href), 60000).unref?.();
+    saveThroughLink(blob, name, doc, container);
     return 'link';
   };
   run().then((how) => settle(null, how), (error) => settle(error));

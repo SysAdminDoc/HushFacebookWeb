@@ -5,11 +5,13 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
+import { boxes, text, trackFile } from './helpers/mp4.js';
 import { extensionOf, fileName, saveFile, startSave } from '../src/core/download.js';
 import { createMediaIndex, MEDIA_MARKERS, photoFile, videoFiles } from '../src/core/media-index.js';
 import { createDownloadButton, mediaAt } from '../src/features/downloads/button.js';
 import { authorOf, findMedia, linkTarget, nearestVideoLink, pageTarget, planSave } from '../src/features/downloads/find.js';
 import { downloads } from '../src/features/downloads/shared.js';
+import { t } from '../src/core/i18n.js';
 import downloadPhotos from '../src/features/downloads/download-photos.js';
 import downloadReels from '../src/features/downloads/download-reels.js';
 import downloadStories from '../src/features/downloads/download-stories.js';
@@ -50,7 +52,57 @@ test('a video lists its progressive files HD first, and says when it only stream
   assert.deepEqual(videoFiles(failed).files, []);
   assert.deepEqual(videoFiles({ __typename: 'Video', id: '3', playable_url: 'https://v.example.invalid/a.mp4', playable_url_quality_hd: 'https://v.example.invalid/b.mp4' }).files,
     [{ url: 'https://v.example.invalid/b.mp4', quality: 'HD' }, { url: 'https://v.example.invalid/a.mp4', quality: 'SD' }], 'the older fields still count');
-  assert.deepEqual(videoFiles({ __typename: 'Video', id: '4' }), { files: [], dash: false });
+  assert.deepEqual(videoFiles({ __typename: 'Video', id: '4' }), { files: [], dash: false, stream: null });
+});
+
+// The captured video with a static manifest, its files taken away, or a live one.
+async function streamedVideo(id, { live = false } = {}) {
+  const [line] = await fixtureLines('video-delivery-dash.jsonl');
+  const value = parseLine(line).data.video;
+  const result = value.videoDeliveryResponseFragment.videoDeliveryResponseResult;
+  result.progressive_urls = result.progressive_urls.map((entry) => ({ ...entry, progressive_url: null, failure_reason: { type: live ? 'NoProgressiveUrlForLive' : 'Unknown' } }));
+  if (live) result.dash_manifests = [{ manifest_xml: '<MPD type="dynamic"><Period/></MPD>', failure_reason: null }];
+  return { __typename: 'Video', ...value, id };
+}
+
+test("a video with no file keeps what its manifest offers, a live one says so, and the index holds on to it", async () => {
+  const { files, stream } = videoFiles(await streamedVideo('8'));
+  assert.deepEqual(files, []);
+  assert.equal(stream.live, false);
+  assert.equal(stream.video.length, 8);
+  assert.equal(stream.audio.codecs, 'mp4a.40.5');
+  assert.equal(videoFiles(await streamedVideo('8', { live: true })).stream.live, true);
+  const liveNoManifest = await streamedVideo('8', { live: true });
+  liveNoManifest.videoDeliveryResponseFragment.videoDeliveryResponseResult.dash_manifests = [];
+  assert.deepEqual(videoFiles(liveNoManifest).stream, { duration: null, video: [], audio: null, live: true }, 'its file entries alone say it is live');
+  assert.equal(videoFiles(video('9')).stream, null, 'a video with a file needs no pieces');
+  const xml = (await streamedVideo('8')).videoDeliveryResponseFragment.videoDeliveryResponseResult.dash_manifests[0].manifest_xml;
+  assert.equal(videoFiles({ __typename: 'Video', id: '8', dash_manifest: xml }).stream.video.length, 8, 'the older dash_manifest field still counts');
+  const timeless = { __typename: 'Video', id: '8', playable_duration_in_ms: 84842, dash_manifest: xml.replace(/ (?:mediaPresentationDuration|duration)="[^"]*"/g, '') };
+  assert.equal(videoFiles(timeless).stream.duration, 84.842, "the video's own length when the manifest gives none");
+  assert.equal(videoFiles({ ...timeless, playable_duration_in_ms: undefined, length_in_second: 84.842 }).stream.duration, 84.842);
+
+  const index = createMediaIndex();
+  index.scan({ v: await streamedVideo('500') });
+  const bare = { __typename: 'Video', id: '500', videoDeliveryResponseFragment: { videoDeliveryResponseResult: { dash_manifest_urls: ['https://video.example.invalid/500.mpd'] } } };
+  index.scan({ v: bare });
+  assert.equal(index.get('500').stream.video.length, 8, 'a later copy with nothing to read keeps the manifest');
+  const empty = await streamedVideo('500');
+  empty.videoDeliveryResponseFragment.videoDeliveryResponseResult.dash_manifests = [{ manifest_xml: '<MPD type="static"><Period/></MPD>' }];
+  index.scan({ v: empty });
+  assert.equal(index.get('500').stream.video.length, 8, 'and so does one whose manifest has no whole copies');
+  const fresher = await streamedVideo('500');
+  fresher.videoDeliveryResponseFragment.videoDeliveryResponseResult.dash_manifests[0].manifest_xml = fresher.videoDeliveryResponseFragment.videoDeliveryResponseResult.dash_manifests[0].manifest_xml.replace(/cdn\.example\.invalid/g, 'cdn2.example.invalid');
+  index.scan({ v: fresher });
+  assert.match(index.get('500').stream.video[0].url, /cdn2\.example\.invalid/, 'a newer manifest replaces it, with addresses that last longer');
+  index.scan({ v: video('500') });
+  assert.equal(index.get('500').files.length, 2, 'and files win over pieces');
+
+  // A live video with no manifest at all is still kept, so the button can say it's live.
+  index.scan({ v: { __typename: 'Video', id: '600', videoDeliveryResponseFragment: { videoDeliveryResponseResult: {
+    progressive_urls: [{ progressive_url: null, failure_reason: { type: 'NoProgressiveUrlForLive' } }],
+  } } } });
+  assert.equal(index.get('600').stream.live, true);
 });
 
 test('a photo is saved from its largest copy with an address', () => {
@@ -226,6 +278,30 @@ test('the saved file is HD unless smaller files are picked, and a stream-only vi
   assert.match(planSave({ ...found, item: null }).error, /hasn't sent this video's file yet/);
 });
 
+test('a video Facebook only streams is saved from its picture and sound copies, unless it is live or too long', async () => {
+  const { stream } = videoFiles(await streamedVideo('6'));
+  const found = { feature: 'downloadVideos', kind: 'video', id: '6', author: 'Pat', item: { kind: 'video', id: '6', files: [], dash: true, stream } };
+  assert.deepEqual(planSave(found), { name: 'Pat video 6 1080p.mp4', quality: '1080p', parts: [stream.video[0].url, stream.audio.url] });
+  assert.equal(planSave(found, { quality: 'sd' }).name, 'Pat video 6 480p.mp4');
+  const silent = { ...found, item: { ...found.item, stream: { ...stream, audio: null } } };
+  assert.deepEqual(planSave(silent), { name: 'Pat video 6 1080p.mp4', quality: '1080p', url: stream.video[0].url }, 'a silent copy is a whole file already');
+
+  // 28.55 seconds: the 240p copy and the sound come to about 1.5 MB, which reads as 2.
+  const tooLong = planSave(found, { limit: 1e6 });
+  assert.equal(tooLong.error, 'This video is too long to put together in the browser (about {size} MB at its smallest).');
+  assert.deepEqual(tooLong.params, { size: 2 });
+  assert.match(t(tooLong.error, tooLong.params), /about 2 MB at its smallest/);
+  assert.ok(planSave(found).parts, 'the usual limit takes this one whole');
+
+  const timeless = { ...found, item: { ...found.item, stream: { ...stream, duration: null } } };
+  assert.equal(planSave(timeless).name, 'Pat video 6 480p.mp4', "with no length there's no estimate, so the smaller copy");
+
+  const live = { ...found, item: { ...found.item, stream: { ...stream, live: true, video: [] } } };
+  assert.match(planSave(live).error, /This video is live/);
+  const unreadable = { ...found, item: { ...found.item, stream: { ...stream, video: [] } } };
+  assert.match(planSave(unreadable).error, /only streams this video in small pieces/, 'a manifest with no whole copies keeps the old answer');
+});
+
 test('file names lose characters a file system or a reader could trip on', () => {
   assert.equal(fileName(['A/B: "C"?', 'video', '1'], 'mp4'), 'A B C video 1.mp4');
   assert.equal(fileName([`evil${String.fromCodePoint(0x202e)}gpj`, null, 'photo'], 'jpg'), 'evil gpj photo.jpg');
@@ -389,6 +465,79 @@ test('a save has one deadline over every try, and cancel or the deadline stops t
   assert.equal(await quick.done, 'manager');
   quick.cancel();
   assert.deepEqual(aborted, ['download', 'manager', 'request'], 'nothing aborts a finished save');
+});
+
+test('a video in two parts is fetched whole, joined into one MP4 and saved through the link', async (t) => {
+  const made = [];
+  const createObjectURL = URL.createObjectURL;
+  URL.createObjectURL = (blob) => (made.push(blob), 'blob:x');
+  t.after(() => { URL.createObjectURL = createObjectURL; });
+  const files = {
+    'https://video.example.invalid/p.mp4': trackFile({ fragments: [[0, 'P0'], [30720, 'P2']] }),
+    'https://video.example.invalid/s.mp4': trackFile({ mediaScale: 44100, fragments: [[0, 'S0']] }),
+  };
+  const parts = Object.keys(files);
+  const asked = [];
+  const api = {
+    download: () => assert.fail("the manager can't join two files"),
+    request: (options) => {
+      asked.push([options.url, options.responseType]);
+      options.onload({ status: 200, response: files[options.url].slice().buffer });
+      return { abort() {} };
+    },
+  };
+  const doc = fakeDoc();
+  assert.equal(await startSave({ parts, name: 'v.mp4', api, doc }).done, 'link');
+  assert.deepEqual(asked, parts.map((url) => [url, 'arraybuffer']));
+  assert.deepEqual(doc.clicks, ['v.mp4']);
+  assert.equal(made[0].type, 'video/mp4');
+  const saved = new Uint8Array(await made[0].arrayBuffer());
+  assert.deepEqual(boxes(saved).filter((b) => b.type === 'mdat').map((b) => text(saved, b)), ['P0', 'S0', 'P2']);
+
+  // The extension has no manager request, so the page fetches them.
+  const win = { fetch: async (url) => new Response(files[url].slice()) };
+  const viaFetch = fakeDoc();
+  assert.equal(await startSave({ parts, name: 'w.mp4', api: {}, doc: viaFetch, win }).done, 'link');
+  assert.deepEqual(viaFetch.clicks, ['w.mp4']);
+});
+
+test('cancelling a two-part save stops both transfers, and one part failing stops the other', async () => {
+  const parts = ['https://video.example.invalid/p.mp4', 'https://video.example.invalid/s.mp4'];
+  const aborted = [];
+  const waiting = {};
+  const api = {
+    request: (options) => {
+      waiting[options.url] = options;
+      return { abort: () => aborted.push(options.url) };
+    },
+  };
+  const doc = fakeDoc();
+  const save = startSave({ parts, name: 'a.mp4', api, doc });
+  save.cancel();
+  await assert.rejects(save.done, (error) => error.cancelled === true);
+  assert.deepEqual(aborted, parts);
+
+  aborted.length = 0;
+  const failing = startSave({ parts, name: 'b.mp4', api, doc });
+  waiting[parts[1]].onload({ status: 403, response: null });
+  await assert.rejects(failing.done, /answered 403/);
+  assert.ok(aborted.includes(parts[0]), 'the picture stops downloading once the sound has failed');
+
+  const mismatched = startSave({ parts, name: 'c.mp4', api: { request: (options) => (options.onload({ status: 200, response: new Uint8Array(64).buffer }), { abort() {} }) }, doc });
+  await assert.rejects(mismatched.done, (error) => error.message === "the video and its sound didn't fit together" && /not one fragmented track/.test(error.cause.message));
+  assert.deepEqual(doc.clicks, [], 'nothing was saved');
+
+  aborted.length = 0;
+  await assert.rejects(startSave({ parts, name: 'd.mp4', api, doc, deadline: 20 }).done, /took too long/);
+  assert.deepEqual(aborted, parts, 'the deadline stops both');
+
+  // Both parts in, then a cancel before they're joined: nothing is saved.
+  const arriving = startSave({ parts, name: 'e.mp4', api, doc });
+  for (const url of parts) waiting[url].onload({ status: 200, response: trackFile().buffer });
+  arriving.cancel();
+  await assert.rejects(arriving.done, (error) => error.cancelled === true);
+  await nextTurn();
+  assert.deepEqual(doc.clicks, []);
 });
 
 test('a transfer well past twenty seconds still saves, and the deadline is ten minutes for the whole save', async (t) => {
@@ -1006,4 +1155,22 @@ test('a failed save says why in one notice and keeps the details for Diagnostics
   await shared.run(findMedia(doc.querySelector('img'), { href: win.location.href, index: shared.index }), doc.body);
   assert.deepEqual(toasts, [["Couldn't save it: the file couldn't be fetched.", 'error']]);
   assert.deepEqual(logged, [['warn', "Couldn't save a photo or video"]]);
+
+  // A streamed video ten hours long says how big it would be.
+  toasts.length = 0;
+  const stream = { live: false, duration: 36000, video: [{ url: 'https://video.example.invalid/7.mp4', quality: 240, bandwidth: 2e6 }], audio: null };
+  await shared.run({ feature: 'downloadPhotos', kind: 'video', id: '7', author: 'Pat', item: { kind: 'video', id: '7', files: [], dash: true, stream } }, doc.body);
+  assert.deepEqual(toasts, [['This video is too long to put together in the browser (about 9000 MB at its smallest).', 'error']]);
+
+  // One that fits asks for its picture and its sound.
+  toasts.length = 0;
+  const asked = [];
+  api.request = ({ url, onerror }) => {
+    asked.push(url);
+    onerror();
+    return {};
+  };
+  const joinable = { ...stream, duration: 10, audio: { url: 'https://video.example.invalid/7-sound.mp4', bandwidth: 64000 } };
+  await shared.run({ feature: 'downloadPhotos', kind: 'video', id: '7', author: 'Pat', item: { kind: 'video', id: '7', files: [], dash: true, stream: joinable } }, doc.body);
+  assert.deepEqual(asked, ['https://video.example.invalid/7.mp4', 'https://video.example.invalid/7-sound.mp4']);
 });

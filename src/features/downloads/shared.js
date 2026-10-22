@@ -48,10 +48,10 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
     const settings = switches.get(found.feature);
     const plan = planSave(found, { quality: settings?.quality?.() });
     if (plan.error) {
-      toast?.(t(plan.error), { tone: 'error' });
+      toast?.(t(plan.error, plan.params), { tone: 'error' });
       return;
     }
-    const save = startSave({ url: plan.url, name: plan.name, api, doc, win, container });
+    const save = startSave({ url: plan.url, parts: plan.parts, name: plan.name, api, doc, win, container });
     // A quick save needs no notice. One still going after a moment gets one with Cancel,
     // which stays until the save ends.
     let notice = null;

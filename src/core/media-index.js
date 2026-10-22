@@ -6,7 +6,8 @@
 //          [{progressive_url, failure_reason, metadata: {quality: 'SD' | 'HD'}}], beside its
 //          DASH manifests. All 48 full videos in captured feed answers had both an SD and an HD
 //          file, and stories carry the same. Older answers had playable_url_quality_hd and
-//          friends on the video itself, which are still read.
+//          friends on the video itself, which are still read. A video with no file keeps what
+//          its manifest offers instead (dash.js), so it can be put together from its pieces.
 //   Photo  viewer_image, image or photo_image, each {uri, width, height}. viewer_image is the
 //          largest and had a uri on 258 of 418 photos. The rest only had the smaller copies.
 //   Story  a card is {id: 'UzpfSVNDOj...', story_card_info, attachments: [{media}]}, and its id
@@ -14,6 +15,7 @@
 //          unified_stories_with_notes.edges, and the bucket's story_bucket_owner.name is whose
 //          story it is (a card's own actors only carry an id).
 
+import { readManifest } from './dash.js';
 import { walk } from './json-walk.js';
 
 const MAX_ITEMS = 4000;
@@ -31,7 +33,9 @@ export const MEDIA_MARKERS = ['"progressive_url"', '"playable_url', '"browser_na
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isUrl = (value) => typeof value === 'string' && /^https:\/\//.test(value);
 
-// The files a video can be saved from, HD first, and whether it also streams as DASH.
+// The files a video can be saved from, HD first, whether it also streams as DASH, and with no
+// file, what its manifest offers (null when there's no manifest to read). Its file entries say
+// NoProgressiveUrlForLive while it's live.
 export function videoFiles(video) {
   const result = video?.videoDeliveryResponseFragment?.videoDeliveryResponseResult;
   const files = [];
@@ -51,7 +55,16 @@ export function videoFiles(video) {
   files.sort((a, b) => (a.quality === b.quality ? 0 : a.quality === 'HD' ? -1 : 1));
   const dash = Boolean(result?.dash_manifests?.length || result?.dash_manifest_urls?.length || result?.hls_playlist_urls?.length
     || video?.dash_manifest || video?.playlist);
-  return { files, dash };
+  let stream = null;
+  if (!files.length) {
+    const live = Array.isArray(result?.progressive_urls) && result.progressive_urls.some((entry) => /Live/.test(entry?.failure_reason?.type ?? ''));
+    const xml = (Array.isArray(result?.dash_manifests) ? result.dash_manifests : []).find((m) => typeof m?.manifest_xml === 'string')?.manifest_xml ?? video?.dash_manifest;
+    const manifest = readManifest(xml);
+    // The video's own length when the manifest gives none.
+    const length = Number(video?.playable_duration_in_ms) / 1000 || Number(video?.length_in_second) || null;
+    if (manifest || live) stream = { video: [], audio: null, ...manifest, duration: manifest?.duration ?? length, live: live || Boolean(manifest?.live) };
+  }
+  return { files, dash, stream };
 }
 
 // The largest copy of a photo that has an address.
@@ -82,13 +95,15 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
   function record(value) {
     const id = typeof value.id === 'string' ? value.id : null;
     if (id && value.__typename === 'Video') {
-      const { files, dash } = videoFiles(value);
+      const { files, dash, stream } = videoFiles(value);
       const old = items.get(id);
-      // A bare reference to a video ({__typename, id}) carries nothing to save.
-      if (files.length || dash) {
-        if (!(old?.kind === 'video' && old.files.length > files.length)) {
+      // A bare reference to a video ({__typename, id}) carries nothing to save. A stream that
+      // offers nothing (no whole copies, not live) doesn't replace one that does.
+      const usable = (entry) => Boolean(entry && (entry.live || entry.video.length));
+      if (files.length || dash || stream) {
+        if (!(old?.kind === 'video' && (old.files.length > files.length || (!files.length && usable(old.stream) && !usable(stream))))) {
           put(items, id, {
-            kind: 'video', id, files, dash,
+            kind: 'video', id, files, dash, stream,
             width: Number(value.original_width ?? value.width) || null,
             height: Number(value.original_height ?? value.height) || null,
           });
