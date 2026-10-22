@@ -161,6 +161,10 @@ test('beside its file, a video keeps the streamed copies sharper than it, but no
   const index = createMediaIndex();
   index.scan({ v: await filedVideo('6') });
   assert.equal(index.get('6').sharper.video[0].width, 1080, 'the index keeps them with the files');
+  const bare = await filedVideo('6');
+  delete bare.videoDeliveryResponseFragment.videoDeliveryResponseResult.dash_manifests;
+  index.scan({ v: bare });
+  assert.equal(index.get('6').sharper?.video[0].width, 1080, 'and a later answer with the files but no manifest leaves them');
 });
 
 test("a video's own page sends the video as its answer's data with no type, and the index takes it all the same", async () => {

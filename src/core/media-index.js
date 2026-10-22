@@ -154,7 +154,8 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
       const usable = (entry) => Boolean(entry && (entry.live || entry.video.length));
       if (files.length || dash || stream) {
         if (!(old?.kind === 'video' && (old.files.length > files.length || (!files.length && usable(old.stream) && !usable(stream))))) {
-          put(items, id, { kind: 'video', id, files, dash, stream, sharper, ...videoSize(value) });
+          // An answer with the files but no manifest leaves the sharper copies already found.
+          put(items, id, { kind: 'video', id, files, dash, stream, sharper: sharper ?? (old?.kind === 'video' ? old.sharper : null), ...videoSize(value) });
         }
       }
     } else if (id && value.__typename === 'Photo') {
