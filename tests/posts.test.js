@@ -83,9 +83,49 @@ test('loading: a skeleton with a progressbar and no links waits', () => {
   assert.deepEqual(classifyCandidate(win.document.querySelector('[aria-posinset]')), { ok: false, reason: 'loading', retry: true });
 });
 
+// Home's and groups' loading card as drawn on 2026-10-22, classes and styles taken out.
+const LOADING_CARD = '<div role="article"><div aria-label="Loading..." role="status" data-visualcompletion="loading-state" tabindex="-1"><div><div><div><div></div><div><div></div><div></div></div></div><div><div></div><div></div><div></div><div></div></div></div></div></div></div>';
+
+test("loading: Facebook's gray loading card waits, with or without a shimmer drawn in it", () => {
+  const win = page(feed(LOADING_CARD));
+  const card = win.document.querySelector('[role="article"]');
+  assert.deepEqual(classifyCandidate(card), { ok: false, reason: 'loading', retry: true });
+  card.querySelector('[role="status"] div').insertAdjacentHTML('beforeend', '<svg><rect></rect></svg><span>Loading...</span>');
+  assert.deepEqual(classifyCandidate(card), { ok: false, reason: 'loading', retry: true });
+});
+
+test('a loading card is never a post, and becomes one once Facebook fills it in', async () => {
+  const win = page(feed(post(1) + LOADING_CARD.replace('<div aria-label', '<svg></svg><div aria-label')));
+  const tracker = createPostTracker({ doc: win.document });
+  const added = [];
+  tracker.on('post/add', (p) => added.push([p.id, p.kind]));
+  assert.deepEqual(added, [['pfbid0Post1', 'feed']]);
+  const card = win.document.querySelector('[role="article"]');
+  card.replaceChildren();
+  card.insertAdjacentHTML('beforeend', '<a href="/b/posts/pfbid0Late">3m</a><div>Filled in</div>');
+  await tick();
+  assert.deepEqual(added.slice(1), [['pfbid0Late', 'article']]);
+  tracker.stop();
+});
+
+test('a post whose link arrives while something in it is still loading counts from then on', async () => {
+  const win = page(feed('<div aria-posinset="1"><div>Text so far</div><div role="status" data-visualcompletion="loading-state"></div></div>'));
+  const tracker = createPostTracker({ doc: win.document });
+  const added = [];
+  tracker.on('post/add', (p) => added.push(p.id));
+  assert.deepEqual(added, []);
+  win.document.querySelector('[aria-posinset] div').insertAdjacentHTML('beforebegin', '<a href="/c/posts/pfbid0Slow">5m</a>');
+  await tick();
+  assert.deepEqual(added, ['pfbid0Slow']);
+  assert.ok(win.document.querySelector('[data-visualcompletion="loading-state"]'), 'the loading box is still there');
+  tracker.stop();
+});
+
 test('a video post with a buffering progressbar still counts', () => {
   const win = page(feed('<div aria-posinset="1"><a href="/a/posts/1">1h</a><video></video><div role="progressbar"></div></div>'));
   assert.equal(classifyCandidate(win.document.querySelector('[aria-posinset]')).ok, true);
+  win.document.querySelector('[role="progressbar"]').outerHTML = '<div role="status" data-visualcompletion="loading-state"></div>';
+  assert.equal(classifyCandidate(win.document.querySelector('[aria-posinset]')).ok, true, 'comments still loading under a post');
 });
 
 test('empty: a placeholder with nothing drawn yet waits', () => {

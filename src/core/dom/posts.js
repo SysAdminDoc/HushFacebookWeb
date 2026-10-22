@@ -6,7 +6,8 @@
 //   nested    inside another candidate (a shared post's attached story, a comment in a post)
 //   form      inside a <form> (the composer's preview)
 //   comment   a role=article whose own links carry comment_id, or labeled "Comment by"
-//   loading   a skeleton (a progressbar and no links yet), checked again when it fills in
+//   loading   a skeleton (a progressbar or a loading-state card, and no links yet), checked
+//             again when it fills in
 //   empty     nothing drawn inside yet, checked again when it fills in
 //
 // Nothing is ever written on the page. Processed posts live in a WeakSet, because attributes
@@ -39,6 +40,11 @@ const COMMENT_LABEL = /^(?:comment|reply) by /i;
 const FACEBOOK_LINK = /^(?:\/(?!\/)|\?|(?:https?:)?\/\/(?:(?:www|web|m|mbasic|[a-z]{2}-[a-z]{2})\.)?facebook\.com(?::443)?(?:\/|$))/i;
 // Links inside the post's text point at other things, so they never name the post.
 const MESSAGE_REGION = '[data-ad-rendering-role="story_message"], [data-ad-preview="message"]';
+
+// Facebook's gray loading cards are a role=article holding a role=status loading-state box
+// (live 2026-10-22, Home and groups). Bare, they'd pass as empty anyway, but a shimmer or a
+// "Loading..." line drawn inside one must not make it a post.
+const LOADING = '[role="progressbar"], [data-visualcompletion="loading-state"]';
 
 const ownerOf = (node) => node.closest(CANDIDATE_SELECTOR);
 
@@ -101,7 +107,7 @@ export function classifyCandidate(element) {
   if (element.closest('form')) return { ok: false, reason: 'form', retry: false };
   if (isComment(element)) return { ok: false, reason: 'comment', retry: false };
   const hasLinks = element.querySelector('a[href]') !== null;
-  if (!hasLinks && element.querySelector('[role="progressbar"]')) return { ok: false, reason: 'loading', retry: true };
+  if (!hasLinks && element.querySelector(LOADING)) return { ok: false, reason: 'loading', retry: true };
   if (!hasLinks && !element.textContent.trim() && !element.querySelector('img, video, svg')) return { ok: false, reason: 'empty', retry: true };
   return { ok: true, kind: element.hasAttribute('aria-posinset') ? 'feed' : 'article' };
 }
