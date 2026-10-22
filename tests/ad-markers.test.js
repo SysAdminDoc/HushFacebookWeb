@@ -5,7 +5,10 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, hasAiLabel, hasSponsoredLabel, inScope, markersFor, pruneAds, titleHas } from '../src/features/feed/ad-markers.js';
+import {
+  AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, groupInHref, hasAiLabel, hasSponsoredLabel, inScope, joinGroups, markersFor, ownGroupPosts,
+  ownGroupsRule, pruneAds, titleHas,
+} from '../src/features/feed/ad-markers.js';
 import { parseRoute } from '../src/core/route.js';
 import { features } from '../src/features/index.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
@@ -432,6 +435,61 @@ test('a Follow or Join button outside the title is not a suggestion', () => {
   } });
   assert.equal(adMarkerFor(elsewhere(followTitle.story.comet_sections.follow_button)), null);
   assert.equal(adMarkerFor(elsewhere(joinTitle.if_viewer_can_join_group.join_action)), null);
+});
+
+// A post from a group the account is in, filed ORGANIC with a Join action anyway, as one in
+// 250 Home answers came on 2026-10-22. The action names its group by id, `to` by address too.
+const groupJoinTitle = { ...joinTitle, if_viewer_can_join_group: { join_action: { __typename: 'GroupJoinForumAction', group: { id: '123' } } } };
+const groupPost = (id, category, postId) => categorized(id, category, postId, {
+  to: { __typename: 'Group', id: '123', url: 'https://www.facebook.com/groups/Bakers/' },
+  comet_sections: { context_layout: { story: { comet_sections: { title: groupJoinTitle } } } },
+});
+
+test('a post Facebook files as ORGANIC keeps its Join button, and its group is read for the page', () => {
+  assert.equal(adMarkerFor(groupPost('own', 'ORGANIC', '501')), null);
+  assert.equal(adMarkerFor(groupPost('other', 'ENGAGEMENT', '502'))?.id, 'group_join');
+  const unread = { ...groupPost('unread', 'ORGANIC', '503'), cat_sensitive: { enc: 'f'.repeat(64), cat: null } };
+  assert.equal(adMarkerFor(unread)?.id, 'group_join', "a category that doesn't read back");
+  assert.deepEqual([...joinGroups(groupPost('own', 'ORGANIC', '501').node)].sort(), ['123', 'bakers']);
+  assert.deepEqual([...joinGroups(titled('action', groupJoinTitle).node)], ['123'], 'the action alone');
+  const storyTo = { ...joinTitle, story: { to: { __typename: 'Group', id: '77', url: 'https://www.facebook.com/groups/seventy/' } } };
+  assert.deepEqual([...joinGroups(titled('to', storyTo).node)].sort(), ['77', 'seventy'], "the title story's group");
+  assert.deepEqual([...joinGroups(edge2026('page', {}, { to: { __typename: 'User', id: '9', url: '/groups/x/' } }).node)], [], 'not a group');
+
+  const answer = () => ({ data: { viewer: { news_feed: { edges: [groupPost('own', 'ORGANIC', '501'), groupPost('other', 'ENGAGEMENT', '502'), edge2026('friend')] } } } });
+  assert.deepEqual(ownGroupPosts(answer()).map((groups) => [...groups].sort()), [['123', 'bakers']]);
+  const doc = answer();
+  adRule('hideSuggestedPosts', () => true, null).transform(doc, { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' });
+  assert.deepEqual(doc.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null), ['own', null, 'friend']);
+
+  assert.equal(groupInHref('/groups/123/?__cft__[0]=x'), '123');
+  assert.equal(groupInHref('https://www.facebook.com/groups/Bakers/posts/9/'), 'bakers');
+  assert.equal(groupInHref('/somepage'), null);
+  assert.equal(groupInHref(undefined), null);
+});
+
+test('the own groups rule only reads, and only on Home and the groups feed', () => {
+  const seen = [];
+  const route = { current: parseRoute('https://www.facebook.com/') };
+  const own = ownGroupsRule('own', () => true, (groups) => seen.push([...groups].sort()), { route: () => route.current });
+  const answer = () => ({ data: { viewer: { news_feed: { edges: [groupPost('own', 'ORGANIC', '501'), groupPost('other', 'ENGAGEMENT', '502')] } } } });
+  const query = (friendlyName) => ({ transport: 'xhr', path: '/api/graphql/', friendlyName });
+  const inline = { transport: 'json-parse', path: '', friendlyName: '' };
+  assert.equal(own.observe, true);
+  const doc = answer();
+  assert.equal(own.transform(doc, query('CometNewsFeedPaginationQuery')), false);
+  assert.deepEqual(doc, answer(), 'the answer is untouched');
+  assert.deepEqual(seen, [['123', 'bakers']]);
+  own.transform(answer(), query('GroupsCometCrossGroupFeedPaginationQuery'));
+  assert.equal(seen.length, 2, 'the groups feed');
+  own.transform(answer(), query('SearchCometResultsPaginatedResultsQuery'));
+  route.current = parseRoute('https://www.facebook.com/groups/123/');
+  own.transform(answer(), inline);
+  assert.equal(seen.length, 2, 'not in search or on a group');
+  route.current = parseRoute('https://www.facebook.com/');
+  own.transform(answer(), inline);
+  assert.equal(seen.length, 3, 'inline data on Home');
+  assert.equal(own.match({ transport: 'xhr', path: '/ajax/bulk-route-definitions/' }), false);
 });
 
 test('a post labeled as made with AI goes, whether Facebook detected it or the author said so', () => {

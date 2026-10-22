@@ -30,7 +30,10 @@
 //
 // Facebook's own category for an edge (feed-category.js) backs the specific rows up. Every
 // category in 250 Home answers on 2026-10-22, against the switch that drops it:
-//   ORGANIC                 kept (posts from friends, Pages, people and groups you follow)
+//   ORGANIC                 kept (posts from friends, Pages, people and groups you follow),
+//                           even with a Join button: one post from a group the test account
+//                           is in came ORGANIC with a Join action, so group_join skips ORGANIC
+//                           edges and the page check is told their groups (ownGroupsRule)
 //   ENGAGEMENT              Hide suggested posts (Facebook's suggestions, with or without a
 //                           Follow or Join button)
 //   ENGAGEMENT_QP           Hide suggested posts (the People you may know and group rows)
@@ -94,6 +97,47 @@ export const hasSponsoredLabel = (node) => storyHas(node, LABEL_TYPENAME);
 export function titleHas(node, typename) {
   const title = node?.comet_sections?.context_layout?.story?.comet_sections?.title;
   return isObject(title) ? storyHas(title, typename) : storyHas(node, typename);
+}
+
+// The group an address points at, the part after /groups/ (an id or the name in its
+// address), or null.
+export function groupInHref(href) {
+  const match = /\/groups\/([^/?#]+)/.exec(String(href ?? ''));
+  return match ? match[1].toLowerCase() : null;
+}
+
+// The groups a story's Join action is for, the way its heading links them. The action names
+// its group by id (if_viewer_can_join_group.join_action.group.id), and the story's `to`, the
+// group it went to, gives the address too (2026-10-21 capture, all 15 group_join stories).
+export function joinGroups(node) {
+  const groups = new Set();
+  const title = node?.comet_sections?.context_layout?.story?.comet_sections?.title;
+  storyMatches(isObject(title) ? title : node, (value) => {
+    if (value.__typename === JOIN_TYPENAME && value.group?.id != null) groups.add(String(value.group.id).toLowerCase());
+    return false;
+  });
+  for (const to of [node?.to, title?.story?.to]) {
+    if (!isObject(to) || to.__typename !== 'Group') continue;
+    if (to.id != null) groups.add(String(to.id).toLowerCase());
+    const name = groupInHref(to.url);
+    if (name) groups.add(name);
+  }
+  return groups;
+}
+
+// A post from a group you're in that Facebook still gives a Join action, as it did once in
+// 250 Home answers on 2026-10-22. Facebook's own category says it isn't a suggestion.
+const isOwnGroupPost = (edge, node) => titleHas(node, JOIN_TYPENAME) && feedCategory(edge) === 'ORGANIC';
+
+// The groups of each such post in an answer, one set per post.
+export function ownGroupPosts(doc) {
+  const posts = [];
+  walk(doc, (value) => {
+    if (!('cursor' in value) || !isObject(value.node)) return undefined;
+    if (isOwnGroupPost(value, value.node)) posts.push(joinGroups(value.node));
+    return SKIP;
+  });
+  return posts;
 }
 
 // Home and the groups feed, where Facebook mixes in what you don't follow. Search results,
@@ -314,10 +358,10 @@ export const AD_MARKERS = [
     id: 'group_join',
     feature: 'hideSuggestedPosts',
     surface: "news feed and groups feed (groups you aren't in)",
-    seen: '2026-10-11: 17 of 137 captured Home stories, always in the title section, drawn as "Group · Join"',
+    seen: '2026-10-11: 17 of 137 captured Home stories, always in the title section, drawn as "Group · Join"; 2026-10-22: one ORGANIC story in 250 Home answers carried it too, and stays',
     text: [`"${JOIN_TYPENAME}"`],
     scope: FEEDS,
-    match: (edge, node) => isObject(node) && 'cursor' in edge && titleHas(node, JOIN_TYPENAME),
+    match: (edge, node) => isObject(node) && 'cursor' in edge && titleHas(node, JOIN_TYPENAME) && !isOwnGroupPost(edge, node),
     action: 'drop-node',
   },
   {
@@ -406,6 +450,22 @@ export function adRule(feature, enabled, onPrune, { route, diagnostics, reason }
         onPrune?.(fired);
       });
       return true;
+    },
+  };
+}
+
+// A rule that only reads: the groups of each post from a group you're in (ownGroupPosts) on
+// the feeds, for the page check, which sees only the Join button. onPost gets one set each.
+export function ownGroupsRule(id, enabled, onPost, { route } = {}) {
+  return {
+    id,
+    enabled,
+    observe: true,
+    markers: [`"${JOIN_TYPENAME}"`],
+    match: (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql'),
+    transform(doc, ctx) {
+      if (inScope({ scope: FEEDS }, ctx, route)) for (const groups of ownGroupPosts(doc)) onPost(groups);
+      return false;
     },
   };
 }

@@ -12,7 +12,8 @@ import { installNetworkHooks } from '../src/core/net/hooks.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
 import { parseRoute } from '../src/core/route.js';
 import hideReelsInFeed, { reelRowOf } from '../src/features/feed/hide-reels-in-feed.js';
-import hideSuggestedPosts, { suggestionButton } from '../src/features/feed/hide-suggested-posts.js';
+import hideSuggestedPosts, { headingGroups, suggestionButton } from '../src/features/feed/hide-suggested-posts.js';
+import { categoryHash } from '../src/features/feed/feed-category.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 
 const windows = [];
@@ -30,9 +31,9 @@ function page(html, href = 'https://www.facebook.com/') {
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // "Name · Follow": the button is a div[role=button] holding a span, inside the h4.
-const post = (n, { name = 'Friend', button = '', shared = '' } = {}) => `
+const post = (n, { name = 'Friend', button = '', shared = '', link = `/p${n}` } = {}) => `
   <div class="row"><div aria-posinset="${n}">
-    <h4><span><a href="/p${n}">${name}</a></span>${button ? ` · <span><div role="button" tabindex="0"><span>${button}</span></div></span>` : ''}</h4>
+    <h4><span><a href="${link}">${name}</a></span>${button ? ` · <span><div role="button" tabindex="0"><span>${button}</span></div></span>` : ''}</h4>
     <a href="/p${n}/posts/pfbid0P${n}">2h</a>
     <div data-ad-rendering-role="story_message">Text ${n}</div>${shared}
   </div></div>`;
@@ -93,11 +94,60 @@ test('in page mode the data rule is added, scoped to the feeds', () => {
     net: { transformResponses: (rule) => rules.push(rule) }, router: { current: () => parseRoute('https://www.facebook.com/') },
     posts: null, hider: null, diagnostics: createDiagnostics(), settings: { subscribe() {} }, enabled: () => true,
   });
-  assert.equal(rules.length, 1);
+  assert.equal(rules.length, 2);
   assert.deepEqual(rules[0].markers.sort(), [
     '"CometFeedStoryFollowButtonStrategy"', '"ENGAGEMENT"', '"ENGAGEMENT_QP"', '"GroupJoinForumAction"', '"GroupsYouShouldJoinFeedUnit"',
     '"PaginatedPeopleYouMayKnowFeedUnit"', '"cat_sensitive":{"enc":"',
   ]);
+  assert.equal(rules[1].observe, true, 'the groups rule only reads');
+  assert.deepEqual(rules[1].markers, ['"GroupJoinForumAction"']);
+});
+
+// A story from a group with a Join action in its title, Facebook's category hashed from its
+// post id as on Home in 2026-10, and the group named by id in the action and by address in `to`.
+const groupStory = (postId, group, category) => ({
+  cat_sensitive: { enc: categoryHash(postId, category), cat: null },
+  cursor: `c-${postId}`,
+  node: {
+    __typename: 'Story', id: `s-${postId}`, post_id: postId,
+    to: { __typename: 'Group', id: group, url: `https://www.facebook.com/groups/${group}/` },
+    comet_sections: { context_layout: { story: { comet_sections: { title: {
+      __typename: 'CometFeedStoryCommunityAttributionTitleStrategy',
+      if_viewer_can_join_group: { join_action: { __typename: 'GroupJoinForumAction', group: { id: group } } },
+    } } } } },
+  },
+});
+
+test("the groups a post's heading links to", () => {
+  const win = page(post(1, { button: 'Join', link: '/groups/90210777/?__cft__[0]=x' }) + post(2, { link: '/groups/Bakers/' }) + post(3)
+    + post(4, { shared: '<div role="article"><h4><a href="/groups/31337555/">Shared</a></h4></div>' }));
+  assert.deepEqual([...win.document.querySelectorAll('[aria-posinset]')].map(headingGroups), [['90210777'], ['bakers'], [], []]);
+});
+
+test('a Join post from a group Facebook files as ORGANIC stays on the page, other Join posts still go', async () => {
+  const win = page('');
+  const doc = win.document;
+  const posts = createPostTracker({ doc });
+  const hider = createHider({ doc, posts });
+  const diagnostics = createDiagnostics();
+  const rules = [];
+  hideSuggestedPosts.setup({
+    net: { transformResponses: (rule) => rules.push(rule) }, router: { current: () => parseRoute(win.location.href) }, posts, hider, diagnostics,
+    settings: { subscribe() {} }, enabled: () => true,
+  });
+  const line = JSON.stringify({ data: { viewer: { news_feed: { edges: [groupStory('501', '90210777', 'ORGANIC'), groupStory('502', '31337555', 'ENGAGEMENT')] } } } });
+  const out = JSON.parse(transformDocumentLine(line, rules, { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' }));
+  assert.deepEqual(out.data.viewer.news_feed.edges.map((edge) => edge.node?.post_id ?? null), ['501', null], 'the data keeps the ORGANIC one');
+  doc.querySelector('.feed').innerHTML = post(1, { button: 'Join', link: '/groups/90210777/?__cft__[0]=x' })
+    + post(2, { button: 'Join', link: '/groups/31337555/?__cft__[0]=y' }) + post(3, { button: 'Follow' });
+  await tick(20);
+  assert.deepEqual([...doc.querySelectorAll('[aria-posinset]')].map((p) => hider.isHidden(p)), [false, true, true]);
+  const rows = Object.fromEntries(diagnostics.rows().map(({ label, value }) => [label, value]));
+  assert.equal(rows['Posts from your groups kept despite a Join button'], '1 in the data, 1 on the page');
+  assert.equal(rows['Suggested posts hidden on the page'], 'Join 1, Follow 1');
+  assert.doesNotMatch(JSON.stringify(diagnostics.rows()), /90210777|31337555/, 'the groups stay out of Diagnostics');
+  posts.stop();
+  await tick();
 });
 
 test('watchPostChecks stops retrying once a check is done, and retries until then', () => {
