@@ -24,10 +24,16 @@ export const metadata = [
   // Network hooks must wrap fetch and XHR before Facebook's own code captures them.
   ['run-at', 'document-start'],
   // Page world, so the hooks see Facebook's fetch and XHR. facebook.com's CSP only allows
-  // nonce'd scripts, so the manager has to put us there; Violentmonkey falls back to content
-  // mode when it can't, and the script then runs its DOM features only.
+  // nonce'd scripts, so the manager has to put us there.
+  //
+  // Tampermonkey's raw is the page realm on Chrome and Firefox. Its JavaScript mode is the
+  // same on Chrome but an Xray sandbox on Firefox, where the hooks broke Facebook (issue #8).
+  // Tampermonkey also reads @inject-into, takes auto as JavaScript and keeps whichever of the
+  // two comes first, so @sandbox has to come first (5.5.0, live 2026-10-22).
+  ['sandbox', 'raw'],
+  // Violentmonkey ignores @sandbox. auto falls back to content mode when it can't reach the
+  // page, and the script then runs its DOM features only.
   ['inject-into', 'auto'],
-  ['sandbox', 'JavaScript'],
   ['grant', 'GM_getValue'],
   ['grant', 'GM_setValue'],
   ['grant', 'GM_deleteValue'],

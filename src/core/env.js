@@ -1,21 +1,43 @@
 // Where the script runs and what the userscript manager gives it. In the browser extension the
 // script always runs in the page, and extension.js stands in for the manager.
 //
-// Network, JSON and media hooks have to patch Facebook's own window. Tampermonkey
-// (@sandbox JavaScript) and Violentmonkey (page mode) put the script where unsafeWindow is
-// that window. When a manager can only run us as a content script, page hooks would patch
-// an isolated copy and do nothing, so features that need the page are skipped and
-// Diagnostics says why.
+// Network, JSON and media hooks have to patch Facebook's own window, from inside the page's
+// own JavaScript realm. Tampermonkey (@sandbox raw) and Violentmonkey (page mode) put the
+// script there. Tampermonkey's @sandbox JavaScript does too on Chrome, but on Firefox it's an
+// Xray sandbox: unsafeWindow is the page's window from another realm, and the page can't call
+// the functions or read the option objects we hand it (issue #8). So the realm is checked, not
+// taken from the manager's mode. Outside the page realm, page hooks would break Facebook or
+// patch an isolated copy, so features that need the page are skipped, the rest use the
+// script's own window, and Diagnostics says why.
 
 import { extensionHost } from './extension.js';
 
-export const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : globalThis;
+// True when code made here belongs to the same realm as the unsafe window. No unsafe window
+// means the extension, which always runs in the page. A Firefox Xray window can refuse even
+// the read, which counts as another realm.
+export function inPageRealm(unsafe, marker = () => {}) {
+  if (!unsafe) return true;
+  try {
+    return marker.constructor === unsafe.Function;
+  } catch {
+    return false;
+  }
+}
+
+export function accessFor(info, pageRealm) {
+  return !pageRealm || info?.injectInto === 'content' || info?.sandboxMode === 'dom' ? 'content' : 'page';
+}
+
+const unsafe = typeof unsafeWindow !== 'undefined' ? unsafeWindow : null;
+const pageRealm = inPageRealm(unsafe);
+
+export const pageWindow = unsafe && pageRealm ? unsafe : globalThis;
 
 export const version = typeof __HFW_VERSION__ !== 'undefined' ? __HFW_VERSION__ : 'dev';
 
 const info = typeof GM_info !== 'undefined' ? GM_info : null;
 
-export const pageAccess = info?.injectInto === 'content' || info?.sandboxMode === 'dom' ? 'content' : 'page';
+export const pageAccess = accessFor(info, pageRealm);
 
 export function managerInfo() {
   if (extensionHost()) return { manager: 'Browser extension', managerVersion: version, mode: 'page', pageAccess };

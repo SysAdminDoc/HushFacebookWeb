@@ -31,6 +31,17 @@ test('the script starts at document-start and updates from the release assets', 
   assert.match(block, new RegExp(`^// @downloadURL\\s+\\S+/releases/latest/download/${fileName}\\.user\\.js$`, 'm'));
 });
 
+// Tampermonkey 5.5 on Firefox runs @sandbox JavaScript in an Xray sandbox, and the hooks
+// there kept Home on the splash (issue #8). raw is the page realm in both browsers, but
+// Tampermonkey reads @inject-into auto as JavaScript and keeps whichever line comes first.
+test('Tampermonkey runs the script in the page realm', () => {
+  const block = renderMetaBlock('1.2.3');
+  assert.match(block, /^\/\/ @sandbox\s+raw$/m);
+  assert.match(block, /^\/\/ @grant\s+unsafeWindow$/m);
+  const at = (key) => block.search(new RegExp(`^// @${key}\\s`, 'm'));
+  assert.ok(at('inject-into') > at('sandbox'), '@sandbox comes before @inject-into');
+});
+
 test('the game host can run the ad hook inside its frame', () => {
   const block = renderMetaBlock('1.2.3');
   assert.ok(/^\/\/ @match\s+https:\/\/\*\.apps\.fbsbx\.com\/\*$/m.test(block), 'the game host is matched');
