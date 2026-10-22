@@ -272,3 +272,21 @@ test('the AI-labeled story in a captured Home page goes, and the story next to i
   const profile = { ...ctx, friendlyName: 'ProfileCometTimelineFeedRefetchQuery' };
   assert.equal(transformDocumentLine(labeled, [ai], profile), labeled, 'not on a profile');
 });
+
+// Captured 2026-10-21, the first feed ad the test account was served: one streamed edge.
+test('the ad in a captured Home page loses its story, and the edge keeps its cursor', async () => {
+  const [line] = await fixtureLines('CometNewsFeedPaginationQuery-ad.jsonl');
+  assert.match(line, AD_TEXT);
+  const fired = [];
+  const ads = adRule('hideSponsoredPosts', () => true, (ids) => fired.push(...ids), { route: () => parseRoute('https://www.facebook.com/') });
+  const ctx = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+  const before = parseLine(line);
+  assert.deepEqual(before.path, ['viewer', 'news_feed', 'edges', 3]);
+  assert.equal(typeof before.data.node.th_dat_spo, 'object');
+  const out = transformDocumentLine(line, [ads], ctx);
+  assert.doesNotMatch(out, AD_TEXT);
+  const after = parseLine(out);
+  assert.deepEqual(Object.keys(after.data), Object.keys(before.data).filter((key) => key !== 'node'));
+  assert.equal(after.data.cursor, before.data.cursor, 'paging still works');
+  assert.deepEqual(fired, ['th_dat_spo']);
+});
