@@ -16,6 +16,12 @@
 // - Facebook menu (the grid button): [role=dialog] with each row a [role=listitem] holding its
 //   link. Its "More from Meta" rows leave Facebook too (Meta AI, Meta Quest 3S, WhatsApp,
 //   Instagram), and Messenger Kids is /messenger_kids/. The Create column has /ads/create_ad/.
+//
+// Live 2026-10-22 (Home, 1600 px, #7):
+// - The round New message button in the bottom corner: a div[role=button] whose first child is
+//   the compose icon's svg, alone in a fixed box outside the top bar, the feed and any dialog.
+//   The button draws the circle and its shadow itself. Its label is in the page's language, so
+//   it's found by the icon's outline, the only one on Home starting M17.99.93a1.75.
 
 // The left column is the navigation outside the top bar that links Friends and Groups, and the
 // Facebook menu is the dialog with the Create column's Page and Event links. Anything looser
@@ -66,5 +72,10 @@ export const place = {
 };
 
 export const FIND_FRIENDS = '[role="banner"] [role="navigation"] div:has(> a[href^="/friends/"]:not([aria-label]))';
+
+// Kept out of the top bar's Messenger list, the Messenger page's own chat list and any dialog,
+// where a compose button can carry the same icon. The :has() names only the path: with
+// "> svg path" in it happy-dom matches every button (2026-10-22).
+export const NEW_MESSAGE = '[role="button"]:has(path[d^="M17.99.93a1.75"]):not([role="banner"] *):not([role="main"] *):not([role="navigation"] *):not([role="dialog"] *)';
 
 export const hide = (selectors) => `${selectors} { display: none !important; }`;

@@ -11,7 +11,8 @@ import hideTabs, { tabsCss } from '../src/features/appearance/hide-tabs.js';
 import hideTabBadges, { BADGE_MARK, badgeBox, cleanTitle, createBadgeHider, markBadges } from '../src/features/appearance/hide-tab-badges.js';
 import hideMenuPromotions, { promotionsCss } from '../src/features/menu/hide-menu-promotions.js';
 import hideMetaUpsells, { UPSELLS_CSS } from '../src/features/meta/hide-meta-upsells.js';
-import { LEFT, section } from '../src/features/appearance/declutter-table.js';
+import hideNewMessageButton, { NEW_MESSAGE_CSS } from '../src/features/appearance/hide-new-message.js';
+import { LEFT, NEW_MESSAGE, section } from '../src/features/appearance/declutter-table.js';
 
 const windows = [];
 afterEach(async () => {
@@ -147,6 +148,26 @@ test('on web.facebook.com the absolute links carry that host, and every switch s
   ]);
 });
 
+// The bottom corner's button as drawn live 2026-10-22 (#7). The chat bubble beside it isn't from a
+// capture (the account had no minimized chat), it stands for one.
+const COMPOSE = '<svg><path d="M17.99.93a1.75 1.75 0 0 0-2.48.005l-9.148 9.224"></path><path d="M11.238 1H9.694C7.856 1 6.4"></path></svg>';
+const DOCK = `
+<div data-visualcompletion="ignore"><div><div>
+  <div><div role="button" aria-label="Pat Example" data-row="chat-bubble"><svg><image></image></svg></div></div>
+  <div><div><span><div role="button" aria-label="Nuevo mensaje" tabindex="0" data-row="new-message">${COMPOSE}<div role="none" data-visualcompletion="ignore"></div></div></span></div></div>
+  <div><div role="button" aria-label="Close" data-row="other-icon"><svg><path d="M18.707 5.293a1 1 0 0 1 0 1.414"></path></svg></div></div>
+</div></div></div>`;
+
+test('Hide the New message button takes the corner button by its icon, in any language, and leaves the chats', () => {
+  const win = page(DOCK);
+  assert.equal(hideNewMessageButton.css, NEW_MESSAGE_CSS);
+  assert.deepEqual(hiddenBy(win, NEW_MESSAGE_CSS), ['new-message']);
+  // happy-dom ignores a descendant selector inside :not(), so the places it stays out of are
+  // checked as text. A compose button in Messenger's list or a dialog keeps its icon.
+  for (const place of ['banner', 'main', 'navigation', 'dialog']) assert.ok(NEW_MESSAGE.includes(`:not([role="${place}"] *)`), place);
+  assert.doesNotMatch(NEW_MESSAGE, /aria-label/, 'not keyed on words');
+});
+
 test('a count drawn as a badge is marked, a name that is a number is not', () => {
   const win = page();
   const doc = win.document;
@@ -227,7 +248,7 @@ test('the badge switch hides only what it marked', () => {
 });
 
 test('every Declutter switch is off by default and works in content mode', () => {
-  for (const feature of [hideTabs, hideTabBadges, hideMenuPromotions, hideMetaUpsells]) {
+  for (const feature of [hideTabs, hideTabBadges, hideNewMessageButton, hideMenuPromotions, hideMetaUpsells]) {
     assert.equal(feature.default, false, feature.id);
     assert.ok(!feature.needsPage, feature.id);
   }
