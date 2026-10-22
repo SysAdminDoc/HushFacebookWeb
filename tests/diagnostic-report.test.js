@@ -173,7 +173,7 @@ const SAFE = {
   'features/feed/hide-sponsored-posts.js': ['signal', "corroborated ? ', with an ad button' : ''", 'unreadCount'],
   'features/games/sdk.js': ['message'],
   'core/start-features.js': ['feature.title'],
-  'main.js': ['UNKEPT_SETTINGS', 'otherVersion', 'version', 'pageAccess'],
+  'boot.js': ['UNKEPT_SETTINGS', 'otherVersion', 'version', 'access'],
   'ui/panel.js': ['label', `error instanceof TypeError ? error.message : "Couldn't restore settings. Choose a valid backup and try again"`],
 };
 
