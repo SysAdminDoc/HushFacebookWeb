@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* New switch under Downloads, Download in post menus, off by default like Android's Download first in post menus. Open a post's three-dot menu and Download sits at the top whenever the post has a photo or video to save. It saves the same file the Download button would, so you don't have to point at the photo first. Checked on 2026-10-22 on NASA's Page.
 * A photo or video saved from a verified Page's post no longer has "Verified account" in its file name. The check mark next to the Page's name carries those words for screen readers, and they ended up in the name, and in the names Remember what you watch shows too. Checked on 2026-10-22 on NASA's Page.
 * New switch under Comments, Hide the video comment box, off by default like Android's. When a video opens on its own page, the box for writing a comment in the column beside it goes away. Comment boxes on posts stay.
 * New switch under Playback, Frame step buttons, like Android's Frame step. Pause a video or reel, then point at it or Tab to it, and Back a frame and Next frame show in its corner. Each click moves the picture one frame (a thirtieth of a second) and leaves it paused, and they go away when it plays again. It's off unless you turn it on. Checked on a public reel on 2026-10-22 in page and content mode, paused with the player's own button.

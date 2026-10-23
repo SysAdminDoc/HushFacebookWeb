@@ -84,19 +84,21 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
     }
   }
 
-  const button = createDownloadButton({
-    doc, win, log, run, active: anyOn,
-    onMissing: () => toast?.(t("There's nothing to save there now. Go back to the photo or video and try again.")),
-    find(element) {
-      const found = findMedia(element, { href: router?.current()?.href ?? win.location.href, index });
-      return found && switches.get(found.feature)?.enabled() ? found : null;
-    },
-  });
+  // What the button would save for a photo or video, when a switch that's on covers it.
+  function find(element) {
+    const found = findMedia(element, { href: router?.current()?.href ?? win.location.href, index });
+    return found && switches.get(found.feature)?.enabled() ? found : null;
+  }
+  const missing = () => toast?.(t("There's nothing to save there now. Go back to the photo or video and try again."));
+
+  const button = createDownloadButton({ doc, win, log, run, active: anyOn, onMissing: missing, find });
 
   return {
     index,
     button,
     run,
+    find,
+    missing,
     add(featureId, { enabled, quality = null }) {
       switches.set(featureId, { enabled, quality });
     },

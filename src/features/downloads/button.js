@@ -31,7 +31,7 @@ const EDGE = 10; // px in from the media's edges
 const CORNER_BAND = 80;
 const CORNER_WIDTH = 200;
 const CORNER_LEVELS = 9;
-const DOWNLOAD_ICON = 'M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14';
+export const DOWNLOAD_ICON = 'M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14';
 
 const CSS = `
 :host { all: initial; ${uiTokens} color-scheme: dark; }
