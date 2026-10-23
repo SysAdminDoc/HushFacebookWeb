@@ -3,8 +3,10 @@
 // where /watch/?v= lands too. Live 2026-10-22 signed out on a NASA video, the video sits in the
 // WatchPermalinkVideo pagelet with its description under it, and the column beside them holds the
 // post, its comments and, signed in, the box for writing one. That column is a sibling of one of
-// the pagelet's first few ancestors, and the more-videos list under them is outside it, so comment
-// boxes on those posts stay, like every other comment box. The box is the one posts use
+// the pagelet's first few ancestors (its parent's, live), and the more-videos list under them is a
+// role=main of its own, beside the pagelet's fifth ancestor. The search for the column stops there,
+// so when comments are off and the column holds neither comments nor a box, the boxes on the
+// more-videos posts stay, like every other comment box. The box is the one posts use
 // (hide-comment-stickers.js): a form[role=presentation] around a contenteditable text box. Works in
 // content mode.
 
@@ -18,18 +20,24 @@ const DELAY = 200;
 
 export const HIDE_VIDEO_COMMENT_BOX_CSS = `[${MARK}] { display: none !important; }`;
 
+// The more-videos list, or a feed's posts: the column is never as far out as these.
+const OUTSIDE = '[role="main"], [aria-posinset]';
+
 const isBox = (form) => Boolean(form.querySelector('[role="textbox"][contenteditable="true"]'));
 const boxesIn = (root) => [...root.querySelectorAll(FORMS)].filter(isBox);
+const outside = (el) => el.matches(OUTSIDE) || Boolean(el.querySelector(OUTSIDE));
 
 // The column beside a video viewer's video: going up from its pagelet, the first sibling that holds
-// comments or a comment box.
+// comments or a comment box, short of the level the more-videos list sits on.
 export function commentColumns(doc) {
   const columns = [];
   for (const video of doc.querySelectorAll(VIDEO)) {
     let node = video;
     let column = null;
     for (let level = 0; !column && node.parentElement && level < LEVELS; level++, node = node.parentElement) {
-      column = [...node.parentElement.children].find((sibling) => sibling !== node && (sibling.querySelector('[role="article"]') || boxesIn(sibling).length)) ?? null;
+      const siblings = [...node.parentElement.children].filter((sibling) => sibling !== node);
+      if (siblings.some(outside)) break;
+      column = siblings.find((sibling) => sibling.querySelector('[role="article"]') || boxesIn(sibling).length) ?? null;
     }
     if (column) columns.push(column);
   }

@@ -15,7 +15,8 @@ afterEach(async () => {
 
 const box = (id) => `<form role="presentation" id="${id}"><div><div role="textbox" contenteditable="true" aria-label="Write a comment…"></div></div></form>`;
 
-const viewer = ({ comments = true } = {}) => `
+// alone: how many divs wrap the row with nothing beside them, as live, where two do.
+const viewer = ({ comments = true, alone = 0 } = {}) => `${'<div>'.repeat(alone)}
 <div id="row">
   <div id="left">
     <div data-pagelet="WatchPermalinkVideo"><div><video></video></div></div>
@@ -28,7 +29,7 @@ const viewer = ({ comments = true } = {}) => `
     ${box('viewer')}
     <div id="thread">${box('reply')}</div>
   </div>
-</div>
+</div>${'</div>'.repeat(alone)}
 <div role="main">
   <div aria-posinset="1">${box('more')}</div>
 </div>`;
@@ -54,26 +55,37 @@ test('the boxes in the column beside the video hide, and none anywhere else', ()
 });
 
 test('a video with no comments yet still has its box found by the box itself', () => {
-  const doc = page(viewer({ comments: false })).document;
+  const doc = page(viewer({ comments: false, alone: 2 })).document;
   markVideoCommentBoxes(doc);
   assert.deepEqual(marked(doc), ['viewer', 'reply']);
 });
 
 test('without the video viewer, or with nothing beside the video close by, nothing hides', () => {
-  // Home's own pagelets sit right beside posts.
-  const posts = page(`<div role="main"><div data-pagelet="Stories"></div>
-    <div data-pagelet="FeedUnit_0"><div aria-posinset="1"><div role="article"></div>${box('feed')}</div></div></div>`, 'https://www.facebook.com/').document;
+  // Other pagelets sit right beside posts, like Home's stories.
+  const posts = page(`<div><div data-pagelet="Stories"></div>
+    <div data-pagelet="FeedUnit_0"><div role="article"></div>${box('feed')}</div></div>`, 'https://www.facebook.com/').document;
   assert.equal(markVideoCommentBoxes(posts), 0);
   // A post four levels up from the video isn't its column.
   const far = page(`<div id="d1">
     <div id="d2"><div id="d3"><div id="d4"><div id="d5"><div data-pagelet="WatchPermalinkVideo"><video></video></div></div></div></div></div>
-    <div aria-posinset="1"><div role="article"></div>${box('far')}</div>
+    <div><div role="article"></div>${box('far')}</div>
   </div>`).document;
   assert.deepEqual([commentColumns(far).length, markVideoCommentBoxes(far)], [0, 0]);
   // Signed out the column has comments and no box: it's still the column, so the search goes no
   // higher, to the more-videos post.
   const signedOut = page(viewer().replace(box('viewer'), '').replace(box('reply'), '')).document;
   assert.deepEqual([commentColumns(signedOut).map((column) => column.id), markVideoCommentBoxes(signedOut)], [['column'], 0]);
+});
+
+test('with nothing in the column, the search stops at the more-videos list', () => {
+  // Comments turned off, or the column not drawn yet. Live the list is a role=main of its own, with
+  // an empty div beside it, and a feed's posts carry aria-posinset.
+  const empty = viewer({ comments: false }).replace(box('viewer'), '').replace(box('reply'), '');
+  const listed = page(`<div id="page">${empty.replace('<div aria-posinset="1">', '<div>')}<div></div></div>
+    <div id="chat"><div role="article"></div>${box('chat')}</div>`).document;
+  assert.deepEqual([commentColumns(listed).length, markVideoCommentBoxes(listed), marked(listed)], [0, 0, []]);
+  const posts = page(empty.replace('<div role="main">', '<div>')).document;
+  assert.deepEqual([commentColumns(posts).length, markVideoCommentBoxes(posts), marked(posts)], [0, 0, []]);
 });
 
 test('a box that leaves the column is let go, and boxes drawn later are caught', async () => {
