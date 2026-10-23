@@ -259,6 +259,13 @@ export function createVolumeKeeper({
     give(event.target);
   }
 
+  // A player can load the next reel into the same video, which starts over as a new one: muted
+  // with Start every video muted, and settled again.
+  function onLoad(event) {
+    heard.delete(event.target);
+    settled.delete(event.target);
+  }
+
   // Once more when a video has settled, after Facebook's writes as it starts.
   function onTime(event) {
     const video = event.target;
@@ -291,6 +298,7 @@ export function createVolumeKeeper({
       win.addEventListener('pointerdown', onInput, listen);
       win.addEventListener('keydown', onInput, listen);
       // Media events don't bubble, but they do pass the document on their way in.
+      doc.addEventListener('loadstart', onLoad, true);
       for (const type of ['loadedmetadata', 'play', 'playing']) doc.addEventListener(type, onStart, true);
       doc.addEventListener('timeupdate', onTime, true);
       doc.addEventListener('volumechange', onVolume, true);

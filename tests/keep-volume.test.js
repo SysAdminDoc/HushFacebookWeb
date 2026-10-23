@@ -416,6 +416,30 @@ test('Start every video muted: each new reel starts muted whatever was kept, and
   assert.equal(feed.video.muted, true, 'a video you muted again starts over, though the next one got sound');
 });
 
+test('a player that loads the next reel into the same video starts it muted again, and settles it again', () => {
+  const storage = createMemoryStorage();
+  const win = page();
+  const { click, wake, later } = keeper(win, storage, { startMuted: () => true });
+  click(win.document.getElementById('elsewhere'));
+  wake();
+  const reel = player(win, { time: 0, muted: false });
+  reel.start();
+  later(2500);
+  click(reel.toggle);
+  reel.at(3);
+  assert.equal(reel.video.muted, false);
+  later(2500);
+  reel.video.dispatchEvent(new win.Event('loadstart'));
+  reel.start();
+  assert.deepEqual([reel.video.muted, reel.fb.muted], [true, true], "the next reel doesn't get the last one's sound");
+  later(2500);
+  // Facebook's player turns its sound on again without writing the video.
+  reel.fb.muted = false;
+  reel.toggle.setAttribute('aria-label', 'Mute');
+  reel.at(3);
+  assert.deepEqual([reel.fb.muted, reel.toggle.getAttribute('aria-label')], [true, 'Unmute'], 'settled once more, through its button');
+});
+
 test("Start every video muted before your first click, with nothing kept: a reel Facebook starts with sound is muted with its button", () => {
   const storage = createMemoryStorage();
   const win = page();
