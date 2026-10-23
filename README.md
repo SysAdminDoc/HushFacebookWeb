@@ -1,7 +1,7 @@
 ![HushFacebook Web. A quieter Facebook feed.](assets/readme-hero.jpg)
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.0.6-CBA6F7" alt="Version 0.0.6">
+  <img src="https://img.shields.io/badge/version-0.0.6-8ABFFF" alt="Version 0.0.6">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
   <img src="https://img.shields.io/badge/platform-userscript%20%7C%20Chrome%20extension-1877F2" alt="Platform userscript or Chrome extension">
   <img src="https://img.shields.io/badge/for-Tampermonkey%20%7C%20Violentmonkey-00485B" alt="For Tampermonkey or Violentmonkey">
@@ -15,9 +15,9 @@
 
 # HushFacebook Web
 
-HushFacebook Web is a userscript for Facebook in a desktop browser, and a Chrome extension built from the same code. It's the web sibling of [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app, and it's working toward the same list: a feed without ads or suggested posts, less Meta AI, downloads, privacy switches and playback controls.
+HushFacebook Web removes ads and suggested posts from Facebook in a desktop browser. It also adds downloads, privacy switches and playback controls. Run it as a userscript or a Chrome extension. Both use the same code and follow the features in [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app.
 
-It's still early. The latest release is 0.0.6. What changed in each build is in the [changelog](CHANGELOG.md), and [docs/feature-parity.md](docs/feature-parity.md) goes through every Hushfacebook patch and says what the web version does with it.
+It's still early. The working version is 0.0.6. Get the published build from [Releases](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest). The [changelog](CHANGELOG.md) lists changes, and [feature parity](docs/feature-parity.md) explains how each Android patch carries over to the web.
 
 ## Install
 
@@ -53,7 +53,9 @@ Unzipping over the same folder keeps everything it remembers, down to your video
 
 ## Settings
 
-Press and hold the Facebook logo at the top left to open settings. You can also click the sliders button in the bottom left corner or use the HushFacebook Web row in the menu under your profile picture. Your userscript manager's menu has a settings entry too, and in the extension the toolbar button opens them from any tab. Settings use a dark panel with a section sidebar, grouped controls and lavender switches. Changes save as you make them, and every switch has a line under it saying what it does. If you'd rather not have the corner button, turn it off under Menu or General.
+Press and hold the Facebook logo at the top left to open settings. You can also click the sliders button in the bottom left corner or use the HushFacebook Web row in the menu under your profile picture. Your userscript manager's menu has a settings entry too, and in the extension the toolbar button opens them from any tab.
+
+Settings use a charcoal panel with blue switches, a section sidebar and search in the header. Each page has a larger heading and rows separated by thin lines. Changes save as you make them, and every switch explains what it does. On a narrow screen, the sections become a row you can scroll sideways. If you'd rather not have the corner button, turn it off under Menu or General.
 
 **Find a setting** at the top searches every row as you type, including General, its buttons and nested choices. The controls work in the results, and a result's section link lands on the control you searched for. The power switch pauses the script. If Home or a group's feed is still loading after about 20 seconds, a notice offers to pause it for that tab only, so you can see whether it's the cause, and Turn back on undoes that. When a choice needs a reload, a Reload row appears and brings you back to the same settings page afterward.
 
@@ -68,7 +70,7 @@ Settings are in English for now. General has a Language choice that's ready for 
 To help translate, copy [translations/template.json](translations/template.json) and write your language over the English on the right of each line. Keep words in braces like `{count}` exactly as they are. Phrases with a number have a `one` and an `other` form, and you can add the other forms your language uses (`zero`, `two`, `few`, `many`). Then open a pull request, or attach the file to an issue.
 
 <p>
-  <img src="assets/screenshots/panel-feed.jpg" width="49%" alt="News feed settings with an icon sidebar, grouped rows and lavender switches">
+  <img src="assets/screenshots/panel-feed.jpg" width="49%" alt="News feed settings with header search, an icon sidebar and blue switches">
   <img src="assets/screenshots/panel-general.jpg" width="49%" alt="General settings with Quick setups, the Language choice and backup rows">
 </p>
 

@@ -73,6 +73,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   ];
   let current = sections[0].id;
   let query = '';
+  let renderedDirection = null;
   let opener = null;
   const newDots = createNewDots({ storage: environment.storage, features, log });
   const newDot = () => h('span', { class: 'new-dot' }, h('span', { class: 'visually-hidden', text: t('New') }));
@@ -148,9 +149,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('span', { class: 'brand-icon' }, icon(SLIDERS_ICON)),
         h('div', { class: 'brand-copy' },
           h('h2', { id: 'hfw-title', text: 'HushFacebook Web' }),
-          subtitle),
-        h('span', { class: 'chip', text: `v${environment.version}` })),
-      h('div', { class: 'header-actions' }, pauseState, power, closeButton)),
+          subtitle)),
+      searchField,
+      h('div', { class: 'header-actions' },
+        h('span', { class: 'chip', text: `v${environment.version}` }), pauseState, power, closeButton)),
     h('div', { class: 'body' }, nav, main),
     h('footer', null,
       saveState,
@@ -740,7 +742,19 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     ];
   }
 
+  function pageHeading(id, title, description, count = 0) {
+    return h('div', { class: 'page-heading' },
+      h('span', { class: 'page-icon', 'aria-hidden': 'true' }, navigationIcon(id)),
+      h('div', { class: 'page-copy' },
+        h('h3', { id: 'hfw-section-title', text: title }),
+        h('p', { text: description })),
+      count ? h('span', { class: 'setting-count', text: plural(count, '{count} setting', '{count} settings') }) : null);
+  }
+
   function render() {
+    const direction = root.getAttribute('dir');
+    const directionChanged = renderedDirection !== null && renderedDirection !== direction;
+    renderedDirection = direction;
     const focused = shadow.activeElement;
     const focusedKey = focused?.dataset?.key;
     const selection = typeof focused?.selectionStart === 'number' ? [focused.selectionStart, focused.selectionEnd] : null;
@@ -748,7 +762,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const navScroll = [nav.scrollLeft, nav.scrollTop];
     const searching = query.trim() !== '';
     power.disabled = quickSetupPending();
-    nav.replaceChildren(searchField, h('div', { class: 'nav-label', text: t('Settings') }), ...sections.flatMap((section) => [
+    nav.replaceChildren(h('div', { class: 'nav-label', text: t('Settings') }), ...sections.flatMap((section) => [
       section.divider ? h('hr') : null,
       h('button', {
         type: 'button', dataset: { key: `nav:${section.id}` },
@@ -759,10 +773,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (searching) {
       const found = findFeatures([...features, ...generalRows()], sections, query);
       main.replaceChildren(
-        h('div', { class: 'page-heading' },
-          h('div', { class: 'eyebrow', text: t('Find a setting') }),
-          h('h3', { id: 'hfw-section-title', text: t('Search') }),
-          h('p', { text: searchCount(found.length) })),
+        pageHeading('search', t('Search'), searchCount(found.length)),
         ...(reloadPending ? [reloadCard()] : []),
         ...resultsView(found));
       announceSearch(searchCount(found.length));
@@ -772,17 +783,16 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       const section = sections.find((entry) => entry.id === current);
       const count = current === 'general' ? generalRows().length : features.filter((feature) => feature.section === current).length;
       main.replaceChildren(
-        h('div', { class: 'page-heading' },
-          h('div', { class: 'eyebrow', text: t('Settings') }),
-          h('h3', { id: 'hfw-section-title', text: t(section.title) }),
-          h('p', { text: t(SECTION_DESCRIPTIONS[current] ?? '') }),
-          count ? h('span', { class: 'setting-count', text: plural(count, '{count} setting', '{count} settings') }) : null),
+        pageHeading(current, t(section.title), t(SECTION_DESCRIPTIONS[current] ?? ''), count),
         ...(reloadPending ? [reloadCard()] : []),
         ...(current === 'diagnostics' ? diagnosticsView() : [h('div', { class: 'settings-group' }, ...(current === 'general' ? generalView() : sectionView(section)))]));
     }
     main.scrollTop = scrollTop;
     nav.scrollLeft = navScroll[0];
     nav.scrollTop = navScroll[1];
+    // Horizontal scroll offsets change sign in RTL. Keep the selected section in view
+    // when a language change mirrors the panel, while preserving normal redraw scroll.
+    if (directionChanged) nav.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     if (focusedKey) {
       const replacement = root.querySelector(`[data-key="${CSS.escape(focusedKey)}"]`);
       replacement?.focus({ preventScroll: true });
