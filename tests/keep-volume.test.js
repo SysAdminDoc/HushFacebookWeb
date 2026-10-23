@@ -23,8 +23,9 @@ function page() {
 
 // A player, inside a page as deep as Facebook's. Changing the video's volume or mute fires
 // volumechange, as a browser does. `render()` is Facebook writing its own state again.
-// With `proto`, the video uses the accessors on HTMLMediaElement.prototype (see guarded()).
-function player(win, { time = 5, muted = true, volume = 1, feed = false, proto = false } = {}) {
+// With `proto`, the video uses the accessors on HTMLMediaElement.prototype (see guarded()). With
+// `icon`, the mute button holds an icon that Facebook draws anew before it writes the mute.
+function player(win, { time = 5, muted = true, volume = 1, feed = false, proto = false, icon = false } = {}) {
   const outer = win.document.createElement('div');
   outer.innerHTML = '<div><div><div><div><div><div class="box"></div></div></div></div></div></div>';
   const box = outer.querySelector('.box');
@@ -59,8 +60,11 @@ function player(win, { time = 5, muted = true, volume = 1, feed = false, proto =
     video.volume = fb.volume;
   };
   toggle.setAttribute('aria-label', fb.muted ? 'Unmute' : 'Mute');
+  const drawIcon = () => { if (icon) toggle.innerHTML = '<svg><path></path></svg>'; };
+  drawIcon();
   toggle.addEventListener('click', () => {
     fb.muted = !fb.muted;
+    drawIcon();
     render();
   });
   return {
@@ -363,6 +367,30 @@ test("in page mode Facebook's writes land as your values, so nothing is heard in
   on = false;
   reel.video.volume = 0.9;
   assert.equal(reel.video.volume, 0.9, 'switched off, writes go through');
+});
+
+test("a click on the speaker's icon counts, though Facebook draws a new icon before it writes the mute", () => {
+  // Live 2026-10-22 on a reel: the click lands on the icon, which has left the page by the time
+  // Facebook unmutes the video.
+  for (const mode of ['page', 'content']) {
+    const storage = createMemoryStorage({ [VOLUME_KEY]: { volume: 0.5, muted: true } });
+    const win = page();
+    if (mode === 'page') guarded(win);
+    const { click, wake, later } = keeper(win, storage, { page: mode === 'page' });
+    click(win.document.getElementById('elsewhere'));
+    wake();
+    const reel = player(win, { time: 0, muted: false, icon: true, proto: mode === 'page' });
+    reel.start();
+    assert.equal(reel.video.muted, true, `${mode}: kept muted, and started muted`);
+    later(2500);
+    const drawn = reel.toggle.querySelector('path');
+    click(drawn);
+    assert.equal(drawn.isConnected, false, 'the icon clicked is gone');
+    assert.equal(reel.video.muted, false, `${mode}: the click on the icon gives it sound`);
+    assert.deepEqual(storage.get(VOLUME_KEY), { volume: 0.5, muted: false }, `${mode}: and it's kept`);
+    reel.render();
+    assert.equal(reel.video.muted, false);
+  }
 });
 
 test('nothing is kept or given with the switch off, or before you have set anything', () => {

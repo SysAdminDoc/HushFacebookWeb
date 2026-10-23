@@ -93,7 +93,7 @@ export function createVolumeKeeper({
   const resynced = new WeakMap(); // video -> when the script last clicked its mute button
   const settled = new WeakSet();
   let lastInput = Number.NEGATIVE_INFINITY;
-  let lastTarget = null;
+  let lastPath = []; // what the last click landed in, innermost first
   let lastKey = '';
   let inputSeen = false;
   let woken = false;
@@ -159,6 +159,11 @@ export function createVolumeKeeper({
 
   const skip = (video) => applying || !isVideo(video) || !enabled();
 
+  // What the last click landed on, or the nearest box around it still in the page: Facebook draws
+  // the mute button's new icon before it writes the video's mute (live 2026-10-22, 11 ms after the
+  // press), so a click on the icon has left the page by then and only the button holds it.
+  const pressed = () => lastPath.find((node) => node.isConnected) ?? null;
+
   // What the last click or key press could have changed on this video.
   // The slider and the mute button are yours from the first frame. A click elsewhere in a player
   // whose button can't be found counts once Facebook is done starting the video. Keys count only
@@ -166,7 +171,7 @@ export function createVolumeKeeper({
   function yours(video) {
     const none = { volume: false, muted: false };
     if (now() - lastInput >= INPUT_WINDOW) return none;
-    const target = lastKey ? doc.activeElement : lastTarget;
+    const target = lastKey ? doc.activeElement : pressed();
     if (!inPlayer(video, target)) return none;
     if (volumeSlider(target)) return { volume: true, muted: true };
     const toggle = muteToggle(video);
@@ -250,7 +255,7 @@ export function createVolumeKeeper({
   const onInput = (event) => {
     if (!trusted(event)) return;
     lastInput = now();
-    lastTarget = event.type === 'keydown' ? null : event.target;
+    lastPath = event.type === 'keydown' ? [] : (event.composedPath?.() ?? [event.target]).filter((node) => node?.nodeType === 1);
     lastKey = event.type === 'keydown' ? String(event.key ?? '') : '';
     inputSeen = true;
     if (!woken) {
