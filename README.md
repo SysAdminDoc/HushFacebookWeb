@@ -1,7 +1,7 @@
 ![HushFacebook Web. A quieter Facebook feed.](assets/readme-hero.jpg)
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.0.5-CBA6F7" alt="Version 0.0.5">
+  <img src="https://img.shields.io/badge/version-0.0.6-CBA6F7" alt="Version 0.0.6">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
   <img src="https://img.shields.io/badge/platform-userscript%20%7C%20Chrome%20extension-1877F2" alt="Platform userscript or Chrome extension">
   <img src="https://img.shields.io/badge/for-Tampermonkey%20%7C%20Violentmonkey-00485B" alt="For Tampermonkey or Violentmonkey">
@@ -17,7 +17,7 @@
 
 HushFacebook Web is a userscript for Facebook in a desktop browser, and a Chrome extension built from the same code. It's the web sibling of [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app, and it's working toward the same list: a feed without ads or suggested posts, less Meta AI, downloads, privacy switches and playback controls.
 
-It's still early. The latest release is 0.0.5. What changed in each build is in the [changelog](CHANGELOG.md), and [docs/feature-parity.md](docs/feature-parity.md) goes through every Hushfacebook patch and says what the web version does with it.
+It's still early. The latest release is 0.0.6. What changed in each build is in the [changelog](CHANGELOG.md), and [docs/feature-parity.md](docs/feature-parity.md) goes through every Hushfacebook patch and says what the web version does with it.
 
 ## Install
 
