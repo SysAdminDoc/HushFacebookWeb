@@ -11,7 +11,7 @@
 // reason naming what to change, and stays in the list as written. Plain phrases are built
 // here from escaped words and keep the browser's RegExp.
 /*!
-RE2JS 2.8.6, https://github.com/le0pard/re2js, bundled unchanged.
+RE2JS 2.9.0, https://github.com/le0pard/re2js, bundled unchanged.
 
 MIT License
 
