@@ -8,7 +8,7 @@ import { fixtureLines, parseLine } from './helpers/fixtures.js';
 import { boxes, text, trackFile } from './helpers/mp4.js';
 import { extensionOf, fileName, saveFile, startSave } from '../src/core/download.js';
 import { createMediaIndex, MEDIA_MARKERS, photoFile, videoFiles } from '../src/core/media-index.js';
-import { createDownloadButton, mediaAt } from '../src/features/downloads/button.js';
+import { cornerControls, createDownloadButton, mediaAt } from '../src/features/downloads/button.js';
 import { authorOf, findMedia, linkTarget, nearestVideoLink, pageTarget, planSave } from '../src/features/downloads/find.js';
 import { downloads } from '../src/features/downloads/shared.js';
 import { t } from '../src/core/i18n.js';
@@ -1131,6 +1131,58 @@ test('a focused button stays while the mouse passes over it, and a clicked one s
   assert.equal(button.state().shown, false, 'a button the mouse brought up goes with its video, focused or not');
   button.stop();
   win.HTMLElement.prototype.attachShadow = attach;
+});
+
+test("on a reel the buttons start below Facebook's Pause, Unmute and More options, and other buttons don't move them", async () => {
+  // A reel as drawn live on 2026-10-22: its controls 20 px down the video's top right corner, in a
+  // box 8 levels up, and its Like column beside the video. Pause is a real button here, and the
+  // tallest, and the Menu starts above the video and reaches into it.
+  const win = page(`<div class="card"><div><div class="bar"><button aria-label="Pause"></button><div role="button" aria-label="Unmute"></div>
+    <div role="button" aria-label="More options"></div></div><div role="button" aria-label="Menu" class="above"></div>
+    <div role="button" aria-label="Like" class="side"></div><div role="button" aria-label="Captions" class="low"></div>
+    <div role="button" aria-label="Follow" class="left"></div><div role="button" aria-label="Wide" class="wide"></div><div role="button" class="flat"></div>
+    <div><div><div><div><div><div><div><div><video></video></div></div></div></div></div></div></div></div></div></div>`);
+  const doc = win.document;
+  const video = doc.querySelector('video');
+  box(video, [100, 50, 500, 900]);
+  const at = (selector, rect) => box(doc.querySelector(selector), rect);
+  at('[aria-label="Pause"]', [512, 70, 28, 24]);
+  at('[aria-label="Unmute"]', [540, 70, 28, 20]);
+  at('[aria-label="More options"]', [568, 70, 28, 20]);
+  at('.above', [560, 20, 20, 100]);
+  at('.side', [620, 60, 40, 40]);
+  at('.low', [560, 130, 30, 30]);
+  at('.left', [380, 60, 20, 60]);
+  at('.wide', [100, 50, 501, 60]);
+  at('.flat', [560, 120, 30, 0]);
+  doc.elementsFromPoint = () => [video];
+  const download = createDownloadButton({ doc, win, active: () => true, find: () => ({}), run: async () => {} });
+  const pop = createDownloadButton({ doc, win, active: () => true, find: () => ({}), run: async () => {}, name: 'pip', text: 'Pop out', row: 1 });
+  doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 300, clientY: 500 }));
+  await frame();
+  assert.deepEqual([download.state().top, pop.state().top], ['99px', '143px'], 'below the lowest of the controls, 44 px down, in row order');
+  assert.equal(download.state().right, `${win.innerWidth - 600 + 10}px`);
+  assert.equal(cornerControls(video), 44);
+  for (const selector of ['[aria-label="Unmute"]', '[aria-label="More options"]']) doc.querySelector(selector).remove();
+  at('[aria-label="Pause"]', [512, 70, 28, 2]);
+  assert.equal(cornerControls(video), 22, 'its lowest edge counts');
+  doc.querySelector('[aria-label="Pause"]').remove();
+  assert.equal(cornerControls(video), 0, 'a menu above it, the Like column beside it, a button lower down or further left, a wider one and an empty one count for nothing');
+  win.dispatchEvent(new win.Event('resize'));
+  await frame();
+  assert.deepEqual([download.state().top, pop.state().top], ['60px', '104px'], 'with nothing in the corner, 10 px down as before');
+  const far = page(`<div><div role="button" class="far"></div>${'<div>'.repeat(9)}<video></video>${'</div>'.repeat(9)}</div>`);
+  const farVideo = far.document.querySelector('video');
+  box(farVideo, [0, 0, 400, 400]);
+  box(far.document.querySelector('.far'), [360, 10, 30, 30]);
+  assert.equal(cornerControls(farVideo), 0, "a button more than nine levels up isn't the player's");
+  const near = page(`<div><div role="button" class="near"></div>${'<div>'.repeat(8)}<video></video>${'</div>'.repeat(8)}</div>`);
+  const nearVideo = near.document.querySelector('video');
+  box(nearVideo, [0, 0, 400, 400]);
+  box(near.document.querySelector('.near'), [360, 10, 30, 30]);
+  assert.equal(cornerControls(nearVideo), 40, 'nine levels up still is');
+  download.stop();
+  pop.stop();
 });
 
 test('floating controls follow resized media without another pointer move', async () => {

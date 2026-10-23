@@ -13,6 +13,10 @@
 // is steered: from the element focus reached onto the first button, between buttons in row
 // order, and from the last one back to that element, where the browser's own Tab carries on to
 // whatever followed it. Shift+Tab from that next element goes straight back past the buttons.
+//
+// The buttons sit in the media's top right corner, below any of Facebook's own buttons there. A
+// reel's Pause, Unmute and More options take that corner, 20 to 40 px down (live 2026-10-22, in a
+// box 8 levels above the video), and Download used to cover them.
 
 import { uiTokens } from '../../ui/styles.js';
 
@@ -21,6 +25,12 @@ const HIDE_AFTER = 450;
 const LOOK_UP = 6;
 const OWN_LAYER = 12;
 const ROW_HEIGHT = 44; // px between buttons stacked in one corner
+const EDGE = 10; // px in from the media's edges
+// Where Facebook's own buttons in the corner are looked for: inside the media, down to this far
+// from its top and in from its right edge, in the boxes up to this many levels above it.
+const CORNER_BAND = 80;
+const CORNER_WIDTH = 200;
+const CORNER_LEVELS = 9;
 const DOWNLOAD_ICON = 'M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14';
 
 const CSS = `
@@ -82,6 +92,20 @@ export function mediaAt(doc, host, x, y, { through = false } = {}) {
     }
   }
   return null;
+}
+
+// How far down from the media's top Facebook's own buttons in its top right corner reach, or 0.
+export function cornerControls(media, rect = media.getBoundingClientRect()) {
+  let box = media;
+  for (let level = 0; level < CORNER_LEVELS && box.parentElement; level++) box = box.parentElement;
+  let lowest = 0;
+  for (const control of box.querySelectorAll('[role="button"], button')) {
+    const r = control.getBoundingClientRect();
+    if (!r.width || !r.height || r.top < rect.top || r.top >= rect.top + CORNER_BAND
+      || r.right > rect.right || r.right <= rect.right - CORNER_WIDTH) continue;
+    lowest = Math.max(lowest, r.bottom - rect.top);
+  }
+  return lowest;
 }
 
 const isMedia = (element) => (element.tagName === 'VIDEO' || element.tagName === 'IMG') && big(element.getBoundingClientRect());
@@ -335,11 +359,12 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
       hide();
       return;
     }
-    const top = Math.max(rect.top, 0) + 10 + row * ROW_HEIGHT;
+    const clear = Math.max(EDGE, cornerControls(current, rect) + EDGE / 2);
+    const top = Math.max(rect.top, 0) + clear + row * ROW_HEIGHT;
     // Held, it stops above the bottom edge, leaving room for every row below it.
     const lowest = keep ? win.innerHeight - (group.rows() - row) * ROW_HEIGHT : top;
     button.style.top = `${Math.max(Math.min(top, lowest), 0)}px`;
-    button.style.right = `${Math.max(win.innerWidth - rect.right, 0) + 10}px`;
+    button.style.right = `${Math.max(win.innerWidth - rect.right, 0) + EDGE}px`;
   }
 
   // Keyboard focus reached element: the button comes up for its photo or video, or goes.
