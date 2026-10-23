@@ -25,10 +25,12 @@ const PAGE = `
   <img id="emoji" src="https://static.example.invalid/emoji.png">
   ${photo('photo', '1234567')}
   ${photo('second', '2345678')}
+  ${dots('sort', 'Most relevant')}
   <div role="article" aria-label="Comment by Someone" id="comment">
     ${dots('report', 'Report this')}
     ${photo('comment-photo', '7654321')}
   </div>
+  <form><div role="textbox" contenteditable="true"></div>${dots('sticker', 'Comment with a sticker')}</form>
 </div>
 <div aria-posinset="2" id="text-post">
   <h3><a href="/NASA">NASA</a></h3>
@@ -90,11 +92,17 @@ const topRow = (doc) => doc.querySelector('[role="menu"]')?.querySelector(`[${RO
 
 test("the open menu belongs to a post only through the post's own three-dot button", () => {
   const doc = page().document;
-  assert.ok(!openPost(doc));
-  doc.getElementById('report').setAttribute('aria-expanded', 'true');
-  assert.ok(!openPost(doc), "a comment's Report this menu isn't the post's");
+  const find = findPhoto();
+  assert.ok(!openPost(doc, find));
+  for (const [id, why] of [['report', "a comment's Report this menu isn't the post's"], ['sort', 'nor is comment order, under the photo'], ['sticker', "nor the comment box's stickers"]]) {
+    doc.getElementById(id).setAttribute('aria-expanded', 'true');
+    assert.ok(!openPost(doc, find), why);
+    doc.getElementById(id).setAttribute('aria-expanded', 'false');
+  }
+  doc.getElementById('text-dots').setAttribute('aria-expanded', 'true');
+  assert.ok(!openPost(doc, find), 'a post with nothing to save');
   doc.getElementById('dots').setAttribute('aria-expanded', 'true');
-  assert.equal(openPost(doc)?.id, 'post');
+  assert.equal(openPost(doc, find)?.id, 'post');
 });
 
 test("a post's first photo the switches cover is the one saved, never one in a comment", () => {
@@ -153,6 +161,12 @@ test("a comment's menu, a post with nothing to save and a switch that's off get 
   doc.getElementById('report').click();
   await tick();
   assert.deepEqual(ids(doc), ['embed', 'report-post'], "a comment's menu");
+  doc.getElementById('sort').click();
+  await tick();
+  assert.deepEqual(ids(doc), ['embed', 'report-post'], 'the comment order menu under the photo');
+  doc.getElementById('sticker').click();
+  await tick();
+  assert.deepEqual(ids(doc), ['embed', 'report-post'], "the comment box's sticker menu");
   doc.getElementById('text-dots').click();
   await tick();
   assert.deepEqual(ids(doc), ['embed', 'report-post'], 'a post with only words');

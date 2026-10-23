@@ -28,21 +28,26 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // After the three-dot button opens its menu, Facebook may draw it a moment later.
 const RETRIES_MS = [0, 50, 150, 400, 1000];
 
-// The post whose own three-dot button has its menu open, or null.
-export function openPost(doc) {
-  for (const button of doc.querySelectorAll(OPENER)) {
-    const post = button.closest(POST);
-    if (post && !isComment(post)) return post;
-  }
-  return null;
-}
-
 // The post's first photo or video that find() can save, leaving out comments and posts inside it.
 export function mediaOf(post, find) {
   for (const media of post.querySelectorAll('video, img')) {
     if (media.closest(POST) !== post) continue;
     const found = find(media);
     if (found) return { media, found };
+  }
+  return null;
+}
+
+// The post whose own three-dot button has its menu open, when it has something to save, or null.
+// The post's button sits in its header above the photo or video. Its other buttons that open a
+// menu, comment order and the comment box's emoji, GIF and sticker buttons, come after it.
+export function openPost(doc, find) {
+  const following = (doc.defaultView?.Node ?? globalThis.Node).DOCUMENT_POSITION_FOLLOWING;
+  for (const button of doc.querySelectorAll(OPENER)) {
+    const post = button.closest(POST);
+    if (!post || isComment(post)) continue;
+    const pick = mediaOf(post, find);
+    if (pick && button.compareDocumentPosition(pick.media) & following) return post;
   }
   return null;
 }
@@ -129,7 +134,6 @@ export function createMenuDownload({ doc, enabled, find, run, missing, log, setT
       shown.row.remove();
     }
     shown = null;
-    if (!mediaOf(post, find)) return;
     // Ours is gone by now, so the first row is Facebook's.
     const first = menu.querySelector(ROWS);
     const row = first && buildRow(first, doc);
@@ -154,7 +158,7 @@ export function createMenuDownload({ doc, enabled, find, run, missing, log, setT
       remove();
       return;
     }
-    const post = openPost(doc);
+    const post = openPost(doc, find);
     const menu = post && [...doc.querySelectorAll('[role="menu"]')].at(-1);
     if (!menu) return;
     try {
