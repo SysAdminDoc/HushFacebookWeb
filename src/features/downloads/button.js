@@ -156,7 +156,10 @@ function groupFor(doc) {
     backward: false,
     // Focus is being moved by step(), not by the browser.
     moving: false,
-    rows: () => Math.max(0, ...[...group.members].map((member) => member.row)) + 1,
+    // A button came up or went: the others on the same media close up or make room.
+    relayout(except) {
+      for (const member of group.members) if (member !== except) member.place();
+    },
     onKey(event) {
       group.keyboard = true;
       group.backward = event.key === 'Tab' && event.shiftKey;
@@ -248,6 +251,8 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
   let point = null;
   // The element keyboard focus reached when it brought the button up. Null when the pointer did.
   let anchor = null;
+  // find() is asked again for the media the button is on, as recheck() wants.
+  let stale = false;
   const group = groupFor(doc);
   const member = {
     row,
@@ -261,6 +266,9 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
       return false;
     },
     focus: () => button.focus({ preventScroll: true }),
+    // The media this button is up on, or null.
+    over: () => (button && !button.hidden && host?.isConnected ? current : null),
+    place: () => place(),
   };
   group.members.add(member);
 
@@ -295,10 +303,12 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
 
   function hide() {
     clearTimeout(hideTimer);
+    const was = Boolean(button && !button.hidden);
     current = null;
     found = null;
     anchor = null;
     if (button) button.hidden = true;
+    if (was) group.relayout(member);
   }
 
   // Keyboard focus is on this button, the other floating one, or the photo or video it's for.
@@ -359,10 +369,14 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
       hide();
       return;
     }
+    // Only the buttons up on this same media take a row, so a switch that's off, or a button
+    // with nothing to do here (Frame step on a playing video), leaves no gap.
+    const others = [...group.members].filter((other) => other !== member && other.over() === current);
+    const slot = others.filter((other) => other.row < row).length;
     const clear = Math.max(EDGE, cornerControls(current, rect) + EDGE / 2);
-    const top = Math.max(rect.top, 0) + clear + row * ROW_HEIGHT;
+    const top = Math.max(rect.top, 0) + clear + slot * ROW_HEIGHT;
     // Held, it stops above the bottom edge, leaving room for every row below it.
-    const lowest = keep ? win.innerHeight - (group.rows() - row) * ROW_HEIGHT : top;
+    const lowest = keep ? win.innerHeight - (others.filter((other) => other.row > row).length + 1) * ROW_HEIGHT : top;
     button.style.top = `${Math.max(Math.min(top, lowest), 0)}px`;
     button.style.right = `${Math.max(win.innerWidth - rect.right, 0) + EDGE}px`;
   }
@@ -373,7 +387,8 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     const media = mediaFor(element);
     // Still on the same photo or video, like the next control of one player: Tab steps onto
     // the button after the element focus reached first, not after every one.
-    if (media && media === current && anchor?.isConnected) return;
+    if (media && media === current && anchor?.isConnected && !stale) return;
+    stale = false;
     const next = media ? lookUp(media) : null;
     if (!next) {
       if (anchor) hide();
@@ -387,6 +402,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     showState();
     button.hidden = false;
     place();
+    group.relayout(member);
   }
 
   function check() {
@@ -411,7 +427,8 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
       return;
     }
     clearTimeout(hideTimer);
-    if (target !== current) {
+    if (target !== current || stale) {
+      stale = false;
       const next = lookUp(target);
       if (!next) {
         hideSoon();
@@ -421,8 +438,10 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
       found = next;
       showState();
     }
+    const was = !button.hidden;
     button.hidden = false;
     place();
+    if (!was) group.relayout(member);
   }
 
   // Looked up again at the click: the story viewer may have moved on, or a switch gone off,
@@ -497,6 +516,17 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     // The words may have changed for the media it's on, like Pop out after its window closed.
     refresh() {
       if (current && button && !busy()) showState();
+    },
+    // Whether the button belongs on its media may have changed, like Frame step's when the
+    // video under the pointer or focus pauses or plays: find() is asked again.
+    // media: the one that changed. A button up on other media has nothing to look at again.
+    recheck(media) {
+      if (busy() || (media && button && !button.hidden && media !== current)) return;
+      stale = true;
+      const focused = doc.activeElement;
+      if (anchor?.isConnected) focusOn(anchor);
+      else if (group.keyboard && focused && focused !== doc.body && !floating(focused)) focusOn(focused);
+      else if (point && !frame) frame = win.requestAnimationFrame(check);
     },
     stop() {
       if (frame) win.cancelAnimationFrame(frame);

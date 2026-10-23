@@ -64,6 +64,7 @@ import keepVolume from './playback/keep-volume.js';
 import rememberWatched from './playback/remember-watched.js';
 import holdForSpeed from './playback/hold-for-speed.js';
 import pictureInPicture from './playback/picture-in-picture.js';
+import frameStep from './playback/frame-step.js';
 import keepControls from './playback/keep-controls.js';
 import videoQuality from './playback/video-quality.js';
 import marketplaceOnly from './opening/marketplace-only.js';
@@ -95,7 +96,7 @@ export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts, keepPostDates, keepFeedPlace, hideFollowButtons, hideCounts, expandLongPosts,
   hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, holdBackLogs,
   commentOrder, showAllReplies, hideCommentStickers, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
-  keepSpeed, keepVolume, holdForSpeed, pictureInPicture, keepControls, videoQuality, rememberWatched,
+  keepSpeed, keepVolume, holdForSpeed, pictureInPicture, frameStep, keepControls, videoQuality, rememberWatched,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, screenshotMode,
   menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions, blockInstantGamesAds,
   // In this order: the first to claim a Home load redirects it (opening/start.js).

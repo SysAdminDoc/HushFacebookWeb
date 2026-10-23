@@ -612,7 +612,7 @@ test('the Pop out button asks for picture-in-picture, and offers the way back on
   doc.dispatchEvent(new win.PointerEvent('pointermove', { clientX: 200, clientY: 100 }));
   await frame();
   assert.deepEqual([button.state().shown, button.state().text], [true, 'Pop out']);
-  assert.equal(button.state().top, '104px', 'one row below the Download button');
+  assert.equal(button.state().top, '60px', 'with no Download button up, it takes the top row');
   assert.ok(doc.querySelector('[data-hushfacebook-web="picture-in-picture"]'));
   button.click();
   await frame();
