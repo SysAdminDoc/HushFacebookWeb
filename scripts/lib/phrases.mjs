@@ -7,8 +7,9 @@
 // the same file or one it imports, a parameter of the function it's in (through that
 // function's callers in the same file), or a property (the strings that property gets in the
 // same file, or the files it imports when it has none, or in any file for an action's label and
-// a busyLabel, which toasts and buttons pass along). Whatever it can't follow comes back in
-// unresolved, by file and call, unless PASS_THROUGH says where its words come from.
+// a busyLabel, which toasts and buttons pass along, and a floating button's text and busyText),
+// or a call to a function it can follow (what that function returns). Whatever it can't follow
+// comes back in unresolved, by file and call, unless PASS_THROUGH says where its words come from.
 
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve as resolvePath, sep } from 'node:path';
@@ -19,8 +20,9 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SRC = join(ROOT, 'src');
 // Properties whose strings travel between files before t() shows them, and the pool each one
 // draws from: a label only from an action { label, run }, so a share target's or a language's
-// own name doesn't count.
-const SHARED_PROPERTIES = new Map([['label', 'label:run'], ['busyLabel', 'busyLabel']]);
+// own name doesn't count, and a text or busyText only from a floating button's { text, find }
+// (src/features/downloads/button.js).
+const SHARED_PROPERTIES = new Map([['label', 'label:run'], ['busyLabel', 'busyLabel'], ['text', 'text:find'], ['busyText', 'busyText:find']]);
 // Calls that only hand on words found elsewhere, by file and call as written.
 export const PASS_THROUGH = new Map([
   ['src/core/i18n.js t(count === 1 ? one : other, all)', 'plural() itself'],
@@ -82,6 +84,8 @@ function readSource(path, text) {
       pushTo(properties, keyName(node), node.value);
       // A button's label: an action { label, run } a toast or a card passes along.
       if (keyName(node) === 'label' && ancestors.at(-1).properties.some((other) => other.type === 'Property' && keyName(other) === 'run')) pushTo(properties, 'label:run', node.value);
+      // A floating button's words: { text, busyText, find } for createDownloadButton.
+      if (['text', 'busyText'].includes(keyName(node)) && ancestors.at(-1).properties.some((other) => other.type === 'Property' && keyName(other) === 'find')) pushTo(properties, `${keyName(node)}:find`, node.value);
     }
     if (node.type === 'CallExpression') calls.push({ node, ancestors: [...ancestors] });
     // new Error('...') carries a message a toast may show through t(error.message).
@@ -98,11 +102,19 @@ export async function collectPhrases() {
   const unresolved = [];
   const imported = (file) => [...new Set([...file.imports.values()].map(({ from }) => from))].map((path) => files.get(path)).filter(Boolean);
 
-  // Strings an expression can end up as, or null when it can't be followed.
-  function resolve(file, node, ancestors, seen = new Set()) {
+  // Strings an expression can end up as, or null when it can't be followed. seen holds what each
+  // node came to, so one met again (both sides of `typeof text === 'function' ? text(current) :
+  // text`) gives the same words, and one met inside itself adds nothing.
+  function resolve(file, node, ancestors, seen = new Map()) {
     if (!node) return null;
-    if (seen.has(node)) return [];
-    seen.add(node);
+    if (seen.has(node)) return seen.get(node);
+    seen.set(node, []);
+    const found = follow(file, node, ancestors, seen);
+    seen.set(node, found);
+    return found;
+  }
+
+  function follow(file, node, ancestors, seen) {
     switch (node.type) {
       case 'Literal':
         return typeof node.value === 'string' ? [node.value] : [];
@@ -121,6 +133,9 @@ export async function collectPhrases() {
         const values = node.properties.map((property) => (property.type === 'Property' ? resolve(file, property.value, ancestors, seen) : null));
         return values.includes(null) ? null : values.flat();
       }
+      // text(video): what the function it names can return.
+      case 'CallExpression':
+        return node.callee.type === 'Identifier' ? resolve(file, node.callee, ancestors, seen) : null;
       case 'Identifier':
         return resolveName(file, node.name, ancestors, seen);
       case 'MemberExpression': {

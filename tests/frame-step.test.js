@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
+import { setLanguage, t } from '../src/core/i18n.js';
 import frameStep, { FRAME, createFrameStep, stepTime } from '../src/features/playback/frame-step.js';
 import { createDownloadButton } from '../src/features/downloads/button.js';
 import { createPopOut } from '../src/features/playback/picture-in-picture.js';
@@ -83,6 +84,16 @@ test('on a paused video Back a frame and Next frame show in its corner and move 
   assert.ok(Math.abs(time() - (5 + 1 / 30)) < 1e-9, `one back: ${time()}`);
   assert.equal(video.paused, true, 'it stays paused');
   assert.deepEqual(stepped, [1, 1, -1]);
+});
+
+test("the floating buttons' words follow the panel's language", async () => {
+  const { win, doc } = player();
+  const { back } = steps(doc, win);
+  setLanguage('long-test');
+  stops.push(() => setLanguage('en'));
+  point(doc, win);
+  await frame();
+  assert.deepEqual([back.state().text, back.state().text === 'Back a frame'], [t('Back a frame'), false]);
 });
 
 test('a step at the very start or end does nothing and counts nothing', async () => {

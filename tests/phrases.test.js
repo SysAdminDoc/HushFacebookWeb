@@ -26,6 +26,10 @@ test('the template holds what each kind of call shows, and no names that stay as
     'it took too long', // an error message a toast shows
     "Couldn't find this photo's file.", // a plan's error, from the file it's imported from
     'always-show sites', // a property in the same file
+    'Back a frame', // a floating button's text, through a const in another file
+    'Pop out', // one a function gives, called with the video
+    'Opening', // a floating button's busyText
+    'Saving', // the busyText it has when it's given none
   ]) assert.equal(template[phrase], phrase, phrase);
   assert.deepEqual(template['{count} settings'], { one: '{count} setting', other: '{count} settings' });
   assert.ok(!('{count} setting' in template), 'a plural phrase is keyed by its plural form only');

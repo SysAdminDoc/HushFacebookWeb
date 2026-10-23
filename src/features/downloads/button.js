@@ -18,6 +18,7 @@
 // reel's Pause, Unmute and More options take that corner, 20 to 40 px down (live 2026-10-22, in a
 // box 8 levels above the video), and Download used to cover them.
 
+import { t } from '../../core/i18n.js';
 import { uiTokens } from '../../ui/styles.js';
 
 const MIN_SIZE = 160;
@@ -298,7 +299,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', icon);
     svg.append(path);
-    button.append(svg, doc.createTextNode(words));
+    button.append(svg, doc.createTextNode(t(words)));
   }
 
   function hide() {
