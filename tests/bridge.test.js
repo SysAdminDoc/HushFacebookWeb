@@ -2535,6 +2535,7 @@ test("a page reads and writes its own account's activity and the shared lists fr
     { kind: 'reel', id: 'javascript:alert(1)', at: 5 }, { kind: 'reel', id: 1088226293914076, at: 5 }, { kind: 'photo', id: '1088226293914076', at: 5 },
     { kind: 'story', id: 'UzpfSVNDOjE5MjM0NTY3', at: 5 }, { kind: 'story', id: 'a/b', bucket: '1', at: 5 }, { kind: 'reel', id: '1088226293914076', at: 5, bucket: '1' },
     { kind: 'reel', id: '1088226293914076', at: 5, href: 'https://example.com/' }, { kind: 'reel', id: '1088226293914076', at: 5, owner: '' },
+    { kind: 'reel', id: '1088226293914076', at: 5, length: 0 },
   ]) {
     await refused(forged.send('storage:set', { key: activityKeyFor('rememberWatched.list', account), value: [entry] }), /not allowed/, JSON.stringify(entry));
   }

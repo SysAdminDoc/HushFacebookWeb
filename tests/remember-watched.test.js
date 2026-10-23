@@ -110,6 +110,8 @@ function watcher(win, { storage = createMemoryStorage(), on = () => true, at = `
 test('entries are checked and linked, kept newest first, one for each and 50 at most', () => {
   assert.deepEqual(entryOf({ kind: 'reel', id: REEL, at: 5, owner: 'Example Page', length: 41.6 }), { kind: 'reel', id: REEL, at: 5, owner: 'Example Page', length: 42 });
   assert.deepEqual(entryOf({ kind: 'video', id: '2234567890', at: 5, owner: ' ', length: Infinity, bucket: 'x' }), { kind: 'video', id: '2234567890', at: 5 }, 'a blank name, an endless length and a stray bucket are dropped');
+  // The extension refuses a length under 1 and the whole list with it (bridge.test.js).
+  assert.deepEqual([0.4, 0.5, 1.2, '5', -3].map((length) => entryOf({ kind: 'reel', id: REEL, at: 5, length }).length), [undefined, 1, 1, undefined, undefined], "a clip under half a second has no length, and words or less than nothing aren't one");
   assert.deepEqual(entryOf({ kind: 'story', id: CARD, bucket: '108123456789', at: 5, owner: 'x'.repeat(81) }), { kind: 'story', id: CARD, bucket: '108123456789', at: 5 });
   for (const bad of [
     null, [], 'reel', { kind: 'photo', id: '2234567890', at: 5 }, { kind: 'reel', id: 'javascript:alert(1)', at: 5 }, { kind: 'reel', id: '12345', at: 5 },

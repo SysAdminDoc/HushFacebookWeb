@@ -33,7 +33,10 @@ export function entryOf(value) {
   const entry = { kind: value.kind, id: value.id, at: value.at };
   if (story) entry.bucket = value.bucket;
   if (typeof value.owner === 'string' && value.owner.trim() && value.owner.length <= 80) entry.owner = value.owner;
-  if (Number.isFinite(value.length) && value.length > 0) entry.length = Math.round(value.length);
+  // A clip under half a second would round to 0, which the extension's storage check refuses along
+  // with the whole list (extension/isolated.js watchedEntry), so it goes without a length.
+  const length = Number.isFinite(value.length) ? Math.round(value.length) : 0;
+  if (length >= 1) entry.length = length;
   return entry;
 }
 
