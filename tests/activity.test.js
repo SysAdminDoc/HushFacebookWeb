@@ -11,6 +11,7 @@ import { accountTag } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import { SPEED_KEY, createSpeedKeeper } from '../src/features/playback/keep-speed.js';
 import { VOLUME_KEY, createVolumeKeeper } from '../src/features/playback/keep-volume.js';
+import { WATCHED_KEY } from '../src/features/playback/remember-watched.js';
 import { MAX_KEPT, POSITIONS_KEY, createResumer } from '../src/features/playback/resume-videos.js';
 
 const FB = 'https://www.facebook.com';
@@ -53,7 +54,7 @@ const quietLog = () => {
 };
 
 test('the activity keys are the stores own, and housekeeping and settings keys stay as they are', () => {
-  assert.deepEqual([...ACTIVITY_KEYS], [SEEN_KEY, CLEARED_KEY, SPEED_KEY, VOLUME_KEY, POSITIONS_KEY]);
+  assert.deepEqual([...ACTIVITY_KEYS], [SEEN_KEY, CLEARED_KEY, SPEED_KEY, VOLUME_KEY, POSITIONS_KEY, WATCHED_KEY]);
   const storage = createMemoryStorage();
   const { storage: scoped } = createActivityStorage({ storage, account: A });
   const global = ['tasks', 'storageCheck', 'extensionUpdate', 'extensionUpdate.told', 'instantGamesAds.enabled', 'hidePostsByWords.cssWarned', 'settings', 'settings.migrated'];

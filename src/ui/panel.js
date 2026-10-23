@@ -309,6 +309,16 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     }
   }
 
+  // The links a feature lists on its card (ctx.actions.links), opened in this tab.
+  function featureLinks(feature) {
+    const found = actions?.links?.(feature.id);
+    if (!found) return null;
+    if (!found.items.length) return h('div', { class: 'links-empty', dataset: { linksFor: feature.id }, text: t(found.empty) });
+    return h('ol', { class: 'links', dataset: { linksFor: feature.id } }, found.items.map(({ label, detail, href }) => h('li', {},
+      h('a', { href, text: label, dir: 'auto' }),
+      detail ? h('span', { class: 'detail', text: detail }) : null)));
+  }
+
   // Buttons the feature added for itself (ctx.actions).
   function featureActions(feature) {
     const list = actions?.list(feature.id) ?? [];
@@ -357,6 +367,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           status === undefined ? null : h('div', { class: 'note', 'data-status-for': feature.id, role: 'status', hidden: status === null, text: t(status ?? '') })),
         toggle(feature.id, feature.title, { locked: blocked, describedBy })),
       (on || showOptions) && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option, dots))) : null,
+      on ? featureLinks(feature) : null,
       on ? featureActions(feature) : null);
   }
 

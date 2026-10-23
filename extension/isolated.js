@@ -113,6 +113,19 @@ const positionRecord = (value) => (
     && finite(spot.at, 0)
   ))
 );
+// Remember what you watch keeps 50 (src/features/playback/remember-watched.js entryOf).
+const STORY_PART = /^[\w.%=:-]{1,200}$/;
+const watchedEntry = (entry) => (
+  isRecord(entry)
+  && Object.keys(entry).every((name) => ['kind', 'id', 'at', 'bucket', 'owner', 'length'].includes(name))
+  && ['reel', 'video', 'story'].includes(entry.kind)
+  && typeof entry.id === 'string'
+  && (entry.kind === 'story' ? STORY_PART.test(entry.id) && typeof entry.bucket === 'string' && STORY_PART.test(entry.bucket) : /^\d{6,30}$/.test(entry.id) && entry.bucket === undefined)
+  && finite(entry.at, 1)
+  && (entry.owner === undefined || (boundedString(entry.owner, 80) && entry.owner.length > 0))
+  && (entry.length === undefined || finite(entry.length, 1))
+);
+const watchedList = (value) => Array.isArray(value) && value.length <= 200 && value.every(watchedEntry);
 // The background's release check (extension/background.js lists the fields). A record saved
 // before checkedAt existed has `at` instead of the times after it.
 const UPDATE_FIELDS = ['at', 'current', 'latest', 'url', 'newer', 'checkedAt', 'triedAt', 'state', 'failures', 'nextAt', 'checking'];
@@ -141,6 +154,7 @@ const FACEBOOK_VALUES = new Map([
   ['keepSpeed.rate', (value) => finite(value, 0.25, 4)],
   ['keepVolume.state', volumeRecord],
   ['resumeVideos.positions', positionRecord],
+  ['rememberWatched.list', watchedList],
   [GAME_KEY, (value) => typeof value === 'boolean'],
   ['hidePostsByWords.cssWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
   ['hidePostsByWords.skipWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],

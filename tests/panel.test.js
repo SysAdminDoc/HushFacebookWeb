@@ -19,6 +19,7 @@ import { mountPanel } from '../src/ui/panel.js';
 import { SEEN_SETTINGS_KEY } from '../src/ui/new-dots.js';
 import { QUICK_SETUPS } from '../src/ui/quick-setups.js';
 import menuEntry from '../src/features/menu/menu-entry.js';
+import rememberWatched, { WATCHED_KEY } from '../src/features/playback/remember-watched.js';
 
 const GLOBALS = ['document', 'Node', 'CSS', 'requestAnimationFrame', 'navigator', 'setTimeout', 'clearTimeout'];
 const nodeSetTimeout = globalThis.setTimeout;
@@ -566,6 +567,46 @@ test("a feature's own buttons show on its card while it's on, follow its state a
   settings.set('demo', false);
   await tick();
   assert.equal(button('Hide them again'), undefined, 'no buttons while the switch is off');
+});
+
+test('Remember what you watch lists its links on its card, clears them in one click and keeps them out of Copy report', async () => {
+  const storage = createMemoryStorage();
+  const actions = createActions();
+  const now = Date.now();
+  storage.set(WATCHED_KEY, [
+    { kind: 'reel', id: '1088226293914076', at: now - 5 * 60e3, owner: 'Example Page', length: 42 },
+    { kind: 'story', id: 'UzpfSVNDOjE5MjM0NTY3', bucket: '108123456789', at: now - 2 * 3600e3 },
+  ]);
+  const { win, shadow, panel, settings, diagnostics, copied } = setup({ features: [rememberWatched], actions, storage, beforeMount: (s) => s.set('rememberWatched', true) });
+  const toasts = [];
+  rememberWatched.setup({
+    doc: win.document, router: null, storage, enabled: () => settings.enabled('rememberWatched'), toast: (text) => toasts.push(text), diagnostics, actions: actions.for('rememberWatched'),
+  });
+  const list = () => shadow.querySelector('[data-links-for="rememberWatched"]');
+  const button = (text) => [...shadow.querySelectorAll('button')].find((b) => b.textContent === text);
+  panel.open('playback');
+  assert.deepEqual([...list().querySelectorAll('li')].map((li) => [li.querySelector('a').textContent, li.querySelector('a').getAttribute('href'), li.querySelector('.detail').textContent]), [
+    ['Example Page', '/reel/1088226293914076/', 'Reel · 0:42 · 5 minutes ago'],
+    ['Story', '/stories/108123456789/UzpfSVNDOjE5MjM0NTY3/', '2 hours ago'],
+  ]);
+
+  panel.open('diagnostics');
+  button('Copy report').click();
+  await tick();
+  assert.match(copied[0], /^Watched list: 2$/m);
+  assert.doesNotMatch(copied[0], /1088226293914076|Example Page|108123456789|UzpfSVNDOjE5MjM0NTY3/, 'no link, id or name');
+
+  panel.open('playback');
+  button('Clear the list').click();
+  await tick();
+  assert.equal(storage.get(WATCHED_KEY), undefined);
+  assert.deepEqual(toasts, ['Cleared the watched list']);
+  assert.equal(list().textContent, 'Nothing watched yet.');
+  assert.ok(!button('Clear the list'), 'nothing left to clear');
+
+  settings.set('rememberWatched', false);
+  await tick();
+  assert.ok(!list(), 'no list while the switch is off');
 });
 
 test("a feature's status line shows on its card while it's on and changes without taking focus", async () => {

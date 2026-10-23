@@ -1,5 +1,5 @@
 // Activity kept for each Facebook account, the way its settings are (settings.js): the posts
-// you've scrolled past, video spots, and the speed and volume you keep. Each of these keys gets
+// you've scrolled past, video spots, the speed and volume you keep, and what you watched. Each of these keys gets
 // the account's tag, or "signed-out" while nobody is, so what one account watched never shows
 // up for another. A tag is base-36 digits only, so "signed-out" can't be one.
 //
@@ -20,10 +20,12 @@ import { CLEARED_KEY, MAX_AGE, MAX_ENTRIES, SEEN_KEY } from './seen-store.js';
 const SPEED_KEY = 'keepSpeed.rate';
 const VOLUME_KEY = 'keepVolume.state';
 const POSITIONS_KEY = 'resumeVideos.positions';
+const WATCHED_KEY = 'rememberWatched.list'; // WATCHED_KEY in features/playback/remember-watched.js
 const MAX_POSITIONS = 200; // MAX_KEPT in features/playback/resume-videos.js
 const SIGNED_OUT = 'signed-out';
 
-export const ACTIVITY_KEYS = Object.freeze([SEEN_KEY, CLEARED_KEY, SPEED_KEY, VOLUME_KEY, POSITIONS_KEY]);
+// The watched list came after accounts were kept apart, so it never has a shared copy to add.
+export const ACTIVITY_KEYS = Object.freeze([SEEN_KEY, CLEARED_KEY, SPEED_KEY, VOLUME_KEY, POSITIONS_KEY, WATCHED_KEY]);
 const ACTIVITY = new Set(ACTIVITY_KEYS);
 export const ACCOUNT_CHANGED = 'The Facebook account on this page changed, so seen posts and video spots stop saving here until you reload';
 

@@ -140,6 +140,12 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .new-dot { position: relative; display: inline-block; flex: none; width: 8px; height: 8px; margin-inline-start: 8px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
 nav button .new-dot { margin-inline-start: auto; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.links { list-style: none; margin: 16px 0 0; padding: 0 4px 0 0; max-height: 320px; overflow-y: auto; border-top: 1px solid var(--border); }
+.links li { display: flex; flex-direction: column; padding: 8px 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.links a { color: var(--accent); text-decoration: none; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.links a:hover { text-decoration: underline; }
+.links .detail { color: var(--subtext); font-size: 13px; line-height: 20px; }
+.links-empty { color: var(--subtext); font-size: 13px; line-height: 20px; margin-top: 12px; }
 .button { min-height: 40px; max-width: 100%; border: 1px solid var(--surface1); background: var(--surface0); padding: 9px 16px; border-radius: 8px; transition: background 0.15s ease; }
 .button:hover { background: var(--surface1); }
 a.button { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }

@@ -2522,11 +2522,23 @@ test("a page reads and writes its own account's activity and the shared lists fr
     [activityKeyFor('keepSpeed.rate', account), 1.5],
     [activityKeyFor('keepVolume.state', account), { volume: 0.5, muted: false }],
     [activityKeyFor('seenPostsCleared', account), 50],
+    [activityKeyFor('rememberWatched.list', account), [
+      { kind: 'reel', id: '1088226293914076', at: 5, owner: 'Example Page', length: 42 },
+      { kind: 'story', id: 'UzpfSVNDOjE5MjM0NTY3%3D', bucket: '108123456789', at: 6 },
+    ]],
   ]) {
     assert.equal((await forged.send('storage:set', { key, value })).ok, true, key);
     assert.deepEqual(chrome.data[key], value);
   }
   await refused(forged.send('storage:set', { key: activityKeyFor('keepSpeed.rate', account), value: 99 }), /not allowed/);
+  for (const entry of [
+    { kind: 'reel', id: 'javascript:alert(1)', at: 5 }, { kind: 'reel', id: 1088226293914076, at: 5 }, { kind: 'photo', id: '1088226293914076', at: 5 },
+    { kind: 'story', id: 'UzpfSVNDOjE5MjM0NTY3', at: 5 }, { kind: 'story', id: 'a/b', bucket: '1', at: 5 }, { kind: 'reel', id: '1088226293914076', at: 5, bucket: '1' },
+    { kind: 'reel', id: '1088226293914076', at: 5, href: 'https://example.com/' }, { kind: 'reel', id: '1088226293914076', at: 5, owner: '' },
+  ]) {
+    await refused(forged.send('storage:set', { key: activityKeyFor('rememberWatched.list', account), value: [entry] }), /not allowed/, JSON.stringify(entry));
+  }
+  await refused(forged.send('storage:set', { key: activityKeyFor('rememberWatched.list', other), value: [] }), /not allowed/, "another account's list");
   await refused(forged.send('storage:set', { key: activityKeyFor('seenPosts', other), value: {} }), /not allowed/);
   await refused(forged.send('storage:remove', { key: activityKeyFor('seenPosts', null) }), /not allowed/, 'signed out is another account here');
   assert.equal((await forged.send('storage:remove', { key: 'seenPosts' })).ok, true, 'the shared list can be deleted');

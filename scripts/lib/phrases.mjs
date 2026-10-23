@@ -1,7 +1,8 @@
 // Every phrase the script can show through t(), plural() or english(), in English, for the
 // translation template. Three sources: the feature list's own words (titles, descriptions,
 // option labels and choices, section and quick setup names), Diagnostics' row labels
-// (diagnostics.add), card buttons' labels (actions.add), and every call in src, read with a parser. An argument is followed to the
+// (diagnostics.add), card buttons' labels (actions.add) and an empty link list's words
+// (actions.links), and every call in src, read with a parser. An argument is followed to the
 // words it can end up as: a string, either side of ?: ?? or ||, a const or a lookup table in
 // the same file or one it imports, a parameter of the function it's in (through that
 // function's callers in the same file), or a property (the strings that property gets in the
@@ -27,6 +28,7 @@ export const PASS_THROUGH = new Map([
   ['src/ui/search.js t(text, vars)', 'search reads the feature list and panel words'],
   ["src/ui/panel.js t(status ?? '')", "a feature's status line (diagnostics.status), none so far"],
   ["src/ui/panel.js t(diagnostics.statusOf(node.getAttribute('data-status-for')) ?? '')", "a feature's status line (diagnostics.status), none so far"],
+  ['src/ui/panel.js t(found.empty)', 'an empty link list, from the actions.links calls'],
 ]);
 
 async function sources(dir) {
@@ -208,6 +210,11 @@ export async function collectPhrases() {
       } else if (node.callee.type === 'MemberExpression' && calleeName(node) === 'add' && ['diagnostics', 'actions'].includes(node.callee.object.name)) {
         // Diagnostics' row labels and card buttons' labels, shown through t(label).
         const found = resolve(file, node.arguments[0], ancestors);
+        if (found === null) missed();
+        else add(found);
+      } else if (node.callee.type === 'MemberExpression' && calleeName(node) === 'links' && node.callee.object.name === 'actions' && node.arguments.length === 2) {
+        // A card's link list: what it says while empty, shown through t(empty).
+        const found = resolve(file, node.arguments[1], ancestors);
         if (found === null) missed();
         else add(found);
       }

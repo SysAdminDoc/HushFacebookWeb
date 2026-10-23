@@ -13,6 +13,7 @@
 //               net is null in content mode (needsPage features never get that far)
 //               diagnostics.add('Row label', () => 'value') adds a Diagnostics row (src/core/diagnostics.js)
 //               actions.add('Button label', run) puts a button on the feature's card (src/core/actions.js)
+//               actions.links(get, 'Shown when empty') lists links on the card
 //               storage.get(key, fallback) / storage.set(key, value): GM storage beside the settings.
 //               Keys in ACTIVITY_KEYS (src/core/activity.js) are kept for each account
 //               toast('Message', { tone: 'error' }): a short note at the bottom of the page
@@ -60,6 +61,7 @@ import limitHdr from './playback/hdr-brightness.js';
 import resumeVideos from './playback/resume-videos.js';
 import keepSpeed from './playback/keep-speed.js';
 import keepVolume from './playback/keep-volume.js';
+import rememberWatched from './playback/remember-watched.js';
 import holdForSpeed from './playback/hold-for-speed.js';
 import pictureInPicture from './playback/picture-in-picture.js';
 import keepControls from './playback/keep-controls.js';
@@ -92,7 +94,7 @@ export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts, keepPostDates, keepFeedPlace, hideFollowButtons, hideCounts, expandLongPosts,
   hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, holdBackLogs,
   commentOrder, showAllReplies, hideCommentStickers, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, tapToPlay, limitHdr, resumeVideos,
-  keepSpeed, keepVolume, holdForSpeed, pictureInPicture, keepControls, videoQuality,
+  keepSpeed, keepVolume, holdForSpeed, pictureInPicture, keepControls, videoQuality, rememberWatched,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton,
   menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions, blockInstantGamesAds,
   // In this order: the first to claim a Home load redirects it (opening/start.js).
