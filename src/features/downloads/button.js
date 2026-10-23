@@ -421,6 +421,17 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     const target = mediaAt(doc, host, point.x, point.y);
     if (target === 'button') {
       clearTimeout(hideTimer);
+      // Asked again while the pointer rests on it, like a frame button whose video started playing.
+      if (stale && current) {
+        stale = false;
+        const next = lookUp(current);
+        if (!next) {
+          hideSoon();
+          return;
+        }
+        found = next;
+        showState();
+      }
       return;
     }
     if (!target) {

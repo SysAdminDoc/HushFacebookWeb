@@ -120,6 +120,24 @@ test('a playing video gets no buttons; pausing brings them without moving the po
   assert.deepEqual([back.state().shown, next.state().shown], [false, false], 'playing again takes them away');
 });
 
+test('a video that starts playing with the pointer resting on a frame button takes that one away too', async () => {
+  const { win, doc, video } = player();
+  const { back, next } = steps(doc, win);
+  point(doc, win);
+  await frame();
+  const host = doc.querySelector('[data-hushfacebook-web="frame-back"]');
+  doc.elementsFromPoint = () => [host, video];
+  point(doc, win);
+  await frame();
+  assert.deepEqual([back.state().shown, next.state().shown], [true, true], 'resting on Back a frame');
+  video.pause();
+  await new Promise((resolve) => setTimeout(resolve, 520));
+  assert.equal(back.state().shown, true, 'still paused, so it stays');
+  await video.play();
+  await new Promise((resolve) => setTimeout(resolve, 520));
+  assert.deepEqual([back.state().shown, next.state().shown], [false, false]);
+});
+
 test('a video still loading its length gets no buttons, and neither does any with the switch off', async () => {
   const { win, doc } = player({ ready: 0 });
   const { back } = steps(doc, win);
