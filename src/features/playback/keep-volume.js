@@ -19,6 +19,13 @@
 // before that, so until then a video keeps Facebook's mute and only gets the level, and your first
 // click or key press gives the playing video its sound. The script never starts a video, so Tap
 // to play still decides that.
+//
+// Start every video muted (Android's Keep feed videos muted): each new video and reel gets no
+// sound, whatever was kept, until you turn it on for that video with its speaker button or slider.
+// That video then keeps its sound through Facebook's later writes until you mute it, and the next
+// one starts muted again. Facebook carries an unmute on to the next reel (live 2026-10-22), so the
+// script mutes that one with its own button. The level is still the kept one, or Facebook's while
+// nothing is kept.
 
 import { t } from '../../core/i18n.js';
 
@@ -83,6 +90,7 @@ export function muteToggle(video) {
 export function createVolumeKeeper({
   doc, win, storage, enabled,
   page = false,
+  startMuted = () => false,
   now = () => Date.now(),
   trusted = (event) => event.isTrusted,
   defer = (run) => win.setTimeout(run, WAKE_DELAY),
@@ -92,6 +100,7 @@ export function createVolumeKeeper({
   const putBacks = new WeakMap(); // video -> recent put-back times
   const resynced = new WeakMap(); // video -> when the script last clicked its mute button
   const settled = new WeakSet();
+  const heard = new WeakSet(); // videos you gave sound yourself, for Start every video muted
   let lastInput = Number.NEGATIVE_INFINITY;
   let lastPath = []; // what the last click landed in, innermost first
   let lastKey = '';
@@ -134,15 +143,25 @@ export function createVolumeKeeper({
   const activated = () => win.navigator?.userActivation?.hasBeenActive ?? inputSeen;
   const mutedFor = (state, current) => (state.muted ? true : activated() ? false : current);
 
-  function give(video) {
+  // What a video should hold: the kept level (null leaves Facebook's) and sound, or no sound at all
+  // with Start every video muted until you turn it on for this one. Null when there's nothing to give.
+  function wanted(video, current) {
     const state = kept();
-    if (!state) return;
-    const muted = mutedFor(state, video.muted);
+    const hush = startMuted() && !heard.has(video);
+    if (!state && !hush) return null;
+    return { volume: state ? state.volume : null, muted: hush || mutedFor(state, current) };
+  }
+
+  function give(video) {
+    const want = wanted(video, video.muted);
+    if (!want) return;
+    const volume = want.volume ?? video.volume;
+    const { muted } = want;
     const toggle = muteToggle(video);
     const resync = !!toggle && (muted || activated()) && SAYS_MUTED.test(labelOf(toggle)) !== muted
       && !(now() - (resynced.get(video) ?? Number.NEGATIVE_INFINITY) < FIGHT_WINDOW);
-    if (!resync && video.volume === state.volume && video.muted === muted) return;
-    ours.set(video, { volume: state.volume, muted });
+    if (!resync && video.volume === volume && video.muted === muted) return;
+    ours.set(video, { volume, muted });
     applying = true;
     try {
       if (resync) {
@@ -150,7 +169,7 @@ export function createVolumeKeeper({
         resynced.set(video, now());
         toggle.click();
       }
-      video.volume = state.volume;
+      video.volume = volume;
       video.muted = muted;
     } finally {
       applying = false;
@@ -182,11 +201,11 @@ export function createVolumeKeeper({
   // Page mode: Facebook's writes land as your kept values unless they're yours.
   function steer(video, name, value) {
     if (skip(video)) return value;
-    const state = kept();
-    if (!state) return value;
+    const want = wanted(video, value === true);
+    if (!want) return value;
     const pick = yours(video);
-    if (name === 'volume') return pick.volume ? value : state.volume;
-    return pick.muted ? value : mutedFor(state, value === true);
+    if (name === 'volume') return pick.volume || want.volume === null ? value : want.volume;
+    return pick.muted ? value : want.muted;
   }
 
   function guard() {
@@ -221,9 +240,10 @@ export function createVolumeKeeper({
     const before = kept();
     const pick = yours(video);
     if (!pick.volume && !pick.muted) {
-      if (before) putBack(video);
+      if (wanted(video, video.muted)) putBack(video);
       return;
     }
+    if (pick.muted) heard[video.muted ? 'delete' : 'add'](video);
     const next = {
       volume: pick.volume || !before ? clamp(video.volume) : before.volume,
       muted: pick.muted ? video.muted : before?.muted ?? video.muted,
@@ -292,11 +312,14 @@ export default {
   section: 'playback',
   android: 'Remember your volume',
   title: 'Remember your volume',
-  description: "The volume you set with a video's slider, and whether the sound is on, carries over to every video and reel after it, even after a reload. Sound starts once you've clicked or typed on the page, as browsers require, and a mute you chose stays.",
+  description: "The volume you set with a video's slider, and whether the sound is on, carries over to every video and reel after it, even after a reload. Sound starts once you've clicked or typed on the page, as browsers require, and a mute you chose stays. With Start every video muted, each new video starts silent and its speaker button turns the sound on for that one.",
   default: false,
+  options: [{ key: 'startMuted', type: 'toggle', label: 'Start every video muted', default: false }],
 
-  setup({ doc, win, net, storage, enabled, diagnostics, actions, toast }) {
-    const keeper = createVolumeKeeper({ doc, win: win ?? doc.defaultView, storage, enabled, page: !!net });
+  setup({ doc, win, net, storage, enabled, option, diagnostics, actions, toast }) {
+    const keeper = createVolumeKeeper({
+      doc, win: win ?? doc.defaultView, storage, enabled, page: !!net, startMuted: () => option?.('startMuted') === true,
+    });
     keeper.start();
     diagnostics?.add('Volume kept', () => volumeLabel(keeper.kept()));
     actions?.add('Forget my volume', () => {

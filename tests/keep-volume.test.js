@@ -100,12 +100,12 @@ function guarded(win) {
   }
 }
 
-function keeper(win, storage, { on = () => true, page = false } = {}) {
+function keeper(win, storage, { on = () => true, page = false, startMuted } = {}) {
   let time = 10000;
   const woken = [];
   const waiting = [];
   const k = createVolumeKeeper({
-    doc: win.document, win, storage, enabled: on, page, now: () => time, trusted: () => true,
+    doc: win.document, win, storage, enabled: on, page, startMuted, now: () => time, trusted: () => true,
     defer: (run) => woken.push(run), later: (run, ms) => waiting.push({ run, at: time + ms }),
   });
   k.start();
@@ -369,28 +369,136 @@ test("in page mode Facebook's writes land as your values, so nothing is heard in
   assert.equal(reel.video.volume, 0.9, 'switched off, writes go through');
 });
 
+test('Start every video muted: each new reel starts muted whatever was kept, and its speaker button gives that one sound', () => {
+  const storage = createMemoryStorage({ [VOLUME_KEY]: { volume: 0.5, muted: false } });
+  const win = page();
+  const { click, wake, later } = keeper(win, storage, { startMuted: () => true });
+  click(win.document.getElementById('elsewhere'));
+  wake();
+  const reel = player(win, { time: 0, muted: false });
+  reel.start();
+  assert.deepEqual([reel.video.volume, reel.video.muted], [0.5, true], 'the kept level, with no sound');
+  assert.equal(reel.fb.muted, true, "through Facebook's button, so its player agrees");
+  assert.equal(reel.toggle.getAttribute('aria-label'), 'Unmute');
+  later(2500);
+  click(reel.toggle);
+  assert.equal(reel.video.muted, false, 'the speaker button still turns it on');
+  assert.deepEqual(storage.get(VOLUME_KEY), { volume: 0.5, muted: false });
+  reel.render();
+  reel.at(3);
+  later(2500);
+  reel.start();
+  assert.equal(reel.video.muted, false, "Facebook's writes, the settle and a loop leave that one with its sound");
+  const next = player(win, { time: 0, muted: false });
+  next.start();
+  assert.equal(next.video.muted, true, 'the next reel starts muted again, though Facebook carried the sound on');
+  assert.equal(next.fb.muted, true);
+  next.fb.muted = false;
+  next.render();
+  assert.equal(next.video.muted, true, "Facebook's own unmute is put back");
+  const feed = player(win, { feed: true, time: 0, muted: false });
+  feed.start();
+  assert.equal(feed.video.muted, true);
+  click(feed.slider);
+  feed.fb.muted = false;
+  feed.slide(0.8);
+  assert.deepEqual([feed.video.volume, feed.video.muted], [0.8, false], 'the slider gives a feed video sound too');
+  later(2500);
+  click(feed.toggle);
+  assert.equal(feed.video.muted, true);
+  const third = player(win, { time: 0, muted: false });
+  third.start();
+  later(2500);
+  click(third.toggle);
+  assert.deepEqual(storage.get(VOLUME_KEY), { volume: 0.8, muted: false });
+  feed.fb.muted = false;
+  feed.render();
+  assert.equal(feed.video.muted, true, 'a video you muted again starts over, though the next one got sound');
+});
+
+test("Start every video muted before your first click, with nothing kept: a reel Facebook starts with sound is muted with its button", () => {
+  const storage = createMemoryStorage();
+  const win = page();
+  keeper(win, storage, { startMuted: () => true });
+  const reel = player(win, { time: 0, muted: false, volume: 0.9 });
+  reel.start();
+  assert.deepEqual([reel.video.volume, reel.video.muted], [0.9, true]);
+  assert.equal(reel.fb.muted, true, "Facebook's button agrees");
+  reel.fb.muted = false;
+  reel.render();
+  assert.equal(reel.video.muted, true, "Facebook's unmute is put back");
+  assert.equal(storage.get(VOLUME_KEY), undefined, 'and nothing is kept');
+});
+
+test("Start every video muted in page mode: Facebook's unmute never reaches a new video, yours does", () => {
+  const storage = createMemoryStorage();
+  const win = page();
+  guarded(win);
+  const { click, wake } = keeper(win, storage, { page: true, startMuted: () => true });
+  click(win.document.getElementById('elsewhere'));
+  wake();
+  const reel = player(win, { time: 0, muted: false, volume: 0.9, proto: true });
+  reel.start();
+  assert.deepEqual([reel.video.volume, reel.video.muted], [0.9, true], "nothing kept: Facebook's level, no sound");
+  const heard = [];
+  reel.video.addEventListener('volumechange', () => heard.push([reel.video.volume, reel.video.muted]));
+  reel.fb.muted = false;
+  reel.render();
+  assert.deepEqual(heard, [], 'its unmute never reaches the video');
+  reel.video.volume = 0.6;
+  assert.equal(reel.video.volume, 0.6, "with nothing kept, Facebook's level goes through");
+  reel.fb.muted = true;
+  reel.render();
+  click(reel.toggle);
+  assert.equal(reel.video.muted, false, 'your click on Unmute gives it sound');
+  reel.render();
+  assert.equal(reel.video.muted, false);
+  const next = player(win, { time: 0, muted: false, proto: true });
+  next.start();
+  assert.equal(next.video.muted, true);
+});
+
 test("a click on the speaker's icon counts, though Facebook draws a new icon before it writes the mute", () => {
   // Live 2026-10-22 on a reel: the click lands on the icon, which has left the page by the time
   // Facebook unmutes the video.
-  for (const mode of ['page', 'content']) {
+  for (const [mode, hush] of [['page', false], ['content', false], ['page', true], ['content', true]]) {
+    const what = hush ? `${mode}, Start every video muted` : mode;
     const storage = createMemoryStorage({ [VOLUME_KEY]: { volume: 0.5, muted: true } });
     const win = page();
     if (mode === 'page') guarded(win);
-    const { click, wake, later } = keeper(win, storage, { page: mode === 'page' });
+    const { click, wake, later } = keeper(win, storage, { page: mode === 'page', startMuted: () => hush });
     click(win.document.getElementById('elsewhere'));
     wake();
     const reel = player(win, { time: 0, muted: false, icon: true, proto: mode === 'page' });
     reel.start();
-    assert.equal(reel.video.muted, true, `${mode}: kept muted, and started muted`);
+    assert.equal(reel.video.muted, true, `${what}: kept muted, and started muted`);
     later(2500);
     const drawn = reel.toggle.querySelector('path');
     click(drawn);
     assert.equal(drawn.isConnected, false, 'the icon clicked is gone');
-    assert.equal(reel.video.muted, false, `${mode}: the click on the icon gives it sound`);
-    assert.deepEqual(storage.get(VOLUME_KEY), { volume: 0.5, muted: false }, `${mode}: and it's kept`);
+    assert.equal(reel.video.muted, false, `${what}: the click on the icon gives it sound`);
+    assert.deepEqual(storage.get(VOLUME_KEY), { volume: 0.5, muted: false }, `${what}: and it's kept`);
     reel.render();
     assert.equal(reel.video.muted, false);
   }
+});
+
+test('Start every video muted does nothing with the switch off, and without it a kept sound comes back', () => {
+  const storage = createMemoryStorage({ [VOLUME_KEY]: { volume: 0.5, muted: false } });
+  const win = page();
+  let on = false;
+  let hush = true;
+  const { click, wake } = keeper(win, storage, { on: () => on, startMuted: () => hush });
+  click(win.document.getElementById('elsewhere'));
+  wake();
+  const off = player(win, { time: 0, muted: false, volume: 0.9 });
+  off.start();
+  assert.deepEqual([off.video.volume, off.video.muted], [0.9, false], 'switched off, Facebook decides');
+  on = true;
+  hush = false;
+  const kept = player(win, { time: 0 });
+  kept.start();
+  assert.deepEqual([kept.video.volume, kept.video.muted], [0.5, false], 'the kept sound, as before');
 });
 
 test('nothing is kept or given with the switch off, or before you have set anything', () => {
@@ -452,6 +560,18 @@ test('the switch starts off, shows the kept volume and can forget it', () => {
   assert.equal(volumeLabel({ volume: 0.5, muted: true }), 'Muted (50%)');
   assert.equal(volumeLabel(null), 'Not set yet');
   assert.equal(keepVolume.default, false);
+  assert.deepEqual(keepVolume.options.map(({ key, type, default: on }) => [key, type, on]), [['startMuted', 'toggle', false]]);
   assert.equal(keepVolume.section, 'playback');
   assert.equal(keepVolume.needsPage, undefined, 'works in content mode');
+});
+
+test('the Start every video muted choice reaches the keeper', () => {
+  const storage = createMemoryStorage({ [VOLUME_KEY]: { volume: 0.25, muted: false } });
+  const win = page();
+  const asked = [];
+  keepVolume.setup({ doc: win.document, win, storage, enabled: () => true, option: (key) => { asked.push(key); return true; } });
+  const reel = player(win, { time: 0, muted: false });
+  reel.start();
+  assert.deepEqual([reel.video.volume, reel.video.muted], [0.25, true]);
+  assert.ok(asked.includes('startMuted'));
 });
