@@ -92,6 +92,12 @@ export function videoTarget(element, page) {
   return (page?.kind === 'video' || page?.kind === 'reel') && pagePlayer(element) ? page : null;
 }
 
+// Words without the ones in pictures: a verified Page's check mark is an svg titled "Verified
+// account" (live 2026-10-22 on NASA's Page).
+const wordsOf = (el) => [...el.childNodes]
+  .map((node) => (node.nodeType === 3 ? node.textContent : node.nodeType === 1 && node.localName !== 'svg' ? wordsOf(node) : ''))
+  .join('');
+
 // The name on the post a photo or video is in, for the file name. A video's own page has no
 // post around its player, so its file is named after the video's owner instead (findMedia).
 export function authorOf(element) {
@@ -99,7 +105,7 @@ export function authorOf(element) {
   if (!post) return null;
   const heading = [...post.querySelectorAll('h2, h3, h4')].find((h) => h.closest(POST) === post);
   const name = heading?.querySelector('a, strong, span') ?? heading;
-  const text = normalizeText(name?.textContent ?? '');
+  const text = normalizeText(name ? wordsOf(name) : '');
   return text && text.length <= 80 ? text : null;
 }
 

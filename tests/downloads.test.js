@@ -277,6 +277,18 @@ test('a video in a post is found by the nearest video or reel link, and two diff
   assert.equal(findMedia(q('video.none'), { href: win.location.href, index }).id, null);
 });
 
+test("a verified Page's check mark stays out of the name", () => {
+  // Live 2026-10-22 on NASA's Page: one span wraps the name link and the check mark's svg.
+  const badge = '<span>&nbsp;<span><svg viewBox="0 0 12 12" role="img" title="Verified account"><title>Verified account</title><path d="M0 0"></path></svg></span></span>';
+  const win = page(
+    `<div aria-posinset="1" class="linked"><h2><span><span><a href="/NASA"><b><span>NASA</span></b></a></span>${badge}</span></h2><img></div>`
+    + `<div aria-posinset="2" class="plain"><h3><span><b>Pat Example</b>${badge}</span> · Follow</h3><img></div>`,
+  );
+  const q = (selector) => win.document.querySelector(selector);
+  assert.equal(authorOf(q('.linked img')), 'NASA');
+  assert.equal(authorOf(q('.plain img')), 'Pat Example', 'no link: the words around the check mark, not its title');
+});
+
 test('on a reel or video page the address names the video, and a story uses its card', () => {
   const index = createMediaIndex();
   index.scan({ a: video('3333333') });
