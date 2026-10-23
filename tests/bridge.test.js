@@ -22,11 +22,10 @@ import {
   createBridgeStorage,
 } from '../src/core/bridge.js';
 import { activityKeyFor } from '../src/core/activity.js';
-import { claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
+import { buildSchema, claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 import { applyObjectMutation, createGmStorage } from '../src/core/storage.js';
 import { features } from '../src/features/index.js';
-import { featureKeys } from '../src/ui/new-dots.js';
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 const deferred = () => {
@@ -1847,7 +1846,8 @@ test("the settings the panel has shown load and save, so an update's new ones ge
 test('a settings record with every switch and option set still fits what the extension saves', async () => {
   // The isolated half takes up to 256 names in one settings record (extension/isolated.js
   // settingsRecord), so the day the switches and their options outgrow that, nothing would save.
-  const keys = features.flatMap(featureKeys);
+  // The schema holds them all: the panel's own, like Pause and Language, and every feature's.
+  const keys = [...buildSchema(features).keys()];
   const record = Object.fromEntries(keys.map((key) => [key, true]));
   const win = page();
   const chrome = fakeChrome({});
