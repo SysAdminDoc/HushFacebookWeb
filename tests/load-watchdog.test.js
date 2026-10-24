@@ -58,9 +58,13 @@ function harness({ href = 'https://www.facebook.com/', html = LOADING, signedIn 
   };
   const stuck = [];
   const warnings = [];
+  const postListeners = new Map();
+  let feedRule;
   const state = { signedIn, paused };
   const loads = watchFeedLoads({
     win, doc, router,
+    posts: { on: (type, fn) => { postListeners.set(type, fn); return () => postListeners.delete(type); } },
+    net: { transformResponses: (rule) => { feedRule = rule; } },
     log: { warn: (message) => warnings.push(message) },
     signedIn: () => state.signedIn,
     paused: () => state.paused,
@@ -79,8 +83,72 @@ function harness({ href = 'https://www.facebook.com/', html = LOADING, signedIn 
     while (timers.size) ran.push(...step());
     return ran;
   };
-  return { page, doc, win, router, loads, stuck, warnings, state, step, elapse, timers };
+  return { page, doc, win, router, loads, stuck, warnings, state, step, elapse, timers,
+    post: () => postListeners.get('post/add')?.({}),
+    data: (cursor, friendlyName = 'CometNewsFeedPaginationQuery') => {
+      if (feedRule?.match({ friendlyName })) feedRule.transform({ data: { edges: [{ cursor, node: null }] } });
+    },
+  };
 }
+
+test('linked posts with loading-state descendants are readable posts, not a blocking loader', () => {
+  for (const marker of ['<div data-visualcompletion="loading-state"></div>', PROGRESSBAR]) {
+    for (const nested of [marker, `<div role="article">${marker}</div>`]) {
+      const { stuck, elapse } = harness({ html: `<div role="main"><div aria-posinset="1"><a href="/posts/1">Post</a>${nested}</div></div>` });
+      elapse();
+      assert.deepEqual(stuck, []);
+    }
+  }
+});
+
+test('visibility-hidden and transparent markers never trigger the feed warning', () => {
+  for (const style of ['visibility:hidden', 'opacity:0']) {
+    const { stuck, elapse } = harness({ html: `<div role="main"><div style="${style}">${CARD}</div></div>` });
+    elapse();
+    assert.deepEqual(stuck, [], style);
+  }
+});
+
+test('replaced loading placeholders are not the same stalled state at the second sample', () => {
+  const { doc, stuck, step, loads } = harness();
+  step();
+  doc.querySelector('[role="main"]').innerHTML = CARD;
+  step();
+  assert.deepEqual(stuck, []);
+  assert.match(loads.status(), /Checks the feed/);
+});
+
+test('new posts and new feed cursors reset the wait, including data whose posts were filtered', () => {
+  for (const progress of ['post', 'data']) {
+    const h = harness();
+    h.step();
+    h[progress]('cursor-a');
+    assert.deepEqual([...h.timers.values()].map((timer) => timer.ms), [LOAD_WAIT_MS]);
+    assert.deepEqual(h.stuck, []);
+    h.step();
+    if (progress === 'data') {
+      h.data('cursor-a');
+      assert.deepEqual([...h.timers.values()].map((timer) => timer.ms), [CONFIRM_MS], 'a repeated cursor is not progress');
+    }
+    h.step();
+    assert.deepEqual(h.stuck, ['home'], 'a loader still stalled after the fresh bounded wait warns');
+  }
+});
+
+test('unrelated data cannot count as feed progress, and pausing clears confirmation', () => {
+  const h = harness();
+  h.step();
+  h.data('unrelated', 'CometUFICommentsProviderPaginationQuery');
+  assert.deepEqual([...h.timers.values()].map((timer) => timer.ms), [CONFIRM_MS]);
+  h.state.paused = true;
+  h.loads.restart();
+  assert.equal(h.timers.size, 0);
+  assert.equal(h.loads.status(), 'Not checked while signed out or paused');
+  h.state.paused = false;
+  h.loads.restart();
+  assert.deepEqual([...h.timers.values()].map((timer) => timer.ms), [LOAD_WAIT_MS]);
+  assert.match(h.loads.evidence(), /^Loader none, count 0, elapsed 0 ms, progress 0$/);
+});
 
 test("Home still showing Facebook's loading cards after the wait asks once", () => {
   const { loads, stuck, warnings, elapse } = harness();
@@ -122,6 +190,13 @@ test('A feed that loaded keeps its loading card below the first screen and stays
   assert.deepEqual(elapse(), [LOAD_WAIT_MS]);
   assert.deepEqual(stuck, []);
   assert.equal(loads.status(), 'Nothing was still loading');
+});
+
+test('a short readable feed does not mistake its on-screen next-page loader for an initial skeleton', () => {
+  const { doc, stuck, elapse } = harness({ html: `<div role="main"><div aria-posinset="1"><a href="/posts/1">Post</a></div>${CARD}</div>` });
+  below(doc.querySelector('[role="status"]'), 300);
+  elapse();
+  assert.deepEqual(stuck, []);
 });
 
 test('Loading cards gone by the second look were just posts on their way', () => {

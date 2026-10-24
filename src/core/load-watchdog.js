@@ -19,6 +19,9 @@
 // A pause for this tab is a mark under hfw: in sessionStorage, so it lasts through reloads and
 // ends with the tab. storage-report.js keeps the mark's name out of what Facebook's page reports.
 
+import { walk } from './json-walk.js';
+import { CANDIDATE_SELECTOR, isComment, postIdOf } from './dom/posts.js';
+
 export const TAB_PAUSE_KEY = 'hfw:pausedTab';
 // The first post drew 0.6 to 2.3 seconds into healthy loads on the test account and the splash
 // went within 50 ms of it (live 2026-10-21 and 2026-10-22). Twenty seconds leaves room for a slow
@@ -55,7 +58,16 @@ export function feedKind(route) {
   return parts[0] === 'groups' && parts.length === 2 && !GROUP_PAGES.has(parts[1]) ? 'group' : null;
 }
 
-const shown = (element) => element.isConnected && (element.checkVisibility?.() ?? true);
+const shown = (element) => {
+  if (!element.isConnected || element.checkVisibility?.({ visibilityProperty: true, opacityProperty: true, checkVisibilityCSS: true, checkOpacity: true }) === false) return false;
+  // Older browsers have no checkVisibility, and not every implementation supports its flags.
+  const view = element.ownerDocument.defaultView;
+  for (let node = element; node; node = node.parentElement) {
+    const style = view?.getComputedStyle(node);
+    if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse' || style?.opacity === '0') return false;
+  }
+  return true;
+};
 
 // Facebook's loading cards: the gray post-shaped boxes drawn while posts load
 // (role=status, data-visualcompletion=loading-state, live 2026-10-22), and progressbar
@@ -65,31 +77,51 @@ const shown = (element) => element.isConnected && (element.checkVisibility?.() ?
 const LOADING = '[data-visualcompletion="loading-state"], [role="progressbar"]';
 const UNIT = '[aria-posinset], [role="article"]';
 const loadingSign = (element) => {
-  if (element.matches('[data-visualcompletion="loading-state"]')) return true;
-  const unit = element.closest(UNIT);
-  return !unit?.querySelector('a[href]');
+  for (let unit = element.closest(UNIT); unit; unit = unit.parentElement?.closest(UNIT)) {
+    if (unit.querySelector('a[href]')) return false;
+  }
+  return true;
 };
 
 // Facebook's splash screen still up, or one of its loading cards in the feed's first screen. A
 // feed that loaded keeps a card at its far end, below the posts, and once the reader is a screen
 // down the cards there are the next posts on their way.
 export function stillLoading(doc, win) {
+  return loadingState(doc, win) !== null;
+}
+
+function loadingState(doc, win) {
   const splash = doc.getElementById('splash-screen');
-  if (splash && shown(splash)) return true;
-  if ((win.scrollY || 0) >= win.innerHeight) return false;
+  if (splash && shown(splash)) return { kind: 'splash', elements: [splash] };
+  if ((win.scrollY || 0) >= win.innerHeight) return null;
   const scope = [...doc.querySelectorAll('[role="main"]')].find(shown) ?? doc;
-  return [...scope.querySelectorAll(LOADING)].some((card) => {
+  // A short or filtered feed can leave its next-page loader in the first screen. An actual
+  // readable post makes that a pagination wait, not an initial load blocked by skeletons.
+  const readable = [...scope.querySelectorAll(CANDIDATE_SELECTOR)].some((post) => {
+    if (!shown(post) || isComment(post) || !postIdOf(post).id) return false;
+    const { top, bottom } = post.getBoundingClientRect();
+    return top < win.innerHeight && bottom >= 0;
+  });
+  if (readable) return null;
+  const elements = [...scope.querySelectorAll(LOADING)].filter((card) => {
     if (!shown(card) || !loadingSign(card)) return false;
     const { top, bottom } = card.getBoundingClientRect();
     return top < win.innerHeight && bottom >= 0;
   });
+  return elements.length ? { kind: 'skeleton', elements } : null;
 }
 
 // status() is for Diagnostics: fixed wording only, so Copy report can carry it.
-export function watchFeedLoads({ win, doc, router, signedIn, paused, onStuck, log, wait = LOAD_WAIT_MS }) {
+export function watchFeedLoads({ win, doc, router, posts, net, signedIn, paused, onStuck, log, wait = LOAD_WAIT_MS, now = () => Date.now() }) {
   let timer = null;
   let fired = false;
   let state = 'idle';
+  let sample = null;
+  let progress = 0;
+  let startedAt = 0;
+  let elapsed = 0;
+  let stopped = false;
+  const cursors = new Set();
   const seconds = Math.round(wait / 1000);
   // Background tabs draw late, and an offline page can't load.
   const away = () => doc.hidden || win.navigator?.onLine === false;
@@ -97,9 +129,16 @@ export function watchFeedLoads({ win, doc, router, signedIn, paused, onStuck, lo
   function arm() {
     win.clearTimeout(timer);
     timer = null;
-    if (fired) return;
+    sample = null;
+    elapsed = 0;
+    startedAt = now();
+    if (fired || stopped) return;
     if (!feedKind(router.current())) {
       state = 'idle';
+      return;
+    }
+    if (!signedIn() || paused()) {
+      state = 'skipped';
       return;
     }
     if (away()) {
@@ -112,6 +151,7 @@ export function watchFeedLoads({ win, doc, router, signedIn, paused, onStuck, lo
 
   function check(second) {
     timer = null;
+    elapsed = Math.max(0, Math.round(now() - startedAt));
     const kind = feedKind(router.current());
     if (fired || !kind) return;
     if (away()) {
@@ -120,14 +160,22 @@ export function watchFeedLoads({ win, doc, router, signedIn, paused, onStuck, lo
     }
     if (!signedIn() || paused()) {
       state = 'skipped';
+      sample = null;
       return;
     }
-    if (!stillLoading(doc, win)) {
+    const loading = loadingState(doc, win);
+    if (!loading) {
       state = 'loaded';
+      sample = null;
       return;
     }
     if (!second) {
+      sample = loading;
       timer = win.setTimeout(() => check(true), CONFIRM_MS);
+      return;
+    }
+    if (loading.kind !== sample?.kind || !loading.elements.some((element) => sample.elements.includes(element))) {
+      arm();
       return;
     }
     fired = true;
@@ -136,6 +184,32 @@ export function watchFeedLoads({ win, doc, router, signedIn, paused, onStuck, lo
     log?.warn(`${where} was still loading ${seconds} seconds after it opened`);
     onStuck(kind);
   }
+
+  const advanced = () => {
+    if (stopped || fired || !feedKind(router.current())) return;
+    progress++;
+    // Posts under a stuck splash do not prove that the page became usable.
+    const splash = doc.getElementById('splash-screen');
+    if (state === 'waiting' && !(splash && shown(splash))) arm();
+  };
+  const subscriptions = ['post/add', 'post/update'].map((type) => posts?.on(type, advanced));
+  // Filtered edges still carry their cursor. They prove pagination advanced even when every
+  // item in an answer was removed before the page could draw it. Never report those cursors.
+  net?.transformResponses({
+    id: 'feed-load-progress', enabled: () => !stopped && !fired,
+    match: (ctx) => /^(?:CometNewsFeed|GroupsCometCrossGroupFeed|GroupsCometFeedRegularStories)PaginationQuery$/.test(ctx.friendlyName),
+    markers: ['"cursor"'], observe: true,
+    transform(data) {
+      let moved = false;
+      walk(data, (value) => {
+        if (typeof value.cursor !== 'string' || !value.cursor || value.cursor.length > 2048 || cursors.has(value.cursor)) return;
+        cursors.add(value.cursor);
+        if (cursors.size > 256) cursors.delete(cursors.values().next().value);
+        moved = true;
+      });
+      if (moved) advanced();
+    },
+  });
 
   // Hidden or offline partway through stops the wait, and coming back starts it over.
   const follow = () => {
@@ -147,16 +221,32 @@ export function watchFeedLoads({ win, doc, router, signedIn, paused, onStuck, lo
     if (state !== 'waiting') return;
     win.clearTimeout(timer);
     timer = null;
+    sample = null;
     state = 'held';
   };
   doc.addEventListener('visibilitychange', follow);
   win.addEventListener('online', follow);
   win.addEventListener('offline', follow);
-  router.subscribe(arm);
+  const routeSubscription = router.subscribe(() => { cursors.clear(); arm(); });
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', arm, { once: true });
   else arm();
 
+  const stop = () => {
+    stopped = true;
+    win.clearTimeout(timer);
+    sample = null;
+    cursors.clear();
+    for (const unsubscribe of [...subscriptions, routeSubscription]) if (typeof unsubscribe === 'function') unsubscribe();
+    doc.removeEventListener('visibilitychange', follow);
+    doc.removeEventListener('DOMContentLoaded', arm);
+    win.removeEventListener('online', follow);
+    win.removeEventListener('offline', follow);
+  };
+  win.addEventListener('pagehide', (event) => { if (!event.persisted) stop(); });
+
   return {
+    restart: arm,
+    evidence: () => `Loader ${sample?.kind ?? 'none'}, count ${sample?.elements.length ?? 0}, elapsed ${elapsed} ms, progress ${progress}`,
     status: () => ({
       idle: 'Not on a feed',
       waiting: `Checks the feed ${seconds} seconds after it opens`,

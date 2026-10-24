@@ -185,7 +185,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     diagnostics.add('Feed load check', () => 'Paused in this tab', shareable);
   } else {
     const loads = watchFeedLoads({
-      win, doc, router, log,
+      win, doc, router, posts, net, log,
       signedIn: () => signedInAccount(doc) !== null,
       paused: () => settings.get('paused') === true,
       onStuck: () => {
@@ -200,6 +200,14 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
       },
     });
     diagnostics.add('Feed load check', loads.status, shareable);
+    diagnostics.add('Feed load evidence', loads.evidence, shareable);
+    let loadPaused = settings.get('paused');
+    settings.subscribe(() => {
+      const next = settings.get('paused');
+      if (next === loadPaused) return;
+      loadPaused = next;
+      loads.restart();
+    });
   }
 
   if (!tabPaused) {

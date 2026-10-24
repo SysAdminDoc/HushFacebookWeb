@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Feed loading warnings ignore invisible markers and loaders inside readable posts. They require the same blocking loader across two checks and restart when feed pagination or posts advance.
 * Settings and page cleanup still start if another tool prevents the network hooks from loading. Partial hooks are removed, Diagnostics says which protection is off, and XHR wrappers with inherited response getters work.
 
 ## v0.0.6 (2026-10-22)
