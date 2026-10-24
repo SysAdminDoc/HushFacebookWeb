@@ -112,7 +112,7 @@ test('a list of comments or posts, or a list with one target, is not the share s
 test('a long list of short items is skipped before its words are read', () => {
   const short = (word) => `<div role="listitem"><div role="button">${word}</div></div>`;
   const words = ['Messenger', 'Group', 'Your story', 'X'];
-  const list = (count) => `<div role="dialog"><div role="list">${Array.from({ length: count }, (_, i) => short(words[i % words.length])).join('')}</div></div>`;
+  const list = (count) => `<div role="dialog"><h2>Share</h2><div role="list">${Array.from({ length: count }, (_, i) => short(words[i % words.length])).join('')}</div></div>`;
   assert.equal(markShareSheets(page(list(16))), 16, 'a row as long as the limit is still read');
   assert.equal(markShareSheets(page(list(17))), 0);
 });
@@ -181,4 +181,53 @@ test('the switch starts off, sits under Links and works without the page', () =>
   assert.equal(shareSheet.needsPage, undefined);
   assert.equal(shareSheet.android, 'Share sheet items');
   assert.deepEqual(shareSheet.options.map((option) => option.key), ['contacts', 'messenger', 'whatsapp', 'story', 'group', 'friend', 'x']);
+});
+
+test('a labelled share-target row is recognized without treating unrelated labelled lists as shares', () => {
+  const doc = page(SHEET().replace('<div role="list">', '<div role="list" aria-label="Share to">'));
+  assert.equal(markShareSheets(doc), 9);
+  const other = page('<div role="dialog"><h2>Profiles</h2><div role="list" aria-label="Profiles">'+target('<a href="https://wa.me/1">WhatsApp</a>')+target('<a href="https://x.com/example">X</a>')+'</div></div>');
+  assert.equal(markShareSheets(other), 0);
+  other.querySelector('[role="list"]').removeAttribute('aria-label');
+  assert.equal(markShareSheets(other), 0, 'an unrelated unlabeled social-link list is also left alone');
+});
+
+test('late href, accessible names and text are reapplied, and recycled targets lose stale marks', async () => {
+  const doc = page('<div role="dialog"><div role="list">'+target('<div role="button">Messenger</div>')+target('<a id="late" href="/unknown">Send</a>')+target('<div id="named" role="button"></div>')+target('<div role="button"><span id="word">Pending</span></div>')+target('<div role="button">Copy link</div>')+'</div></div>');
+  const timers = [];
+  let on = true;
+  const marker = createShareSheetMarker({ doc, enabled: () => on, setTimer: (fn) => timers.push(fn) });
+  const flush = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    while (timers.length) timers.shift()();
+  };
+  marker.start();
+  doc.getElementById('late').setAttribute('href', 'https://wa.me/?text=fixture');
+  await flush();
+  assert.equal(doc.getElementById('late').parentElement.getAttribute(MARK), 'whatsapp');
+  doc.getElementById('named').setAttribute('aria-label', 'Share to your story');
+  doc.getElementById('word').firstChild.data = 'Group';
+  await flush();
+  assert.equal(doc.getElementById('named').parentElement.getAttribute(MARK), 'story');
+  assert.equal(doc.getElementById('word').parentElement.parentElement.getAttribute(MARK), 'group');
+  doc.getElementById('late').setAttribute('href', '/profile.php?id=1');
+  await flush();
+  assert.equal(doc.getElementById('late').parentElement.hasAttribute(MARK), false);
+  on = false;
+  marker.schedule();
+  await flush();
+  assert.deepEqual(marks(doc), []);
+  marker.stop();
+  await doc.defaultView.happyDOM.close();
+});
+
+test('fully localized sheets still identify external share-intent controls by their URLs', () => {
+  for (const label of ['', ' aria-label="Opciones para compartir"']) {
+    const doc = page(`<div role="dialog"><h2>Compartir</h2><div role="list"${label}>`
+      + target('<a href="https://wa.me/?text=fixture">Enviar por WhatsApp</a>')
+      + target('<a href="https://twitter.com/intent/tweet?url=fixture">Publicar</a>')
+      + target('<div role="button">Copiar enlace</div>') + '</div></div>');
+    assert.equal(markShareSheets(doc), 2);
+    assert.deepEqual(marks(doc), ['whatsapp', 'x']);
+  }
 });

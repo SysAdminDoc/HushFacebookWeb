@@ -88,7 +88,8 @@ const isShortItem = (item) => !item.querySelector('[role="article"]') && clean(i
 function targetsIn(list) {
   const items = list.querySelectorAll('[role="listitem"]');
   if (items.length > MAX_ITEMS) return [];
-  return [...items].filter(isShortItem).map((item) => [item, targetOf(item)]).filter(([, target]) => target);
+  return [...items].filter((item) => item.closest('[role="list"]') === list && isShortItem(item))
+    .map((item) => [item, targetOf(item)]).filter(([, target]) => target);
 }
 
 // The row of Messenger contacts: a labeled list of buttons, above the targets and apart from them.
@@ -101,24 +102,49 @@ function contactsOf(dialog, targets) {
 // Marks every target in every open share sheet. Returns how many marks it added.
 export function markShareSheets(doc) {
   let marked = 0;
+  const wanted = new Map();
   for (const dialog of doc.querySelectorAll('[role="dialog"]')) {
-    for (const list of dialog.querySelectorAll('[role="list"]:not([aria-label])')) {
+    const shareHeading = [...dialog.querySelectorAll(HEADING)].some((heading) =>
+      heading.closest('[role="dialog"]') === dialog && /^(?:Share|Share post|Share this post|Share to)$/i.test(clean(heading.textContent)));
+    for (const list of dialog.querySelectorAll('[role="list"]')) {
+      if (list.closest('[role="dialog"]') !== dialog) continue;
+      const label = clean(list.getAttribute('aria-label'));
+      const namedShareList = /^(?:Share to|Share targets|Share options)$/i.test(label);
       const found = targetsIn(list);
       if (found.length < MIN_TARGETS) continue;
-      for (const [item, target] of found) {
-        if (item.getAttribute(MARK) === target) continue;
-        item.setAttribute(MARK, target);
-        marked++;
-      }
+      // A localized sheet can have no English words. Share-intent endpoints distinguish its
+      // WhatsApp/X controls from unrelated social profiles without guessing at translations.
+      const shareIntent = found.some(([item, target]) => {
+        if (target !== 'whatsapp' && target !== 'x') return false;
+        try {
+          const outer = new URL(item.querySelector('a[href]').getAttribute('href'), doc.location.href);
+          const inner = /(^|\.)facebook\.com$/.test(outer.hostname) && outer.pathname === '/l.php' ? outer.searchParams.get('u') : null;
+          const url = new URL(inner ?? outer.href);
+          const hosts = TARGETS.find((entry) => entry.option === target).hosts;
+          if (!['https:', 'http:'].includes(url.protocol) || !hosts.some((host) => hostMatches(url.hostname, host))) return false;
+          return target === 'whatsapp'
+            ? /^\/(?:send\/?)?$/.test(url.pathname) && url.searchParams.has('text')
+            : /^\/intent\/(?:tweet|post)\/?$/.test(url.pathname) && (url.searchParams.has('url') || url.searchParams.has('text'));
+        } catch {
+          return false;
+        }
+      });
+      const copyLink = [...list.querySelectorAll(CONTROL)].some((control) => control.closest('[role="list"]') === list
+        && [clean(control.textContent), clean(control.getAttribute('aria-label'))].includes('Copy link'));
+      if (label && !namedShareList && !shareIntent) continue;
+      if (!namedShareList && !shareHeading && !copyLink && !shareIntent) continue;
+      for (const [item, target] of found) wanted.set(item, target);
       const contacts = contactsOf(dialog, list);
       if (!contacts) continue;
       const section = sectionOf(contacts, list);
-      for (const part of [section, ...headingOf(section)]) {
-        if (part.getAttribute(MARK) === 'contacts') continue;
-        part.setAttribute(MARK, 'contacts');
-        marked++;
-      }
+      for (const part of [section, ...headingOf(section)]) wanted.set(part, 'contacts');
     }
+  }
+  for (const item of doc.querySelectorAll(`[${MARK}]`)) if (!wanted.has(item)) item.removeAttribute(MARK);
+  for (const [item, target] of wanted) {
+    if (item.getAttribute(MARK) === target) continue;
+    item.setAttribute(MARK, target);
+    marked++;
   }
   return marked;
 }
@@ -128,26 +154,65 @@ export function shareSheetCss(get) {
   return hidden.length ? `${hidden.join(',\n')} { display: none !important; }` : '';
 }
 
-export function createShareSheetMarker({ doc, enabled, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
+export function createShareSheetMarker({ doc, enabled, setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = clearTimeout }) {
   let timer = null;
   let marked = 0;
+  let discovery = null;
+  let stopped = false;
+  const dialogs = new Map();
+  const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
   const sync = () => {
+    if (timer !== null) clearTimer(timer);
     timer = null;
-    if (enabled()) marked += markShareSheets(doc);
+    if (stopped) return;
+    const on = enabled();
+    for (const [dialog, observer] of dialogs) {
+      if (on && dialog.isConnected && dialog.matches('[role="dialog"]')) continue;
+      observer.disconnect();
+      dialogs.delete(dialog);
+    }
+    if (!on) {
+      for (const item of doc.querySelectorAll(`[${MARK}]`)) item.removeAttribute(MARK);
+      return;
+    }
+    for (const dialog of doc.querySelectorAll('[role="dialog"]')) {
+      if (dialogs.has(dialog)) continue;
+      const observer = new Observer(schedule);
+      observer.observe(dialog, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['href', 'aria-label', 'role', 'hidden', 'aria-hidden'] });
+      dialogs.set(dialog, observer);
+    }
+    marked += markShareSheets(doc);
   };
   const schedule = () => {
-    timer ??= setTimer(sync, DELAY);
+    if (!stopped) timer ??= setTimer(sync, DELAY);
+  };
+  const isDialog = (node) => node.nodeType === 1 && (node.matches('[role="dialog"]') || node.querySelector('[role="dialog"]'));
+  const stop = () => {
+    stopped = true;
+    if (timer !== null) clearTimer(timer);
+    timer = null;
+    discovery?.disconnect();
+    for (const observer of dialogs.values()) observer.disconnect();
+    dialogs.clear();
   };
   return {
     start() {
-      const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
-      new Observer(() => {
-        if (enabled()) schedule();
-      }).observe(doc.body, { childList: true, subtree: true });
+      if (discovery || stopped) return;
+      discovery = new Observer((records) => {
+        if (!enabled()) return;
+        // Only discovery runs across the body. Text and target attributes are watched inside
+        // dialogs, so ordinary feed changes do not repeatedly rescan open share sheets.
+        if (records.some((record) => record.type === 'attributes'
+          ? dialogs.has(record.target) || isDialog(record.target)
+          : [...record.addedNodes, ...record.removedNodes].some(isDialog))) schedule();
+      });
+      discovery.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['role'] });
+      doc.defaultView?.addEventListener('pagehide', (event) => { if (!event.persisted) stop(); });
       sync();
     },
     sync,
     schedule,
+    stop,
     marked: () => marked,
   };
 }
