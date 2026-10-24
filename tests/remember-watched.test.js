@@ -286,3 +286,70 @@ test('an entry shows the poster when known, its kind, length and how long ago', 
   assert.equal(ago(now - 3 * 7 * 86400e3, now, 'en'), '3 weeks ago');
   assert.equal(ago(now + 5000, now, 'en'), 'now', 'a clock that went back reads as now');
 });
+
+test('a failed watched write is retained for explicit retry and a clear waits for acknowledgement', async () => {
+  const win = page();
+  const storage = createMemoryStorage();
+  const mutate = storage.mutate;
+  let failed = true;
+  storage.mutate = (...args) => failed ? Promise.reject(new Error('offline storage')) : mutate(...args);
+  const w = watcher(win, { storage, at: `${FB}/reel/${REEL}` });
+  player(win).playTo(5);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(w.list.failed(), true);
+  assert.deepEqual(w.ids(), []);
+  failed = false;
+  await w.list.retry();
+  assert.deepEqual(w.ids(), [`reel:${REEL}`]);
+  let release;
+  storage.mutate = (...args) => new Promise((resolve) => { release = () => resolve(mutate(...args)); });
+  let cleared = false;
+  const clearing = w.list.clear().then(() => { cleared = true; });
+  assert.equal(cleared, false);
+  assert.equal(w.ids().length, 1);
+  release();
+  await clearing;
+  assert.equal(cleared, true);
+  assert.deepEqual(w.ids(), []);
+});
+
+test('retry rejects promptly when the first of several queued watches fails again', { timeout: 2000 }, async () => {
+  const storage = createMemoryStorage();
+  storage.mutate = () => Promise.reject(new Error('offline storage'));
+  const w = watcher(page(), { storage, at: `${FB}/stories/bucket/cardA/` });
+  w.timers.runAll();
+  w.go(`${FB}/stories/bucket/cardB/`);
+  w.timers.runAll();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(w.list.failed(), true);
+  await assert.rejects(w.list.retry(), /offline storage/);
+  assert.equal(w.list.failed(), true);
+});
+
+test('queued rewatches do not evict a distinct unsaved watch', async () => {
+  const storage = createMemoryStorage();
+  const mutate = storage.mutate;
+  let release;
+  storage.mutate = (...args) => new Promise((resolve) => { release = () => { storage.mutate = mutate; resolve(mutate(...args)); }; });
+  const w = watcher(page(), { storage, at: `${FB}/stories/bucket/cardA/` });
+  w.timers.runAll();
+  for (let i = 0; i < 55; i++) { w.go(`${FB}/stories/bucket/cardB/`); w.timers.runAll(); }
+  const done = w.list.retry();
+  release();
+  await done;
+  assert.deepEqual(w.ids(), ['story:cardB', 'story:cardA']);
+});
+
+test('a clear that discovers an account change rejects instead of queuing into the retired page', async () => {
+  const shared = createMemoryStorage();
+  let current = '615000000000071';
+  const key = activityKeyFor(WATCHED_KEY, current);
+  shared.set(key, [{ kind: 'video', id: REEL, at: 10 }]);
+  const activity = createActivityStorage({ storage: shared, account: current, currentAccount: () => current });
+  const w = watcher(page(), { storage: activity.storage });
+  current = '615000000000072';
+  await assert.rejects(w.list.clear(), /account.*changed/i);
+  await assert.rejects(w.list.retry(), /account.*changed/i);
+  assert.equal(shared.get(key).length, 1);
+  assert.equal(shared.get(activityKeyFor(WATCHED_KEY, current)), undefined);
+});

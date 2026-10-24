@@ -313,20 +313,23 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   // The links a feature lists on its card (ctx.actions.links), opened in this tab.
+  const linkSignatures = new WeakMap();
   function featureLinks(feature) {
     const found = actions?.links?.(feature.id);
     if (!found) return null;
-    if (!found.items.length) return h('div', { class: 'links-empty', dataset: { linksFor: feature.id }, text: t(found.empty) });
-    return h('ol', { class: 'links', dataset: { linksFor: feature.id } }, found.items.map(({ label, detail, href }) => h('li', {},
+    const node = !found.items.length ? h('div', { class: 'links-empty', dataset: { linksFor: feature.id }, text: t(found.empty) })
+      : h('ol', { class: 'links', dataset: { linksFor: feature.id } }, found.items.map(({ label, detail, href }) => h('li', {},
       h('a', { href, text: label, dir: 'auto' }),
       detail ? h('span', { class: 'detail', text: detail }) : null)));
+    linkSignatures.set(node, JSON.stringify(found));
+    return node;
   }
 
   // Buttons the feature added for itself (ctx.actions).
   function featureActions(feature) {
     const list = actions?.list(feature.id) ?? [];
-    if (!list.length) return null;
-    return h('div', { class: 'actions' }, list.map(({ label, run, index }) => actionButton(`action:${feature.id}:${index}`, label, run)));
+    return h('div', { dataset: { actionsFor: feature.id, actionSignature: JSON.stringify(list.map(({ label, index }) => [label, index])) } },
+      list.length ? h('div', { class: 'actions' }, list.map(({ label, run, index }) => actionButton(`action:${feature.id}:${index}`, label, run))) : null);
   }
 
   // label and busyLabel in English: the log keeps the English, the button shows t().
@@ -1063,6 +1066,27 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         const text = t(diagnostics.statusOf(node.getAttribute('data-status-for')) ?? '');
         node.hidden = text === '';
         if (node.textContent !== text) node.textContent = text;
+      }
+      // Status-driven recovery can add a Retry action or acknowledge a watched entry while
+      // this page stays open. Replace only those widgets, preserving any input being edited.
+      for (const node of root.querySelectorAll('[data-actions-for], [data-links-for]')) {
+        const id = node.dataset.actionsFor ?? node.dataset.linksFor;
+        const feature = features.find((item) => item.id === id);
+        if (!feature) continue;
+        const buttons = node.dataset.actionsFor !== undefined;
+        const found = buttons ? actions?.list(id) ?? [] : actions?.links?.(id);
+        const signature = buttons ? JSON.stringify(found.map(({ label, index }) => [label, index])) : JSON.stringify(found);
+        if (signature === (buttons ? node.dataset.actionSignature : linkSignatures.get(node))) continue;
+        const active = shadow.activeElement;
+        const restore = node.contains(active);
+        const replacement = buttons ? featureActions(feature) : featureLinks(feature);
+        if (!replacement) continue;
+        node.replaceWith(replacement);
+        if (restore) {
+          const next = buttons ? replacement.querySelector(`[data-key="${CSS.escape(active.dataset.key)}"]`)
+            : [...replacement.querySelectorAll('a')].find((link) => link.getAttribute('href') === active.getAttribute('href'));
+          (next ?? root.querySelector(`[data-key="${CSS.escape(id)}"]`))?.focus({ preventScroll: true });
+        }
       }
     });
   };

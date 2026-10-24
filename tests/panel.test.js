@@ -599,7 +599,8 @@ test('Remember what you watch lists its links on its card, clears them in one cl
   panel.open('playback');
   button('Clear the list').click();
   await tick();
-  assert.equal(storage.get(WATCHED_KEY), undefined);
+  assert.deepEqual(storage.get(WATCHED_KEY).entries, [], 'a clear keeps its barrier instead of deleting the record');
+  assert.ok(storage.get(WATCHED_KEY).clearedAt >= now);
   assert.deepEqual(toasts, ['Cleared the watched list']);
   assert.equal(list().textContent, 'Nothing watched yet.');
   assert.ok(!button('Clear the list'), 'nothing left to clear');
@@ -607,6 +608,36 @@ test('Remember what you watch lists its links on its card, clears them in one cl
   settings.set('rememberWatched', false);
   await tick();
   assert.ok(!list(), 'no list while the switch is off');
+});
+
+test('watched-history Retry appears while Playback stays open and acknowledgement updates its links', async () => {
+  const storage = createMemoryStorage();
+  const mutate = storage.mutate;
+  let failed = true;
+  storage.mutate = (...args) => failed && args[0] === WATCHED_KEY ? Promise.reject(new Error('storage unavailable')) : mutate(...args);
+  const actions = createActions();
+  const { win, shadow, panel, settings, diagnostics, log } = setup({ features: [rememberWatched], actions, storage, beforeMount: (s) => s.set('rememberWatched', true) });
+  win.history.replaceState(null, '', '/reel/123456789/');
+  rememberWatched.setup({ doc: win.document, storage, enabled: () => settings.enabled('rememberWatched'), diagnostics, actions: actions.for('rememberWatched'), log });
+  panel.open('playback');
+  const search = shadow.querySelector('input[type="search"]');
+  search.focus();
+  const video = win.document.createElement('video');
+  Object.defineProperties(video, { paused: { value: false }, currentTime: { value: 0, writable: true }, duration: { value: 60 } });
+  win.document.body.append(video);
+  for (let i = 0; i < 15; i++) {
+    video.currentTime = i / 4;
+    video.dispatchEvent(new win.Event('timeupdate'));
+  }
+  await tick();
+  const button = () => [...shadow.querySelectorAll('button')].find((item) => item.textContent === 'Retry saving the watched list');
+  assert.ok(button(), 'the action arrives without reopening the panel');
+  assert.ok(shadow.activeElement === search, 'status and action updates preserve the focused input');
+  failed = false;
+  button().click();
+  await tick();
+  assert.ok(!button(), 'the recovery action clears after acknowledgement');
+  assert.equal(shadow.querySelectorAll('[data-links-for="rememberWatched"] a').length, 1);
 });
 
 test("a feature's status line shows on its card while it's on and changes without taking focus", async () => {

@@ -1,6 +1,7 @@
 // The extension's service worker: saves photos and videos with chrome.downloads, and opens the
 // settings panel from the toolbar button. A classic script, so openSettings is a global the
 // live check can call the way a click would.
+/* global HfwWatched */
 
 const FACEBOOK = ['www.facebook.com', 'web.facebook.com'];
 // Where the script's downloads come from: Facebook's media servers.
@@ -16,6 +17,7 @@ const STORAGE_REVISIONS_KEY = 'hushfacebookWeb.storageRevisions';
 const STORAGE_REVISION_EPOCH_KEY = '__epoch';
 const STORAGE_REVISION_ORDER_KEY = '__order';
 const PREFERENCE_KEY = /^settings(?:@[a-z0-9]+)?(?:\.migrated)?$/;
+const WATCHED_KEY = /^rememberWatched\.list@(?:[a-f0-9]{32}|signed-out)$/;
 const SETTINGS_KEY = /^settings(?:@[a-z0-9]+)?$/;
 const LEGACY_ACCOUNT_KEY = /^settings@[a-z0-9]{1,7}$/;
 // What an account adds to the v0.0.2 record's receipt once it took that record (claimFor in
@@ -161,7 +163,9 @@ function validWorkerRequest(message) {
   if (!isStorageRecord(message) || utf8Bytes(message, MESSAGE_MAX_BYTES) > MESSAGE_MAX_BYTES) return false;
   if (message.type === 'storage:recover' || message.type === 'settings:pending' || message.type === 'update:check') return onlyKeys(message, ['type']);
   if (message.type === 'storage:mutate') {
-    if (!onlyKeys(message, ['type', 'key', 'mutation', 'generation', 'baseRevisions']) || !PREFERENCE_KEY.test(message.key)) return false;
+    if (!onlyKeys(message, ['type', 'key', 'mutation', 'generation', 'baseRevisions'])) return false;
+    if (WATCHED_KEY.test(message.key)) return onlyKeys(message.mutation, ['watched']) && HfwWatched.validWatchedOperation(message.mutation.watched);
+    if (!PREFERENCE_KEY.test(message.key)) return false;
     return message.key.endsWith('.migrated') ? receiptMutation(message.mutation) : settingsMutation(message.mutation);
   }
   if (message.type === 'storage:migrate') {
@@ -331,6 +335,10 @@ function storageRevisionsRegressed(current, base) {
 
 function applyStorageMutation(current, mutation) {
   if (!mutation || typeof mutation !== 'object' || Array.isArray(mutation)) throw new TypeError('invalid storage mutation');
+  if (Object.hasOwn(mutation, 'watched')) {
+    if (Object.keys(mutation).length !== 1) throw new TypeError('watched-history operations cannot include other mutations');
+    return HfwWatched.applyWatchedOperation(current, mutation.watched);
+  }
   for (const conditions of [mutation.conditions, mutation.guard]) {
     if (conditions !== undefined && (!conditions || typeof conditions !== 'object' || Array.isArray(conditions))) {
       throw new TypeError('invalid storage conditions');

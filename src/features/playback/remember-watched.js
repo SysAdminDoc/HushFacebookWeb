@@ -12,49 +12,20 @@
 
 import { language, t } from '../../core/i18n.js';
 import { authorOf, pageTarget, videoTarget } from '../downloads/find.js';
+import { WATCHED_KEY, MAX_WATCHED, entryOf, entriesOf, addWatched, clearedAt } from '../../core/watched.js';
+export { WATCHED_KEY, MAX_WATCHED, entryOf, entriesOf, addWatched };
 
-export const WATCHED_KEY = 'rememberWatched.list';
-export const MAX_WATCHED = 50; // core/activity.js and extension/isolated.js take the same limit
 export const COUNTS_AFTER = 3; // seconds of playback, or of a story card staying open
 const STEP_LIMIT = 1.5; // seconds; a bigger jump in currentTime is a seek, not playback
-const KINDS = ['reel', 'video', 'story'];
 // What a story's address carries: its bucket and card, as the address has them.
 const STORY_PATH = /^\/stories\/([^/?#]+)\/([^/?#]+)/;
 const STORY_PART = /^[\w.%=:-]{1,200}$/;
-
-const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-
-// An entry as it's kept, or null when it isn't one: { kind, id, at } and, when known, the
-// poster's name (owner), the video's length in seconds (length) and a story's bucket.
-export function entryOf(value) {
-  if (!isRecord(value) || !KINDS.includes(value.kind) || typeof value.id !== 'string' || !Number.isFinite(value.at) || value.at <= 0) return null;
-  const story = value.kind === 'story';
-  if (story ? !(STORY_PART.test(value.id) && typeof value.bucket === 'string' && STORY_PART.test(value.bucket)) : !/^\d{6,30}$/.test(value.id)) return null;
-  const entry = { kind: value.kind, id: value.id, at: value.at };
-  if (story) entry.bucket = value.bucket;
-  if (typeof value.owner === 'string' && value.owner.trim() && value.owner.length <= 80) entry.owner = value.owner;
-  // A clip under half a second would round to 0, which the extension's storage check refuses along
-  // with the whole list (extension/isolated.js watchedEntry), so it goes without a length.
-  const length = Number.isFinite(value.length) ? Math.round(value.length) : 0;
-  if (length >= 1) entry.length = length;
-  return entry;
-}
-
-// The kept list, newest first, without anything that isn't an entry.
-export const entriesOf = (value) => (Array.isArray(value) ? value.map(entryOf).filter(Boolean) : []);
 
 // The address an entry opens, on the Facebook the page is on.
 export function linkOf(entry) {
   if (entry.kind === 'reel') return `/reel/${entry.id}/`;
   if (entry.kind === 'video') return `/watch/?v=${entry.id}`;
   return `/stories/${entry.bucket}/${entry.id}/`;
-}
-
-// The list with entry at the top, one entry for each reel, video or story, and the oldest gone
-// past the limit.
-export function addWatched(list, entry) {
-  const same = (other) => other.kind === entry.kind && other.id === entry.id;
-  return [entry, ...entriesOf(list).filter((other) => !same(other))].slice(0, MAX_WATCHED);
 }
 
 export function storyOf(href) {
@@ -68,14 +39,103 @@ export function storyOf(href) {
   return found && STORY_PART.test(found[1]) && STORY_PART.test(found[2]) ? { kind: 'story', bucket: found[1], id: found[2] } : null;
 }
 
-export function createWatchList({ doc, storage, enabled, href = () => doc.location.href, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function createWatchList({ doc, storage, enabled, href = () => doc.location.href, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, changed = () => {}, onError = () => {} }) {
   const tracked = new WeakMap(); // video -> { key, played, last, kept }
   let storyTimer = null;
+  let saving = false;
+  let failed = null;
+  let inactive = false;
+  const pending = [];
+
+  function drain() {
+    if (saving || failed || inactive || !pending.length) return;
+    const job = pending[0];
+    const success = () => {
+      saving = false;
+      if (pending[0] === job) pending.shift();
+      for (const waiter of job.waiters) waiter.resolve();
+      job.waiters = [];
+      changed();
+      drain();
+    };
+    const failure = (error) => {
+      saving = false;
+      if (inactive) return;
+      failed = error;
+      for (const queued of pending) {
+        for (const waiter of queued.waiters) waiter.reject(error);
+        queued.waiters = [];
+      }
+      onError(error);
+      changed();
+    };
+    saving = true;
+    try {
+      const result = storage.mutate(WATCHED_KEY, { watched: job.operation }, { allowed: () => !inactive });
+      if (result && typeof result.then === 'function') result.then(success, failure);
+      else success();
+    } catch (error) {
+      failure(error);
+    }
+    changed();
+  }
+
+  function enqueue(operation) {
+    const start = pending.findLastIndex((job) => job.operation.clear !== undefined) + 1;
+    let job = operation.add && pending.find((queued, i) => i >= start && (!saving || i > 0)
+      && queued.operation.add?.kind === operation.add.kind && queued.operation.add.id === operation.add.id);
+    if (!job) { job = { operation, waiters: [] }; pending.push(job); }
+    else if (operation.add.at > job.operation.add.at) job.operation = operation;
+    const promise = new Promise((resolve, reject) => job.waiters.push({ resolve, reject }));
+    // The bound applies to distinct retained watches, not the number of rewatches queued.
+    const newest = pending.slice(start).filter((queued) => queued.operation.add)
+      .reduce((entries, queued) => addWatched(entries, queued.operation.add), []);
+    const retained = new Set(newest.map((entry) => `${entry.kind}:${entry.id}`));
+    for (let i = pending.length - 1; i >= start; i--) {
+      const item = pending[i];
+      if (!item.operation.add || (saving && i === 0) || retained.has(`${item.operation.add.kind}:${item.operation.add.id}`)) continue;
+      pending.splice(i, 1);
+      for (const waiter of item.waiters) waiter.resolve();
+      if (i === 0) failed = null;
+    }
+    drain();
+    return promise;
+  }
 
   function keep(target, extra = {}) {
     const entry = entryOf({ ...extra, ...target, at: now() });
-    if (entry) storage.set(WATCHED_KEY, addWatched(storage.get(WATCHED_KEY, []), entry));
+    if (entry && !inactive) void enqueue({ add: entry }).catch(() => {});
   }
+
+  function clear() {
+    if (inactive) return Promise.reject(new Error('The Facebook account changed'));
+    const before = storage.get(WATCHED_KEY, []);
+    if (inactive) return Promise.reject(new Error('The Facebook account changed'));
+    const at = Math.max(now(), clearedAt(before), ...entriesOf(before).map((entry) => entry.at), ...pending.map((job) => job.operation.add?.at ?? job.operation.clear ?? 0));
+    for (let i = pending.length - 1; i >= (saving ? 1 : 0); i--) {
+      for (const waiter of pending[i].waiters) waiter.resolve();
+      pending.splice(i, 1);
+    }
+    failed = null;
+    return enqueue({ clear: at });
+  }
+
+  function retry() {
+    if (inactive) return Promise.reject(new Error('The Facebook account changed'));
+    if (!pending.length) return Promise.resolve();
+    const result = new Promise((resolve, reject) => pending[pending.length - 1].waiters.push({ resolve, reject }));
+    failed = null;
+    drain();
+    return result;
+  }
+
+  storage.onAccountChange?.(() => {
+    inactive = true;
+    saving = false;
+    for (const job of pending.splice(0)) for (const waiter of job.waiters) waiter.reject(new Error('The Facebook account changed'));
+    failed = null;
+    changed();
+  });
 
   // The reel or video a video element plays, and whether it's the page's own player.
   function targetOf(video) {
@@ -129,11 +189,16 @@ export function createWatchList({ doc, storage, enabled, href = () => doc.locati
     start(router) {
       // Media events don't bubble, but they do pass the document on their way in.
       doc.addEventListener('timeupdate', onTime, true);
+      doc.addEventListener('visibilitychange', () => { if (!inactive && doc.visibilityState === 'visible') changed(); });
+      storage.onChange?.(WATCHED_KEY, () => { if (!inactive) changed(); });
       router?.subscribe?.(onPage);
       onPage();
     },
     entries: () => entriesOf(storage.get(WATCHED_KEY, [])),
-    clear: () => storage.remove(WATCHED_KEY),
+    clear,
+    retry,
+    failed: () => Boolean(failed),
+    status: () => failed ? t("Some watched history hasn't saved. Use Retry saving the watched list.") : saving || pending.length ? t('Saving watched history.') : '',
   };
 }
 
@@ -174,16 +239,21 @@ export default {
   description: "Lists the last 50 reels, videos and stories you watched, so one the feed took away is easy to open again. A video in the feed counts once it's played with sound. The list stays in this browser for each Facebook account, and Copy report leaves it out.",
   default: false,
 
-  setup({ doc, router, storage, enabled, toast, diagnostics, actions }) {
-    const list = createWatchList({ doc, storage, enabled });
+  setup({ doc, router, storage, enabled, toast, diagnostics, actions, log, markUnavailable }) {
+    if (storage.watchedSupported === false) { markUnavailable?.('api'); return; }
+    const list = createWatchList({ doc, storage, enabled, changed: () => diagnostics?.changed(),
+      onError: (error) => log?.error("Couldn't save the watched list. Retry saving is in Playback", error),
+    });
     list.start(router);
     diagnostics?.add('Watched list', () => String(list.entries().length));
+    diagnostics?.status('rememberWatched', list.status);
     actions?.links(() => {
       const now = Date.now();
       return list.entries().map((entry) => describe(entry, now, language().lang));
     }, 'Nothing watched yet.');
-    actions?.add(() => (list.entries().length ? 'Clear the list' : ''), () => {
-      list.clear();
+    actions?.add(() => (list.failed() ? 'Retry saving the watched list' : ''), () => list.retry());
+    actions?.add(() => (list.entries().length ? 'Clear the list' : ''), async () => {
+      await list.clear();
       toast?.(t('Cleared the watched list'));
     });
   },

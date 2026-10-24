@@ -100,6 +100,8 @@ Downloads request only the photo or video you choose to save. The userscript lea
 
 Copy report in Diagnostics copies your versions, browser name, which switches are on, the choices you changed, counts, rule names and error names. It leaves out your filter words and other text settings, text from Facebook, addresses, ids and log details, and posts get new labels in every report. A settings backup is a separate file with everything in it, filter words included, so keep that one to yourself.
 
+Watched history merges additions from other tabs and keeps older entries during a slow startup. If a history save fails, Playback offers Retry saving the watched list. Clear keeps older pending entries from coming back.
+
 If Facebook stays on loading skeletons, open General and choose Open problem report. Include the full console stack, the Hush version, your browser and userscript manager versions, and the other Facebook tools you have enabled.
 
 If another tool prevents the network hooks from starting, settings and page cleanup still open. Diagnostics names the protection that's unavailable, and features that need those hooks stay off.

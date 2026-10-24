@@ -1,4 +1,4 @@
-// Storage adapters. Settings code only sees { get, set, remove, onChange }.
+// Storage adapters expose reads, change listeners and acknowledged field/delta mutations.
 //
 // GM_getValue is synchronous in Tampermonkey and Violentmonkey, which matters at
 // document-start: hooks need the saved settings before Facebook sends its first request. The
@@ -6,6 +6,8 @@
 // whenReady.
 
 import { extensionHost } from './extension.js';
+import { applyWatchedOperation } from './watched.js';
+import { createWatchedJournal, watchedStorageKey } from './watched-journal.js';
 
 const sameStoredValue = (left, right) => {
   if (left === undefined || right === undefined) return left === right;
@@ -13,6 +15,10 @@ const sameStoredValue = (left, right) => {
 };
 
 export function applyObjectMutation(current, mutation = {}) {
+  if (Object.hasOwn(mutation, 'watched')) {
+    if (Object.keys(mutation).length !== 1) throw new TypeError('watched-history operations cannot include other mutations');
+    return applyWatchedOperation(current, mutation.watched);
+  }
   const replacement = Object.hasOwn(mutation, 'replace');
   if (replacement) return structuredClone(mutation.replace);
   if (Object.hasOwn(mutation, 'union')) {
@@ -59,9 +65,16 @@ export function createGmStorage({ log } = {}) {
   if (typeof GM_getValue !== 'function' || typeof GM_setValue !== 'function') {
     return createLocalStorage();
   }
+  const modern = typeof GM === 'object' ? GM : null;
+  const journal = typeof GM_listValues === 'function' && typeof modern?.setValue === 'function' && typeof modern?.deleteValue === 'function'
+    ? createWatchedJournal({
+      get: (key, fallback) => GM_getValue(key, fallback), list: () => GM_listValues(),
+      set: (key, value) => modern.setValue(key, value), remove: (key) => modern.deleteValue(key), log,
+    }) : null;
   const storage = {
     kind: 'gm',
-    get: (key, fallback) => GM_getValue(key, fallback),
+    watchedSupported: Boolean(journal),
+    get: (key, fallback) => journal && watchedStorageKey(key) ? journal.read(key, fallback) : GM_getValue(key, fallback),
     set: (key, value) => GM_setValue(key, value),
     remove: (key) => (typeof GM_deleteValue === 'function' ? GM_deleteValue(key) : GM_setValue(key, undefined)),
     onChange(key, listener) {
@@ -69,9 +82,18 @@ export function createGmStorage({ log } = {}) {
       GM_addValueChangeListener(key, (_name, _old, value, remote) => {
         if (remote) listener(value);
       });
+      if (journal && watchedStorageKey(key)) GM_addValueChangeListener(`${key}#changed`, (_name, _old, _value, remote) => {
+        if (remote) listener(journal.read(key, []));
+      });
     },
   };
-  storage.mutate = (key, mutation) => mutateObject(storage, key, mutation);
+  storage.mutate = (key, mutation, options = {}) => {
+    if (watchedStorageKey(key) && Object.hasOwn(mutation, 'watched')) {
+      if (!journal) throw new Error('This userscript manager cannot merge watched history across tabs');
+      return journal.mutate(key, mutation.watched, options.allowed);
+    }
+    return mutateObject(storage, key, mutation);
+  };
   storage.mutateDetailed = (key, mutation) => mutateObjectDetailed(storage, key, mutation);
   return storage;
 }

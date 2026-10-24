@@ -130,6 +130,14 @@ export function createActivityStorage({ storage, account = null, currentAccount 
   for (const name of ['mutate', 'mutateDetailed', 'migrate', 'migrateDetailed']) {
     if (storage[name]) scoped[name] = write(storage[name], Promise.resolve(undefined));
   }
+  if (storage.mutate) {
+    const mutate = scoped.mutate;
+    scoped.mutate = (key, mutation, options = {}) => {
+      if (key !== WATCHED_KEY) return mutate(key, mutation, options);
+      if (!check()) return Promise.reject(new Error(ACCOUNT_CHANGED));
+      return storage.mutate(keyOf(key), mutation, { ...options, allowed: () => check() && options.allowed?.() !== false });
+    };
+  }
 
   // Page changes and coming back to the tab are when another account shows up.
   function watch({ router, doc }) {

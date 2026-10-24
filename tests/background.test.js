@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 import { availableUpdate, UPDATE_KEY, updateStatus } from '../src/core/extension.js';
 import { createMemoryStorage } from '../src/core/storage.js';
+import * as HfwWatched from '../src/core/watched.js';
 
 const SOURCE = readFileSync(new URL('../extension/background.js', import.meta.url), 'utf8');
 const DAY = 24 * 60 * 60 * 1000;
@@ -129,6 +130,7 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
     };
   };
   const context = vm.createContext({
+    HfwWatched,
     chrome,
     crypto: globalThis.crypto,
     fetch,
@@ -519,6 +521,23 @@ test('settings mutations from two tabs merge at the worker and same-field reques
   assert.equal(data.settings.alpha, 'last', 'the last request accepted by the worker wins one field');
   assert.equal(data['hushfacebookWeb.storageRevisions'].settings, 4);
   assert.equal(data['hushfacebookWeb.storageRevisions'].__order, 4);
+});
+
+test('watched appends from two tabs merge and a clear survives worker restart and older retries', async () => {
+  const key = `rememberWatched.list@${'a'.repeat(32)}`;
+  const { context, data } = worker({ saved: { [key]: [{ kind: 'video', id: '123456', at: 1 }] } });
+  const add = (id, at) => ({ key, mutation: { watched: { add: { kind: 'video', id, at } } } });
+  await Promise.all([context.mutateStorage(add('234567', 2)), context.mutateStorage(add('345678', 3))]);
+  assert.deepEqual(data[key].map((entry) => entry.id), ['345678', '234567', '123456']);
+  await context.mutateStorage({ key, mutation: { watched: { clear: 4 } } });
+  const restarted = worker({ saved: data });
+  await restarted.context.mutateStorage(add('123456', 2));
+  assert.deepEqual(restarted.data[key], { entries: [], clearedAt: 4 });
+  await restarted.context.mutateStorage(add('456789', 5));
+  assert.deepEqual(restarted.data[key].entries.map((entry) => entry.id), ['456789']);
+  assert.equal(context.validWorkerRequest({ type: 'storage:mutate', ...add('123456', 2) }), true);
+  assert.equal(context.validWorkerRequest({ type: 'storage:mutate', key, mutation: { replace: [] } }), false);
+  assert.equal(context.validWorkerRequest({ type: 'storage:mutate', key: 'rememberWatched.list', mutation: { watched: { clear: 4 } } }), false);
 });
 
 test('an ordinary settings mutation repairs a malformed stored record', async () => {

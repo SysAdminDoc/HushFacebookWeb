@@ -21,7 +21,8 @@ import {
   connectBridge,
   createBridgeStorage,
 } from '../src/core/bridge.js';
-import { activityKeyFor } from '../src/core/activity.js';
+import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
+import { createWatchList, entriesOf, WATCHED_KEY } from '../src/features/playback/remember-watched.js';
 import { buildSchema, claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 import { applyObjectMutation, createGmStorage } from '../src/core/storage.js';
@@ -261,6 +262,38 @@ function page(account, url = 'https://www.facebook.com/') {
   cleanups.push(() => win.happyDOM.close());
   return win;
 }
+
+test('a story recorded before the initial bridge snapshot merges with saved history and survives its late arrival', async () => {
+  const key = activityKeyFor(WATCHED_KEY, null);
+  const old = { kind: 'video', id: '123456789', at: 10 };
+  let release;
+  const snapshot = { [key]: [old] };
+  const chrome = fakeChrome(snapshot, { read: () => new Promise((resolve) => { release = () => resolve(structuredClone(snapshot)); }) });
+  const win = page();
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  const activity = createActivityStorage({ storage });
+  let recordStory;
+  let delay;
+  const list = createWatchList({
+    doc: win.document, storage: activity.storage, enabled: () => true, now: () => 5000,
+    href: () => 'https://www.facebook.com/stories/bucket/card/',
+    setTimer: (run, ms) => { recordStory = run; delay = ms; return 1; }, clearTimer() {},
+  });
+  list.start();
+  assert.equal(delay, 3000);
+  await settle();
+  assert.equal(storage.status().state, 'loading');
+  recordStory();
+  await list.retry();
+  assert.deepEqual(entriesOf(chrome.data[key]).map((entry) => entry.id), ['card', old.id]);
+  release();
+  await new Promise((resolve) => storage.whenReady(resolve));
+  assert.deepEqual(list.entries().map((entry) => entry.id), ['card', old.id]);
+  await list.clear();
+  await activity.storage.mutate(WATCHED_KEY, { watched: { add: old } });
+  assert.deepEqual(list.entries(), [], 'a delayed older operation cannot revive a cleared entry');
+});
 
 test('the halves find each other whichever starts first, and the secret stays off the page after', async () => {
   for (const isolatedFirst of [true, false]) {
@@ -2522,14 +2555,19 @@ test("a page reads and writes its own account's activity and the shared lists fr
     [activityKeyFor('keepSpeed.rate', account), 1.5],
     [activityKeyFor('keepVolume.state', account), { volume: 0.5, muted: false }],
     [activityKeyFor('seenPostsCleared', account), 50],
-    [activityKeyFor('rememberWatched.list', account), [
-      { kind: 'reel', id: '1088226293914076', at: 5, owner: 'Example Page', length: 42 },
-      { kind: 'story', id: 'UzpfSVNDOjE5MjM0NTY3%3D', bucket: '108123456789', at: 6 },
-    ]],
   ]) {
     assert.equal((await forged.send('storage:set', { key, value })).ok, true, key);
     assert.deepEqual(chrome.data[key], value);
   }
+  const watchedKey = activityKeyFor(WATCHED_KEY, account);
+  const history = [
+    { kind: 'reel', id: '1088226293914076', at: 5, owner: 'Example Page', length: 42 },
+    { kind: 'story', id: 'UzpfSVNDOjE5MjM0NTY3%3D', bucket: '108123456789', at: 6 },
+  ];
+  for (const entry of history) assert.equal((await forged.send('storage:mutate', { key: watchedKey, mutation: { watched: { add: entry } } })).ok, true);
+  assert.deepEqual(chrome.data[watchedKey], [...history].reverse());
+  await refused(forged.send('storage:set', { key: watchedKey, value: history }), /not allowed/, 'whole cached history replacement is unsafe');
+  await refused(forged.send('storage:remove', { key: watchedKey }), /not allowed/, 'clearing must retain its barrier');
   await refused(forged.send('storage:set', { key: activityKeyFor('keepSpeed.rate', account), value: 99 }), /not allowed/);
   for (const entry of [
     { kind: 'reel', id: 'javascript:alert(1)', at: 5 }, { kind: 'reel', id: 1088226293914076, at: 5 }, { kind: 'photo', id: '1088226293914076', at: 5 },
@@ -2537,7 +2575,7 @@ test("a page reads and writes its own account's activity and the shared lists fr
     { kind: 'reel', id: '1088226293914076', at: 5, href: 'https://example.com/' }, { kind: 'reel', id: '1088226293914076', at: 5, owner: '' },
     { kind: 'reel', id: '1088226293914076', at: 5, length: 0 },
   ]) {
-    await refused(forged.send('storage:set', { key: activityKeyFor('rememberWatched.list', account), value: [entry] }), /not allowed/, JSON.stringify(entry));
+    await refused(forged.send('storage:mutate', { key: watchedKey, mutation: { watched: { add: entry } } }), /not allowed/, JSON.stringify(entry));
   }
   await refused(forged.send('storage:set', { key: activityKeyFor('rememberWatched.list', other), value: [] }), /not allowed/, "another account's list");
   await refused(forged.send('storage:set', { key: activityKeyFor('seenPosts', other), value: {} }), /not allowed/);
@@ -2545,6 +2583,10 @@ test("a page reads and writes its own account's activity and the shared lists fr
   assert.equal((await forged.send('storage:remove', { key: 'seenPosts' })).ok, true, 'the shared list can be deleted');
   assert.equal(Object.hasOwn(chrome.data, 'seenPosts'), false);
   assert.deepEqual(chrome.data[activityKeyFor('seenPosts', other)], { 't:theirs': 30 });
+  win.document.cookie = `c_user=${other}; path=/`;
+  for (const owner of [account, other]) await refused(forged.send('storage:mutate', {
+    key: activityKeyFor(WATCHED_KEY, owner), mutation: { watched: { add: history[0] } },
+  }), /not allowed/, 'a stale page cannot write either account');
 
   // Signed out, the page gets the signed-out lists and none of an account's.
   const outChrome = fakeChrome({ [activityKeyFor('seenPosts', null)]: { 't:out': 40 }, [activityKeyFor('seenPosts', account)]: { 't:mine': 20 } });

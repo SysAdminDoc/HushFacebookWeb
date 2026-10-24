@@ -23,10 +23,11 @@ await rm(dist, { recursive: true, force: true });
 await mkdir(new URL('icons/', unpacked), { recursive: true });
 await mkdir(new URL('icons/', firefox), { recursive: true });
 
-const bundle = async (entry, { banner, target = 'userscript' } = {}) => (await build({
+const bundle = async (entry, { banner, target = 'userscript', globalName } = {}) => (await build({
   entryPoints: [fileURLToPath(new URL(entry, root))],
   bundle: true,
   format: 'iife',
+  globalName,
   target: BUNDLE_TARGET,
   minify: false,
   charset: 'utf8',
@@ -46,8 +47,8 @@ const notice = `// HushFacebook Web v${pkg.version}. Source: https://github.com/
 const parts = {
   'main.js': await bundle('src/main.js', { banner: notice, target: 'extension' }),
   'isolated.js': await bundle('extension/isolated.js', { banner: notice, target: 'extension' }),
-  // Copied as written: a classic script whose functions the live check can call.
-  'background.js': notice + await readFile(new URL('extension/background.js', root), 'utf8'),
+  // A shared history prelude, then the classic worker whose globals live checks call.
+  'background.js': notice + await bundle('src/core/watched.js', { globalName: 'HfwWatched' }) + await readFile(new URL('extension/background.js', root), 'utf8'),
   'manifest.json': `${JSON.stringify(extensionManifest(pkg), null, 2)}\n`,
 };
 const firefoxParts = { ...parts, 'manifest.json': `${JSON.stringify(extensionManifest(pkg, { browser: 'firefox' }), null, 2)}\n` };

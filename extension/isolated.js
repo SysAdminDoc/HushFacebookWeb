@@ -23,6 +23,7 @@ import {
   validStorageRevisions,
 } from '../src/core/bridge.js';
 import { ACTIVITY_KEYS, activityKeyFor } from '../src/core/activity.js';
+import { validWatchedOperation, validWatchedRecord, WATCHED_KEY } from '../src/core/watched.js';
 import { accountFromCookie, claimFor, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 
 const SECRET = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -114,18 +115,7 @@ const positionRecord = (value) => (
   ))
 );
 // Remember what you watch keeps 50 (src/features/playback/remember-watched.js entryOf).
-const STORY_PART = /^[\w.%=:-]{1,200}$/;
-const watchedEntry = (entry) => (
-  isRecord(entry)
-  && Object.keys(entry).every((name) => ['kind', 'id', 'at', 'bucket', 'owner', 'length'].includes(name))
-  && ['reel', 'video', 'story'].includes(entry.kind)
-  && typeof entry.id === 'string'
-  && (entry.kind === 'story' ? STORY_PART.test(entry.id) && typeof entry.bucket === 'string' && STORY_PART.test(entry.bucket) : /^\d{6,30}$/.test(entry.id) && entry.bucket === undefined)
-  && finite(entry.at, 1)
-  && (entry.owner === undefined || (boundedString(entry.owner, 80) && entry.owner.length > 0))
-  && (entry.length === undefined || finite(entry.length, 1))
-);
-const watchedList = (value) => Array.isArray(value) && value.length <= 200 && value.every(watchedEntry);
+const watchedList = validWatchedRecord;
 // The background's release check (extension/background.js lists the fields). A record saved
 // before checkedAt existed has `at` instead of the times after it.
 const UPDATE_FIELDS = ['at', 'current', 'latest', 'url', 'newer', 'checkedAt', 'triedAt', 'state', 'failures', 'nextAt', 'checking'];
@@ -307,6 +297,7 @@ const validStorageRequest = (type, payload) => {
   // The settings record and its receipt change only through storage:mutate and storage:migrate.
   const directWrite = (key) => (
     storageAccess.writable.has(key) && key !== storageAccess.settingsKey && key !== storageAccess.receiptKey
+    && !key.startsWith(`${WATCHED_KEY}@`)
   );
   if (type === 'storage:set') {
     return onlyKeys(payload, ['key', 'value'])
@@ -326,6 +317,9 @@ const validStorageRequest = (type, payload) => {
         && payload.mutation.union[0] === storageAccess.claim;
     }
     if (!storageAccess.writable.has(payload.key)) return false;
+    if (payload.key === activityKeyFor(WATCHED_KEY, accountFromCookie(document.cookie))) {
+      return onlyKeys(payload.mutation, ['watched']) && validWatchedOperation(payload.mutation.watched);
+    }
     if (payload.key === storageAccess.settingsKey) return settingsMutation(payload.mutation);
     if (payload.key === storageAccess.receiptKey) return receiptMutation(payload.mutation);
     return false;
