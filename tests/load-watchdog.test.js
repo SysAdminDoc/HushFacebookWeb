@@ -193,10 +193,12 @@ test('A feed that loaded keeps its loading card below the first screen and stays
 });
 
 test('a short readable feed does not mistake its on-screen next-page loader for an initial skeleton', () => {
-  const { doc, stuck, elapse } = harness({ html: `<div role="main"><div aria-posinset="1"><a href="/posts/1">Post</a></div>${CARD}</div>` });
-  below(doc.querySelector('[role="status"]'), 300);
-  elapse();
-  assert.deepEqual(stuck, []);
+  for (const href of ['/posts/1', '/profile.php?id=1']) {
+    const { doc, stuck, elapse } = harness({ html: `<div role="main"><div aria-posinset="1"><h3><a href="${href}">Example author</a></h3><p>A readable feed post</p></div>${CARD}</div>` });
+    below(doc.querySelector('[role="status"]'), 300);
+    elapse();
+    assert.deepEqual(stuck, []);
+  }
 });
 
 test('Loading cards gone by the second look were just posts on their way', () => {

@@ -20,7 +20,7 @@
 // ends with the tab. storage-report.js keeps the mark's name out of what Facebook's page reports.
 
 import { walk } from './json-walk.js';
-import { CANDIDATE_SELECTOR, isComment, postIdOf } from './dom/posts.js';
+import { CANDIDATE_SELECTOR, isComment, ownLinks } from './dom/posts.js';
 
 export const TAB_PAUSE_KEY = 'hfw:pausedTab';
 // The first post drew 0.6 to 2.3 seconds into healthy loads on the test account and the splash
@@ -98,7 +98,20 @@ function loadingState(doc, win) {
   // A short or filtered feed can leave its next-page loader in the first screen. An actual
   // readable post makes that a pagination wait, not an initial load blocked by skeletons.
   const readable = [...scope.querySelectorAll(CANDIDATE_SELECTOR)].some((post) => {
-    if (!shown(post) || isComment(post) || !postIdOf(post).id) return false;
+    if (!shown(post) || isComment(post)) return false;
+    // Feed permalinks often arrive only on hover. An author's ordinary link is enough;
+    // a row whose links all open reels/stories is a viewer tray, not a readable post.
+    const linked = ownLinks(post).some((link) => {
+      const href = link.getAttribute('href');
+      if (!href || href.startsWith('#')) return false;
+      try {
+        const url = new URL(href, doc.location.href);
+        return ['https:', 'http:'].includes(url.protocol) && !/^\/(?:reels?|stories)(?:\/|$)/.test(url.pathname);
+      } catch {
+        return false;
+      }
+    });
+    if (!linked) return false;
     const { top, bottom } = post.getBoundingClientRect();
     return top < win.innerHeight && bottom >= 0;
   });
