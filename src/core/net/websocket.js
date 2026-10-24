@@ -12,7 +12,7 @@ function bytesOf(data) {
   return null;
 }
 
-export function patchWebSocket(win, { log, startup }) {
+export function patchWebSocket(win, { log, startup, replace = (object, key, value) => { object[key] = value; } }) {
   const rules = [];
   const failed = new Set();
   const stats = { messages: 0, unreadable: 0 };
@@ -60,7 +60,7 @@ export function patchWebSocket(win, { log, startup }) {
   }
 
   if (typeof original === 'function') {
-    proto.send = function send(data) {
+    replace(proto, 'send', function send(data) {
       try {
         if (LIGHTSPEED.test(this.url)) {
           stats.messages++;
@@ -84,7 +84,7 @@ export function patchWebSocket(win, { log, startup }) {
         log.error("Couldn't read a chat message, so it went out unchanged", error);
       }
       return original.apply(this, arguments);
-    };
+    });
   }
 
   return {

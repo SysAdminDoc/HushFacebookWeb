@@ -3,10 +3,10 @@
 // script, 'api' is missing something only the browser or manager can give, and 'failed'
 // threw during setup or stopped working later. A feature that failed partway keeps whatever
 // it did start, and that part still checks ctx.enabled(), so switching it off stops it.
-export function startFeatures({ features, net, settings, log, unavailable, context, changed }) {
+export function startFeatures({ features, net, settings, log, unavailable, context, changed, networkUnavailable = 'page' }) {
   for (const feature of features) {
     if (feature.needsPage && !net) {
-      unavailable.set(feature.id, 'page');
+      unavailable.set(feature.id, networkUnavailable);
       continue;
     }
     if (!feature.setup) continue;

@@ -50,10 +50,11 @@ const SECTION_DESCRIPTIONS = {
 // shorter in Diagnostics.
 const UNAVAILABLE_NOTES = {
   page: "This one has to run in Facebook's page, and your userscript manager runs the script outside it. Diagnostics says how to change that.",
+  network: "Network protection couldn't start, so this one is off. The log in Diagnostics says why.",
   api: "Your browser or userscript manager doesn't offer what this one needs.",
   failed: "This one couldn't start on this page, or stopped working. The log in Diagnostics says why.",
 };
-const UNAVAILABLE_SHORT = { page: 'needs page access', api: 'missing from this browser or manager', failed: 'see the log' };
+const UNAVAILABLE_SHORT = { page: 'needs page access', network: 'network protection unavailable', api: 'missing from this browser or manager', failed: 'see the log' };
 const searchCount = (count) => (count === 0 ? t('No setting matches.') : plural(count, '{count} setting matches.', '{count} settings match.'));
 const LANGUAGE_NOTE = "The language for these settings and the script's notices. Facebook's own language doesn't change it, and Reset to defaults keeps it. The two tests stretch every phrase or mirror the panel, to show how a translation will fit.";
 const SEARCH_SETTLE_MS = 600;

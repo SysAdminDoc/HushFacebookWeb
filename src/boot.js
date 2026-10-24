@@ -55,15 +55,24 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
   const followLanguage = () => setLanguage(settings.get('ui.language'));
   settings.whenLoaded(followLanguage);
   settings.subscribe(followLanguage);
-  const net = access === 'page' && !tabPaused ? installNetworkHooks({
-    win,
-    log,
-    startup: {
-      status: settings.startup.status,
-      onStatus: settings.startup.onStatus,
-      accountMatches: () => settings.startup.matchesAccount(signedInAccount(doc)),
-    },
-  }) : null;
+  let net = null;
+  let networkFailed = false;
+  if (access === 'page' && !tabPaused) {
+    try {
+      net = installNetworkHooks({
+        win,
+        log,
+        startup: {
+          status: settings.startup.status,
+          onStatus: settings.startup.onStatus,
+          accountMatches: () => settings.startup.matchesAccount(signedInAccount(doc)),
+        },
+      });
+    } catch (error) {
+      networkFailed = true;
+      log.error("Network filtering and privacy protection couldn't start. Page cleanup still works", error);
+    }
+  }
   const router = tabPaused ? null : createRouter({ win, pageAccess: access, log });
   const posts = createPostTracker({ doc, log });
   const diagnostics = createDiagnostics();
@@ -77,10 +86,13 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
   const shareable = { shareable: true };
   diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'), shareable);
   diagnostics.add('Settings kept in', () => ({ gm: 'Your userscript manager', extension: "The extension's own storage" })[storage.kind] ?? "Facebook's page, which clears them", shareable);
+  diagnostics.add('Network protection', () => (tabPaused ? 'Paused in this tab' : networkFailed
+    ? 'Unavailable. Network filtering and privacy protection are off. See the log.'
+    : net ? 'Running' : 'Unavailable in content mode'), shareable);
   if (storage.status) {
     diagnostics.add('Saved settings', () => ({ loading: 'Loading', ready: 'Loaded', error: 'Unavailable. Open General to retry.' })[storage.status().state] ?? 'Unavailable', shareable);
     // A tab paused for itself installed no hooks, so there's nothing to confirm.
-    diagnostics.add('Startup privacy protection', () => (tabPaused ? 'Paused in this tab' : ({
+    diagnostics.add('Startup privacy protection', () => (tabPaused ? 'Paused in this tab' : !net ? 'Unavailable. Network hooks did not start.' : ({
       loading: 'Waiting for saved choices',
       ready: 'Confirmed',
       error: 'Unconfirmed. Recognized requests are held back. Open General to retry.',
@@ -192,7 +204,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
 
   if (!tabPaused) {
     startFeatures({
-      features, net, settings, log, unavailable,
+      features, net, settings, log, unavailable, networkUnavailable: networkFailed ? 'network' : 'page',
       context: (feature) => ({
         win,
         doc,

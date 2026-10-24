@@ -178,6 +178,74 @@ function requestRule(net, enabled = () => true) {
   });
 }
 
+for (const shape of ['native', 'subclass', 'proxy']) {
+  for (const order of ['before', 'after']) {
+    test(`XHR ${shape} getters cooperate with a response wrapper installed ${order}`, () => {
+      const { win } = fakeWindow({ respond: () => '{"n":1}\n' });
+      const Native = win.XMLHttpRequest;
+      if (shape === 'subclass') win.XMLHttpRequest = class extends Native {};
+      if (shape === 'proxy') win.XMLHttpRequest = new Proxy(Native, {});
+      const proto = win.XMLHttpRequest.prototype;
+      const rawResponse = Object.getOwnPropertyDescriptor(Native.prototype, 'response').get;
+      let reads = 0;
+      const wrap = () => {
+        Object.defineProperties(proto, {
+          responseText: { configurable: true, get() { reads++; return this.response; } },
+          response: { configurable: true, get() { reads++; return rawResponse.call(this); } },
+        });
+      };
+      if (order === 'before') wrap();
+      const net = installNetworkHooks({ win, log: quietLog });
+      assert.equal(reads, 0, 'accessor discovery never calls a getter');
+      if (order === 'after') wrap();
+      net.transformResponses({ id: 'increment', enabled: () => true, match: () => true, transform: (doc) => { doc.n++; return true; } });
+      const xhr = new win.XMLHttpRequest();
+      xhr.open('GET', '/api/graphql/');
+      xhr.send();
+      xhr.readyState = 3;
+      assert.equal(xhr.responseText, '{"n":2}\n');
+      xhr._responseText += '{"n":3}';
+      xhr.readyState = 4;
+      assert.equal(xhr.responseText, '{"n":2}\n{"n":4}');
+      assert.equal(xhr.response, xhr.responseText);
+      net.teardown();
+    });
+  }
+}
+
+for (const failure of ['xhr-send', 'json-parse', 'socket-send', 'installation-mark']) {
+  test(`a refused ${failure} rolls back earlier hooks and closes the startup subscription`, () => {
+    const { win } = fakeWindow();
+    win.WebSocket = class { send() {} };
+    if (failure === 'xhr-send') Object.defineProperty(win.XMLHttpRequest.prototype, 'send', { writable: false, configurable: false });
+    if (failure === 'json-parse') Object.defineProperty(win.JSON, 'parse', { writable: false, configurable: false });
+    if (failure === 'socket-send') Object.defineProperty(win.WebSocket.prototype, 'send', { writable: false, configurable: false });
+    if (failure === 'installation-mark') Object.preventExtensions(win);
+    const objects = [win, win.navigator, win.JSON, win.XMLHttpRequest.prototype, win.XMLHttpRequestUpload.prototype, win.WebSocket.prototype];
+    const before = objects.map((object) => Object.getOwnPropertyDescriptors(object));
+    let unsubscribed = 0;
+    assert.throws(() => installNetworkHooks({ win, log: quietLog, startup: {
+      status: () => 'loading', onStatus: () => () => { unsubscribed++; },
+    } }), TypeError);
+    assert.deepEqual(objects.map((object) => Object.getOwnPropertyDescriptors(object)), before);
+    assert.equal(unsubscribed, 1);
+  });
+}
+
+test('rollback and pagehide cleanup still run when a startup disposer throws', () => {
+  const { win } = fakeWindow();
+  Object.defineProperty(win.JSON, 'parse', { writable: false, configurable: false });
+  const before = [win, win.navigator, win.XMLHttpRequest.prototype].map((object) => Object.getOwnPropertyDescriptors(object));
+  let removed = false;
+  win.removeEventListener = (type) => { if (type === 'pagehide') removed = true; };
+  before[0].removeEventListener = Object.getOwnPropertyDescriptor(win, 'removeEventListener');
+  assert.throws(() => installNetworkHooks({ win, log: quietLog, startup: {
+    onStatus: () => () => { throw new Error('dispose'); },
+  } }), /dispose/);
+  assert.equal(removed, true);
+  assert.deepEqual([win, win.navigator, win.XMLHttpRequest.prototype].map((object) => Object.getOwnPropertyDescriptors(object)), before);
+});
+
 test('supported privacy fetches wait for saved choices while unknown traffic leaves immediately', async () => {
   const control = startupControl();
   const { win, calls } = fakeWindow();

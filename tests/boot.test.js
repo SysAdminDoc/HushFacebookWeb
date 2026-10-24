@@ -141,3 +141,24 @@ test('a tab that is not paused hooks the page, and Pause for this tab marks the 
   started.pauseTab();
   assert.deepEqual(reloads, ['1']);
 });
+
+test('a network installation failure leaves the panel and page cleanup usable and names the missing protection', (t) => {
+  quiet(t);
+  t.mock.method(console, 'error', () => {});
+  const { win, before, shadow } = tab();
+  win.XMLHttpRequest = class {};
+  const cleanup = counted();
+  const network = { ...counted(), id: 'network', needsPage: true };
+  const started = boot({ win, doc: win.document, access: 'page', own: win, features: [cleanup, network] });
+  assert.ok(!started.net, 'the failed network installation is unavailable');
+  assert.ok(started.hider && started.router, 'DOM cleanup and SPA routing still start');
+  assert.equal(cleanup.setups, 1);
+  assert.equal(network.setups, 0);
+  assert.equal(win.fetch, before.fetch, 'the partial fetch wrapper was restored');
+  assert.equal(win.JSON.parse, before.parse);
+  assert.ok(shadow().querySelector('dialog'), 'settings mounted');
+  assert.match(notices(shadow())[0].textContent, /Network filtering and privacy protection couldn't start/);
+  button(notices(shadow())[0], 'Open').click();
+  assert.match(shadow().textContent, /Network protection/);
+  assert.match(shadow().textContent, /Unavailable\. Network filtering and privacy protection are off/);
+});

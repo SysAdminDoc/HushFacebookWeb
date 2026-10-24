@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* Settings and page cleanup still start if another tool prevents the network hooks from loading. Partial hooks are removed, Diagnostics says which protection is off, and XHR wrappers with inherited response getters work.
+
 ## v0.0.6 (2026-10-22)
 
 * All 18 settings pages have a new charcoal and blue layout. Search sits in the header now, each page has a bigger heading, and thin lines keep the rows apart, with nested choices indented under their setting. It fits narrow screens, and the selected section stays in view when the language switches between left-to-right and right-to-left.

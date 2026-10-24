@@ -102,6 +102,8 @@ Copy report in Diagnostics copies your versions, browser name, which switches ar
 
 If Facebook stays on loading skeletons, open General and choose Open problem report. Include the full console stack, the Hush version, your browser and userscript manager versions, and the other Facebook tools you have enabled.
 
+If another tool prevents the network hooks from starting, settings and page cleanup still open. Diagnostics names the protection that's unavailable, and features that need those hooks stay off.
+
 ## Building it yourself
 
 You need Node 24.

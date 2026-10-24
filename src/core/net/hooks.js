@@ -222,12 +222,17 @@ function createStartupGate(win, startup, log) {
     closed = true;
   }
 
+  let disposed = false;
   const close = () => {
-    if (closed) return;
+    if (disposed) return;
+    disposed = true;
     closed = true;
     for (const entry of [...waiting]) finish(entry, 'closed');
-    unsubscribe();
-    win.removeEventListener?.('pagehide', onPageHide);
+    try {
+      unsubscribe();
+    } finally {
+      win.removeEventListener?.('pagehide', onPageHide);
+    }
   };
   const onPageHide = (event) => {
     if (!event.persisted) close();
@@ -336,11 +341,18 @@ export function installNetworkHooks({ win, log, startup }) {
   });
 
   const startupGate = createStartupGate(win, startup, log);
-  patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log });
-  patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log });
-  patchBeacon(win, { blockingRule, startupRule, startupGate, fakeAnswer });
-  patchJsonParse(win, { active, responseRules, onError, handled });
-  const sockets = patchWebSocket(win, { log, startup: startupGate });
+  const patch = installationPatches();
+  let sockets;
+  try {
+    patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log, patch });
+    patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log, patch });
+    patchBeacon(win, { blockingRule, startupRule, startupGate, fakeAnswer, patch });
+    patchJsonParse(win, { active, responseRules, onError, handled, patch });
+    sockets = patchWebSocket(win, { log, startup: startupGate, replace: patch.set });
+  } catch (error) {
+    try { startupGate.close(); } finally { patch.rollback(); }
+    throw error;
+  }
 
   const api = {
     // The chat socket: see websocket.js. chatStats counts what it sent and couldn't read.
@@ -362,15 +374,51 @@ export function installNetworkHooks({ win, log, startup }) {
       responseRules.push(rule);
     },
   };
-  Object.defineProperty(win, INSTALLED, { value: api });
+  try {
+    patch.define(win, INSTALLED, { value: api });
+  } catch (error) {
+    try { startupGate.close(); } finally { patch.rollback(); }
+    throw error;
+  }
   return api;
 }
 
-function patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log }) {
+// Every installation write records its own descriptor. If a later hook is refused, restore
+// these writes in reverse order, leaving inherited properties and earlier wrappers intact.
+function installationPatches() {
+  const writes = [];
+  const define = (object, key, descriptor) => {
+    const previous = Object.getOwnPropertyDescriptor(object, key);
+    Object.defineProperty(object, key, { ...descriptor, configurable: previous?.configurable === false ? false : true });
+    writes.push({ object, key, previous, installed: Object.getOwnPropertyDescriptor(object, key) });
+  };
+  return {
+    define,
+    set(object, key, value) {
+      const current = Object.getOwnPropertyDescriptor(object, key);
+      define(object, key, {
+        configurable: current?.configurable ?? true,
+        enumerable: current?.enumerable ?? true,
+        writable: current && 'writable' in current ? current.writable : true,
+        value,
+      });
+    },
+    rollback() {
+      for (const { object, key, previous, installed } of writes.reverse()) {
+        const current = Object.getOwnPropertyDescriptor(object, key);
+        if (current?.value !== installed.value || current?.get !== installed.get || current?.set !== installed.set) continue;
+        if (previous) Object.defineProperty(object, key, previous);
+        else Reflect.deleteProperty(object, key);
+      }
+    },
+  };
+}
+
+function patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log, patch }) {
   const original = win.fetch;
   if (typeof original !== 'function') return;
 
-  win.fetch = function fetch(input, init) {
+  patch.set(win, 'fetch', function fetch(input, init) {
     const receiver = this;
     const args = arguments;
     const isRequest = isRequestInput(win, input);
@@ -401,7 +449,7 @@ function patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, a
         }
       });
     });
-  };
+  });
 }
 
 // send: what sendFetch takes. A recognized privacy fetch made before the saved choices are in
@@ -529,13 +577,14 @@ function keepResponseFacts(win, response, facts) {
 //   Chromium keeps feeding the old body into a request reopened during HEADERS_RECEIVED.
 // Two differences no script can close: its events are never isTrusted, and a microtask queued
 // by one listener runs after the event's other listeners rather than between them.
-function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log }) {
+function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, active, responseRules, lineStream, log, patch }) {
   const Xhr = win.XMLHttpRequest;
   if (typeof Xhr !== 'function') return;
   const proto = Xhr.prototype;
   const { open, send, setRequestHeader, abort, getResponseHeader, getAllResponseHeaders, overrideMimeType } = proto;
-  const textGetter = Object.getOwnPropertyDescriptor(proto, 'responseText').get;
-  const responseGetter = Object.getOwnPropertyDescriptor(proto, 'response').get;
+  const textGetter = descriptorOf(proto, 'responseText')?.get;
+  const responseGetter = descriptorOf(proto, 'response')?.get;
+  if (typeof textGetter !== 'function' || typeof responseGetter !== 'function') throw new TypeError('XMLHttpRequest response accessors are unavailable');
   // Taken before patchJsonParse wraps it: the browser's json responseType doesn't go
   // through the page's JSON.parse either.
   const json = win.JSON ?? JSON;
@@ -548,8 +597,8 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
   const hush = (event) => {
     if (quiet.has(event.currentTarget)) event.stopImmediatePropagation();
   };
-  const hushXhr = listenFirst(win, proto, Xhr, 'loadstart', hush);
-  listenFirst(win, win.XMLHttpRequestUpload?.prototype, win.XMLHttpRequestUpload, 'loadstart', hush);
+  const hushXhr = listenFirst(win, proto, Xhr, 'loadstart', hush, patch);
+  listenFirst(win, win.XMLHttpRequestUpload?.prototype, win.XMLHttpRequestUpload, 'loadstart', hush, patch);
   const synthetic = (xhr) => state.get(xhr)?.synthetic === true;
   const inFlight = (entry) => Boolean(entry?.deferred || entry?.fake?.pending);
 
@@ -562,7 +611,7 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
     entry.fake = null;
   };
 
-  proto.open = function (method, url) {
+  patch.set(proto, 'open', function (method, url) {
     const shown = this.readyState;
     const previous = state.get(this);
     const released = overrides.release(this);
@@ -592,48 +641,48 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
     hushXhr(this);
     if (silent) this.dispatchEvent(new win.Event('readystatechange'));
     return result;
-  };
+  });
 
   // A held or answered request was sent as far as the page knows, so whatever a sent, finished
   // or aborted request refuses, it refuses too, before the browser (which still has it OPENED)
   // can allow it. Calls missing arguments go to the browser for its own TypeError.
   const refuse = (name) => invalidState(win, `Failed to execute '${name}' on 'XMLHttpRequest': The object's state must be OPENED.`);
-  proto.setRequestHeader = function (name, value) {
+  patch.set(proto, 'setRequestHeader', function (name, value) {
     const entry = state.get(this);
     if (entry?.synthetic && arguments.length >= 2) throw refuse('setRequestHeader');
     if (entry) entry.headers[String(name).toLowerCase()] = value;
     return setRequestHeader.apply(this, arguments);
-  };
+  });
   const loadingOrDone = (xhr) => synthetic(xhr) && xhr.readyState >= 3;
   if (typeof overrideMimeType === 'function') {
-    proto.overrideMimeType = function () {
+    patch.set(proto, 'overrideMimeType', function () {
       if (loadingOrDone(this) && arguments.length >= 1) throw refuse('overrideMimeType');
       return overrideMimeType.apply(this, arguments);
-    };
+    });
   }
   guardSetter(proto, 'responseType', (xhr) => {
     if (loadingOrDone(xhr)) throw invalidState(win, "Failed to set the 'responseType' property on 'XMLHttpRequest': The response type cannot be set if the object's state is LOADING or DONE.");
-  });
+  }, patch);
   guardSetter(proto, 'withCredentials', (xhr) => {
     if (synthetic(xhr) && xhr.readyState !== 0) throw invalidState(win, "Failed to set the 'withCredentials' property on 'XMLHttpRequest': The value may only be set if the object's state is UNSENT or OPENED.");
-  });
+  }, patch);
 
   // From HEADERS_RECEIVED on, an answered request shows the one header its answer has. Before
   // that, and once aborted, its status is 0.
   const answered = (xhr) => synthetic(xhr) && xhr.status !== 0;
   if (typeof getResponseHeader === 'function') {
-    proto.getResponseHeader = function (name) {
+    patch.set(proto, 'getResponseHeader', function (name) {
       const value = getResponseHeader.apply(this, arguments);
       if (!synthetic(this)) return value;
       return answered(this) && String(name).toLowerCase() === 'content-type' ? ANSWER_TYPE : null;
-    };
+    });
   }
   if (typeof getAllResponseHeaders === 'function') {
-    proto.getAllResponseHeaders = function () {
+    patch.set(proto, 'getAllResponseHeaders', function () {
       const value = getAllResponseHeaders.apply(this, arguments);
       if (!synthetic(this)) return value;
       return answered(this) ? `content-type: ${ANSWER_TYPE}\r\n` : '';
-    };
+    });
   }
 
   // The send that follows a hold: the page saw this request start when it called send(), so
@@ -651,7 +700,7 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
     }
   };
 
-  proto.send = function (body) {
+  patch.set(proto, 'send', function (body) {
     const entry = state.get(this);
     if (!entry) return send.apply(this, arguments);
     if (entry.sent) throw invalidState(win, "Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED.");
@@ -736,10 +785,10 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
       onCancel: () => {},
     });
     return undefined;
-  };
+  });
 
   if (typeof abort === 'function') {
-    proto.abort = function () {
+    patch.set(proto, 'abort', function () {
       const entry = state.get(this);
       const wasInFlight = inFlight(entry);
       const uploading = wasInFlight && entry.uploading;
@@ -767,7 +816,7 @@ function patchXhr(win, { blockingRule, startupRule, startupGate, fakeAnswer, act
       }
       overrides.define(this, xhrResult(win, this, { readyState: 0, status: 0, statusText: '', url: '', text: null }));
       return result;
-    };
+    });
   }
 }
 
@@ -776,11 +825,11 @@ const ANSWER_TYPE = 'text/plain;charset=UTF-8';
 
 // Wraps one of the prototype's setters so check can throw first. A property the browser
 // doesn't have, or one fixed for good, is left alone.
-function guardSetter(proto, key, check) {
-  const descriptor = Object.getOwnPropertyDescriptor(proto, key);
+function guardSetter(proto, key, check, patch) {
+  const descriptor = descriptorOf(proto, key);
   if (typeof descriptor?.set !== 'function' || !descriptor.configurable) return;
   const set = descriptor.set;
-  Object.defineProperty(proto, key, {
+  patch.define(proto, key, {
     ...descriptor,
     set(value) {
       check(this);
@@ -794,7 +843,7 @@ function guardSetter(proto, key, check) {
 // the first time the page listens, through addEventListener or the on<type> handler, or when
 // the hook calls the function it returns. Until the page listens on an upload, nothing is
 // added to it: a listener there changes how a cross-origin request is sent.
-function listenFirst(win, proto, Target, type, listener) {
+function listenFirst(win, proto, Target, type, listener, patch) {
   const added = new WeakSet();
   const add = win.EventTarget?.prototype.addEventListener ?? proto?.addEventListener;
   const ensure = (target) => {
@@ -806,7 +855,7 @@ function listenFirst(win, proto, Target, type, listener) {
   const definable = (key) => Object.getOwnPropertyDescriptor(proto, key)?.configurable !== false;
   const listen = descriptorOf(proto, 'addEventListener');
   if (typeof listen?.value === 'function' && definable('addEventListener')) {
-    Object.defineProperty(proto, 'addEventListener', {
+    patch.define(proto, 'addEventListener', {
       ...listen,
       value: function addEventListener(eventType) {
         if (eventType === type) ensure(this);
@@ -816,7 +865,7 @@ function listenFirst(win, proto, Target, type, listener) {
   }
   const handler = descriptorOf(proto, `on${type}`);
   if (typeof handler?.set === 'function' && definable(`on${type}`)) {
-    Object.defineProperty(proto, `on${type}`, {
+    patch.define(proto, `on${type}`, {
       ...handler,
       set(value) {
         ensure(this);
@@ -1057,11 +1106,11 @@ function fakeXhrSuccess(win, xhr, { url, text, parse, synchronous, uploadBytes =
 // before anything else and most calls return untouched. A call with a reviver is left alone:
 // the reviver has already seen every value as it was built, and editing after it would hand
 // back what it never saw.
-function patchJsonParse(win, { active, responseRules, onError, handled }) {
+function patchJsonParse(win, { active, responseRules, onError, handled, patch }) {
   const json = win.JSON;
   const parse = json?.parse;
   if (typeof parse !== 'function') return;
-  json.parse = function (text, reviver) {
+  patch.set(json, 'parse', function (text, reviver) {
     const result = parse.apply(this, arguments);
     if (typeof reviver === 'function') return result;
     if (typeof text !== 'string' || result === null || typeof result !== 'object') return result;
@@ -1079,7 +1128,7 @@ function patchJsonParse(win, { active, responseRules, onError, handled }) {
     const accepted = applyRules(result, rules, INLINE_JSON, onError) === FAILED ? parse.apply(this, arguments) : result;
     observeRules(accepted, rules, INLINE_JSON, onError);
     return accepted;
-  };
+  });
 }
 
 // The last lines of fetch and XHR answers that rules looked at, with the rules that did.
@@ -1141,11 +1190,11 @@ export function createHandledLines(limit = 64) {
   };
 }
 
-function patchBeacon(win, { blockingRule, startupRule, startupGate, fakeAnswer }) {
+function patchBeacon(win, { blockingRule, startupRule, startupGate, fakeAnswer, patch }) {
   const nav = win.navigator;
   const original = nav?.sendBeacon;
   if (typeof original !== 'function') return;
-  nav.sendBeacon = function sendBeacon(url, data) {
+  patch.set(nav, 'sendBeacon', function sendBeacon(url, data) {
     const ctx = describeRequest({ transport: 'beacon', url, method: 'POST', body: data, base: win.location.href });
     const blocker = startupGate.state() === 'ready' ? blockingRule(ctx) : startupRule(ctx);
     if (blocker) {
@@ -1154,5 +1203,5 @@ function patchBeacon(win, { blockingRule, startupRule, startupGate, fakeAnswer }
       return true;
     }
     return original.apply(this, arguments);
-  };
+  });
 }
