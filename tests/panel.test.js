@@ -291,7 +291,7 @@ test('Quick setups wait for extension storage and preserve unrelated saved choic
   assert.equal(data.get('settings').forceDarkMode, true);
   assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), null);
   assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').disabled, false);
-  assert.match(shadow.querySelector('.toast:last-child').textContent, /^Changed \d+ settings$/);
+  assert.match(shadow.querySelector('.toast:last-child span').textContent, /^Changed \d+ settings$/);
 });
 
 test('a Quick setup waiting on failed startup storage leaves Retry available', async () => {
