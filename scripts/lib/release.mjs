@@ -13,6 +13,14 @@ export const EXTRA_STAGES = { live: 'build' };
 // publish needs the live check too.
 export const PUBLISH_NEEDS = ['live'];
 
+export const NODE_BASELINE = '24.22.1';
+// The October 2026 security release is the minimum, and this project builds on Node 24 LTS.
+export function nodeVersionProblem(version = process.versions.node) {
+  const parts = String(version).match(/^v?(\d+)\.(\d+)\.(\d+)$/)?.slice(1).map(Number);
+  if (parts?.every(Number.isSafeInteger) && parts[0] === 24 && (parts[1] > 22 || (parts[1] === 22 && parts[2] >= 1))) return null;
+  return `Node ${NODE_BASELINE} or a newer Node 24.x is required. Found ${version}. Install the patched Node 24 LTS build and rerun preflight.`;
+}
+
 // The live stage's walk, as scenario labels of .claude/live-review/inject.py: Home, groups,
 // Marketplace, Reels, Watch, Messenger and a profile with every switch on and with every switch
 // off, Home in content mode, every settings panel section, ads on search, the twenty-switch loads

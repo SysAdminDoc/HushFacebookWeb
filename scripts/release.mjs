@@ -16,7 +16,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ASSETS, LIVE_BUDGET_MS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, liveCommand, record, refusal, servedProblems, sha256, sumsText, testCommand } from './lib/release.mjs';
+import { ASSETS, LIVE_BUDGET_MS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, liveCommand, nodeVersionProblem, record, refusal, servedProblems, sha256, sumsText, testCommand } from './lib/release.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DIST = path.join(ROOT, 'dist');
@@ -107,6 +107,8 @@ async function requireBuildUnchanged(state) {
 // ---- stages ----
 
 async function preflight(head) {
+  const runtimeProblem = nodeVersionProblem();
+  if (runtimeProblem) throw new Refused(runtimeProblem);
   requireCleanMain();
   requireUnreleased(head);
   changelogSection(await readFile(path.join(ROOT, 'CHANGELOG.md'), 'utf8'), head.version);

@@ -108,10 +108,10 @@ If another tool prevents the network hooks from starting, settings and page clea
 
 ## Building it yourself
 
-You need Node 24.
+You need Node 24.22.1 or a newer 24.x build. That's the minimum [patched Node 24 release](https://nodejs.org/en/blog/release/v24.22.1), and `.nvmrc` pins it for version managers.
 
 ```
-npm install
+npm ci
 npm run build
 ```
 
