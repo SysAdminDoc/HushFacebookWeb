@@ -21,8 +21,9 @@ const SRC = join(ROOT, 'src');
 // Properties whose strings travel between files before t() shows them, and the pool each one
 // draws from: a label only from an action { label, run }, so a share target's or a language's
 // own name doesn't count, and a text or busyText only from a floating button's { text, find }
-// (src/features/downloads/button.js).
-const SHARED_PROPERTIES = new Map([['label', 'label:run'], ['busyLabel', 'busyLabel'], ['text', 'text:find'], ['busyText', 'busyText:find']]);
+// (src/features/downloads/button.js). Fixed Error messages use the shared pool because feedback
+// helpers forward errors from several modules.
+const SHARED_PROPERTIES = new Map([['label', 'label:run'], ['busyLabel', 'busyLabel'], ['text', 'text:find'], ['busyText', 'busyText:find'], ['message', 'message']]);
 // Calls that only hand on words found elsewhere, by file and call as written.
 export const PASS_THROUGH = new Map([
   ['src/core/i18n.js t(count === 1 ? one : other, all)', 'plural() itself'],
@@ -88,8 +89,8 @@ function readSource(path, text) {
       if (['text', 'busyText'].includes(keyName(node)) && ancestors.at(-1).properties.some((other) => other.type === 'Property' && keyName(other) === 'find')) pushTo(properties, `${keyName(node)}:find`, node.value);
     }
     if (node.type === 'CallExpression') calls.push({ node, ancestors: [...ancestors] });
-    // new Error('...') carries a message a toast may show through t(error.message).
-    if (node.type === 'NewExpression' && node.callee.name === 'Error' && node.arguments[0]) pushTo(properties, 'message', node.arguments[0]);
+    // Fixed errors travel through shared feedback helpers before t(error.message) shows them.
+    if (node.type === 'NewExpression' && ['Error', 'TypeError', 'RangeError', 'SyntaxError'].includes(node.callee.name) && node.arguments[0]) pushTo(properties, 'message', node.arguments[0]);
   });
   return { path, text, constants, functions, properties, imports, calls };
 }

@@ -187,7 +187,7 @@ test('General ends with the Ko-fi row', () => {
   const row = cards.at(-1);
   assert.equal(row.dataset.key, 'kofi');
   assert.equal(row.querySelector('.title').textContent, 'Buy me a coffee');
-  assert.equal(row.querySelector('.desc').textContent, 'Hush is free. A coffee on Ko-fi helps me keep testing patches.');
+  assert.ok(!row.querySelector('.desc'), 'the donation row has its title alone');
   assert.equal(row.getAttribute('href'), 'https://ko-fi.com/X8K126YVER');
   assert.equal(row.getAttribute('target'), '_blank');
   assert.equal(row.getAttribute('rel'), 'noopener');
@@ -292,6 +292,7 @@ test('Quick setups wait for extension storage and preserve unrelated saved choic
   assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), null);
   assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').disabled, false);
   assert.match(shadow.querySelector('.toast:last-child span').textContent, /^Changed \d+ settings$/);
+  assert.equal(shadow.querySelector('.toast:last-child button').textContent, 'Undo');
 });
 
 test('a Quick setup waiting on failed startup storage leaves Retry available', async () => {
@@ -986,6 +987,235 @@ function laterStorage(initial) {
 }
 
 const button = (shadow, text) => [...shadow.querySelectorAll('button')].find((candidate) => candidate.textContent === text);
+
+async function restoreFile({ win, shadow }, text) {
+  const input = shadow.querySelector('input[type="file"]');
+  Object.defineProperty(input, 'files', { configurable: true, value: [{ size: text.length, text: async () => text }] });
+  input.dispatchEvent(new win.Event('change'));
+  await tick();
+}
+
+test('every Quick setup keeps a persistent Undo with its earlier choices and focus', async () => {
+  for (const id of ['quiet', 'privacy', 'defaults']) {
+    const { shadow, panel, settings } = setup({ features: allFeatures });
+    settings.setMany({ hideSponsoredPosts: false, noWatchHistory: false, 'ui.hiddenNote': true, accentColor: true, 'accentColor.custom': '#123456' });
+    const before = settings.snapshot();
+    panel.open('general');
+    shadow.querySelector(`[data-key="quick:${id}"]`).focus();
+    shadow.querySelector(`[data-key="quick:${id}"]`).click();
+    await tick();
+    assert.notDeepEqual(settings.snapshot(), before, id);
+    const undo = shadow.querySelector('[data-key="reset:undo"]');
+    assert.ok(undo, `${id} offers Undo in General`);
+    for (const toast of shadow.querySelectorAll('.toast')) toast.remove();
+    assert.ok(undo.isConnected, 'the card survives its notice');
+    undo.focus();
+    undo.click();
+    await tick();
+    assert.deepEqual(settings.snapshot(), before, `${id} restores all earlier choices`);
+    assert.ok(!shadow.querySelector('[data-key="reset-undo"]'));
+    assert.equal(shadow.activeElement?.dataset.key, `quick:${id}`);
+  }
+});
+
+test('a full restore keeps Undo after omitted choices return to defaults and rejects bad imports unchanged', async () => {
+  const context = setup();
+  const { shadow, panel, settings } = context;
+  settings.setMany({ 'ui.hiddenNote': true, 'ui.launcher': false });
+  const before = settings.snapshot();
+  panel.open('general');
+  const backup = JSON.stringify({ app: 'HushFacebook Web', schema: 1, settings: { 'ui.hiddenNote': false } });
+  await restoreFile(context, backup);
+  assert.deepEqual(settings.snapshot(), {}, 'a complete backup resets omitted choices');
+  assert.ok(shadow.querySelector('[data-key="reset:undo"]'), 'the earlier complete record is recoverable');
+  await restoreFile(context, JSON.stringify({ app: 'HushFacebook Web', schema: 1, settings: { 'ui.launcher': 'wrong' } }));
+  assert.deepEqual(settings.snapshot(), {});
+  assert.ok(shadow.querySelector('[data-key="reset:undo"]'), 'a rejected backup keeps the earlier Undo');
+  shadow.querySelector('[data-key="reset:undo"]').click();
+  await tick();
+  assert.deepEqual(settings.snapshot(), before);
+  assert.equal(shadow.activeElement?.dataset.key, 'restore');
+});
+
+test('a full restore waits for saved preferences before taking its Undo snapshot', async () => {
+  const data = new Map([['settings', { 'ui.hiddenNote': true, 'ui.launcher': false }]]);
+  const ready = [];
+  let loaded = false;
+  const storage = {
+    kind: 'extension',
+    get: (key, fallback) => data.has(key) ? structuredClone(data.get(key)) : fallback,
+    getAtLoad: (key, fallback) => data.has(key) ? structuredClone(data.get(key)) : fallback,
+    whenReady: (run) => loaded ? run() : ready.push(run),
+    onChange() {},
+    mutate(key, mutation) {
+      const next = applyObjectMutation(data.get(key), mutation);
+      data.set(key, structuredClone(next));
+      return Promise.resolve(structuredClone(next));
+    },
+    set: (key, value) => data.set(key, structuredClone(value)),
+  };
+  const context = setup({ storage });
+  context.panel.open('general');
+  await restoreFile(context, JSON.stringify({ app: 'HushFacebook Web', schema: 1, settings: {} }));
+  assert.deepEqual(data.get('settings'), { 'ui.hiddenNote': true, 'ui.launcher': false });
+  assert.equal(context.shadow.querySelector('[data-key="restore"]').getAttribute('aria-busy'), 'true');
+  assert.equal(context.shadow.querySelector('[data-key="ui.hiddenNote"]').disabled, true);
+  loaded = true;
+  for (const run of ready.splice(0)) run();
+  await tick();
+  assert.deepEqual(data.get('settings'), {});
+  context.shadow.querySelector('[data-key="reset:undo"]').click();
+  await tick();
+  assert.deepEqual(data.get('settings'), { 'ui.hiddenNote': true, 'ui.launcher': false });
+});
+
+test('a failed bulk Undo survives failed Retry and ends only when Retry saves the earlier choices', async () => {
+  const { storage, data, control } = laterStorage({ noWatchHistory: false, 'ui.hiddenNote': true });
+  const context = setup({ storage, features: allFeatures });
+  const { shadow, panel, settings } = context;
+  panel.open('general');
+  const before = settings.snapshot();
+  shadow.querySelector('[data-key="quick:privacy"]').click();
+  await tick();
+  const after = settings.snapshot();
+  assert.notDeepEqual(after, before);
+  control.failures = 1;
+  assert.ok(shadow.querySelector('[data-key="reset:undo"]'));
+  shadow.querySelector('[data-key="reset:undo"]').click();
+  await tick();
+  assert.deepEqual(data.get('settings'), after);
+  assert.ok(shadow.querySelector('[data-key="reset:undo"]'));
+  control.failures = 1;
+  shadow.querySelector('[data-key="settings:retry"]').click();
+  await tick();
+  assert.deepEqual(data.get('settings'), after);
+  assert.ok(shadow.querySelector('[data-key="reset:undo"]'));
+  shadow.querySelector('[data-key="settings:retry"]').click();
+  await tick();
+  assert.deepEqual(data.get('settings'), before);
+  assert.ok(!shadow.querySelector('[data-key="reset-undo"]'));
+});
+
+test('unrelated local or remote choices and an account switch invalidate a Quick setup Undo', async () => {
+  for (const change of ['local', 'remote', 'account']) {
+    const { storage, control } = laterStorage({ noWatchHistory: false });
+    let sameAccount = true;
+    const { shadow, panel, settings } = setup({ storage, features: allFeatures, environment: { accountMatches: () => sameAccount } });
+    panel.open('general');
+    shadow.querySelector('[data-key="quick:privacy"]').click();
+    await tick();
+    assert.ok(shadow.querySelector('[data-key="reset:undo"]'), change);
+    if (change === 'local') await settings.set('ui.hiddenNote', true);
+    else if (change === 'remote') control.remote({ ...settings.snapshot(), 'ui.hiddenNote': true });
+    else { sameAccount = false; panel.refresh(); }
+    await tick();
+    assert.ok(!shadow.querySelector('[data-key="reset-undo"]'), change);
+  }
+});
+
+test('a second failed restore gets its own error notice inside the generic log throttle', async () => {
+  const context = setup();
+  context.panel.open('general');
+  await restoreFile(context, '{broken');
+  assert.ok(context.shadow.querySelector('.toast.error'));
+  context.shadow.querySelector('.toast.error').remove();
+  await restoreFile(context, '{still broken');
+  assert.ok(context.shadow.querySelector('.toast.error'), 'the explicit retry always explains its failure');
+  assert.equal(context.log.entries().filter((entry) => entry.level === 'error').length, 2);
+});
+
+test('a failed feature action gets its own error notice after another error', async () => {
+  const actions = createActions();
+  actions.for('demo').add('Run check', async () => { throw new Error('Offline'); });
+  const { shadow, panel, log } = setup({ actions, features: [{ id: 'demo', section: 'feed', title: 'Demo', default: true }] });
+  panel.open('feed');
+  log.error('An earlier error');
+  shadow.querySelector('.toast.error').remove();
+  shadow.querySelector('[data-key="action:demo:0"]').click();
+  await tick();
+  assert.match(shadow.querySelector('.toast.error')?.textContent ?? '', /Run check failed/);
+});
+
+test('backup includes rejected validated choices and leaves invalid field text behind', async () => {
+  const { storage, control } = laterStorage({});
+  const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];
+  const { win, shadow, panel, settings } = setup({ storage, features });
+  control.failures = 1;
+  await assert.rejects(Promise.resolve(settings.set('ui.hiddenNote', true)), /Storage is full/);
+  panel.open('feed');
+  const field = shadow.querySelector('[data-key="demo.days"]');
+  field.value = '99';
+  field.dispatchEvent(new win.Event('change'));
+  panel.open('general');
+  const files = [];
+  const created = mock.method(URL, 'createObjectURL', (blob) => { files.push(blob); return 'blob:fixture'; });
+  cleanups.push(() => created.mock.restore());
+  shadow.querySelector('[data-key="backup"]').click();
+  const backup = JSON.parse(await files[0].text());
+  assert.equal(backup.settings['ui.hiddenNote'], true);
+  assert.equal(backup.settings['demo.days'], undefined);
+  assert.match(shadow.querySelector('.toast:last-child span').textContent, /waiting to save/);
+});
+
+test('a failed settings-backup handoff revokes its object URL and shows the action failure', (t) => {
+  const { shadow, panel } = setup();
+  panel.open('general');
+  const revoked = [];
+  t.mock.method(URL, 'createObjectURL', () => 'blob:failed-backup');
+  t.mock.method(URL, 'revokeObjectURL', (url) => revoked.push(url));
+  const doc = globalThis.document;
+  const create = doc.createElement.bind(doc);
+  t.mock.method(doc, 'createElement', (tag, ...rest) => {
+    const element = create(tag, ...rest);
+    if (tag === 'a') element.click = () => { throw new Error('handoff failed'); };
+    return element;
+  });
+  shadow.querySelector('[data-key="backup"]').click();
+  assert.deepEqual(revoked, ['blob:failed-backup']);
+  assert.match(shadow.querySelector('.toast.error').textContent, /Couldn't back up settings/);
+});
+
+test('General explains tab-local activity without offering shared activity in private or unknown contexts', () => {
+  for (const context of ['private', 'unknown', 'loading', 'managed']) {
+    const { shadow, panel } = setup({ environment: { activity: { context: () => context, check: () => true, legacy: () => null } } });
+    panel.open('general');
+    const note = shadow.querySelector('[data-key="activity-context"]');
+    assert.ok(note, context);
+    assert.ok(!shadow.querySelector('[data-key="legacy-activity"]'));
+    assert.match(note.textContent, context === 'private' ? /private tab.*Saved settings still apply/ : context === 'unknown' ? /does not report private browsing.*Saved settings still apply/ : context === 'managed' ? /Private windows keep activity.*cannot confirm the window type/ : /Checking where this tab keeps activity/);
+  }
+});
+
+test('legacy activity success waits for acknowledgement and a failed Undo stays available', async () => {
+  let finishAdd;
+  let finishDelete;
+  let undoFailures = 1;
+  const activity = {
+    perAccount: true, context: () => 'normal', check: () => true, legacy: () => ({ seen: 1, spots: 0 }),
+    addLegacy: () => new Promise((resolve) => { finishAdd = resolve; }),
+    clearLegacy: () => new Promise((resolve) => { finishDelete = resolve; }),
+  };
+  const { shadow, panel } = setup({ environment: { activity } });
+  panel.open('general');
+  shadow.querySelector('[data-key="legacy:add"]').click();
+  assert.ok(!shadow.querySelector('.toast'), 'no premature success');
+  finishAdd();
+  await tick();
+  assert.match(shadow.querySelector('.toast span').textContent, /Added to the account/);
+  shadow.querySelector('.toast').remove();
+  shadow.querySelector('[data-key="legacy:delete"]').click();
+  assert.ok(!shadow.querySelector('.toast'));
+  finishDelete(async () => { if (undoFailures-- > 0) throw new Error('Still offline'); });
+  await tick();
+  const notice = shadow.querySelector('.toast');
+  notice.querySelector('button').click();
+  await tick();
+  assert.ok(notice.isConnected, 'failed Undo retains its button');
+  assert.match(shadow.querySelector('.toast.error').textContent, /Try Undo again/);
+  notice.querySelector('button').click();
+  await tick();
+  assert.equal(notice.isConnected, false, 'accepted Undo ends the notice');
+});
 
 test('Undo outlives the notice in General and still works from the keyboard much later', async () => {
   const { shadow, panel, settings } = setup();

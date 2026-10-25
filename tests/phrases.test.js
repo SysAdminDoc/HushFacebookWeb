@@ -40,3 +40,19 @@ test('translations/template.json is current (npm run phrases writes it)', async 
   const committed = await readFile(new URL('../translations/template.json', import.meta.url), 'utf8');
   assert.ok(committed === templateJson(found), 'out of date, run npm run phrases');
 });
+
+test('settings action failures remain available to translators through the feedback helper', () => {
+  for (const phrase of [
+    "Couldn't back up settings. Try again",
+    "Couldn't restore settings. Choose a valid backup and try again",
+    'This activity save is still unconfirmed. Your recovery copy stays here.',
+  ]) assert.ok(found.phrases.includes(phrase), phrase);
+});
+
+test('fixed validation errors remain in the template when their caller forwards an Error message', () => {
+  for (const phrase of [
+    'Choose a HushFacebook Web backup in format 1',
+    'Choose a settings file smaller than 1 MB',
+    'That file has no HushFacebook Web settings in it',
+  ]) assert.ok(found.phrases.includes(phrase), phrase);
+});

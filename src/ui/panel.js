@@ -1,5 +1,5 @@
-// The settings panel lives in a closed shadow root so Facebook's CSS and scripts can't
-// reach it. Changes apply at once with a toast; there are no confirmation dialogs, and
+// The settings panel lives in a closed shadow root to keep page CSS out. Its MAIN-world code
+// still shares the page's trust boundary. Changes apply at once with a toast, and
 // Reset offers Undo instead of asking first.
 //
 // Words come in English and go through t() where they're drawn (core/i18n.js): feature titles,
@@ -7,6 +7,7 @@
 // toast's button. A toast's message comes already in the language shown.
 
 import { decisionLine } from '../core/diagnostics.js';
+import { saveThroughLink } from '../core/download.js';
 import { language, LANGUAGES, plural, setLanguage, t } from '../core/i18n.js';
 import { MAX_BACKUP_BYTES } from '../core/settings.js';
 import { TARGET } from '../core/target.js';
@@ -58,6 +59,12 @@ const UNAVAILABLE_SHORT = { page: 'needs page access', network: 'network protect
 const searchCount = (count) => (count === 0 ? t('No setting matches.') : plural(count, '{count} setting matches.', '{count} settings match.'));
 const LANGUAGE_NOTE = "The language for these settings and the script's notices. Facebook's own language doesn't change it, and Reset to defaults keeps it. The two tests stretch every phrase or mirror the panel, to show how a translation will fit.";
 const SEARCH_SETTLE_MS = 600;
+const ACTIVITY_CONTEXT_NOTES = {
+  managed: 'Private windows keep activity in this tab. The extension also uses temporary activity when it cannot confirm the window type.',
+  private: 'Activity stays in this private tab and disappears when you close it. Saved settings still apply.',
+  unknown: 'Your userscript manager does not report private browsing. Activity stays in this tab. Saved settings still apply.',
+  loading: 'Checking where this tab keeps activity.',
+};
 
 export function mountPanel({ settings, features, log, hider, diagnostics, actions, unavailable, environment }) {
   // Inline and important, so no page rule (Custom CSS included, say div:empty) can hide the
@@ -82,7 +89,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const fieldErrors = new Map();
   const pending = new Set();
   let preferenceSave = settings.saveStatus?.() ?? { state: 'idle', error: null, pending: [] };
-  const quickSetupPending = () => [...pending].some((key) => key.startsWith('quick:'));
+  const bulkChangePending = () => pending.has('reset') || pending.has('import') || [...pending].some((key) => key.startsWith('quick:'));
   const settingValue = (key) => settings.display?.(key) ?? settings.get(key);
   const hasMenuEntry = features.some((feature) => feature.id === 'menuEntry');
   const reloadFeatureIds = new Set(features.filter((feature) => feature.reload).map((feature) => feature.id));
@@ -197,7 +204,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   syncLanguage();
 
   async function apply(key, value, control) {
-    if (quickSetupPending()) return;
+    if (bulkChangePending()) return;
     const draft = control?.value;
     try {
       if (control && !control.validity.valid) {
@@ -212,7 +219,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         drafts.set(key, draft);
         fieldErrors.set(key, error.message);
       }
-      if (!(control && error instanceof TypeError)) log.error("Couldn't save your change. Try again", error);
+      if (!(control && error instanceof TypeError)) actionError("Couldn't save your change. Try again", error);
       refreshChrome();
       if (dialog.open) render();
     }
@@ -267,7 +274,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return h('input', {
       class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': t(label),
       'aria-describedby': describedBy, 'aria-disabled': stuck ? 'true' : null,
-      checked: on, disabled: quickSetupPending(), dataset: { key },
+      checked: on, disabled: bulkChangePending(), dataset: { key },
       onclick: stuck ? (event) => event.preventDefault() : undefined,
       onchange: (event) => apply(key, event.target.checked),
     });
@@ -281,7 +288,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const props = {
       dataset: { key }, 'aria-invalid': fieldErrors.has(key) ? 'true' : null,
       'aria-describedby': fieldErrors.has(key) ? errorId : null,
-      disabled: quickSetupPending(),
+      disabled: bulkChangePending(),
       oninput: (event) => drafts.set(key, event.target.value),
     };
     const field = (control) => h('div', { class: 'field' }, h('label', null, dot ? h('span', null, t(option.label), dot) : t(option.label), control),
@@ -334,21 +341,26 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   // label and busyLabel in English: the log keeps the English, the button shows t().
   function actionButton(key, label, run, { primary = false, busyLabel = 'Working...' } = {}) {
-    const locked = quickSetupPending() && !pending.has(key) && key !== 'storage:retry';
+    const locked = bulkChangePending() && !pending.has(key) && key !== 'storage:retry';
     return h('button', {
       class: `button${primary ? ' primary' : ''}`, type: 'button', text: t(pending.has(key) ? busyLabel : label),
       dataset: { key }, disabled: locked, 'aria-disabled': pending.has(key) ? 'true' : null, 'aria-busy': pending.has(key) ? 'true' : null,
-      onclick: async () => {
+      onclick: () => {
         if (pending.has(key)) return;
         pending.add(key);
         render();
-        try {
-          await run();
-        } catch (error) {
-          log.error(`${label} failed. Try again`, error);
-        } finally {
+        const finish = () => {
           pending.delete(key);
           if (dialog.open) render();
+        };
+        const failed = (error) => actionError('{action} failed. Try again', error, { action: t(label) });
+        try {
+          const result = run();
+          if (result && typeof result.then === 'function') Promise.resolve(result).catch(failed).finally(finish);
+          else finish();
+        } catch (error) {
+          failed(error);
+          finish();
         }
       },
     });
@@ -481,10 +493,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function applySetup(id) {
     const key = `quick:${id}`;
-    if (quickSetupPending()) return;
+    if (bulkChangePending()) return;
     pending.add(key);
     render();
     settings.whenLoaded(() => {
+      const previous = settings.snapshot({ displayed: true });
       const finish = () => {
         pending.delete(key);
         if (dialog.open) render();
@@ -495,9 +508,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           fieldErrors.clear();
           render();
         }
-        toast(plural(changed, 'Changed {count} setting', 'Changed {count} settings'));
+        const undo = rememberUndo(previous, { kind: 'quick', focusKey: key });
+        if (dialog.open) render();
+        toast(plural(changed, 'Changed {count} setting', 'Changed {count} settings'), undo ? { action: { label: 'Undo', run: startUndo } } : {});
       };
-      const failed = (error) => log.error("Couldn't apply the Quick setup. Try again", error);
+      const failed = (error) => actionError("Couldn't apply the Quick setup. Try again", error);
       try {
         const result = applyQuickSetup(settings, id);
         if (result && typeof result.then === 'function') {
@@ -521,7 +536,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         const key = `quick:${setup.id}`;
         return h('button', {
           class: 'button', type: 'button', text: t(pending.has(key) ? 'Waiting...' : setup.label), dataset: { key },
-          disabled: quickSetupPending(), 'aria-busy': pending.has(key) ? 'true' : null,
+          disabled: bulkChangePending(), 'aria-busy': pending.has(key) ? 'true' : null,
           onclick: () => applySetup(setup.id),
         });
       })));
@@ -557,7 +572,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'field' },
           h('label', null, title,
             h('select', {
-              dataset: { key: 'ui.language' }, 'aria-describedby': 'hfw-ui.language-desc', disabled: quickSetupPending(),
+              dataset: { key: 'ui.language' }, 'aria-describedby': 'hfw-ui.language-desc', disabled: bulkChangePending(),
               onchange: (event) => apply('ui.language', event.target.value, event.target),
             }, LANGUAGES.map((entry) => h('option', { value: entry.value, lang: entry.lang, selected: entry.value === value, text: entry.label })))))));
   }
@@ -567,7 +582,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'title', text: t('Back up and restore') }),
         h('div', { class: 'desc', text: t('Save your choices to a file and load them in another browser, or move them between the userscript and the extension. Seen posts, video spots, speed and volume stay behind.') }),
         h('div', { class: 'actions' },
-          h('button', { class: 'button primary', type: 'button', text: t('Back up settings'), dataset: { key: 'backup' }, disabled: quickSetupPending(), onclick: exportSettings }),
+          h('button', { class: 'button primary', type: 'button', text: t('Back up settings'), dataset: { key: 'backup' }, disabled: bulkChangePending(), onclick: exportSettings }),
           actionButton('restore', 'Restore from a file', () => fileInput.click(), { busyLabel: 'Restoring...' }),
           actionButton('reset', 'Reset to defaults', resetSettings, { busyLabel: 'Resetting...' })));
   }
@@ -588,8 +603,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function kofiCard() {
     return h('a', { class: 'card link-card', href: KOFI_URL, target: '_blank', rel: 'noopener', dataset: { key: 'kofi' } },
-      h('div', { class: 'title', text: t('Buy me a coffee') }),
-      h('div', { class: 'desc', text: t('Hush is free. A coffee on Ko-fi helps me keep testing patches.') }));
+      h('div', { class: 'title', text: t('Buy me a coffee') }));
   }
 
   function storageRecoveryCard(state) {
@@ -617,11 +631,14 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function resetUndoCard() {
+    const reset = resetUndo.kind === 'reset';
     return h('div', { class: 'card reset-undo', dataset: { key: 'reset-undo' } },
-      h('div', { class: 'title', text: t('Settings were reset') }),
-      h('div', { class: 'desc', text: t("Undo puts back the choices you had before the reset. It stays here until you dismiss it or change a setting, and it's gone once you leave or reload this page.") }),
+      h('div', { class: 'title', text: t(reset ? 'Settings were reset' : resetUndo.kind === 'restore' ? 'Settings were restored' : 'Quick setup applied') }),
+      h('div', { class: 'desc', text: t(reset
+        ? "Undo puts back the choices you had before the reset. It stays here until you dismiss it or change a setting, and it's gone once you leave or reload this page."
+        : "Undo puts back the choices you had before this change. It stays here until you dismiss it or change a setting, and it's gone once you leave or reload this page.") }),
       h('div', { class: 'actions' },
-        actionButton('reset:undo', 'Undo reset', undoReset, { primary: true, busyLabel: 'Undoing...' }),
+        actionButton('reset:undo', reset ? 'Undo reset' : 'Undo changes', undoReset, { primary: true, busyLabel: 'Undoing...' }),
         h('button', { class: 'button', type: 'button', text: t('Dismiss'), dataset: { key: 'reset:dismiss' }, disabled: pending.has('reset:undo'), onclick: dismissUndo })));
   }
 
@@ -642,17 +659,22 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         ? t("This browser still has {list} from before each Facebook account kept its own. They aren't tied to any account. Add them to the account you're signed in to, or delete them.", { list })
         : t("This browser still has {list} from before each Facebook account kept its own. They aren't tied to any account. Add them to signed-out browsing, or delete them.", { list }) }),
       h('div', { class: 'actions' },
-        actionButton('legacy:add', activity.perAccount ? 'Add to this account' : 'Use while signed out', () => {
-          activity.addLegacy();
+        actionButton('legacy:add', activity.perAccount ? 'Add to this account' : 'Use while signed out', async () => {
+          await activity.addLegacy();
           toast(activity.perAccount
             ? t("Added to the account you're signed in to. The shared copy stays until you delete it.")
             : t('Added to signed-out browsing. The shared copy stays until you delete it.'));
         }, { primary: true, busyLabel: 'Adding...' }),
-        actionButton('legacy:delete', 'Delete them', () => {
-          const undo = activity.clearLegacy();
-          toast(t('Deleted the activity from before accounts were kept apart.'), { action: { label: 'Undo', run: () => {
-            undo();
-            if (dialog.open) render();
+        actionButton('legacy:delete', 'Delete them', async () => {
+          const undo = await activity.clearLegacy();
+          const notice = toast(t('Deleted the activity from before accounts were kept apart.'), { action: { label: 'Undo', keep: true, run: async () => {
+            try {
+              await undo();
+              notice.dismiss();
+              if (dialog.open) render();
+            } catch (error) {
+              actionError("Couldn't restore the deleted activity. Try Undo again", error);
+            }
           } } });
         }, { busyLabel: 'Deleting...' })));
   }
@@ -662,6 +684,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const storageState = environment.storage?.status?.().state;
     // Once the account changed, here or in another tab, nothing goes to any account until a reload.
     const legacy = environment.activity?.check() ? environment.activity.legacy() : null;
+    const activityNote = ACTIVITY_CONTEXT_NOTES[environment.activity?.context?.()];
     return [
       // Titles, descriptions and labels in English, as in a feature (see updateRow).
       ...(storageState && storageState !== 'ready' ? [{
@@ -675,11 +698,16 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         render: saveRecoveryCard,
       }] : []),
       ...(currentUndo() ? [{
-        id: 'reset-undo', section: 'general', title: 'Undo the settings reset',
-        description: 'Put back the choices you had before the reset, until you change a setting or leave this page.',
-        options: [{ label: 'Undo reset', focusKey: 'reset:undo' }, { label: 'Dismiss', focusKey: 'reset:dismiss' }], focusKey: 'reset:undo', render: resetUndoCard,
+        id: 'reset-undo', section: 'general', title: resetUndo.kind === 'reset' ? 'Undo the settings reset' : 'Undo the settings change',
+        description: 'Put back your earlier choices, until you change a setting or leave this page.',
+        options: [{ label: resetUndo.kind === 'reset' ? 'Undo reset' : 'Undo changes', focusKey: 'reset:undo' }, { label: 'Dismiss', focusKey: 'reset:dismiss' }], focusKey: 'reset:undo', render: resetUndoCard,
       }] : []),
       ...(update?.update ? [updateRow(update)] : []),
+      ...(activityNote ? [{
+        id: 'activity-context', section: 'general', title: 'Activity in this tab', description: activityNote,
+        render: () => h('div', { class: 'card', dataset: { key: 'activity-context' } },
+          h('div', { class: 'title', text: t('Activity in this tab') }), h('div', { class: 'desc', text: t(activityNote) })),
+      }] : []),
       ...(legacy ? [{
         id: 'legacy-activity', section: 'general', title: 'Activity from before accounts were kept apart',
         description: environment.activity.perAccount
@@ -699,7 +727,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         ], focusKey: 'backup', render: backupCard },
       ...(update && !update.update ? [updateRow(update)] : []),
       { id: 'report-problem', section: 'general', title: 'Report a problem', description: 'Opens a GitHub report with your versions and settings filled in. Add what happened.', keywords: ['bug', 'issue'], render: reportProblemCard },
-      { id: 'kofi', section: 'general', title: 'Buy me a coffee', description: 'Hush is free. A coffee on Ko-fi helps me keep testing patches.', keywords: ['donate'], render: kofiCard },
+      { id: 'kofi', section: 'general', title: 'Buy me a coffee', keywords: ['donate', 'kofi'], render: kofiCard },
     ];
   }
 
@@ -765,7 +793,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const scrollTop = main.scrollTop;
     const navScroll = [nav.scrollLeft, nav.scrollTop];
     const searching = query.trim() !== '';
-    power.disabled = quickSetupPending();
+    power.disabled = bulkChangePending();
     nav.replaceChildren(h('div', { class: 'nav-label', text: t('Settings') }), ...sections.flatMap((section) => [
       section.divider ? h('hr') : null,
       h('button', {
@@ -839,33 +867,36 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // ---- actions ----
 
   function exportSettings() {
-    const url = URL.createObjectURL(new Blob([settings.exportJson()], { type: 'application/json' }));
-    const link = h('a', { href: url, download: `hushfacebook-web-settings-${new Date().toISOString().slice(0, 10)}.json` });
-    root.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-    toast(t('Settings saved to a file.'));
+    try {
+      saveThroughLink(new Blob([settings.exportJson()], { type: 'application/json' }),
+        `hushfacebook-web-settings-${new Date().toISOString().slice(0, 10)}.json`, document, root);
+      toast(t(preferenceSave.pending.length ? 'Settings saved to a file, including choices waiting to save.' : 'Settings saved to a file.'));
+    } catch (error) {
+      actionError("Couldn't back up settings. Try again", error);
+    }
   }
 
   async function importSettings() {
     const file = fileInput.files?.[0];
     fileInput.value = '';
     if (!file) return;
-    if (pending.has('import')) return;
+    if (bulkChangePending()) return;
     pending.add('import');
     pending.add('restore');
     render();
     try {
       if (file.size > MAX_BACKUP_BYTES) throw new TypeError('Choose a settings file smaller than 1 MB');
-      const { applied, skipped } = await settings.importJson(await file.text());
+      const text = await file.text();
+      await new Promise((resolve) => settings.whenLoaded(resolve));
+      const { applied, skipped, previous } = await settings.importJson(text, { withPrevious: true });
       drafts.clear();
       fieldErrors.clear();
+      const undo = previous && rememberUndo(previous, { kind: 'restore', focusKey: 'restore' });
       toast(skipped.length
         ? plural(applied.length, "Restored {count} setting, and skipped {skipped} this version can't use.", "Restored {count} settings, and skipped {skipped} this version can't use.", { skipped: skipped.length })
-        : plural(applied.length, 'Restored {count} setting.', 'Restored {count} settings.'));
+        : plural(applied.length, 'Restored {count} setting.', 'Restored {count} settings.'), undo ? { action: { label: 'Undo', run: startUndo } } : {});
     } catch (error) {
-      log.error(error instanceof TypeError ? error.message : "Couldn't restore settings. Choose a valid backup and try again", error);
+      actionError(error instanceof TypeError ? error.message : "Couldn't restore settings. Choose a valid backup and try again", error);
     } finally {
       pending.delete('import');
       pending.delete('restore');
@@ -873,13 +904,19 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     }
   }
 
+  function rememberUndo(previous, { kind, focusKey }) {
+    const after = settings.snapshot();
+    if (sameAs((key) => recordValue(previous, key), after) || !accountMatches()) return false;
+    resetUndo = { previous, after, restoring: false, kind, focusKey };
+    return true;
+  }
+
   function resetSettings() {
     const succeeded = (previous) => {
       drafts.clear();
       fieldErrors.clear();
-      const after = settings.snapshot();
       // Resetting settings that were already at their defaults keeps any earlier Undo.
-      if (!sameAs((key) => recordValue(previous, key), after)) resetUndo = { previous, after, restoring: false };
+      rememberUndo(previous, { kind: 'reset', focusKey: 'reset' });
       render();
       if (resetUndo) {
         toast(t('Settings are back to their defaults. Undo stays in General until you change a setting or leave this page.'), { action: { label: 'Undo', run: startUndo } });
@@ -903,22 +940,22 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       () => {
         undo.restoring = false;
         if (resetUndo === undo) resetUndo = null;
-        toast(t('Your settings from before the reset are back.'));
+        toast(t(undo.kind === 'reset' ? 'Your settings from before the reset are back.' : 'Your settings from before the change are back.'));
         if (dialog.open) {
           render();
-          root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
+          root.querySelector(`[data-key="${CSS.escape(undo.focusKey)}"]`)?.focus({ preventScroll: true });
         }
       },
       (error) => {
         undo.restoring = false;
-        log.error("Couldn't undo the settings reset. Undo is still in General", error);
+        actionError(undo.kind === 'reset' ? "Couldn't undo the settings reset. Undo is still in General" : "Couldn't undo those settings changes. Undo is still in General", error);
       },
     );
   }
 
   // The notice's Undo, sharing the General row's busy state so the two can't both run.
   function startUndo() {
-    if (pending.has('reset:undo')) return;
+    if (bulkChangePending() || pending.has('reset:undo')) return;
     pending.add('reset:undo');
     if (dialog.open) render();
     Promise.resolve(undoReset()).finally(() => {
@@ -928,9 +965,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function dismissUndo() {
+    const focusKey = currentUndo()?.focusKey ?? 'reset';
     resetUndo = null;
     render();
-    root.querySelector('[data-key="reset"]')?.focus({ preventScroll: true });
+    root.querySelector(`[data-key="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
     toast(t('Undo dismissed.'));
   }
 
@@ -992,7 +1030,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       await navigator.clipboard.writeText(report);
       toast(t('Report copied. Paste it into a GitHub issue.'));
     } catch (error) {
-      log.error("Couldn't copy the report", error);
+      actionError("Couldn't copy the report", error);
     }
   }
 
@@ -1048,12 +1086,21 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   });
 
   let lastErrorToast = 0;
-  const announceError = (entry) => {
-    if (Date.now() - lastErrorToast < ERROR_TOAST_GAP_MS) return;
+  let lastErrorNotice = null;
+  const announceError = (entry, force = false, translated = null) => {
+    if (!force && Date.now() - lastErrorToast < ERROR_TOAST_GAP_MS) return;
+    if (force) lastErrorNotice?.dismiss();
     lastErrorToast = Date.now();
     // The log keeps the English. The notice shows it translated where the catalog has it.
-    toast(t('{message}. Details are in Diagnostics.', { message: t(entry.message) }), { tone: 'error', action: { label: 'Open', run: () => open('diagnostics') } });
+    lastErrorNotice = toast(t('{message}. Details are in Diagnostics.', { message: translated ?? t(entry.message) }), { tone: 'error', action: { label: 'Open', run: () => open('diagnostics') } });
   };
+  function actionError(message, error, vars) {
+    log.error('A settings action failed. Try again', error);
+    const translated = error?.code === 'ACTIVITY_SAVE_UNCONFIRMED'
+      ? t('This activity save is still unconfirmed. Your recovery copy stays here.')
+      : t(message, vars);
+    announceError({ message }, true, translated);
+  }
   let renderQueued = false;
   let statusQueued = false;
   // A card's status line is rewritten where it is, so a list being typed into keeps its focus.

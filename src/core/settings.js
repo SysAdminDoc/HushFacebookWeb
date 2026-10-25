@@ -492,6 +492,14 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     const draft = drafts.get(name);
     return drafts.has(name) ? (draft === REMOVED ? spec(name).default : draft) : get(name);
   };
+  const shownSnapshot = () => {
+    const shown = { ...values };
+    for (const [name, value] of drafts) {
+      if (value === REMOVED) delete shown[name];
+      else shown[name] = value;
+    }
+    return structuredClone(sanitize(shown));
+  };
   const pendingKeys = () => [...drafts.keys()];
   const saveStatus = () => ({ state: saveState, error: saveError, pending: pendingKeys() });
   const tellSaveStatus = (listener) => {
@@ -1055,7 +1063,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    snapshot: () => structuredClone(values),
+    snapshot: ({ displayed = false } = {}) => displayed ? shownSnapshot() : structuredClone(values),
     restore(snapshot) {
       return queueReplace(sanitize(snapshot));
     },
@@ -1065,9 +1073,9 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       return queueReplace(kept, { returnPrevious: true, fallbackPrevious: previous });
     },
     exportJson(now = new Date()) {
-      return JSON.stringify({ app: 'HushFacebook Web', schema: EXPORT_SCHEMA, version, exported: now.toISOString(), settings: values }, null, 2);
+      return JSON.stringify({ app: 'HushFacebook Web', schema: EXPORT_SCHEMA, version, exported: now.toISOString(), settings: shownSnapshot() }, null, 2);
     },
-    importJson(text) {
+    importJson(text, { withPrevious = false } = {}) {
       if (typeof text !== 'string') throw new TypeError('Choose a JSON settings file');
       if (text.length > MAX_BACKUP_BYTES || new TextEncoder().encode(text).length > MAX_BACKUP_BYTES) {
         throw new TypeError('Choose a settings file smaller than 1 MB');
@@ -1108,8 +1116,9 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       // A complete backup replaces every choice, so one with nothing this version can use would
       // put them all back to their defaults.
       if (applied.length === 0 && skipped.length > 0) throw new TypeError('None of the settings in that file work in this version, so nothing changed');
+      const previous = wrapped && withPrevious ? shownSnapshot() : undefined;
       const saved = wrapped ? queueReplace(sanitize(next)) : queuePatch(sanitize(next), applied);
-      const result = { applied, skipped };
+      const result = { applied, skipped, ...(previous ? { previous } : {}) };
       return isPromise(saved) ? saved.then(() => result) : result;
     },
   };

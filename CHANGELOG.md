@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* Settings backups include valid choices waiting to save. Failed backup handoffs release their temporary file link.
+* Quiet, Privacy, Back to defaults and a full settings restore offer persistent Undo in General. Bulk actions wait for saved choices before taking their recovery snapshot.
+* Every failed restore or settings action shows fresh feedback, even after an earlier error notice has expired.
+* General's Ko-fi row shows its title alone and remains searchable by donate or kofi.
+* The translation template includes fixed validation errors passed through feedback helpers.
 * Private windows keep activity in the tab. Managers that can't report the window context do the same. Saved settings still apply, and the extension keeps the actual private-mode flag out of the page bridge.
 * Storage access stops when a page changes Facebook accounts, including direct requests and updates from other tabs.
 * Forget every spot waits for the browser to confirm deletion. Failed clears restore the displayed list and remain available through Retry.

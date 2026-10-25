@@ -76,6 +76,21 @@ test('duplicate keys are refused', () => {
   assert.throws(() => buildSchema([{ id: 'paused', title: 'Clash' }]), /Duplicate setting key: paused/);
 });
 
+test('backups preserve validated pending choices and removals after a rejected save', async () => {
+  const { storage, mutations } = createAcknowledgedStorage({ settings: { alpha: false, 'beta.days': 12 } });
+  const settings = createSettings({ storage, features, migrations: [] });
+  const saving = settings.setMany({ alpha: true, beta: true, 'beta.days': 14 });
+  const expected = { beta: true, 'beta.days': 14 };
+  assert.deepEqual(JSON.parse(settings.exportJson()).settings, expected, 'a backup uses the choices shown while their save waits');
+  mutations[0].reject(new Error('Storage is full'));
+  await assert.rejects(saving, /Storage is full/);
+  assert.equal(settings.get('beta'), false);
+  assert.equal(settings.display('beta'), true);
+  assert.deepEqual(JSON.parse(settings.exportJson()).settings, expected, 'rejected choices remain recoverable in a file');
+  assert.throws(() => settings.set('beta.days', 99), TypeError);
+  assert.deepEqual(JSON.parse(settings.exportJson()).settings, expected, 'invalid input never enters a backup');
+});
+
 test('defaults come from the features', () => {
   const { settings } = make();
   assert.equal(settings.get('alpha'), true);
