@@ -15,6 +15,7 @@
 // They stay there, tied to no account, until you add them to one or delete them in General.
 
 import { accountTag } from './settings.js';
+import { createMemoryStorage } from './storage.js';
 import { CLEARED_KEY, MAX_AGE, MAX_ENTRIES, SEEN_KEY } from './seen-store.js';
 
 const SPEED_KEY = 'keepSpeed.rate';
@@ -33,6 +34,18 @@ export const isActivityKey = (key) => ACTIVITY.has(key);
 export const activityKeyFor = (key, account) => `${key}@${account ? accountTag(account) : SIGNED_OUT}`;
 
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const isPromise = (value) => value && typeof value.then === 'function';
+const afterWrite = (write, done) => isPromise(write) ? write.then(done) : done();
+function inOrder(entries, write) {
+  const iterator = entries[Symbol.iterator]();
+  const next = () => {
+    for (let item = iterator.next(); !item.done; item = iterator.next()) {
+      const saved = write(item.value);
+      if (isPromise(saved)) return saved.then(next);
+    }
+  };
+  return next();
+}
 const stamp = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
 const spotOf = (spot) => (
   isRecord(spot) && Number.isFinite(spot.t) && Number.isFinite(spot.d) && Number.isFinite(spot.at)
@@ -74,9 +87,14 @@ export function mergePositions(mine, theirs) {
 
 export function createActivityStorage({ storage, account = null, currentAccount = () => account, onSwitch, log, now = Date.now }) {
   const keyOf = (key) => (ACTIVITY.has(key) ? activityKeyFor(key, account) : key);
+  // The extension owns privacy routing in its isolated world. MAIN gets no private flag.
+  const context = () => storage.kind === 'extension' ? 'managed' : storage.activityContext?.() ?? 'normal';
+  const memoryOnly = () => storage.kind !== 'extension' && context() !== 'normal';
+  const temporary = createMemoryStorage();
   const listeners = new Map(); // activity key -> this page's listeners, told about an import here
   const resets = []; // stores that keep a copy in memory, told to drop it on a switch
   let switched = false;
+  let legacyClear = null; // One pre-clear snapshot and its unacknowledged deletions, across retries.
 
   // Whether the page is still signed in to the account it started with. The first time it
   // isn't, writes stop for good, stores drop what they hold and onSwitch hears about it.
@@ -100,23 +118,32 @@ export function createActivityStorage({ storage, account = null, currentAccount 
     return false;
   }
 
-  const read = (method) => (key, fallback) => (ACTIVITY.has(key) && !check() ? fallback : method(keyOf(key), fallback));
+  const backendFor = (key) => ACTIVITY.has(key) && memoryOnly() ? temporary : storage;
+  const read = (name) => (key, fallback) => {
+    if (ACTIVITY.has(key) && !check()) return fallback;
+    const backend = backendFor(key);
+    return (backend[name] ?? backend.get)(keyOf(key), fallback);
+  };
   // A refused write returns what the method would have, minus the effect.
-  const write = (method, refused) => (key, ...rest) => {
+  const write = (name, refused) => (key, ...rest) => {
     if (ACTIVITY.has(key) && !check()) return refused;
+    const backend = backendFor(key);
+    const method = backend[name] ?? (name === 'setConfirmed' ? backend.set : name === 'migrateDetailed' ? backend.mutateDetailed : backend.mutate);
     return method(keyOf(key), ...rest);
   };
 
   const scoped = {
     ...storage,
-    get: read(storage.get),
-    set: write(storage.set),
-    remove: write(storage.remove),
+    get: read('get'),
+    set: write('set'),
+    remove: write('remove'),
+    get watchedSupported() { return memoryOnly() ? true : storage.watchedSupported; },
     onChange(key, listener) {
       if (!ACTIVITY.has(key)) return storage.onChange?.(key, listener);
       listeners.set(key, [...(listeners.get(key) ?? []), listener]);
+      if (memoryOnly() && context() !== 'loading') return;
       return storage.onChange?.(keyOf(key), (...args) => {
-        if (!switched) listener(...args);
+        if (!switched && !memoryOnly()) listener(...args);
       });
     },
     // For a store that keeps the list in memory: run once the page belongs to someone else.
@@ -125,17 +152,18 @@ export function createActivityStorage({ storage, account = null, currentAccount 
       else resets.push(reset);
     },
   };
-  if (storage.getAtLoad) scoped.getAtLoad = read(storage.getAtLoad);
+  if (storage.getAtLoad) scoped.getAtLoad = read('getAtLoad');
+  if (storage.setConfirmed) scoped.setConfirmed = write('setConfirmed');
   // Only the key is scoped, so these are for one key at a time.
   for (const name of ['mutate', 'mutateDetailed', 'migrate', 'migrateDetailed']) {
-    if (storage[name]) scoped[name] = write(storage[name], Promise.resolve(undefined));
+    if (storage[name]) scoped[name] = write(name, Promise.resolve(undefined));
   }
   if (storage.mutate) {
     const mutate = scoped.mutate;
     scoped.mutate = (key, mutation, options = {}) => {
       if (key !== WATCHED_KEY) return mutate(key, mutation, options);
       if (!check()) return Promise.reject(new Error(ACCOUNT_CHANGED));
-      return storage.mutate(keyOf(key), mutation, { ...options, allowed: () => check() && options.allowed?.() !== false });
+      return backendFor(key).mutate(keyOf(key), mutation, { ...options, allowed: () => check() && options.allowed?.() !== false });
     };
   }
 
@@ -148,18 +176,23 @@ export function createActivityStorage({ storage, account = null, currentAccount 
   }
 
   const shared = (key) => storage.get(key, undefined);
+  const recoverable = (key) => {
+    const current = shared(key);
+    return current === undefined && legacyClear?.snapshot.has(key) ? legacyClear.snapshot.get(key) : current;
+  };
   const own = (key) => storage.get(keyOf(key), undefined);
   const count = (value) => (isRecord(value) ? Object.keys(value).length : 0);
 
   // What the plain keys still hold from before accounts were kept apart, or null.
   function legacy() {
-    const from = Math.max(stamp(shared(CLEARED_KEY)), now() - MAX_AGE);
-    const seen = Object.values(isRecord(shared(SEEN_KEY)) ? shared(SEEN_KEY) : {}).filter((at) => Number.isFinite(at) && at > 0 && at >= from).length;
+    if (memoryOnly() || !check()) return null;
+    const from = Math.max(stamp(recoverable(CLEARED_KEY)), now() - MAX_AGE);
+    const seen = Object.values(isRecord(recoverable(SEEN_KEY)) ? recoverable(SEEN_KEY) : {}).filter((at) => Number.isFinite(at) && at > 0 && at >= from).length;
     const found = {
       seen,
-      spots: count(shared(POSITIONS_KEY)),
-      speed: shared(SPEED_KEY) !== undefined,
-      volume: shared(VOLUME_KEY) !== undefined,
+      spots: count(recoverable(POSITIONS_KEY)),
+      speed: recoverable(SPEED_KEY) !== undefined,
+      volume: recoverable(VOLUME_KEY) !== undefined,
     };
     return found.seen || found.spots || found.speed || found.volume ? found : null;
   }
@@ -167,7 +200,9 @@ export function createActivityStorage({ storage, account = null, currentAccount 
   // Adds the shared lists to this account's, keeping its own speed and volume where it has
   // them. The shared copy stays until it's deleted, so another account can take it too.
   function addLegacy() {
+    if (memoryOnly()) throw new Error('Legacy activity is unavailable in this tab');
     if (!check()) throw new Error(ACCOUNT_CHANGED);
+    if (legacyClear) throw new Error("That deletion hasn't finished. Use Delete them to retry it");
     // The extension's copy fills in a moment after the page starts, and until then the
     // account's own speed and volume would read as missing.
     if (storage.status && storage.status().state !== 'ready') throw new Error("Saved activity hasn't loaded yet. Try again in a moment");
@@ -179,32 +214,72 @@ export function createActivityStorage({ storage, account = null, currentAccount 
     for (const key of [SPEED_KEY, VOLUME_KEY]) {
       if (shared(key) !== undefined && own(key) === undefined) next.set(key, shared(key));
     }
-    for (const [key, value] of next) {
-      storage.set(keyOf(key), value);
+    const writes = inOrder(next, ([key, value]) => {
+      if (!check()) throw new Error(ACCOUNT_CHANGED);
+      const saved = (storage.setConfirmed ?? storage.set)(keyOf(key), value);
       // A store in this page doesn't hear its own page's writes, so it's told here.
-      for (const listener of listeners.get(key) ?? []) {
-        try {
-          listener(structuredClone(value), { source: 'import' });
-        } catch (error) {
-          log?.error('A storage listener failed', error);
+      const notify = () => {
+        if (!check()) return;
+        for (const listener of listeners.get(key) ?? []) {
+          try {
+            listener(structuredClone(value), { source: 'import' });
+          } catch (error) {
+            log?.error('A storage listener failed', error);
+          }
         }
-      }
-    }
-    return next.size;
+      };
+      return afterWrite(saved, notify);
+    });
+    return afterWrite(writes, () => {
+      if (!check()) throw new Error(ACCOUNT_CHANGED);
+      return next.size;
+    });
   }
 
   // Deletes the shared copy. The function it returns puts it back, for the toast's Undo.
   function clearLegacy() {
-    const removed = new Map();
+    const allowed = () => {
+      if (memoryOnly()) throw new Error('Legacy activity is unavailable in this tab');
+      if (!check()) throw new Error(ACCOUNT_CHANGED);
+    };
+    allowed();
+    if (legacyClear?.active) return legacyClear.active;
+    const operation = legacyClear ?? { snapshot: new Map(), pending: new Set(), active: null };
+    legacyClear = operation;
     for (const key of ACTIVITY_KEYS) {
       const value = shared(key);
       if (value === undefined) continue;
-      removed.set(key, value);
-      storage.remove(key);
+      if (!operation.snapshot.has(key)) operation.snapshot.set(key, structuredClone(value));
+      operation.pending.add(key);
     }
-    return () => {
-      for (const [key, value] of removed) if (shared(key) === undefined) storage.set(key, value);
+    const writes = inOrder([...operation.pending], (key) => {
+      allowed();
+      return afterWrite(storage.remove(key), () => operation.pending.delete(key));
+    });
+    let undoActive = null;
+    const unconfirmed = new Set();
+    const undo = () => {
+      allowed();
+      if (undoActive) return undoActive;
+      const restored = afterWrite(inOrder(operation.snapshot, ([key, value]) => {
+        allowed();
+        const current = shared(key);
+        if (current !== undefined && !(unconfirmed.has(key) && JSON.stringify(current) === JSON.stringify(value))) return;
+        unconfirmed.add(key);
+        return afterWrite((storage.setConfirmed ?? storage.set)(key, value), () => unconfirmed.delete(key));
+      }), allowed);
+      if (!isPromise(restored)) return undefined;
+      undoActive = restored.finally(() => { undoActive = null; });
+      return undoActive;
     };
+    const done = () => {
+      allowed();
+      if (legacyClear === operation) legacyClear = null;
+      return undo;
+    };
+    if (!isPromise(writes)) return done();
+    operation.active = writes.then(done).finally(() => { operation.active = null; });
+    return operation.active;
   }
 
   return {
@@ -213,6 +288,7 @@ export function createActivityStorage({ storage, account = null, currentAccount 
     watch,
     switched: () => switched,
     perAccount: Boolean(account),
+    context,
     legacy,
     addLegacy,
     clearLegacy,

@@ -23,7 +23,7 @@ import {
   validStorageRevisions,
 } from '../src/core/bridge.js';
 import { ACTIVITY_KEYS, activityKeyFor } from '../src/core/activity.js';
-import { validWatchedOperation, validWatchedRecord, WATCHED_KEY } from '../src/core/watched.js';
+import { applyWatchedOperation, validWatchedOperation, validWatchedRecord, WATCHED_KEY } from '../src/core/watched.js';
 import { accountFromCookie, claimFor, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 
 const SECRET = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -38,6 +38,11 @@ const UPDATE_VERSION = /^\d+(?:\.\d+)*$/;
 // Custom CSS takes 50,000 characters, the longest text setting.
 const SETTING_TEXT_MAX = 65536;
 const encoder = new TextEncoder();
+// This value comes from the isolated extension API, never from a page message.
+const activityContext = chrome.extension?.inIncognitoContext === true ? 'private'
+  : chrome.extension?.inIncognitoContext === false ? 'normal' : 'unknown';
+const memoryOnlyActivity = activityContext !== 'normal';
+const temporaryActivity = new Map();
 let channel = null;
 let physicalRevisions;
 let storageRevisions;
@@ -192,7 +197,7 @@ function storageAccessFor(doc) {
   // taken by this account (claimFor).
   const legacyKey = legacyStorageKeyFor(account);
   const legacyReceiptKey = legacyKey && `${legacyKey}.migrated`;
-  const values = new Map(FACEBOOK_VALUES);
+  const values = new Map([...FACEBOOK_VALUES].filter(([key]) => !memoryOnlyActivity || !ACTIVITY_KEYS.includes(key)));
   values.set('settings', settingsRecord);
   values.set('settings.migrated', migrationReceipt);
   values.set(settingsKey, settingsRecord);
@@ -201,7 +206,7 @@ function storageAccessFor(doc) {
     values.set(legacyKey, settingsRecord);
     values.set(legacyReceiptKey, migrationReceipt);
   }
-  const writable = new Set([...FACEBOOK_VALUES.keys()].filter((key) => key !== READ_ONLY_KEY));
+  const writable = new Set([...values.keys()].filter((key) => key !== READ_ONLY_KEY && !key.startsWith('settings')));
   writable.add(settingsKey);
   writable.add(receiptKey);
   // This account's activity, in the same shapes. The plain keys stay readable and writable,
@@ -214,6 +219,7 @@ function storageAccessFor(doc) {
   }
   return {
     kind: 'facebook',
+    account,
     values,
     writable,
     settingsKey,
@@ -225,6 +231,16 @@ function storageAccessFor(doc) {
 }
 
 const storageAccess = storageAccessFor(document);
+const matchesCapturedAccount = () => {
+  if (storageAccess.kind !== 'facebook') return true;
+  try { return accountFromCookie(document.cookie) === storageAccess.account; } catch { return false; }
+};
+const temporaryActivityKeys = new Set(memoryOnlyActivity && storageAccess.kind === 'facebook'
+  ? ACTIVITY_KEYS.map((key) => activityKeyFor(key, accountFromCookie(document.cookie))).filter((key) => storageAccess.values.has(key))
+  : []);
+const persistentKeys = memoryOnlyActivity
+  ? [...storageAccess.values.keys()].filter((key) => !temporaryActivityKeys.has(key)).concat(STORAGE_REVISIONS_KEY)
+  : null;
 const allowedValue = (key, value) => (
   storageAccess.values.get(key)?.(value) === true
   && jsonBytes(value) <= BRIDGE_MAX_VALUE_BYTES
@@ -234,7 +250,7 @@ const visibleRevisions = (value) => {
   return Object.fromEntries(Object.entries(value).filter(([key]) => (
     key === STORAGE_REVISION_EPOCH_KEY
     || key === STORAGE_REVISION_ORDER_KEY
-    || storageAccess.values.has(key)
+    || (storageAccess.values.has(key) && !temporaryActivityKeys.has(key))
   )));
 };
 const visibleStorage = (saved) => {
@@ -244,8 +260,9 @@ const visibleStorage = (saved) => {
       result[key] = visibleRevisions(value);
       continue;
     }
-    if (allowedValue(key, value)) result[key] = clone(value);
+    if (!temporaryActivityKeys.has(key) && allowedValue(key, value)) result[key] = clone(value);
   }
+  for (const [key, value] of temporaryActivity) result[key] = clone(value);
   if (jsonBytes(result, BRIDGE_MAX_MESSAGE_BYTES) > BRIDGE_MAX_MESSAGE_BYTES) throw new Error('the saved values are too large');
   return result;
 };
@@ -292,7 +309,7 @@ const receiptMutation = (mutation) => (
   && jsonBytes(mutation) <= BRIDGE_MAX_VALUE_BYTES
 );
 const validStorageRequest = (type, payload) => {
-  if (!isRecord(payload)) return false;
+  if (!isRecord(payload) || !matchesCapturedAccount()) return false;
   if (type === 'storage:load') return Object.keys(payload).length === 0 && storageAccess.kind !== 'none';
   // The settings record and its receipt change only through storage:mutate and storage:migrate.
   const directWrite = (key) => (
@@ -375,7 +392,7 @@ const readCurrentStorage = async () => {
   let lastError;
   for (let attempt = 0; attempt <= STORAGE_READ_RETRY_DELAYS.length; attempt++) {
     try {
-      return await chrome.storage.local.get(null);
+      return await chrome.storage.local.get(persistentKeys);
     } catch (error) {
       lastError = error;
       if (attempt < STORAGE_READ_RETRY_DELAYS.length) {
@@ -590,7 +607,7 @@ const handlers = {
       const recovery = await chrome.runtime.sendMessage({ type: 'storage:recover' });
       if (!recovery?.ok) throw new Error(recovery?.error || 'the browser could not recover the saved settings');
     }
-    const saved = await chrome.storage.local.get(null);
+    const saved = await chrome.storage.local.get(persistentKeys);
     const revisions = saved?.[STORAGE_REVISIONS_KEY];
     if (storageRevisionGeneration === generation) {
       if (recovering) {
@@ -601,9 +618,23 @@ const handlers = {
     }
     return visibleStorage(saved);
   },
-  'storage:set': ({ key, value }) => (value === null ? chrome.storage.local.remove(key) : chrome.storage.local.set({ [key]: value })),
-  'storage:remove': ({ key }) => chrome.storage.local.remove(key),
-  'storage:mutate': ({ key, mutation }) => workerStorageRequest('storage:mutate', { key, mutation }),
+  'storage:set': ({ key, value }) => {
+    if (temporaryActivityKeys.has(key)) {
+      if (value === null) temporaryActivity.delete(key);
+      else temporaryActivity.set(key, clone(value));
+      return undefined;
+    }
+    return value === null ? chrome.storage.local.remove(key) : chrome.storage.local.set({ [key]: value });
+  },
+  'storage:remove': ({ key }) => temporaryActivityKeys.has(key) ? void temporaryActivity.delete(key) : chrome.storage.local.remove(key),
+  'storage:mutate': ({ key, mutation }) => {
+    if (temporaryActivityKeys.has(key)) {
+      const value = applyWatchedOperation(temporaryActivity.get(key), mutation.watched);
+      temporaryActivity.set(key, value);
+      return clone(value);
+    }
+    return workerStorageRequest('storage:mutate', { key, mutation });
+  },
   'storage:migrate': ({ key, doneKey, mutation, receipt, sourceKey, sourceDoneKey }) => (
     workerStorageRequest('storage:migrate', {
       key,
@@ -670,6 +701,7 @@ async function onRequest(event) {
     if (type === 'update:check' && !(storageAccess.kind === 'facebook' && onlyKeys(body, []))) throw new Error('that update request is not allowed');
     activeRequests.add(id);
     const result = await handler(body);
+    if (type.startsWith('storage:') && !matchesCapturedAccount()) throw new Error('that storage request is not allowed');
     toMain({ id, ok: true, result: result ?? null });
   } catch (error) {
     toMain({ id, ok: false, error: String(error?.message ?? error) });
@@ -686,9 +718,13 @@ document.addEventListener(HELLO_MAIN, (event) => {
   // Changes from other tabs and the extension's own pages. This tab's writes come back too,
   // and the page script skips those.
   const forwardStorageChange = async (changes) => {
+    if (!matchesCapturedAccount()) return;
+    // Normal windows' activity events carry no private-tab data and need no storage read.
+    if (memoryOnlyActivity && Object.keys(changes).every((key) => key !== STORAGE_REVISIONS_KEY && !persistentKeys.includes(key))) return;
     let currentSnapshot;
     try {
       currentSnapshot = await readCurrentStorage();
+      if (!matchesCapturedAccount()) return;
     } catch (error) {
       const detail = String(error?.message ?? error ?? '') || 'the browser could not verify a storage change';
       toMain({
@@ -731,15 +767,19 @@ document.addEventListener(HELLO_MAIN, (event) => {
     const barriers = {};
     const forwarded = fullSnapshot
       ? Object.fromEntries(Object.entries(currentSnapshot)
-        .filter(([key]) => key === STORAGE_REVISIONS_KEY || storageAccess.values.has(key))
+        .filter(([key]) => key === STORAGE_REVISIONS_KEY || (storageAccess.values.has(key) && !temporaryActivityKeys.has(key)))
         .map(([key, newValue]) => [key, { newValue }]))
       : changes;
+    if (fullSnapshot) {
+      for (const [key, newValue] of temporaryActivity) forwarded[key] = { newValue };
+    }
     if (fullSnapshot && validStorageRevisions(revisions)) {
       for (const key of Object.keys(revisions)) {
         if (
           key !== STORAGE_REVISION_EPOCH_KEY
           && key !== STORAGE_REVISION_ORDER_KEY
           && storageAccess.values.has(key)
+          && !temporaryActivityKeys.has(key)
           && !Object.hasOwn(currentSnapshot, key)
         ) forwarded[key] = { newValue: undefined };
       }
@@ -747,6 +787,7 @@ document.addEventListener(HELLO_MAIN, (event) => {
     for (const [key, { newValue: eventValue }] of Object.entries(forwarded)) {
       if (key === STORAGE_REVISIONS_KEY) continue;
       if (!storageAccess.values.has(key)) continue;
+      if (temporaryActivityKeys.has(key) && !fullSnapshot) continue;
       let newValue = eventValue;
       if (!fullSnapshot && currentSnapshot) {
         const currentValue = currentSnapshot[key];
@@ -816,7 +857,8 @@ document.addEventListener(HELLO_MAIN, (event) => {
     }
   });
   // Ready comes last, so every queued request sees the storage and toolbar listeners in place.
-  toMain({ ready: true });
+  // MAIN shares Facebook's realm, so private-window metadata stays in this world.
+  toMain({ ready: true, activityContext: 'managed' });
   // Whether the toolbar button is waiting on this tab: it opened it, or reloaded it because it
   // had no script yet. Asking also starts the worker again if Chrome stopped it meanwhile.
   // A worker on its way out can drop the first ask, as with downloads, so it asks once more.

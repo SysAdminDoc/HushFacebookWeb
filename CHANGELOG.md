@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* Private windows keep activity in the tab. Managers that can't report the window context do the same. Saved settings still apply, and the extension keeps the actual private-mode flag out of the page bridge.
+* Storage access stops when a page changes Facebook accounts, including direct requests and updates from other tabs.
+* Forget every spot waits for the browser to confirm deletion. Failed clears restore the displayed list and remain available through Retry.
+* Moving or deleting activity from before accounts were kept apart waits for saves. Failed deletes stay available to retry, and Undo keeps the full original list through a partial failure.
+* An activity restore that the manager hasn't confirmed keeps its recovery action instead of reporting success from a cached copy.
 * Streamed video downloads enforce a combined 750 MB transfer limit, even when size hints are missing or too small. Cancel and transfer failures stop every part, and a failed save releases its temporary link.
 * Feed checks follow posts moved into or out of another post, so reused markup is checked again.
 * Download recognizes videos whose data contains only a stream manifest, and uses refreshed photo links when the picture size stays the same.

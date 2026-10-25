@@ -57,6 +57,35 @@ function resumer(win, storage, { on = () => true, minutes = 5, href } = {}) {
   return { keeper, resumed };
 }
 
+test('forgetting every spot reports success only after the storage removal is confirmed', async () => {
+  const win = page();
+  let run;
+  let resolve;
+  let reject;
+  let removal;
+  const toasts = [];
+  resumeVideos.setup({
+    doc: win.document,
+    storage: { get: () => ({}), remove: () => removal },
+    enabled: () => true,
+    option: () => 5,
+    actions: { add(_label, action) { run = action; } },
+    toast: (message) => toasts.push(message),
+  });
+  removal = new Promise((yes) => { resolve = yes; });
+  const clearing = run();
+  assert.deepEqual(toasts, []);
+  resolve();
+  await clearing;
+  assert.deepEqual(toasts, ['Forgot every video spot']);
+  removal = new Promise((_yes, no) => { reject = no; });
+  const failed = run();
+  const rejected = assert.rejects(failed, /storage unavailable/);
+  reject(new Error('storage unavailable'));
+  await rejected;
+  assert.deepEqual(toasts, ['Forgot every video spot'], 'a failed deletion never claims success');
+});
+
 test('a video is named by its link in the post or by its own page, and reels and stories are not', () => {
   const win = page(`${FB}/`, POST('1234567890'));
   const video = longVideo(win, win.document.querySelector('.player')).video;

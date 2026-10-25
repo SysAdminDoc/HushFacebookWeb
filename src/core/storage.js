@@ -6,6 +6,7 @@
 // whenReady.
 
 import { extensionHost } from './extension.js';
+import { activityContextFor } from './env.js';
 import { applyWatchedOperation } from './watched.js';
 import { createWatchedJournal, watchedStorageKey } from './watched-journal.js';
 
@@ -62,21 +63,40 @@ export const keepsSettings = (storage) => storage.kind === 'gm' || storage.kind 
 export function createGmStorage({ log } = {}) {
   const extension = extensionHost({ log });
   if (extension) return extension.storage;
+  const context = activityContextFor(typeof GM_info === 'undefined' ? null : GM_info);
   if (typeof GM_getValue !== 'function' || typeof GM_setValue !== 'function') {
-    return createLocalStorage();
+    return { ...createLocalStorage(), activityContext: () => context };
   }
   const modern = typeof GM === 'object' ? GM : null;
-  const journal = typeof GM_listValues === 'function' && typeof modern?.setValue === 'function' && typeof modern?.deleteValue === 'function'
+  const unconfirmed = new Map();
+  const setConfirmed = (key, value) => {
+    // A manager may update its cache before a rejected write, then skip an identical retry.
+    if (unconfirmed.has(key) && sameStoredValue(unconfirmed.get(key), value) && sameStoredValue(GM_getValue(key, undefined), value)) {
+      return Promise.reject(Object.assign(new Error('This activity save is still unconfirmed'), { code: 'ACTIVITY_SAVE_UNCONFIRMED' }));
+    }
+    const failed = (error) => { unconfirmed.set(key, structuredClone(value)); throw error; };
+    const accepted = (result) => { unconfirmed.delete(key); return result; };
+    try {
+      const saved = modern?.setValue ? modern.setValue(key, value) : GM_setValue(key, value);
+      return saved && typeof saved.then === 'function' ? saved.then(accepted, failed) : accepted(saved);
+    } catch (error) {
+      return failed(error);
+    }
+  };
+  const journal = context === 'normal' && typeof GM_listValues === 'function' && typeof modern?.setValue === 'function' && typeof modern?.deleteValue === 'function'
     ? createWatchedJournal({
       get: (key, fallback) => GM_getValue(key, fallback), list: () => GM_listValues(),
       set: (key, value) => modern.setValue(key, value), remove: (key) => modern.deleteValue(key), log,
     }) : null;
   const storage = {
     kind: 'gm',
+    activityContext: () => context,
     watchedSupported: Boolean(journal),
     get: (key, fallback) => journal && watchedStorageKey(key) ? journal.read(key, fallback) : GM_getValue(key, fallback),
     set: (key, value) => GM_setValue(key, value),
-    remove: (key) => (typeof GM_deleteValue === 'function' ? GM_deleteValue(key) : GM_setValue(key, undefined)),
+    setConfirmed,
+    remove: (key) => typeof modern?.deleteValue === 'function' ? modern.deleteValue(key)
+      : typeof GM_deleteValue === 'function' ? GM_deleteValue(key) : GM_setValue(key, undefined),
     onChange(key, listener) {
       if (typeof GM_addValueChangeListener !== 'function') return;
       GM_addValueChangeListener(key, (_name, _old, value, remote) => {
@@ -108,6 +128,7 @@ export const UNKEPT_SETTINGS = "Your userscript manager doesn't give HushFaceboo
 export function createLocalStorage(prefix = 'hfw:') {
   const storage = {
     kind: 'localStorage',
+    activityContext: () => 'unknown',
     get(key, fallback) {
       try {
         const raw = localStorage.getItem(prefix + key);
@@ -138,6 +159,7 @@ export function createMemoryStorage(initial = {}) {
   const data = new Map(Object.entries(structuredClone(initial)));
   const storage = {
     kind: 'memory',
+    activityContext: () => 'normal',
     get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
     set: (key, value) => void data.set(key, structuredClone(value)),
     remove: (key) => void data.delete(key),

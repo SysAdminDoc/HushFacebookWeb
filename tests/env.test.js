@@ -7,7 +7,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { accessFor, inPageRealm, windowFor } from '../src/core/env.js';
+import { accessFor, activityContextFor, inPageRealm, requestProgressFor, windowFor } from '../src/core/env.js';
+
+test('only an explicit manager flag identifies private browsing, with no browser probes', () => {
+  assert.equal(activityContextFor({ isIncognito: true }), 'private');
+  assert.equal(activityContextFor({ isIncognito: false }), 'normal');
+  for (const info of [null, {}, { isIncognito: 1 }, { isIncognito: 'false' }]) assert.equal(activityContextFor(info), 'unknown');
+});
+
+test('bounded GM transfers rely on the documented progress contract of supported managers', () => {
+  for (const scriptHandler of ['Tampermonkey', 'Violentmonkey']) assert.equal(requestProgressFor({ scriptHandler }), true);
+  assert.equal(requestProgressFor(null), false);
+  assert.equal(requestProgressFor({ scriptHandler: 'unknown' }), false);
+});
 
 test('a window from our own realm is the page, and so is no unsafe window at all', () => {
   assert.equal(inPageRealm(globalThis), true);

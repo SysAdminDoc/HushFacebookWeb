@@ -109,6 +109,66 @@ test('accounts A and B and signed out each keep their own lists and hear only th
   assert.deepEqual([seenA.has('t:out'), seenB.has('t:out'), seenOut.has('t:out')], [false, false, true]);
 });
 
+test('private and unreported contexts keep every activity store in fresh tab memory without reading legacy data', async () => {
+  for (const context of ['private', 'unknown']) {
+    const persisted = Object.fromEntries(ACTIVITY_KEYS.flatMap((key) => [[key, 1], [activityKeyFor(key, A), 2]]));
+    persisted.settings = { paused: true };
+    const backing = createMemoryStorage(persisted);
+    const before = backing.dump();
+    const touched = [];
+    const storage = { ...backing, watchedSupported: false, activityContext: () => context };
+    for (const method of ['get', 'set', 'remove', 'mutate', 'mutateDetailed']) storage[method] = (key, ...args) => {
+      if (key !== 'settings') touched.push([method, key]);
+      return backing[method](key, ...args);
+    };
+    const activity = createActivityStorage({ storage, account: A });
+    const scoped = activity.storage;
+    for (const key of ACTIVITY_KEYS) {
+      assert.equal(scoped.get(key, 'empty'), 'empty', `${context}: ${key}`);
+      scoped.set(key, 3);
+      assert.equal(scoped.get(key), 3);
+      await scoped.remove(key);
+      assert.equal(scoped.get(key, 'empty'), 'empty');
+    }
+    assert.equal(scoped.watchedSupported, true, 'private history needs no manager journal');
+    await scoped.mutate(WATCHED_KEY, { watched: { add: { kind: 'video', id: '1234567890', at: 100 } } });
+    assert.equal(scoped.get(WATCHED_KEY)[0].id, '1234567890');
+    assert.equal(createActivityStorage({ storage, account: A }).storage.get(WATCHED_KEY, 'empty'), 'empty', 'another private tab starts fresh');
+    assert.equal(activity.legacy(), null);
+    assert.throws(() => activity.addLegacy(), /this tab/);
+    assert.throws(() => activity.clearLegacy(), /this tab/);
+    assert.equal(activity.context(), context);
+    assert.deepEqual(touched, [], 'no activity read, write or journal access reaches persistent storage');
+    assert.deepEqual(backing.dump(), before);
+    assert.deepEqual(scoped.get('settings'), { paused: true });
+    scoped.set('settings', { paused: false });
+    assert.deepEqual(backing.get('settings'), { paused: false }, 'settings remain saved');
+  }
+});
+
+test('managed extension activity delegates to the isolated storage owner', () => {
+  const storage = { ...createMemoryStorage({ [activityKeyFor(SPEED_KEY, A)]: 1.5 }), kind: 'extension', activityContext: () => 'managed' };
+  const activity = createActivityStorage({ storage, account: A });
+  assert.equal(activity.context(), 'managed');
+  assert.equal(activity.storage.get(SPEED_KEY), 1.5);
+  activity.storage.set(SPEED_KEY, 2);
+  assert.equal(storage.get(activityKeyFor(SPEED_KEY, A)), 2, 'MAIN keeps no separate activity backend for extensions');
+});
+
+test('private activity still stops permanently after an account change', async () => {
+  const storage = { ...createMemoryStorage(), activityContext: () => 'private' };
+  let signedIn = A;
+  const activity = createActivityStorage({ storage, account: A, currentAccount: () => signedIn });
+  activity.storage.set(SPEED_KEY, 2);
+  signedIn = B;
+  assert.equal(activity.storage.get(SPEED_KEY, 1), 1);
+  activity.storage.set(SPEED_KEY, 3);
+  await assert.rejects(activity.storage.mutate(WATCHED_KEY, { watched: { clear: 100 } }), new RegExp(ACCOUNT_CHANGED));
+  signedIn = A;
+  assert.equal(activity.storage.get(SPEED_KEY, 1), 1);
+  assert.deepEqual(storage.dump(), {});
+});
+
 // A page shaped enough like Facebook's for the three playback keepers.
 function playbackPage() {
   const win = testWindow(`${FB}/watch/?v=2234567890`);
@@ -358,6 +418,151 @@ test('the shared lists from before stay where they are until you add them to an 
   const untouched = structuredClone(loading.dump());
   assert.throws(() => early.addLegacy(), /hasn't loaded yet/);
   assert.deepEqual(loading.dump(), untouched);
+});
+
+test('legacy activity import, deletion and Undo wait for acknowledged writes', async () => {
+  const backing = createMemoryStorage({ [SPEED_KEY]: 1.5 });
+  let finish;
+  let fail;
+  const gate = () => new Promise((yes, no) => { finish = yes; fail = no; });
+  let acknowledgement = gate();
+  const storage = {
+    ...backing,
+    setConfirmed: (key, value) => acknowledgement.then(() => backing.set(key, value)),
+    remove: (key) => acknowledgement.then(() => backing.remove(key)),
+  };
+  const activity = createActivityStorage({ storage, account: A });
+  const adding = activity.addLegacy();
+  assert.equal(typeof adding?.then, 'function');
+  assert.equal(backing.get(activityKeyFor(SPEED_KEY, A)), undefined);
+  finish();
+  assert.equal(await adding, 1);
+  assert.equal(backing.get(activityKeyFor(SPEED_KEY, A)), 1.5);
+
+  acknowledgement = gate();
+  const clearing = activity.clearLegacy();
+  assert.equal(typeof clearing?.then, 'function');
+  assert.equal(backing.get(SPEED_KEY), 1.5);
+  finish();
+  const undo = await clearing;
+  assert.equal(backing.get(SPEED_KEY), undefined);
+
+  acknowledgement = gate();
+  const rejectedUndo = undo();
+  const rejected = assert.rejects(rejectedUndo, /storage unavailable/);
+  fail(new Error('storage unavailable'));
+  await rejected;
+  assert.equal(backing.get(SPEED_KEY), undefined);
+  acknowledgement = gate();
+  const restoring = undo();
+  finish();
+  await restoring;
+  assert.equal(backing.get(SPEED_KEY), 1.5);
+});
+
+test('a cache-first failed legacy delete remains visible and retries the missing cached key', async () => {
+  const backend = createMemoryStorage({ [SPEED_KEY]: 1.5 });
+  const cache = createMemoryStorage(backend.dump());
+  let reject = true;
+  const deleted = [];
+  const storage = {
+    ...cache,
+    setConfirmed: (key, value) => { backend.set(key, value); cache.set(key, value); },
+    async remove(key) {
+      deleted.push(key);
+      cache.remove(key);
+      if (reject) throw new Error('storage unavailable');
+      backend.remove(key);
+    },
+  };
+  const activity = createActivityStorage({ storage, account: A });
+  await assert.rejects(activity.clearLegacy(), /storage unavailable/);
+  assert.equal(cache.get(SPEED_KEY), undefined);
+  assert.equal(activity.legacy().speed, true, 'the failed clear stays available in General');
+  assert.throws(() => activity.addLegacy(), /delete.*retry|delet.*finish/i);
+  reject = false;
+  const undo = await activity.clearLegacy();
+  assert.deepEqual(deleted, [SPEED_KEY, SPEED_KEY], 'retry invokes remove despite the missing manager cache key');
+  assert.equal(backend.get(SPEED_KEY), undefined);
+  assert.equal(activity.legacy(), null);
+  await undo();
+  assert.equal(backend.get(SPEED_KEY), 1.5);
+});
+
+test('concurrent legacy clears share a snapshot across partial failure, retry and complete Undo', async () => {
+  const original = { [SEEN_KEY]: { post: 100 }, [CLEARED_KEY]: 50, [SPEED_KEY]: 1.5, [VOLUME_KEY]: { volume: 0.3, muted: true } };
+  const backend = createMemoryStorage(original);
+  const cache = createMemoryStorage(original);
+  let release;
+  const first = new Promise((resolve) => { release = resolve; });
+  let reject = true;
+  const removed = [];
+  const storage = {
+    ...cache,
+    setConfirmed: (key, value) => { backend.set(key, value); cache.set(key, value); },
+    async remove(key) {
+      removed.push(key);
+      cache.remove(key);
+      if (removed.length === 1) await first;
+      if (key === SPEED_KEY && reject) throw new Error('storage unavailable');
+      backend.remove(key);
+    },
+  };
+  const activity = createActivityStorage({ storage, account: A, now: () => 1000 });
+  const clearing = activity.clearLegacy();
+  const concurrent = activity.clearLegacy();
+  assert.equal(concurrent, clearing, 'only one delete sequence runs');
+  assert.throws(() => activity.addLegacy(), /delete.*retry|delet.*finish/i, 'Add cannot run during the delete');
+  const rejected = assert.rejects(clearing, /storage unavailable/);
+  release();
+  await rejected;
+  assert.equal(backend.get(SEEN_KEY), undefined);
+  assert.equal(backend.get(CLEARED_KEY), undefined);
+  assert.equal(backend.get(SPEED_KEY), 1.5);
+  assert.equal(activity.legacy().speed, true);
+  reject = false;
+  const undo = await activity.clearLegacy();
+  for (const key of Object.keys(original)) assert.equal(backend.get(key), undefined);
+  await undo();
+  assert.deepEqual(backend.dump(), original, 'Undo restores successful early deletions as well as retried keys');
+  assert.equal(removed.filter((key) => key === SPEED_KEY).length, 2);
+});
+
+test('legacy clear and Undo recheck the account before each asynchronous write', async () => {
+  const original = { [SPEED_KEY]: 1.5, [VOLUME_KEY]: { volume: 0.3, muted: true } };
+  const backing = createMemoryStorage(original);
+  let signedIn = A;
+  let release;
+  let pending = new Promise((resolve) => { release = resolve; });
+  const removed = [];
+  const restored = [];
+  const storage = {
+    ...backing,
+    remove: (key) => { removed.push(key); return pending.then(() => backing.remove(key)); },
+    setConfirmed: (key, value) => { restored.push(key); return pending.then(() => backing.set(key, value)); },
+  };
+  const activity = createActivityStorage({ storage, account: A, currentAccount: () => signedIn });
+  const clearing = activity.clearLegacy();
+  const rejected = assert.rejects(clearing, new RegExp(ACCOUNT_CHANGED));
+  signedIn = B;
+  release();
+  await rejected;
+  assert.deepEqual(removed, [SPEED_KEY]);
+  assert.deepEqual(backing.get(VOLUME_KEY), original[VOLUME_KEY]);
+
+  // A separate completed clear supplies Undo, which must stop after a later account switch too.
+  signedIn = A;
+  const second = createActivityStorage({ storage: { ...storage, remove: (key) => backing.remove(key) }, account: A, currentAccount: () => signedIn });
+  backing.set(SPEED_KEY, original[SPEED_KEY]);
+  const undo = await second.clearLegacy();
+  pending = new Promise((resolve) => { release = resolve; });
+  const restoring = undo();
+  const undoRejected = assert.rejects(restoring, new RegExp(ACCOUNT_CHANGED));
+  signedIn = B;
+  release();
+  await undoRejected;
+  assert.deepEqual(restored, [SPEED_KEY]);
+  assert.equal(backing.get(VOLUME_KEY), undefined);
 });
 
 test('an import stays inside the seen-post store limits', () => {

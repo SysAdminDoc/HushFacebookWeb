@@ -55,6 +55,7 @@ function fakeChrome(saved = {}, {
   mutate = applyObjectMutation,
   migrate,
   pendingOpen = false,
+  incognito = false,
 } = {}) {
   const data = structuredClone(saved);
   const changed = [];
@@ -63,6 +64,7 @@ function fakeChrome(saved = {}, {
   // The page's ask whether the toolbar button is waiting on it, kept apart from the storage and
   // download traffic the other tests count.
   const asked = [];
+  const reads = [];
   let initialRead = read;
   let mutationTail = Promise.resolve();
   const tell = (changes) => queueMicrotask(() => changed.forEach((listener) => listener(changes, 'local')));
@@ -70,16 +72,20 @@ function fakeChrome(saved = {}, {
     data,
     sent,
     asked,
+    reads,
+    extension: { inIncognitoContext: incognito },
     emitStorageChange: tell,
     openSettings: () => fromBackground.forEach((listener) => listener({ type: 'open-settings' })),
     tellPage: (message) => fromBackground.forEach((listener) => listener(message)),
     storage: {
       local: {
-        get: async () => {
-          if (!initialRead) return structuredClone(data);
+        get: async (keys = null) => {
+          reads.push(keys);
+          const selected = keys === null ? data : Object.fromEntries((typeof keys === 'string' ? [keys] : keys).filter((key) => Object.hasOwn(data, key)).map((key) => [key, data[key]]));
+          if (!initialRead) return structuredClone(selected);
           const run = initialRead;
           initialRead = null;
-          return run(data);
+          return run(selected);
         },
         async set(items) {
           const changes = {};
@@ -401,6 +407,117 @@ test('a write before the load keeps the newer value, and writes reach chrome.sto
   storage.set('gone', undefined);
   await settle();
   assert.equal(Object.hasOwn(chrome.data, 'gone'), false, 'undefined is a removal');
+});
+
+test('a rejected activity clear restores the cache and Retry confirms the retained deletion', async () => {
+  const key = 'resumeVideos.positions';
+  const previous = { 1234567890: { t: 60, d: 500, at: 1 } };
+  const saved = { [key]: previous };
+  const errors = [];
+  const told = [];
+  let reject = true;
+  let reads = 0;
+  let removes = 0;
+  const storage = createBridgeStorage({
+    on() {},
+    async request(type, payload) {
+      if (type === 'storage:load') { reads++; return structuredClone(saved); }
+      assert.equal(type, 'storage:remove');
+      removes++;
+      if (reject) throw new Error('storage unavailable');
+      delete saved[payload.key];
+    },
+  }, { log: { error: (message) => errors.push(message) } });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  storage.onChange(key, (value) => told.push(value));
+  await assert.rejects(storage.remove(key), /storage unavailable/);
+  assert.deepEqual(storage.get(key), previous, 'a failed clear never looks permanently empty');
+  assert.deepEqual(told, [previous]);
+  assert.equal(storage.status().state, 'error');
+  assert.equal(removes, 1);
+  assert.equal(await storage.retry(), false, 'a repeated failure stays recoverable');
+  assert.equal(storage.status().state, 'error');
+  reject = false;
+  assert.equal(await storage.retry(), true);
+  assert.equal(removes, 3, 'Retry replays the clear instead of just reading the old history');
+  assert.equal(reads, 2);
+  assert.equal(Object.hasOwn(saved, key), false);
+  assert.equal(storage.get(key, 'empty'), 'empty');
+  assert.equal(storage.status().state, 'ready');
+  assert.equal(errors.length, 2);
+});
+
+test('a confirmed legacy import rolls back failed writes and Retry saves the retained value', async () => {
+  const saved = { 'keepSpeed.rate': 1.5 };
+  let reject = true;
+  let writes = 0;
+  const storage = createBridgeStorage({
+    on() {},
+    async request(type, payload) {
+      if (type === 'storage:load') return structuredClone(saved);
+      assert.equal(type, 'storage:set');
+      writes++;
+      if (reject) throw new Error('storage unavailable');
+      saved[payload.key] = payload.value;
+    },
+  });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  await assert.rejects(storage.setConfirmed('keepSpeed.rate', 2), /storage unavailable/);
+  assert.equal(storage.get('keepSpeed.rate'), 1.5);
+  assert.equal(storage.status().state, 'error');
+  reject = false;
+  assert.equal(await storage.retry(), true);
+  assert.equal(writes, 2);
+  assert.equal(saved['keepSpeed.rate'], 2);
+  assert.equal(storage.get('keepSpeed.rate'), 2);
+  assert.equal(storage.status().state, 'ready');
+});
+
+test('a failed clear never rolls a newer local or remote activity change back', async () => {
+  for (const newer of ['local', 'remote', 'remote removal']) {
+    const key = 'keepSpeed.rate';
+    const removal = deferred();
+    let push;
+    const storage = createBridgeStorage({
+      on(name, listener) { if (name === 'storage') push = listener; },
+      request(type) {
+        if (type === 'storage:load') return Promise.resolve({ [key]: 1.5 });
+        if (type === 'storage:remove') return removal.promise;
+        return Promise.resolve();
+      },
+    });
+    await new Promise((resolve) => storage.whenReady(resolve));
+    const clearing = storage.remove(key);
+    const rejected = assert.rejects(clearing, /storage unavailable/);
+    if (newer === 'local') storage.set(key, 2);
+    else push({ [key]: newer === 'remote' ? 2 : null });
+    removal.reject(new Error('storage unavailable'));
+    await rejected;
+    assert.equal(storage.get(key, 'empty'), newer === 'remote removal' ? 'empty' : 2, newer);
+    assert.equal(storage.status().state, newer === 'local' ? 'ready' : 'error', newer);
+  }
+});
+
+test('a clear queued before load waits for acknowledgement and restores the loaded history on failure', async () => {
+  const key = 'keepSpeed.rate';
+  const snapshot = deferred();
+  let removes = 0;
+  const storage = createBridgeStorage({
+    on() {},
+    request(type) {
+      if (type === 'storage:load') return snapshot.promise;
+      removes++;
+      return Promise.reject(new Error('storage unavailable'));
+    },
+  });
+  const clearing = storage.remove(key);
+  const rejected = assert.rejects(clearing, /storage unavailable/);
+  assert.equal(removes, 0);
+  snapshot.resolve({ [key]: 1.5 });
+  await rejected;
+  assert.equal(removes, 1);
+  assert.equal(storage.get(key), 1.5);
+  assert.equal(storage.status().state, 'error');
 });
 
 test('the real adapter preserves newer changes against a delayed snapshot in both script orders', async () => {
@@ -2593,6 +2710,109 @@ test("a page reads and writes its own account's activity and the shared lists fr
   const out = page();
   await startIsolated(out, outChrome);
   assert.deepEqual(Object.keys((await forgedChannel(out).send('storage:load', {})).result), [activityKeyFor('seenPosts', null)]);
+});
+
+test('the isolated private context never reads or mutates saved activity, even for forged page requests', async () => {
+  const account = '615000000000041';
+  const seed = {
+    [storageKeyFor(account)]: { paused: true },
+    seenPosts: { legacy: 10 },
+    seenPostsCleared: 30,
+    'keepSpeed.rate': 1.25,
+    'keepVolume.state': { volume: 0.8, muted: false },
+    'resumeVideos.positions': { 1234567890: { t: 60, d: 500, at: 20 } },
+    [WATCHED_KEY]: [{ kind: 'video', id: '1234567890', at: 20 }],
+  };
+  for (const key of Object.keys(seed).filter((key) => !key.startsWith('settings'))) seed[activityKeyFor(key, account)] = structuredClone(seed[key]);
+  const chrome = fakeChrome(seed, { incognito: true });
+  const win = page(account);
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+  const loaded = await forged.send('storage:load', {});
+  assert.equal(loaded.ok, true);
+  assert.deepEqual(loaded.result, { [storageKeyFor(account)]: { paused: true } });
+  const key = activityKeyFor('keepSpeed.rate', account);
+  assert.equal((await forged.send('storage:set', { key, value: 2 })).ok, true);
+  for (const name of ['seenPosts', 'seenPostsCleared', 'keepVolume.state', 'resumeVideos.positions']) {
+    const key = activityKeyFor(name, account);
+    assert.equal((await forged.send('storage:set', { key, value: seed[name] })).ok, true, name);
+    assert.equal((await forged.send('storage:remove', { key })).ok, true, `${name} clear`);
+  }
+  const watchedKey = activityKeyFor(WATCHED_KEY, account);
+  const entry = { kind: 'video', id: '2234567890', at: 100 };
+  assert.equal((await forged.send('storage:mutate', { key: watchedKey, mutation: { watched: { add: entry } } })).ok, true);
+  assert.equal((await forged.send('storage:mutate', { key: storageKeyFor(account), mutation: { set: { paused: false } } })).ok, true, 'saved settings remain editable');
+  await settle();
+  assert.deepEqual((await forged.send('storage:load', {})).result[key], 2);
+  assert.deepEqual((await forged.send('storage:load', {})).result[watchedKey], [entry], 'a persisted settings snapshot never replaces private activity');
+  assert.equal((await forged.send('storage:remove', { key })).ok, true);
+  assert.equal((await forged.send('storage:mutate', { key: watchedKey, mutation: { watched: { clear: 200 } } })).ok, true);
+  await refused(forged.send('storage:load', { inIncognitoContext: false }), /not allowed/);
+  for (const key of ['seenPosts', 'seenPostsCleared', 'keepSpeed.rate', 'keepVolume.state', 'resumeVideos.positions', WATCHED_KEY]) {
+    await refused(forged.send('storage:remove', { key }), /not allowed/, `private legacy ${key}`);
+  }
+  await chrome.storage.local.set({ [activityKeyFor('keepSpeed.rate', account)]: 3 });
+  await settle();
+  assert.equal((await forged.send('storage:load', {})).result[key], undefined, 'normal-window activity changes never enter private memory');
+  const persisted = { ...seed, [storageKeyFor(account)]: { paused: false }, [activityKeyFor('keepSpeed.rate', account)]: 3 };
+  const visiblePhysical = Object.fromEntries(Object.entries(chrome.data).filter(([key]) => key !== STORAGE_REVISIONS_KEY));
+  assert.deepEqual(visiblePhysical, persisted);
+  assert.ok(chrome.reads.every((keys) => Array.isArray(keys) && keys.every((key) => !key.includes('seenPosts') && !key.includes('keepSpeed') && !key.includes('keepVolume') && !key.includes('resumeVideos') && !key.includes('rememberWatched'))), 'private reads request only settings and housekeeping keys');
+  assert.equal(chrome.sent.some((message) => message.key === watchedKey), false, 'private watched mutations never reach the persistent worker');
+});
+
+test('an account switch revokes every storage capability of the stale document', async () => {
+  for (const incognito of [false, true]) {
+    const account = '615000000000071';
+    const other = '615000000000072';
+    const key = activityKeyFor('keepSpeed.rate', account);
+    const chrome = fakeChrome({ [key]: 1.5 }, { incognito });
+    const win = page(account);
+    await startIsolated(win, chrome);
+    const forged = forgedChannel(win);
+    assert.equal((await forged.send('storage:load', {})).ok, true);
+    await settle();
+    const before = structuredClone(chrome.data);
+    win.document.cookie = `c_user=${other}; path=/`;
+    for (const [type, payload] of [
+      ['storage:load', {}],
+      ['storage:set', { key, value: 2 }],
+      ['storage:remove', { key }],
+      ['storage:mutate', { key: storageKeyFor(account), mutation: { set: { paused: true } } }],
+    ]) await refused(forged.send(type, payload), /not allowed/, type);
+    assert.deepEqual(chrome.data, before, 'the stale document changed no persistent data');
+    forged.pushes.length = 0;
+    await chrome.storage.local.set({ [key]: 3 });
+    await settle();
+    assert.deepEqual(forged.pushes.filter((event) => Object.keys(event.data ?? {}).length), [], 'account-scoped pushes stop too');
+  }
+});
+
+test('normal, private and unreported extension contexts expose identical ready metadata', async () => {
+  const metadata = [];
+  for (const context of ['normal', 'private', 'unknown']) {
+    const win = page();
+    const chrome = fakeChrome({}, { incognito: context === 'private' });
+    if (context === 'unknown') delete chrome.extension.inIncognitoContext;
+    await startIsolated(win, chrome);
+    metadata.push(forgedChannel(win).pushes.find((message) => message.ready));
+  }
+  assert.deepEqual(metadata, Array.from({ length: 3 }, () => ({ ready: true, activityContext: 'managed' })), 'the page never learns the private-window flag');
+});
+
+test('a private bridge delegates activity to isolated memory without exposing its private context', async () => {
+  const win = page();
+  const chrome = fakeChrome({ [activityKeyFor('keepSpeed.rate', null)]: 1.5 }, { incognito: true });
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  const activity = createActivityStorage({ storage });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  assert.equal(activity.context(), 'managed');
+  assert.equal(activity.storage.get('keepSpeed.rate', 1), 1);
+  activity.storage.set('keepSpeed.rate', 2);
+  assert.equal(activity.storage.get('keepSpeed.rate'), 2);
+  assert.equal(chrome.data[activityKeyFor('keepSpeed.rate', null)], 1.5);
+  assert.equal(activity.legacy(), null);
 });
 
 test('a game frame sees and changes only the game ads switch', async () => {

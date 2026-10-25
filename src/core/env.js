@@ -28,6 +28,13 @@ export function accessFor(info, pageRealm) {
   return !pageRealm || info?.injectInto === 'content' || info?.sandboxMode === 'dom' ? 'content' : 'page';
 }
 
+// Use the manager's explicit signal. A missing flag says nothing about the window.
+export function activityContextFor(info) {
+  return info?.isIncognito === true ? 'private' : info?.isIncognito === false ? 'normal' : 'unknown';
+}
+
+export const requestProgressFor = (info) => ['Tampermonkey', 'Violentmonkey'].includes(info?.scriptHandler);
+
 export const version = typeof __HFW_VERSION__ !== 'undefined' ? __HFW_VERSION__ : 'dev';
 
 const info = typeof GM_info !== 'undefined' ? GM_info : null;
@@ -60,6 +67,7 @@ export function gmApi() {
   return {
     download: typeof GM_download === 'function' ? GM_download : null,
     request: typeof GM_xmlhttpRequest === 'function' ? GM_xmlhttpRequest : null,
+    requestProgress: requestProgressFor(info),
   };
 }
 

@@ -172,8 +172,8 @@ export default {
     resumer.start();
     diagnostics?.add('Video spots kept', () => String(resumer.count()));
     diagnostics?.add('Videos picked up', () => String(resumer.resumes()));
-    actions?.add('Forget every spot', () => {
-      resumer.forget();
+    actions?.add('Forget every spot', async () => {
+      await resumer.forget();
       toast?.(t('Forgot every video spot'));
     });
   },

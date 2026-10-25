@@ -122,6 +122,7 @@ export function connectBridge({
 
   return {
     connected: () => ready,
+    activityContext: () => 'managed',
     // Resolves with the isolated half's answer, or rejects with its error.
     request(type, payload, { timeout = TIMEOUT } = {}) {
       if (pending.size >= maxPending) return Promise.reject(new Error('too many extension requests are waiting'));
@@ -163,6 +164,9 @@ export function createBridgeStorage(bridge, { log } = {}) {
   const pageLoadData = new Map();
   const written = new Set();
   const queuedWrites = new Map();
+  const confirmedWrites = new Map();
+  const directVersions = new Map();
+  const keyEvents = new Map();
   const remoteChanges = new Map();
   const keyVersions = new Map();
   const acceptedRevisions = new Map();
@@ -183,6 +187,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
   let storageEpoch = null;
   let loadPending = false;
   let storageFailureRevision = 0;
+  let writeRetry = null;
   const copy = (value) => (value === undefined ? undefined : structuredClone(value));
   const same = (a, b) => stringify(a) === stringify(b);
   const tell = (key, value, source = 'remote') => {
@@ -218,10 +223,11 @@ export function createBridgeStorage(bridge, { log } = {}) {
       }
     }
     finishing = false;
-    for (const { type, payload } of queuedWrites.values()) save(type, payload);
+    for (const { type, payload, confirmed } of queuedWrites.values()) save(type, payload, confirmed);
     queuedWrites.clear();
     written.clear();
-    setStatus('ready');
+    if ([...confirmedWrites.values()].some((operation) => operation.failed)) setStatus('error', lastError);
+    else setStatus('ready');
   };
   const load = () => {
     if (state === 'ready') return Promise.resolve(true);
@@ -378,6 +384,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       }
       // This tab's own writes come back too, already in the copy.
       const ownEcho = written.has(key) && same(data.get(key), next);
+      keyEvents.set(key, (keyEvents.get(key) ?? 0) + 1);
       const newerRemote = (!loaded || loadPending) && !ownEcho;
       if (newerRemote) {
         remoteChanges.set(key, {
@@ -387,6 +394,11 @@ export function createBridgeStorage(bridge, { log } = {}) {
           barrier: Number.isSafeInteger(barrier) ? barrier : null,
           value: next,
         });
+        const queued = queuedWrites.get(key);
+        if (queued?.confirmed) {
+          confirmedWrites.delete(key);
+          queued.confirmed.reject(new Error('Saved activity changed before it could be updated'));
+        }
         queuedWrites.delete(key);
         written.delete(key);
       }
@@ -399,10 +411,84 @@ export function createBridgeStorage(bridge, { log } = {}) {
 
   void load();
 
-  const save = (type, payload) => bridge.request(type, payload).catch((error) => log?.error("A setting couldn't be saved in the extension", error));
-  const persist = (key, type, payload) => {
-    if (!loaded || finishing) queuedWrites.set(key, { type, payload });
-    else save(type, payload);
+  const sendConfirmed = async (operation) => {
+    const { key, version } = operation;
+    const events = keyEvents.get(key) ?? 0;
+    const before = operation.failed ? copy(data.get(key)) : operation.previous;
+    operation.failed = false;
+    try {
+      await bridge.request(operation.type, operation.payload);
+      if (confirmedWrites.get(key) === operation) {
+        confirmedWrites.delete(key);
+        if (directVersions.get(key) === version && (keyEvents.get(key) ?? 0) === events && !same(data.get(key), operation.value)) {
+          if (operation.value === undefined) data.delete(key);
+          else data.set(key, copy(operation.value));
+          tell(key, operation.value, 'ack');
+        }
+      }
+      operation.resolve();
+      return true;
+    } catch (error) {
+      log?.error("Saved activity couldn't be changed in the extension", error);
+      if (confirmedWrites.get(key) === operation) {
+        operation.failed = true;
+        if (directVersions.get(key) === version && (keyEvents.get(key) ?? 0) === events) {
+          const previous = !operation.loaded && before === undefined ? copy(pageLoadData.get(key)) : before;
+          if (previous === undefined) data.delete(key);
+          else data.set(key, previous);
+          written.delete(key);
+          tell(key, previous, 'rollback');
+        }
+        storageFailureRevision++;
+        setStatus('error', error);
+      }
+      operation.reject(error);
+      return false;
+    }
+  };
+  const save = (type, payload, confirmed) => confirmed ? sendConfirmed(confirmed)
+    : bridge.request(type, payload).catch((error) => log?.error("A setting couldn't be saved in the extension", error));
+  const persist = (key, type, payload, confirmed) => {
+    if (!loaded || finishing) queuedWrites.set(key, { type, payload, confirmed });
+    else void save(type, payload, confirmed);
+  };
+  const retry = () => {
+    if (writeRetry) return writeRetry;
+    const failed = [...confirmedWrites.values()].filter((operation) => operation.failed);
+    if (!failed.length) return load();
+    writeRetry = (async () => {
+      setStatus('loading');
+      for (const operation of failed) {
+        if (confirmedWrites.get(operation.key) === operation && !await sendConfirmed(operation)) return false;
+      }
+      // Read the authoritative snapshot after recovery, including other tabs' newer writes.
+      setStatus('error', lastError);
+      return load();
+    })().finally(() => { writeRetry = null; });
+    return writeRetry;
+  };
+  const supersedeWrite = (key) => {
+    const queued = queuedWrites.get(key);
+    if (queued?.confirmed) queued.confirmed.reject(new Error('A newer activity change replaced the queued write'));
+    confirmedWrites.delete(key);
+    const version = (directVersions.get(key) ?? 0) + 1;
+    directVersions.set(key, version);
+    return version;
+  };
+  const confirmedWrite = (key, type, payload, value) => {
+    const version = supersedeWrite(key);
+    let resolve;
+    let reject;
+    const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+    // Older feature actions may ignore a returned promise. The status still exposes failure.
+    void promise.catch(() => {});
+    const operation = { key, type, payload, value: copy(value), version, previous: copy(data.get(key)), loaded, failed: false, resolve, reject };
+    confirmedWrites.set(key, operation);
+    written.add(key);
+    if (value === undefined) data.delete(key);
+    else data.set(key, copy(value));
+    persist(key, type, payload, operation);
+    return promise;
   };
 
   const commitMutation = (type, key, payload, { detailed = false } = {}) => {
@@ -483,6 +569,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
 
   return {
     kind: 'extension',
+    activityContext: () => 'managed',
     get: (key, fallback) => (data.has(key) ? copy(data.get(key)) : fallback),
     getAtLoad: (key, fallback) => (pageLoadData.has(key) ? copy(pageLoadData.get(key)) : fallback),
     status,
@@ -491,7 +578,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       tellStatus(listener);
       return () => statusListeners.delete(listener);
     },
-    retry: load,
+    retry,
     mutate: (key, mutation) => commitMutation('storage:mutate', key, { key, mutation }),
     mutateDetailed: (key, mutation) => commitMutation('storage:mutate', key, { key, mutation }, { detailed: true }),
     migrate: (key, mutation, doneKey, receipt, options = {}) => (
@@ -502,15 +589,17 @@ export function createBridgeStorage(bridge, { log } = {}) {
     ),
     set(key, value) {
       const stored = copy(value);
+      supersedeWrite(key);
       written.add(key);
       if (stored === undefined) data.delete(key);
       else data.set(key, stored);
       persist(key, 'storage:set', { key, value: stored ?? null });
     },
+    setConfirmed: (key, value) => value === undefined
+      ? confirmedWrite(key, 'storage:remove', { key })
+      : confirmedWrite(key, 'storage:set', { key, value: copy(value) }, value),
     remove(key) {
-      written.add(key);
-      data.delete(key);
-      persist(key, 'storage:remove', { key });
+      return confirmedWrite(key, 'storage:remove', { key });
     },
     onChange(key, listener) {
       listeners.set(key, [...(listeners.get(key) ?? []), listener]);
