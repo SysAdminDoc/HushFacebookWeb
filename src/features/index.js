@@ -1,7 +1,7 @@
 // Every feature, in settings order. A feature module exports:
 //   id          settings key and stable identity (never rename once shipped)
 //   section     one of SECTIONS in sections.js
-//   android     the Hushfacebook patch it matches (docs/feature-parity.md)
+//   android     the matching Hushfacebook patch (docs/feature-parity.md), or webOnly: true
 //   title, description, default
 //   needsPage   true when it hooks Facebook's window (skipped in content-script mode)
 //   reload      true when a change only applies after Facebook reloads
@@ -58,6 +58,7 @@ import sanitizeLinks from './links/sanitize-links.js';
 import directLinks from './links/direct-links.js';
 import shareSheet from './links/share-sheet.js';
 import tapToPlay from './playback/tap-to-play.js';
+import pauseOffscreenVideos from './playback/pause-offscreen-videos.js';
 import limitHdr from './playback/hdr-brightness.js';
 import resumeVideos from './playback/resume-videos.js';
 import keepSpeed from './playback/keep-speed.js';
@@ -97,7 +98,7 @@ import blockInstantGamesAds from './games/block-ads.js';
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts, keepPostDates, keepFeedPlace, hideFollowButtons, hideCounts, expandLongPosts,
   hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, holdBackLogs,
-  commentOrder, showAllReplies, hideCommentStickers, hideVideoCommentBox, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, downloadMenu, tapToPlay, limitHdr, resumeVideos,
+  commentOrder, showAllReplies, hideCommentStickers, hideVideoCommentBox, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, downloadMenu, tapToPlay, pauseOffscreenVideos, limitHdr, resumeVideos,
   keepSpeed, keepVolume, holdForSpeed, pictureInPicture, frameStep, keepControls, videoQuality, rememberWatched,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, screenshotMode,
   menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions, blockInstantGamesAds,

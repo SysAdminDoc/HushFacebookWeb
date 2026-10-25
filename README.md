@@ -91,7 +91,7 @@ Every switch starts off except the ones that only remove things nobody asked for
 - **Comments:** Default comment order, Show every reply, Hide GIF and sticker buttons, Hide the video comment box, Tag suggestions only after @, Show comments as written, Hide when others are writing a comment.
 - **Notifications and navigation:** Hide kinds of notifications, Following feed on Home, Open on a chosen tab, Hide tabs, Hide tab badges, Hide the New message button.
 - **Downloads:** Download any photo, video, reel or story. Download in post menus adds Download to the top of a post's three-dot menu too. A video Facebook only streams gets put together from its picture and sound right in the browser. Tampermonkey opens a tab of its own the first time you save, asking to allow downloads. If you close it instead of clicking Ok, the file still saves.
-- **Playback:** Tap to play, Turn off HDR brightness, Resume long videos, Keep your video speed, Remember your volume, Picture-in-picture button, Frame step buttons, Remember what you watch, Keep video controls on screen, Default video quality, Stop stories moving on.
+- **Playback:** Tap to play, Pause feed videos after they leave view, Turn off HDR brightness, Resume long videos, Keep your video speed, Remember your volume, Picture-in-picture button, Frame step buttons, Remember what you watch, Keep video controls on screen, Default video quality, Stop stories moving on.
 - **Appearance:** Force dark mode, AMOLED black theme, Accent color, Use the system font, Use your computer's emoji, Turn off screen transitions, Screenshot mode, Custom CSS.
 - **Meta's other products:** Hide Menu promotions, Hide Meta upsells, Hide Facebook's own cards and tips, Block Instant Games ads (experimental: it answers supported ad requests with the game's usual no-ad response, so rewards that need an ad won't be earned, and it needs manager storage and page mode).
 - **Menu:** Settings in your account menu.
@@ -109,6 +109,8 @@ Copy report in Diagnostics copies your versions, browser name, which switches ar
 Watched history merges additions from other tabs and keeps older entries during a slow startup. If a history save fails, Playback offers Retry saving the watched list. Clear keeps older pending entries from coming back. Streamed video downloads stop when picture and sound exceed 750 MB combined. Choose a lower quality if a video doesn't fit.
 
 Seen posts also merge across tabs. If a save fails, News feed offers Retry saving seen posts. Forget all seen posts keeps an older pending save from bringing the list back.
+
+Pause feed videos after they leave view is off by default in Playback. On Home and group feeds, it pauses a video after it stays fully out of view for a second. Scrolling back doesn't start it. Opened posts, Reels and stories keep their usual playback, as do fullscreen and picture-in-picture players.
 
 If Facebook stays on loading skeletons, open General and choose Open problem report. Include the full console stack, the Hush version, your browser and userscript manager versions, and the other Facebook tools you have enabled.
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Playback has a Pause feed videos after they leave view switch, off by default. It pauses after a second fully out of view on Home and group feeds. Scrolling back doesn't start playback.
 * Userscript managers retry rejected saves when moving or restoring activity from before accounts were kept apart. Newer changes from another tab stay saved, and successful Undo removes its earlier error notice.
 * Conflicting activity imports keep both copies and offer an explicit retry. Concurrent legacy deletions can each be undone without reviving a deletion that was already undone.
 * Seen posts merge across tabs and survive a fresh tab. Clears keep delayed older additions out, including observations in the same millisecond.

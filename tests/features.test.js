@@ -26,8 +26,14 @@ test('every feature is complete and in a known section', () => {
   }
 });
 
-test('every feature names its Hushfacebook patch, and the parity doc lists it', () => {
+test('ported features retain their parity rows and the web-only addition is explicit', () => {
   for (const feature of features) {
+    if (feature.id === 'pauseOffscreenVideos') {
+      assert.equal(feature.webOnly, true, `${feature.id}: explicit web-only control`);
+      assert.equal(feature.android, undefined, `${feature.id}: no invented Android counterpart`);
+      continue;
+    }
+    assert.equal(feature.webOnly, undefined, `${feature.id}: existing ports retain their Android mapping`);
     assert.ok(feature.android, `${feature.id}: android`);
     assert.ok(parity.includes(`| ${feature.android} |`), `${feature.id}: "${feature.android}" missing from docs/feature-parity.md`);
   }
