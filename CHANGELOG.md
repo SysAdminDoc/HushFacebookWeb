@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Download recognizes videos whose data contains only a stream manifest, and uses refreshed photo links when the picture size stays the same.
 * The XHR regression check waits for completion rather than racing a short timer.
 * Building requires Node 24.22.1 or a newer Node 24.x build. Release preflight explains how to update an older runtime.
 * The watched list keeps older entries during a slow startup and merges additions from other tabs. Clear keeps older pending entries out, and failed saves can be retried in Playback.

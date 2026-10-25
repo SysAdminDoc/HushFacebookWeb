@@ -31,7 +31,7 @@ const LEGACY_VIDEO = [
 ];
 
 // Prefilter for the JSON.parse rule: a line without any of these has nothing to index.
-export const MEDIA_MARKERS = ['"progressive_url"', '"playable_url', '"browser_native_', '"viewer_image"', '"photo_image"', '"image":{"uri"', '"story_card_info"'];
+export const MEDIA_MARKERS = ['"progressive_url"', '"playable_url', '"browser_native_', '"dash_manifest', '"viewer_image"', '"photo_image"', '"image":{"uri"', '"story_card_info"'];
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isUrl = (value) => typeof value === 'string' && /^https:\/\//.test(value);
@@ -161,8 +161,9 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
     } else if (id && value.__typename === 'Photo') {
       const file = photoFile(value);
       const old = items.get(id);
-      // A video's still never replaces the video itself.
-      if (file && old?.kind !== 'video' && !(old?.kind === 'photo' && old.width * old.height >= file.width * file.height)) {
+      // A video's still never replaces the video itself. An equally sharp copy refreshes its
+      // signed address, while a smaller one leaves the largest copy already found.
+      if (file && old?.kind !== 'video' && !(old?.kind === 'photo' && old.width * old.height > file.width * file.height)) {
         put(items, id, { kind: 'photo', id, ...file });
       }
     }
