@@ -1,7 +1,7 @@
 // The extension's service worker: saves photos and videos with chrome.downloads, and opens the
 // settings panel from the toolbar button. A classic script, so openSettings is a global the
 // live check can call the way a click would.
-/* global HfwWatched */
+/* global HfwWatched, HfwSeen */
 
 const FACEBOOK = ['www.facebook.com', 'web.facebook.com'];
 // Where the script's downloads come from: Facebook's media servers.
@@ -165,6 +165,7 @@ function validWorkerRequest(message) {
   if (message.type === 'storage:mutate') {
     if (!onlyKeys(message, ['type', 'key', 'mutation', 'generation', 'baseRevisions'])) return false;
     if (WATCHED_KEY.test(message.key)) return onlyKeys(message.mutation, ['watched']) && HfwWatched.validWatchedOperation(message.mutation.watched);
+    if (HfwSeen.seenStorageKey(message.key)) return onlyKeys(message.mutation, ['seen']) && HfwSeen.validSeenOperation(message.mutation.seen);
     if (!PREFERENCE_KEY.test(message.key)) return false;
     return message.key.endsWith('.migrated') ? receiptMutation(message.mutation) : settingsMutation(message.mutation);
   }
@@ -481,7 +482,14 @@ function queueStorageTask(run) {
 // authoritative across tabs. Independent fields survive; for one field, the accepted request
 // that reaches this queue last wins.
 async function commitStorageMutation({ key, mutation, generation = null, baseRevisions }, { recoverPending = true } = {}) {
-  const saved = await chrome.storage.local.get([key, STORAGE_REVISIONS_KEY]);
+  const clearKey = mutation?.seen && HfwSeen.seenStorageKey(key) ? HfwSeen.seenClearKey(key) : null;
+  const saved = await chrome.storage.local.get([key, ...(clearKey ? [clearKey] : []), STORAGE_REVISIONS_KEY]);
+  if (clearKey) {
+    const state = HfwSeen.applySeenOperation(saved[key], saved[clearKey], mutation.seen);
+    const { epoch, order, revisions } = nextStorageRevision(saved, [key, clearKey], generation, baseRevisions);
+    await writeStorageCommit({ [key]: state.entries, [clearKey]: state.clearedAt }, revisions);
+    return { value: state.entries, seenCleared: state.clearedAt, previous: saved[key], revision: order, epoch, revisions, committed: true };
+  }
   const recovered = recoverPending
     ? await pendingRecoveryFor(key, saved[key])
     : { value: saved[key], recovery: null, removed: false };

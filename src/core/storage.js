@@ -9,6 +9,8 @@ import { extensionHost } from './extension.js';
 import { activityContextFor } from './env.js';
 import { applyWatchedOperation } from './watched.js';
 import { createWatchedJournal, watchedStorageKey } from './watched-journal.js';
+import { createSeenJournal } from './seen-journal.js';
+import { applySeenOperation, seenStorageKey, seenClearKey } from './seen.js';
 
 const sameStoredValue = (left, right) => {
   if (left === undefined || right === undefined) return left === right;
@@ -16,6 +18,10 @@ const sameStoredValue = (left, right) => {
 };
 
 export function applyObjectMutation(current, mutation = {}) {
+  if (Object.hasOwn(mutation, 'seen')) {
+    if (Object.keys(mutation).length !== 1) throw new TypeError('Seen operations cannot include other mutations');
+    return applySeenOperation(current, 0, mutation.seen).entries;
+  }
   if (Object.hasOwn(mutation, 'watched')) {
     if (Object.keys(mutation).length !== 1) throw new TypeError('watched-history operations cannot include other mutations');
     return applyWatchedOperation(current, mutation.watched);
@@ -48,7 +54,9 @@ export function applyObjectMutation(current, mutation = {}) {
 
 function mutateObjectDetailed(storage, key, mutation) {
   const previous = storage.get(key, undefined);
-  const next = applyObjectMutation(previous, mutation);
+  const state = Object.hasOwn(mutation, 'seen') ? applySeenOperation(previous, storage.get(seenClearKey(key), 0), mutation.seen) : null;
+  const next = state ? state.entries : applyObjectMutation(previous, mutation);
+  if (state) storage.set(seenClearKey(key), state.clearedAt);
   storage.set(key, next);
   return { value: structuredClone(next), previous: structuredClone(previous) };
 }
@@ -88,11 +96,22 @@ export function createGmStorage({ log } = {}) {
       get: (key, fallback) => GM_getValue(key, fallback), list: () => GM_listValues(),
       set: (key, value) => modern.setValue(key, value), remove: (key) => modern.deleteValue(key), log,
     }) : null;
+  const seenJournal = context === 'normal' && typeof GM_listValues === 'function' && typeof modern?.setValue === 'function' && typeof modern?.deleteValue === 'function'
+    ? createSeenJournal({
+      get: (key, fallback) => GM_getValue(key, fallback), list: () => GM_listValues(),
+      set: (key, value) => modern.setValue(key, value), remove: (key) => modern.deleteValue(key), log,
+    }) : null;
   const storage = {
     kind: 'gm',
     activityContext: () => context,
     watchedSupported: Boolean(journal),
-    get: (key, fallback) => journal && watchedStorageKey(key) ? journal.read(key, fallback) : GM_getValue(key, fallback),
+    seenSupported: Boolean(seenJournal),
+    get(key, fallback) {
+      if (seenJournal && seenStorageKey(key)) return seenJournal.read(key).entries;
+      const source = key.replace(/^seenPostsCleared@/, 'seenPosts@');
+      if (seenJournal && source !== key && seenStorageKey(source)) return seenJournal.read(source).clearedAt;
+      return journal && watchedStorageKey(key) ? journal.read(key, fallback) : GM_getValue(key, fallback);
+    },
     set: (key, value) => GM_setValue(key, value),
     setConfirmed,
     remove: (key) => typeof modern?.deleteValue === 'function' ? modern.deleteValue(key)
@@ -100,14 +119,22 @@ export function createGmStorage({ log } = {}) {
     onChange(key, listener) {
       if (typeof GM_addValueChangeListener !== 'function') return;
       GM_addValueChangeListener(key, (_name, _old, value, remote) => {
-        if (remote) listener(value);
+        if (remote) listener(seenJournal && seenStorageKey(key) ? seenJournal.read(key).entries : value);
       });
       if (journal && watchedStorageKey(key)) GM_addValueChangeListener(`${key}#changed`, (_name, _old, _value, remote) => {
         if (remote) listener(journal.read(key, []));
       });
+      const source = key.replace(/^seenPostsCleared@/, 'seenPosts@');
+      if (seenJournal && seenStorageKey(source)) GM_addValueChangeListener(`${source}#seen-changed`, (_name, _old, _value, remote) => {
+        if (remote) listener(source === key ? seenJournal.read(source).entries : seenJournal.read(source).clearedAt);
+      });
     },
   };
   storage.mutate = (key, mutation, options = {}) => {
+    if (seenStorageKey(key) && Object.hasOwn(mutation, 'seen')) {
+      if (!seenJournal) throw new Error('This userscript manager cannot merge seen history across tabs');
+      return seenJournal.mutate(key, mutation.seen, options.allowed);
+    }
     if (watchedStorageKey(key) && Object.hasOwn(mutation, 'watched')) {
       if (!journal) throw new Error('This userscript manager cannot merge watched history across tabs');
       return journal.mutate(key, mutation.watched, options.allowed);

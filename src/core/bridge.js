@@ -10,6 +10,7 @@
 // Facebook can wrap them.
 
 export const HELLO_MAIN = 'hushfacebook-web:hello-main';
+import { mergeSeenBarriers, validSeenBarrier } from './seen.js';
 export const HELLO_ISOLATED = 'hushfacebook-web:hello-isolated';
 export const STORAGE_REVISIONS_KEY = 'hushfacebookWeb.storageRevisions';
 export const STORAGE_REVISION_EPOCH_KEY = '__epoch';
@@ -546,6 +547,12 @@ export function createBridgeStorage(bridge, { log } = {}) {
         else data.set(key, next);
         if (versioned) appliedRevisions.set(key, answer.revision);
         tell(key, next, 'ack');
+        if (payload.mutation?.seen && validSeenBarrier(answer?.seenCleared)) {
+          const clearKey = key.replace(/^seenPosts@/, 'seenPostsCleared@');
+          const clear = mergeSeenBarriers(data.get(clearKey), answer.seenCleared);
+          data.set(clearKey, clear);
+          tell(clearKey, clear, 'ack');
+        }
       }
       const value = superseded ? (data.has(key) ? copy(data.get(key)) : undefined) : copy(committed);
       if (answer?.conflict === true) {
@@ -570,6 +577,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
   return {
     kind: 'extension',
     activityContext: () => 'managed',
+    seenSupported: true,
     get: (key, fallback) => (data.has(key) ? copy(data.get(key)) : fallback),
     getAtLoad: (key, fallback) => (pageLoadData.has(key) ? copy(pageLoadData.get(key)) : fallback),
     status,

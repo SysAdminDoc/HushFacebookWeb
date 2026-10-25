@@ -17,6 +17,7 @@
 import { accountTag } from './settings.js';
 import { createMemoryStorage } from './storage.js';
 import { CLEARED_KEY, MAX_AGE, MAX_ENTRIES, SEEN_KEY } from './seen-store.js';
+import { seenTime } from './seen.js';
 
 const SPEED_KEY = 'keepSpeed.rate';
 const VOLUME_KEY = 'keepVolume.state';
@@ -35,6 +36,7 @@ export const activityKeyFor = (key, account) => `${key}@${account ? accountTag(a
 
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const isPromise = (value) => value && typeof value.then === 'function';
+const stamp = seenTime;
 const afterWrite = (write, done) => isPromise(write) ? write.then(done) : done();
 function inOrder(entries, write) {
   const iterator = entries[Symbol.iterator]();
@@ -46,7 +48,6 @@ function inOrder(entries, write) {
   };
   return next();
 }
-const stamp = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
 const spotOf = (spot) => (
   isRecord(spot) && Number.isFinite(spot.t) && Number.isFinite(spot.d) && Number.isFinite(spot.at)
     ? { t: spot.t, d: spot.d, at: spot.at }
@@ -138,6 +139,7 @@ export function createActivityStorage({ storage, account = null, currentAccount 
     set: write('set'),
     remove: write('remove'),
     get watchedSupported() { return memoryOnly() ? true : storage.watchedSupported; },
+    get seenSupported() { return memoryOnly() ? true : storage.seenSupported; },
     onChange(key, listener) {
       if (!ACTIVITY.has(key)) return storage.onChange?.(key, listener);
       listeners.set(key, [...(listeners.get(key) ?? []), listener]);
@@ -161,7 +163,7 @@ export function createActivityStorage({ storage, account = null, currentAccount 
   if (storage.mutate) {
     const mutate = scoped.mutate;
     scoped.mutate = (key, mutation, options = {}) => {
-      if (key !== WATCHED_KEY) return mutate(key, mutation, options);
+      if (key !== WATCHED_KEY && key !== SEEN_KEY) return mutate(key, mutation, options);
       if (!check()) return Promise.reject(new Error(ACCOUNT_CHANGED));
       return backendFor(key).mutate(keyOf(key), mutation, { ...options, allowed: () => check() && options.allowed?.() !== false });
     };
@@ -216,7 +218,9 @@ export function createActivityStorage({ storage, account = null, currentAccount 
     }
     const writes = inOrder(next, ([key, value]) => {
       if (!check()) throw new Error(ACCOUNT_CHANGED);
-      const saved = (storage.setConfirmed ?? storage.set)(keyOf(key), value);
+      const saved = key === SEEN_KEY && storage.seenSupported
+        ? storage.mutate(keyOf(key), { seen: { add: value, at: now() } }, { allowed: check })
+        : (storage.setConfirmed ?? storage.set)(keyOf(key), value);
       // A store in this page doesn't hear its own page's writes, so it's told here.
       const notify = () => {
         if (!check()) return;

@@ -24,6 +24,7 @@ import {
 } from '../src/core/bridge.js';
 import { ACTIVITY_KEYS, activityKeyFor } from '../src/core/activity.js';
 import { applyWatchedOperation, validWatchedOperation, validWatchedRecord, WATCHED_KEY } from '../src/core/watched.js';
+import { applySeenOperation, seenClearKey, validSeenBarrier, validSeenOperation } from '../src/core/seen.js';
 import { accountFromCookie, claimFor, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 
 const SECRET = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -141,7 +142,7 @@ const updateRecord = (value) => (
 
 const FACEBOOK_VALUES = new Map([
   ['seenPosts', seenRecord],
-  ['seenPostsCleared', (value) => finite(value, 0)],
+  ['seenPostsCleared', validSeenBarrier],
   ['tasks', taskRecord],
   ['storageCheck', storageCheckRecord],
   [READ_ONLY_KEY, updateRecord],
@@ -336,6 +337,9 @@ const validStorageRequest = (type, payload) => {
     if (!storageAccess.writable.has(payload.key)) return false;
     if (payload.key === activityKeyFor(WATCHED_KEY, accountFromCookie(document.cookie))) {
       return onlyKeys(payload.mutation, ['watched']) && validWatchedOperation(payload.mutation.watched);
+    }
+    if (payload.key === activityKeyFor('seenPosts', accountFromCookie(document.cookie))) {
+      return onlyKeys(payload.mutation, ['seen']) && validSeenOperation(payload.mutation.seen);
     }
     if (payload.key === storageAccess.settingsKey) return settingsMutation(payload.mutation);
     if (payload.key === storageAccess.receiptKey) return receiptMutation(payload.mutation);
@@ -629,7 +633,9 @@ const handlers = {
   'storage:remove': ({ key }) => temporaryActivityKeys.has(key) ? void temporaryActivity.delete(key) : chrome.storage.local.remove(key),
   'storage:mutate': ({ key, mutation }) => {
     if (temporaryActivityKeys.has(key)) {
-      const value = applyWatchedOperation(temporaryActivity.get(key), mutation.watched);
+      const state = mutation.seen && applySeenOperation(temporaryActivity.get(key), temporaryActivity.get(seenClearKey(key)), mutation.seen);
+      const value = state ? state.entries : applyWatchedOperation(temporaryActivity.get(key), mutation.watched);
+      if (state) temporaryActivity.set(seenClearKey(key), state.clearedAt);
       temporaryActivity.set(key, value);
       return clone(value);
     }

@@ -48,7 +48,7 @@ const parts = {
   'main.js': await bundle('src/main.js', { banner: notice, target: 'extension' }),
   'isolated.js': await bundle('extension/isolated.js', { banner: notice, target: 'extension' }),
   // A shared history prelude, then the classic worker whose globals live checks call.
-  'background.js': notice + await bundle('src/core/watched.js', { globalName: 'HfwWatched' }) + await readFile(new URL('extension/background.js', root), 'utf8'),
+  'background.js': notice + await bundle('src/core/watched.js', { globalName: 'HfwWatched' }) + await bundle('src/core/seen.js', { globalName: 'HfwSeen' }) + await readFile(new URL('extension/background.js', root), 'utf8'),
   'manifest.json': `${JSON.stringify(extensionManifest(pkg), null, 2)}\n`,
 };
 const firefoxParts = { ...parts, 'manifest.json': `${JSON.stringify(extensionManifest(pkg, { browser: 'firefox' }), null, 2)}\n` };

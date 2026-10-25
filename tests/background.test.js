@@ -8,6 +8,7 @@ import vm from 'node:vm';
 import { availableUpdate, UPDATE_KEY, updateStatus } from '../src/core/extension.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import * as HfwWatched from '../src/core/watched.js';
+import * as HfwSeen from '../src/core/seen.js';
 
 const SOURCE = readFileSync(new URL('../extension/background.js', import.meta.url), 'utf8');
 const DAY = 24 * 60 * 60 * 1000;
@@ -131,6 +132,7 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
   };
   const context = vm.createContext({
     HfwWatched,
+    HfwSeen,
     chrome,
     crypto: globalThis.crypto,
     fetch,
@@ -402,6 +404,28 @@ test('downloads take only Facebook files and answer once the browser has them', 
 
 const KEY = '0f8e2a52-6a51-4c39-9d3b-0e9c3b0d6a11';
 const OTHER_KEY = '8b1c7d2e-3f40-4a5b-9c6d-7e8f9a0b1c2d';
+
+test('seen history additions and clears commit atomically across tabs and worker restart', async () => {
+  const key = 'seenPosts@signed-out';
+  const clearKey = 'seenPostsCleared@signed-out';
+  const current = worker();
+  const operation = (seen) => ({ type: 'storage:mutate', key, mutation: { seen } });
+  const replies = await Promise.all([
+    answerOf(current, operation({ add: { a: 100 }, at: 200 }), topFrame(1)),
+    answerOf(current, operation({ add: { b: 150, a: 120 }, at: 200 }), topFrame(2)),
+  ]);
+  assert.ok(replies.every((reply) => reply.ok));
+  assert.deepEqual(current.data[key], { b: 150, a: 100 });
+  assert.equal(HfwSeen.seenTime(current.data[clearKey]), 0);
+  await answerOf(current, operation({ clear: 200, at: 200 }));
+  const restarted = worker({ saved: current.data });
+  await answerOf(restarted, operation({ add: { a: 100, equal: 200, after: 201 }, at: 201 }));
+  assert.deepEqual(restarted.data[key], { after: 201 });
+  assert.equal(HfwSeen.seenTime(restarted.data[clearKey]), 200);
+  const revisions = restarted.data['hushfacebookWeb.storageRevisions'];
+  assert.equal(revisions[key], revisions[clearKey], 'map and tombstone have one commit revision');
+  assert.equal((await answerOf(restarted, operation({ add: { bad: -1 }, at: 200 })))?.ok, false);
+});
 const photoDownload = (key = KEY, url = 'https://scontent.xx.fbcdn.net/v/a.jpg') => ({ type: 'download', url, name: 'Pat photo.jpg', key });
 const recordsOf = (session) => session['hushfacebookWeb.downloads'] ?? {};
 

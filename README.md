@@ -104,6 +104,8 @@ Copy report in Diagnostics copies your versions, browser name, which switches ar
 
 Watched history merges additions from other tabs and keeps older entries during a slow startup. If a history save fails, Playback offers Retry saving the watched list. Clear keeps older pending entries from coming back. Streamed video downloads stop when picture and sound exceed 750 MB combined. Choose a lower quality if a video doesn't fit.
 
+Seen posts also merge across tabs. If a save fails, News feed offers Retry saving seen posts. Forget all seen posts keeps an older pending save from bringing the list back.
+
 If Facebook stays on loading skeletons, open General and choose Open problem report. Include the full console stack, the Hush version, your browser and userscript manager versions, and the other Facebook tools you have enabled.
 
 If another tool prevents the network hooks from starting, settings and page cleanup still open. Diagnostics names the protection that's unavailable, and features that need those hooks stay off.

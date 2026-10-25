@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Seen posts merge across tabs and survive a fresh tab. Clears keep delayed older additions out, including observations in the same millisecond.
+* A failed seen-history save stays available through Retry saving seen posts. Managers without the needed storage APIs show the feature as unavailable.
 * Credits name the included FB Feed Filter adaptations, and the dependency notice lists RE2JS 2.9.0. Browser support wording distinguishes startup checks from full live testing.
 * Local browser regression checks run in Chromium and Firefox without Facebook credentials or outbound page requests.
 * Unit tests run two files at a time.

@@ -4,6 +4,8 @@
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import vm from 'node:vm';
+import { build } from 'esbuild';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import {
@@ -25,6 +27,7 @@ import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createWatchList, entriesOf, WATCHED_KEY } from '../src/features/playback/remember-watched.js';
 import { buildSchema, claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
+import { applySeenOperation, seenClearKey } from '../src/core/seen.js';
 import { applyObjectMutation, createGmStorage } from '../src/core/storage.js';
 import { features } from '../src/features/index.js';
 
@@ -174,6 +177,8 @@ function fakeChrome(saved = {}, {
             } else {
               result = await mutate(oldValue, message.mutation, message.key);
             }
+            const seenState = message.mutation?.seen && applySeenOperation(oldValue, data[seenClearKey(message.key)], message.mutation.seen);
+            if (seenState) result = seenState.entries;
             const oldRevisions = structuredClone(data[STORAGE_REVISIONS_KEY]);
             const valid = oldRevisions
               && typeof oldRevisions[STORAGE_REVISION_EPOCH_KEY] === 'string'
@@ -212,8 +217,10 @@ function fakeChrome(saved = {}, {
             const revision = revisions[STORAGE_REVISION_ORDER_KEY] + 1;
             revisions[STORAGE_REVISION_ORDER_KEY] = revision;
             revisions[message.key] = revision;
+            if (seenState) revisions[seenClearKey(message.key)] = revision;
             if (message.type === 'storage:migrate') revisions[message.doneKey] = revision;
             data[message.key] = structuredClone(result);
+            if (seenState) data[seenClearKey(message.key)] = seenState.clearedAt;
             if (message.type === 'storage:migrate') data[message.doneKey] = structuredClone(nextReceipt);
             data[STORAGE_REVISIONS_KEY] = structuredClone(revisions);
             const changes = {
@@ -228,6 +235,7 @@ function fakeChrome(saved = {}, {
               ok: true,
               result: {
                 value: result,
+                ...(seenState ? { seenCleared: seenState.clearedAt } : {}),
                 previous: message.type === 'storage:migrate' ? migrationRecord : oldValue,
                 completedBefore: message.type === 'storage:migrate' ? structuredClone(migrationReceipt) : undefined,
                 revision,
@@ -268,6 +276,41 @@ function page(account, url = 'https://www.facebook.com/') {
   cleanups.push(() => win.happyDOM.close());
   return win;
 }
+
+test('seen history survives independent bridge caches, delayed startup, clear and private-tab writes', async () => {
+  const { outputFiles } = await build({ entryPoints: ['extension/isolated.js'], bundle: true, write: false, format: 'iife' });
+  for (const incognito of [false, true]) {
+    const key = activityKeyFor(SEEN_KEY, null);
+    const chrome = fakeChrome({ [key]: { normal: 50 } }, { incognito });
+    const views = [];
+    for (let index = 0; index < 2; index++) {
+      const win = page();
+      // Real tabs have separate globals. Importing both into Node's global document would
+      // route the first tab's replies to the second, unlike an isolated browser world.
+      vm.runInNewContext(outputFiles[0].text, { document: win.document, CustomEvent: win.CustomEvent, chrome, crypto, TextEncoder, URL, structuredClone, setTimeout, clearTimeout });
+      const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+      await new Promise((resolve) => storage.whenReady(resolve));
+      const activity = createActivityStorage({ storage });
+      const store = createSeenStore({ storage: activity.storage, now: () => 1000, schedule: () => 1, cancel() {}, every: null });
+      views.push({ storage, store });
+    }
+    views[0].store.add('a');
+    views[1].store.add('b');
+    await assert.doesNotReject(Promise.all(views.map(({ store }) => store.flush())), `flush incognito=${incognito}`);
+    if (incognito) {
+      assert.deepEqual(chrome.data[key], { normal: 50 });
+      assert.deepEqual([...views[0].store.since(0)], ['a']);
+      assert.deepEqual([...views[1].store.since(0)], ['b']);
+    } else {
+      assert.deepEqual(Object.keys(chrome.data[key]).sort(), ['a', 'b', 'normal']);
+    }
+    await assert.doesNotReject(Promise.resolve(views[0].store.clear()), `clear incognito=${incognito}`);
+    if (!incognito) {
+      await views[1].storage.mutate(key, { seen: { add: { stale: 999, equal: 1000 }, at: 1000 } });
+      assert.deepEqual(chrome.data[key], {});
+    } else assert.deepEqual(chrome.data[key], { normal: 50 });
+  }
+});
 
 test('a story recorded before the initial bridge snapshot merges with saved history and survives its late arrival', async () => {
   const key = activityKeyFor(WATCHED_KEY, null);
@@ -576,7 +619,8 @@ test('seen posts recorded before load merge with saved history before the queued
   const win = page();
   const load = deferred();
   const readStarted = deferred();
-  const saved = { [SEEN_KEY]: { old: 100, same: 100 } };
+  const key = activityKeyFor(SEEN_KEY, null);
+  const saved = { [key]: { old: 100, same: 100 } };
   const chrome = fakeChrome(saved, { read: () => {
     readStarted.resolve();
     return load.promise;
@@ -585,7 +629,7 @@ test('seen posts recorded before load merge with saved history before the queued
   const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
   let scheduled = null;
   const seen = createSeenStore({
-    storage,
+    storage: createActivityStorage({ storage }).storage,
     now: () => 200,
     schedule: (run) => { scheduled = run; return 1; },
     cancel: () => {},
@@ -596,11 +640,11 @@ test('seen posts recorded before load merge with saved history before the queued
   scheduled();
   load.resolve(saved);
   await new Promise((resolve) => storage.whenReady(resolve));
-  await settle();
+  await seen.flush();
 
   assert.equal(seen.has('old'), true);
   assert.equal(seen.has('new'), true);
-  assert.deepEqual(chrome.data[SEEN_KEY], { new: 200, same: 100, old: 100 });
+  assert.deepEqual(chrome.data[key], { new: 200, same: 100, old: 100 });
 });
 
 test('a failed initial load stays unready and can be retried', async () => {

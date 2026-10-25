@@ -16,6 +16,7 @@ import { createSeenStore } from '../../core/seen-store.js';
 import { inScope } from './ad-markers.js';
 import { FILTERED } from './filters.js';
 import { later } from '../../core/net/payload.js';
+import { t } from '../../core/i18n.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const DAYS = [1, 3, 7, 30];
@@ -77,11 +78,15 @@ export default {
     },
   ],
 
-  setup({ win, net, router, posts, hider, storage, actions, diagnostics, settings, log, enabled, option, now = Date.now }) {
+  setup({ win, net, router, posts, hider, storage, actions, diagnostics, settings, log, enabled, option, markUnavailable, now = Date.now }) {
+    if (storage?.seenSupported === false) { markUnavailable?.('api'); return; }
     const store = createSeenStore({ storage, log, now });
     const flag = tabFlag(win);
     const route = () => router?.current();
     const changed = () => diagnostics?.changed();
+    store.onStatus(changed);
+    diagnostics?.status('hideSeenPosts', () => store.failed() ? t("Some seen history hasn't saved. Use Retry saving seen posts.") : store.saving() ? t('Saving seen history.') : '');
+    actions?.add(() => store.failed() ? 'Retry saving seen posts' : '', () => store.retry());
     const days = () => (DAYS.includes(Number(option('days'))) ? Number(option('days')) : 7);
     let showing = flag.get();
     // What counts as seen right now: posts seen before this visit, or before you last came
@@ -188,10 +193,13 @@ export default {
       changed();
     });
     actions?.add('Forget all seen posts', () => {
-      store.clear();
-      before = new Set();
-      hider?.showAll('Seen');
-      changed();
+      const done = () => {
+        before = new Set();
+        hider?.showAll('Seen');
+        changed();
+      };
+      const saved = store.clear();
+      return saved && typeof saved.then === 'function' ? saved.then(done) : done();
     });
 
     const state = () => JSON.stringify([enabled(), days()]);
