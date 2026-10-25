@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Streamed video downloads enforce a combined 750 MB transfer limit, even when size hints are missing or too small. Cancel and transfer failures stop every part, and a failed save releases its temporary link.
 * Feed checks follow posts moved into or out of another post, so reused markup is checked again.
 * Download recognizes videos whose data contains only a stream manifest, and uses refreshed photo links when the picture size stays the same.
 * The XHR regression check waits for completion rather than racing a short timer.

@@ -8,7 +8,7 @@
 // in a comment or a post below it.
 
 import { pickCopies } from '../../core/dash.js';
-import { fileName, extensionOf } from '../../core/download.js';
+import { fileName, extensionOf, MAX_JOIN_BYTES } from '../../core/download.js';
 import { isComment } from '../../core/dom/posts.js';
 import { normalizeText } from '../../core/dom/visible-text.js';
 
@@ -19,7 +19,7 @@ const MAX_LEVELS = 14;
 const LABELS = { downloadVideos: 'video', downloadReels: 'reel', downloadStories: 'story', downloadPhotos: 'photo' };
 // A video put together from its pieces is held whole in the tab twice over (both copies, then
 // the joined file), so a copy whose estimate runs past this steps down to a smaller one.
-export const STREAM_LIMIT = 750e6;
+export const STREAM_LIMIT = MAX_JOIN_BYTES;
 
 // What a link or address points at: a reel, a video or a photo, with its id.
 export function linkTarget(href) {
