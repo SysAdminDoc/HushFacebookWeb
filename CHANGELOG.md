@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Credits name the included FB Feed Filter adaptations, and the dependency notice lists RE2JS 2.9.0. Browser support wording distinguishes startup checks from full live testing.
+* Local browser regression checks run in Chromium and Firefox without Facebook credentials or outbound page requests.
+* Unit tests run two files at a time.
 * Settings backups include valid choices waiting to save. Failed backup handoffs release their temporary file link.
 * Quiet, Privacy, Back to defaults and a full settings restore offer persistent Undo in General. Bulk actions wait for saved choices before taking their recovery snapshot.
 * Every failed restore or settings action shows fresh feedback, even after an earlier error notice has expired.

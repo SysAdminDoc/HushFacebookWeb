@@ -28,11 +28,21 @@ export default [
     },
   },
   {
-    files: ['scripts/**/*.mjs', 'tests/**/*.js', 'eslint.config.js'],
+    files: ['scripts/**/*.mjs', 'tests/**/*.mjs', 'tests/**/*.js', 'eslint.config.js'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'module',
       globals: { ...globals.node },
     },
+  },
+  {
+    files: ['tests/browser/fixtures/**/*.js'],
+    languageOptions: {
+      globals: { ...globals.browser, __HFW_VERSION__: 'readonly' },
+    },
+  },
+  {
+    files: ['tests/browser/runner.mjs'],
+    languageOptions: { globals: { window: 'readonly' } },
   },
 ];
