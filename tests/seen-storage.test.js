@@ -49,7 +49,7 @@ function managers(seed = {}) {
         GM_getValue: get, GM_setValue: set, GM_deleteValue: remove,
         GM_listValues: () => { client.lists++; return [...client.cache.keys()]; },
         GM_addValueChangeListener(key, run) { client.listeners.set(key, [...client.listeners.get(key) ?? [], run]); },
-        GM: { setValue: set, deleteValue: remove }, crypto, structuredClone, TextEncoder, URL,
+        GM: { setValue: set, deleteValue: remove }, crypto, structuredClone, TextEncoder, URL, setTimeout, clearTimeout,
         Date: class extends Date { static now() { return platform.clock; } },
       });
       if (unsupported) delete context.GM_listValues;

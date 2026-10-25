@@ -1215,6 +1215,27 @@ test('legacy activity success waits for acknowledgement and a failed Undo stays 
   notice.querySelector('button').click();
   await tick();
   assert.equal(notice.isConnected, false, 'accepted Undo ends the notice');
+  assert.ok(!shadow.querySelector('.toast.error'), 'successful recovery removes its earlier failure notice');
+});
+
+test('a conflicting legacy import explains explicit retry and clears its own error after recovery', async () => {
+  let failures = 1;
+  const activity = {
+    perAccount: true, context: () => 'normal', check: () => true, legacy: () => ({ seen: 0, spots: 0, speed: true }),
+    async addLegacy() {
+      if (failures-- > 0) throw Object.assign(new Error('Conflicting saved values'), { code: 'ACTIVITY_REGISTER_CONFLICT' });
+      return 1;
+    },
+  };
+  const { shadow, panel } = setup({ environment: { activity } });
+  panel.open('general');
+  shadow.querySelector('[data-key="legacy:add"]').click();
+  await tick();
+  assert.match(shadow.querySelector('.toast.error').textContent, /Two tabs saved different activity.*Try the action again to use this copy/);
+  shadow.querySelector('[data-key="legacy:add"]').click();
+  await tick();
+  assert.match(shadow.querySelector('.toast:last-child span').textContent, /Added to the account/);
+  assert.ok(!shadow.querySelector('.toast.error'), 'only this action\'s old failure is dismissed');
 });
 
 test('Undo outlives the notice in General and still works from the keyboard much later', async () => {

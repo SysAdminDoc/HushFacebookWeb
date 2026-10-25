@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Userscript managers retry rejected saves when moving or restoring activity from before accounts were kept apart. Newer changes from another tab stay saved, and successful Undo removes its earlier error notice.
+* Conflicting activity imports keep both copies and offer an explicit retry. Concurrent legacy deletions can each be undone without reviving a deletion that was already undone.
 * Seen posts merge across tabs and survive a fresh tab. Clears keep delayed older additions out, including observations in the same millisecond.
 * A failed seen-history save stays available through Retry saving seen posts. Managers without the needed storage APIs show the feature as unavailable.
 * Credits name the included FB Feed Filter adaptations, and the dependency notice lists RE2JS 2.9.0. Browser support wording distinguishes startup checks from full live testing.

@@ -88,6 +88,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const drafts = new Map();
   const fieldErrors = new Map();
   const pending = new Set();
+  const actionNotices = new Map();
   let preferenceSave = settings.saveStatus?.() ?? { state: 'idle', error: null, pending: [] };
   const bulkChangePending = () => pending.has('reset') || pending.has('import') || [...pending].some((key) => key.startsWith('quick:'));
   const settingValue = (key) => settings.display?.(key) ?? settings.get(key);
@@ -353,11 +354,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           pending.delete(key);
           if (dialog.open) render();
         };
-        const failed = (error) => actionError('{action} failed. Try again', error, { action: t(label) });
+        const succeeded = () => { actionNotices.get(key)?.dismiss(); actionNotices.delete(key); };
+        const failed = (error) => actionNotices.set(key, actionError('{action} failed. Try again', error, { action: t(label) }));
         try {
           const result = run();
-          if (result && typeof result.then === 'function') Promise.resolve(result).catch(failed).finally(finish);
-          else finish();
+          if (result && typeof result.then === 'function') Promise.resolve(result).then(succeeded, failed).finally(finish);
+          else { succeeded(); finish(); }
         } catch (error) {
           failed(error);
           finish();
@@ -667,13 +669,15 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         }, { primary: true, busyLabel: 'Adding...' }),
         actionButton('legacy:delete', 'Delete them', async () => {
           const undo = await activity.clearLegacy();
+          let failureNotice = null;
           const notice = toast(t('Deleted the activity from before accounts were kept apart.'), { action: { label: 'Undo', keep: true, run: async () => {
             try {
               await undo();
+              failureNotice?.dismiss();
               notice.dismiss();
               if (dialog.open) render();
             } catch (error) {
-              actionError("Couldn't restore the deleted activity. Try Undo again", error);
+              failureNotice = actionError("Couldn't restore the deleted activity. Try Undo again", error);
             }
           } } });
         }, { busyLabel: 'Deleting...' })));
@@ -1098,8 +1102,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     log.error('A settings action failed. Try again', error);
     const translated = error?.code === 'ACTIVITY_SAVE_UNCONFIRMED'
       ? t('This activity save is still unconfirmed. Your recovery copy stays here.')
+      : error?.code === 'ACTIVITY_REGISTER_CONFLICT'
+        ? t('Two tabs saved different activity. Try the action again to use this copy')
       : t(message, vars);
     announceError({ message }, true, translated);
+    return lastErrorNotice;
   }
   let renderQueued = false;
   let statusQueued = false;

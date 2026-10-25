@@ -63,6 +63,10 @@ General has Quiet and Privacy Quick setups, and each one reports how many settin
 
 Quick setups and a full settings restore offer Undo in General until another change replaces it. Backups include valid choices still waiting to save. Private windows keep seen posts, video spots, watched history, speed and volume in that tab. Managers that can't report the window's privacy context use the same temporary activity storage. Saved settings still apply.
 
+General offers to move or delete activity saved before accounts were kept apart. Tampermonkey and Violentmonkey retry failed saves automatically, and Undo stays available if recovery still fails. Restoring that activity preserves a newer value saved in another tab.
+
+If tabs import different copies at the same time, both stay saved and a notice explains the conflict. Retry the action in General to use its recovery copy.
+
 The extension waits for the browser to confirm each settings change. If a save fails, the last saved choice keeps running while your new choice stays visible as a draft, and General offers Retry. Changes from two tabs merge by setting. When both tabs change the same setting, the request the extension accepts last wins.
 
 During extension startup, recognized story views, watch reports, usage logs, read receipts and typing signals wait briefly for saved privacy choices. If storage can't be confirmed, those operations stay on the device and General shows Retry. Unrelated traffic isn't delayed.

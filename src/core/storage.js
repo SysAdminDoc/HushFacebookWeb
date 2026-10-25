@@ -11,6 +11,7 @@ import { applyWatchedOperation } from './watched.js';
 import { createWatchedJournal, watchedStorageKey } from './watched-journal.js';
 import { createSeenJournal } from './seen-journal.js';
 import { applySeenOperation, seenStorageKey, seenClearKey } from './seen.js';
+import { createGmActivityRegister, gmActivityRegisterKey, gmActivityPulseKey } from './gm-activity-register.js';
 
 const sameStoredValue = (left, right) => {
   if (left === undefined || right === undefined) return left === right;
@@ -77,7 +78,8 @@ export function createGmStorage({ log } = {}) {
   }
   const modern = typeof GM === 'object' ? GM : null;
   const unconfirmed = new Map();
-  const setConfirmed = (key, value) => {
+  const setConfirmed = (key, value, options = {}) => {
+    if (activityRegister && gmActivityRegisterKey(key)) return value === undefined ? activityRegister.erase(key, options) : activityRegister.write(key, value, options);
     // A manager may update its cache before a rejected write, then skip an identical retry.
     if (unconfirmed.has(key) && sameStoredValue(unconfirmed.get(key), value) && sameStoredValue(GM_getValue(key, undefined), value)) {
       return Promise.reject(Object.assign(new Error('This activity save is still unconfirmed'), { code: 'ACTIVITY_SAVE_UNCONFIRMED' }));
@@ -101,22 +103,54 @@ export function createGmStorage({ log } = {}) {
       get: (key, fallback) => GM_getValue(key, fallback), list: () => GM_listValues(),
       set: (key, value) => modern.setValue(key, value), remove: (key) => modern.deleteValue(key), log,
     }) : null;
+  const activityRegister = context === 'normal' && typeof GM_listValues === 'function' && typeof modern?.setValue === 'function' && typeof modern?.deleteValue === 'function'
+    ? createGmActivityRegister({
+      get: (key, fallback) => GM_getValue(key, fallback), list: () => GM_listValues(),
+      set: (key, value) => modern.setValue(key, value), remove: (key) => modern.deleteValue(key), log,
+    }) : null;
+  const reportConflict = (error) => {
+    if (error.code !== 'ACTIVITY_REGISTER_CONFLICT') throw error;
+    log?.error('Activity recovery has conflicting saved values. Try the recovery action again to choose this copy', error);
+  };
   const storage = {
     kind: 'gm',
     activityContext: () => context,
     watchedSupported: Boolean(journal),
     seenSupported: Boolean(seenJournal),
     get(key, fallback) {
+      if (activityRegister && gmActivityRegisterKey(key)) {
+        try { return activityRegister.read(key, fallback); }
+        catch (error) { reportConflict(error); return fallback; }
+      }
       if (seenJournal && seenStorageKey(key)) return seenJournal.read(key).entries;
       const source = key.replace(/^seenPostsCleared@/, 'seenPosts@');
       if (seenJournal && source !== key && seenStorageKey(source)) return seenJournal.read(source).clearedAt;
       return journal && watchedStorageKey(key) ? journal.read(key, fallback) : GM_getValue(key, fallback);
     },
-    set: (key, value) => GM_setValue(key, value),
+    // Only explicit legacy recovery may inspect the retained source when proposals conflict.
+    getLegacyRecovery(key, fallback) {
+      if (!activityRegister || !gmActivityRegisterKey(key) || key.includes('@')) return storage.get(key, fallback);
+      try { return activityRegister.read(key, fallback); }
+      catch (error) { reportConflict(error); return activityRegister.source(key, fallback); }
+    },
+    set: (key, value, options) => activityRegister && gmActivityRegisterKey(key) ? activityRegister.set(key, value, options) : GM_setValue(key, value),
     setConfirmed,
-    remove: (key) => typeof modern?.deleteValue === 'function' ? modern.deleteValue(key)
+    eraseConfirmed: (key, options) => activityRegister && gmActivityRegisterKey(key) ? activityRegister.erase(key, options) : storage.remove(key, options),
+    remove: (key, options) => activityRegister && gmActivityRegisterKey(key) ? activityRegister.remove(key, options)
+      : typeof modern?.deleteValue === 'function' ? modern.deleteValue(key)
       : typeof GM_deleteValue === 'function' ? GM_deleteValue(key) : GM_setValue(key, undefined),
     onChange(key, listener) {
+      if (activityRegister && gmActivityRegisterKey(key)) {
+        const unsubscribe = activityRegister.subscribe(key, listener);
+        if (typeof GM_addValueChangeListener === 'function') {
+          for (const name of [key, gmActivityPulseKey(key)]) GM_addValueChangeListener(name, (_name, _old, _value, remote) => {
+            if (!remote) return;
+            try { activityRegister.refresh(key); }
+            catch (error) { reportConflict(error); listener(undefined, { source: 'remote', conflict: true }); }
+          });
+        }
+        return unsubscribe;
+      }
       if (typeof GM_addValueChangeListener !== 'function') return;
       GM_addValueChangeListener(key, (_name, _old, value, remote) => {
         if (remote) listener(seenJournal && seenStorageKey(key) ? seenJournal.read(key).entries : value);

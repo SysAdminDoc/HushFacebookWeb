@@ -130,6 +130,11 @@ export function createActivityStorage({ storage, account = null, currentAccount 
     if (ACTIVITY.has(key) && !check()) return refused;
     const backend = backendFor(key);
     const method = backend[name] ?? (name === 'setConfirmed' ? backend.set : name === 'migrateDetailed' ? backend.mutateDetailed : backend.mutate);
+    if (ACTIVITY.has(key) && ['set', 'remove', 'setConfirmed'].includes(name)) {
+      const index = name === 'remove' ? 0 : 1;
+      const options = rest[index] ?? {};
+      return method(keyOf(key), ...rest.slice(0, index), { ...options, allowed: () => check() && options.allowed?.() !== false });
+    }
     return method(keyOf(key), ...rest);
   };
 
@@ -177,7 +182,7 @@ export function createActivityStorage({ storage, account = null, currentAccount 
     });
   }
 
-  const shared = (key) => storage.get(key, undefined);
+  const shared = (key) => storage.getLegacyRecovery ? storage.getLegacyRecovery(key, undefined) : storage.get(key, undefined);
   const recoverable = (key) => {
     const current = shared(key);
     return current === undefined && legacyClear?.snapshot.has(key) ? legacyClear.snapshot.get(key) : current;
@@ -220,13 +225,13 @@ export function createActivityStorage({ storage, account = null, currentAccount 
       if (!check()) throw new Error(ACCOUNT_CHANGED);
       const saved = key === SEEN_KEY && storage.seenSupported
         ? storage.mutate(keyOf(key), { seen: { add: value, at: now() } }, { allowed: check })
-        : (storage.setConfirmed ?? storage.set)(keyOf(key), value);
+        : (storage.setConfirmed ?? storage.set)(keyOf(key), value, { allowed: check });
       // A store in this page doesn't hear its own page's writes, so it's told here.
       const notify = () => {
         if (!check()) return;
         for (const listener of listeners.get(key) ?? []) {
           try {
-            listener(structuredClone(value), { source: 'import' });
+            listener(structuredClone(storage.get(keyOf(key), undefined)), { source: 'import' });
           } catch (error) {
             log?.error('A storage listener failed', error);
           }
@@ -248,7 +253,7 @@ export function createActivityStorage({ storage, account = null, currentAccount 
     };
     allowed();
     if (legacyClear?.active) return legacyClear.active;
-    const operation = legacyClear ?? { snapshot: new Map(), pending: new Set(), active: null };
+    const operation = legacyClear ?? { snapshot: new Map(), pending: new Set(), erased: new Map(), active: null };
     legacyClear = operation;
     for (const key of ACTIVITY_KEYS) {
       const value = shared(key);
@@ -258,7 +263,10 @@ export function createActivityStorage({ storage, account = null, currentAccount 
     }
     const writes = inOrder([...operation.pending], (key) => {
       allowed();
-      return afterWrite(storage.remove(key), () => operation.pending.delete(key));
+      return afterWrite((storage.eraseConfirmed ?? storage.remove)(key, { allowed: check }), (token) => {
+        if (typeof token === 'string') operation.erased.set(key, token);
+        operation.pending.delete(key);
+      });
     });
     let undoActive = null;
     const unconfirmed = new Set();
@@ -267,10 +275,10 @@ export function createActivityStorage({ storage, account = null, currentAccount 
       if (undoActive) return undoActive;
       const restored = afterWrite(inOrder(operation.snapshot, ([key, value]) => {
         allowed();
-        const current = shared(key);
+        const current = storage.get(key, undefined);
         if (current !== undefined && !(unconfirmed.has(key) && JSON.stringify(current) === JSON.stringify(value))) return;
         unconfirmed.add(key);
-        return afterWrite((storage.setConfirmed ?? storage.set)(key, value), () => unconfirmed.delete(key));
+        return afterWrite((storage.setConfirmed ?? storage.set)(key, value, { allowed: check, ...(operation.erased.has(key) ? { restoreFrom: operation.erased.get(key) } : {}) }), () => unconfirmed.delete(key));
       }), allowed);
       if (!isPromise(restored)) return undefined;
       undoActive = restored.finally(() => { undoActive = null; });
