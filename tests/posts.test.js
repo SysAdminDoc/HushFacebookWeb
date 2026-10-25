@@ -361,6 +361,40 @@ test('a post wrapped by another post afterwards becomes part of it', async () =>
   tracker.stop();
 });
 
+test('a post moved inside an already tracked post is removed from the tracked units', async () => {
+  const win = page(feed(post(1), post(2)));
+  const tracker = createPostTracker({ doc: win.document });
+  const events = [];
+  tracker.on('post/add', (p) => events.push(['add', p.id]));
+  tracker.on('post/remove', (p) => events.push(['remove', p.id]));
+  const [first, second] = win.document.querySelectorAll('[aria-posinset]');
+  second.append(first);
+  await tick();
+  assert.deepEqual(events, [['add', 'pfbid0Post1'], ['add', 'pfbid0Post2'], ['remove', 'pfbid0Post1']]);
+  assert.deepEqual(tracker.current().map((p) => [p.id, p.kind]), [['pfbid0Post2', 'feed']]);
+  tracker.stop();
+});
+
+test('a wrapped article moved back outside its removed wrapper becomes a tracked post again', async () => {
+  const win = page(feed('<div class="slot"><div role="article"><a href="/b/posts/222">3d</a>Shared</div></div>'));
+  const tracker = createPostTracker({ doc: win.document });
+  const events = [];
+  tracker.on('post/add', (p) => events.push(['add', p.id]));
+  tracker.on('post/remove', (p) => events.push(['remove', p.id]));
+  const slot = win.document.querySelector('.slot');
+  const outer = win.document.createElement('div');
+  outer.setAttribute('aria-posinset', '1');
+  outer.innerHTML = '<a href="/a/posts/111">1h</a>';
+  slot.replaceWith(outer);
+  outer.append(slot);
+  await tick();
+  outer.replaceWith(slot);
+  await tick();
+  assert.deepEqual(events, [['add', '222'], ['remove', '222'], ['add', '111'], ['remove', '111'], ['add', '222']]);
+  assert.deepEqual(tracker.current().map((p) => [p.id, p.kind]), [['222', 'article']]);
+  tracker.stop();
+});
+
 test('a post that gains a role or loses aria-posinset is no longer tracked', async () => {
   const win = page(feed(post(1), post(2)));
   const tracker = createPostTracker({ doc: win.document });

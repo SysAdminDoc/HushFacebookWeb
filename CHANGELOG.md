@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Feed checks follow posts moved into or out of another post, so reused markup is checked again.
 * Download recognizes videos whose data contains only a stream manifest, and uses refreshed photo links when the picture size stays the same.
 * The XHR regression check waits for completion rather than racing a short timer.
 * Building requires Node 24.22.1 or a newer Node 24.x build. Release preflight explains how to update an older runtime.

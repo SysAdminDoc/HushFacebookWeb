@@ -140,6 +140,11 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
   // and it reuses a post's element for a different story when it recycles the feed.
   function recheck(element) {
     const post = live.get(element);
+    // A post moved into another tracked post is part of that one now too.
+    if (element.parentElement && ownerOf(element.parentElement)) {
+      remove(element, post);
+      return;
+    }
     const hrefs = idHrefs(element);
     const { id, source } = postIdFromHrefs(hrefs);
     if (id === post.id || id === null) return;
@@ -168,8 +173,8 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
     for (const inner of element.querySelectorAll(CANDIDATE_SELECTOR)) {
       const nested = live.get(inner);
       if (!nested) continue;
+      // It can stand on its own again if Facebook later moves it out of this wrapper.
       remove(inner, nested);
-      processed.add(inner);
     }
     const { id, source } = postIdOf(element);
     const post = { element, kind, id, idSource: source };
