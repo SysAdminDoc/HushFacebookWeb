@@ -511,7 +511,7 @@ test('an XHR read while a line past LINE_LIMIT arrives shows it as sent, a growi
   assert.equal(net.lineStats.oversized, 1);
 });
 
-test('a reused XHR shows only its current request, whatever the last one was', async () => {
+test('a reused XHR shows only its current request, whatever the last one was', { timeout: 2000 }, async () => {
   const setup = () => {
     const window = fakeWindow({ respond: (url) => (url === '/api/graphql/' ? '{"ad":1}\n{"n":1}' : '{"ad":2}') });
     const net = installNetworkHooks({ win: window.win, log: quietLog, startup: startupControl({ state: 'ready' }).startup });
@@ -540,10 +540,11 @@ test('a reused XHR shows only its current request, whatever the last one was', a
   assert.equal(transformed.xhr.response, '{"ad":2}');
 
   const blocked = setup();
+  const blockedEnd = new Promise((resolve) => blocked.xhr.addEventListener('loadend', resolve, { once: true }));
   blocked.xhr.open('POST', '/api/graphql/');
   blocked.xhr.send(graphqlBody('PrivateMutation'));
   assert.equal(blocked.xhr.readyState, 1, 'a held answer is still loading until its events run');
-  await tick();
+  await blockedEnd;
   assert.deepEqual(blocked.events, [
     'readystatechange@1/0', 'readystatechange@2/200', 'readystatechange@3/200', 'readystatechange@4/200', 'load@4/200', 'loadend@4/200',
   ]);
@@ -582,9 +583,10 @@ test('a reused XHR shows only its current request, whatever the last one was', a
   assert.deepEqual(aborted.events, ['readystatechange@1/0'], 'reopening an aborted answer announces OPENED, as a real one does');
 
   const done = setup();
+  const doneEnd = new Promise((resolve) => done.xhr.addEventListener('loadend', resolve, { once: true }));
   done.xhr.open('POST', '/api/graphql/');
   done.xhr.send(graphqlBody('PrivateMutation'));
-  await tick();
+  await doneEnd;
   done.events.length = 0;
   done.xhr.abort();
   assert.deepEqual(done.events, [], 'aborting a finished request fires nothing');

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* The XHR regression check waits for completion rather than racing a short timer.
 * Building requires Node 24.22.1 or a newer Node 24.x build. Release preflight explains how to update an older runtime.
 * The watched list keeps older entries during a slow startup and merges additions from other tabs. Clear keeps older pending entries out, and failed saves can be retried in Playback.
 * Trim the share menu follows targets that load their names and links late, and clears old choices when a dialog is reused. Copy link stays available, and unrelated social-link lists stay untouched.
