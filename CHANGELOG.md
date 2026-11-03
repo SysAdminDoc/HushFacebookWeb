@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Feed data that another blocker edits while it streams in (uBlock Origin's Facebook quick fixes do this) is read one whole line at a time, so a line it rewrites halfway through can't end up spliced into the next one.
 * Playback has a Pause feed videos after they leave view switch, off by default. It pauses after a second fully out of view on Home and group feeds. Scrolling back doesn't start playback.
 * Userscript managers retry rejected saves when moving or restoring activity from before accounts were kept apart. Newer changes from another tab stay saved, and successful Undo removes its earlier error notice.
 * Conflicting activity imports keep both copies and offer an explicit retry. Concurrent legacy deletions can each be undone without reviving a deletion that was already undone.

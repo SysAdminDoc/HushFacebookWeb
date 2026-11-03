@@ -990,6 +990,10 @@ function decodeAs(win, type, text, parse) {
 // The getters taken from the prototype can belong to another script that hooked XHR first,
 // and one that builds responseText from this.response lands back on these getters mid-read.
 // While a read runs, they hand back what the prototype says, so the two never loop.
+// Such a getter can also rewrite a line once it's whole: uBlock Origin's
+// jsonl-edit-xhr-response (in its facebook.com quick fixes) edits every line that parses and
+// leaves an unfinished one as it came, so the text past the last line break changes between
+// reads. Only whole lines are taken until the request is done, the way Facebook reads it.
 function attachTextTransform(xhr, stream, textGetter, responseGetter, overrides) {
   let seen = 0;
   let output = '';
@@ -1001,11 +1005,13 @@ function attachTextTransform(xhr, stream, textGetter, responseGetter, overrides)
     reading = true;
     try {
       const raw = textGetter.call(xhr);
-      if (raw.length > seen) {
-        output += stream.push(raw.slice(seen));
-        seen = raw.length;
+      const done = xhr.readyState === 4;
+      const end = done ? raw.length : raw.lastIndexOf('\n') + 1;
+      if (end > seen) {
+        output += stream.push(raw.slice(seen, end));
+        seen = end;
       }
-      if (xhr.readyState === 4 && !flushed) {
+      if (done && !flushed) {
         output += stream.flush();
         flushed = true;
       }

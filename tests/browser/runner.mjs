@@ -29,6 +29,13 @@ const server = createServer((request, response) => {
     response.setHeader('content-type', 'text/plain');
     response.write('{"fixture":1}\n');
     setTimeout(() => response.end('{"fixture":2}\n'), 40);
+  } else if (url.pathname === '/xhr-split') {
+    // One line cut in two, with time for the page to read the first half on its own. Chromium
+    // holds back a short first chunk while it sniffs the type, hence the padding.
+    response.setHeader('content-type', 'text/plain');
+    response.setHeader('x-content-type-options', 'nosniff');
+    response.write(`{"keep":1,"pad":"${'x'.repeat(4096)}","ad":`);
+    setTimeout(() => response.end('1}\n{"fixture":2}\n'), 250);
   } else if (url.pathname === '/download-picture' || url.pathname === '/download-sound') {
     response.setHeader('content-type', 'application/octet-stream');
     response.write(Buffer.alloc(40, 1));
@@ -39,7 +46,7 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const scenarios = [
   { id: 'xhr-native', fixture: 'network', wrapper: 'native', order: 'before' },
-  ...['subclass', 'proxy', 'getter'].flatMap((wrapper) => ['before', 'after'].map((order) => ({ id: `xhr-${wrapper}-${order}`, fixture: 'network', wrapper, order }))),
+  ...['subclass', 'proxy', 'getter', 'editor'].flatMap((wrapper) => ['before', 'after'].map((order) => ({ id: `xhr-${wrapper}-${order}`, fixture: 'network', wrapper, order }))),
   { id: 'delayed-bridge', fixture: 'delayedBridge' },
   { id: 'dialog-search-undo', fixture: 'panel' },
   { id: 'staged-share', fixture: 'stagedShare', screenshot: true },
