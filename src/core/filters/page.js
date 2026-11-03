@@ -10,9 +10,14 @@
 //            link (an outbound link outside the post text), shared (a second author header:
 //            on Home on 2026-10-22, 14 of 14 shares drawn had one and no other post did; a
 //            shared link post has only one, so the data rule catches those), live (a video
-//            with Facebook's LIVE badge, or a link to a past live video). Colored backgrounds
-//            have no stable mark on the page, so only the data rule sees those. The badge is
-//            English, so live posts in other languages are left to the data rule too.
+//            with Facebook's LIVE badge, or a link to a past live video), colored (the post text
+//            drawn on a box with its own inline background). The LIVE badge is English, so live
+//            posts in other languages are left to the data rule.
+//
+// Colored, live 2026-11-03 in the groups feed: the text sits in story_message > div > a div whose
+// style attribute sets background-color and background-image (a t39.10873 picture, or a plain
+// gradient). 5 of 41 posts with text had one, the same 5 the data marked, and no other post,
+// there or in 36 on Home, had an inline background anywhere in its text.
 
 import { hostOf } from './story.js';
 import { normalizeText, visibleText } from '../dom/visible-text.js';
@@ -25,6 +30,7 @@ const VIDEO = 'video, a[href*="/reel/"], a[href*="/watch/"], a[href*="/videos/"]
 const HEADER = '[data-ad-rendering-role="profile_name"]';
 // A past live video opens at /watch/live/?v=<id> (live 2026-10-11).
 const PAST_LIVE = 'a[href*="/watch/live/"]';
+const COLORED = '[style*="background"]';
 // The badge on a live video is a leaf that reads LIVE (live 2026-10-22, on the Live tab's player),
 // never part of what the post says. Looking at leaves only spares reading every box's text.
 const liveBadge = (element) => !element.firstElementChild && element.textContent.trim() === 'LIVE' && !element.closest(MESSAGE);
@@ -47,6 +53,7 @@ export function postFields(post) {
   if (own(VIDEO).length) kinds.add('video');
   if (links.some((a) => hostOf(a.href || a.getAttribute('href')) && !a.closest(MESSAGE))) kinds.add('link');
   if (own(HEADER).length > 1) kinds.add('shared');
+  if (own(MESSAGE).some((message) => message.matches(COLORED) || message.querySelector(COLORED))) kinds.add('colored');
   const badge = () => [...post.querySelectorAll('span, div')].some((element) => liveBadge(element) && !inComment(element, post));
   if (own(PAST_LIVE).length || (own('video').length && badge())) kinds.add('live');
   return { text, authors, alt, sites, kinds };

@@ -322,6 +322,27 @@ test('page fields: a share draws a second author header, and live shows the badg
   assert.deepEqual(kinds, [['shared'], [], [], ['live'], ['live'], [], [], []]);
 });
 
+// Colored posts as the groups feed drew them signed in on 2026-11-03: the text on a box whose
+// own style sets the background, a picture or a plain gradient.
+const coloredText = (style, text = 'Who else is up this early?') => `<div><div style="${style}"><div><div>${text}</div></div></div></div>`;
+const PICTURE = 'background-color: rgb(180, 94, 115); background-image: url(&quot;https://scontent.example/v/t39.10873-6/1_n.jpg&quot;); background-position: center center; background-size: cover;';
+const GRADIENT = 'background-color: rgb(216, 58, 78); background-image: linear-gradient(45deg, rgb(216, 58, 78), rgb(255, 120, 80));';
+
+test('page fields: a colored background post is told apart by the box its text sits on', () => {
+  const win = page(post(1, { text: coloredText(PICTURE) })
+    + post(2, { text: coloredText(GRADIENT) })
+    + post(3, { text: 'Plain words' })
+    // A picture drawn with an inline background outside the text, and a colored comment.
+    + post(4, { extra: `<div style="${PICTURE}"></div><div role="article" aria-label="Comment by Someone"><div data-ad-rendering-role="story_message">${coloredText(GRADIENT)}</div></div>` })
+    + post(5, { text: '<span style="color: rgb(5, 5, 5)">Styled but not colored</span>' }));
+  const colored = [...win.document.querySelectorAll('[aria-posinset]')].map((p) => postFields(p).kinds.has('colored'));
+  assert.deepEqual(colored, [true, true, false, false, false]);
+  const fields = postFields(win.document.querySelector('[aria-posinset="1"]'));
+  assert.deepEqual(fields.text, ['Who else is up this early?'], 'its words still count');
+  assert.equal(filterVerdict({ rules: [], kinds: new Set(['colored']) }, fields), 'colored background posts');
+  assert.equal(filterVerdict({ rules: [], kinds: new Set(['photo']) }, fields), null);
+});
+
 function setupFeature(win, { words = '', lists = {}, kinds = {}, preview = false, net = null, href, toast, storage, actions = createActions() } = {}) {
   const doc = win.document;
   const values = { words, preview, ...lists, ...kinds };
