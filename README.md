@@ -69,7 +69,7 @@ If tabs import different copies at the same time, both stay saved and a notice e
 
 The extension waits for the browser to confirm each settings change. If a save fails, the last saved choice keeps running while your new choice stays visible as a draft, and General offers Retry. Changes from two tabs merge by setting. When both tabs change the same setting, the request the extension accepts last wins.
 
-During extension startup, recognized story views, watch reports, usage logs, read receipts and typing signals wait briefly for saved privacy choices. If storage can't be confirmed, those operations stay on the device and General shows Retry. Unrelated traffic isn't delayed.
+During extension startup, recognized story views, watch reports, usage logs, ad reports, read receipts and typing signals wait briefly for saved privacy choices. If storage can't be confirmed, those operations stay on the device and General shows Retry. Unrelated traffic isn't delayed.
 
 Settings are in English for now. General has a Language choice that's ready for translations, plus two test layouts. One stretches every phrase so text that gets cut off stands out, and the other mirrors the panel right to left. Facebook's own language doesn't change it, and Reset to defaults keeps it. The log and Copy report stay in English, so a report reads the same whoever gets it.
 
@@ -87,7 +87,7 @@ Every switch starts off except the ones that only remove things nobody asked for
 - **News feed:** Hide sponsored posts, Hide suggested posts, Hide reel rows in the feed, Hide Stories tray, Hide posts by words, Hide seen posts, Hide AI-detected posts, Show full post dates, Keep your place in the feed, Hide Follow and Join buttons, Expand long posts.
 - **Reels:** Hide sponsored reels, Don't send watch history, Clean up Reels, Hold a reel for 2x.
 - **Search and Marketplace:** Hide sponsored search results, Don't save search history, Hide sponsored Marketplace listings, View profile on Marketplace sellers, Marketplace only.
-- **Messages and privacy:** Hide read receipts, Hide typing indicator, Hide that you're writing a comment, View stories anonymously, Hold back usage logs, Sanitize sharing links, Skip Facebook's link redirect, Trim the share menu, Open Messenger as a full page. (Read receipt and typing switches can't reach end-to-end encrypted chats.)
+- **Messages and privacy:** Hide read receipts, Hide typing indicator, Hide that you're writing a comment, View stories anonymously, Hold back usage logs, Block ad telemetry, Sanitize sharing links, Skip Facebook's link redirect, Trim the share menu, Open Messenger as a full page. (Read receipt and typing switches can't reach end-to-end encrypted chats.)
 - **Comments:** Default comment order, Show every reply, Hide GIF and sticker buttons, Hide the video comment box, Tag suggestions only after @, Show comments as written, Hide when others are writing a comment.
 - **Notifications and navigation:** Hide kinds of notifications, Following feed on Home, Open on a chosen tab, Hide tabs, Hide tab badges, Hide the New message button.
 - **Downloads:** Download any photo, video, reel or story. Download in post menus adds Download to the top of a post's three-dot menu too. A video Facebook only streams gets put together from its picture and sound right in the browser. Tampermonkey opens a tab of its own the first time you save, asking to allow downloads. If you close it instead of clicking Ok, the file still saves.

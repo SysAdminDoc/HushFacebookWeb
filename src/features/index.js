@@ -34,6 +34,7 @@ import hideFollowButtons from './feed/hide-follow-buttons.js';
 import hideCounts from './feed/hide-counts.js';
 import expandLongPosts from './feed/expand-long-posts.js';
 import holdBackLogs from './privacy/usage-logs.js';
+import blockAdTelemetry from './privacy/ad-telemetry.js';
 import hideSponsoredReels from './reels/hide-sponsored-reels.js';
 import noWatchHistory from './reels/no-watch-history.js';
 import cleanUpReels from './reels/clean-up-reels.js';
@@ -98,7 +99,7 @@ import blockInstantGamesAds from './games/block-ads.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostsByWords, hideSeenPosts, hideAiPosts, keepPostDates, keepFeedPlace, hideFollowButtons, hideCounts, expandLongPosts,
-  hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, holdBackLogs,
+  hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, holdBackLogs, blockAdTelemetry,
   commentOrder, showAllReplies, hideCommentStickers, hideVideoCommentBox, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, downloadMenu, tapToPlay, pauseOffscreenVideos, limitHdr, resumeVideos,
   keepSpeed, keepVolume, holdForSpeed, pictureInPicture, frameStep, keepControls, videoQuality, rememberWatched, hideVideoSuggestions,
   forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, screenshotMode,

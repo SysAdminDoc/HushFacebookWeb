@@ -358,6 +358,9 @@ export function installNetworkHooks({ win, log, startup }) {
     // The chat socket: see websocket.js. chatStats counts what it sent and couldn't read.
     editChatRequests: sockets.editChatRequests,
     chatStats: sockets.stats,
+    // The realtime socket's log batches (realtime.js), and what it sent and couldn't read.
+    editLogBatches: sockets.editLogBatches,
+    logStats: sockets.logStats,
     lineStats,
     startupPending: startupGate.pending,
     startupState: startupGate.state,

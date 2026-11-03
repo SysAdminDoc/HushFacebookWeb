@@ -36,6 +36,7 @@ export const QUICK_SETUPS = Object.freeze([
       'hideCommentTyping',
       'tagsAfterAt',
       'holdBackLogs',
+      'blockAdTelemetry',
       'sanitizeLinks',
       'directLinks',
     ]),
