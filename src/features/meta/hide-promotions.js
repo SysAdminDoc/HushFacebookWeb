@@ -15,6 +15,7 @@
 
 import { later } from '../../core/net/payload.js';
 import { adRule } from '../feed/ad-markers.js';
+import { hideDrawnPosts } from '../feed/drawn-posts.js';
 
 export const MARKERS = ['"eligible_promotions"', '"jewel_qp"'];
 const LISTS = ['eligible_promotions', 'jewel_qp'];
@@ -49,7 +50,7 @@ export default {
   default: false,
   needsPage: true,
 
-  setup({ net, router, enabled, diagnostics }) {
+  setup({ net, router, posts, hider, settings, enabled, diagnostics }) {
     let removed = 0;
     net.transformResponses({
       // Its own id: the hooks log a rule's first failure only, by id, and the Home rule below
@@ -69,10 +70,16 @@ export default {
         return true;
       },
     });
+    // A promotion Facebook drew on the server as Home's first post stays in the data and is
+    // hidden on the page (drawn-posts.js).
+    const onDrawn = hideDrawnPosts({ posts, hider, router, settings, enabled, reason: 'Promotion', onHide: () => {
+      removed++;
+      diagnostics?.changed();
+    } });
     net.transformResponses(adRule('hidePromotions', enabled, (fired) => {
       removed += fired.length;
       diagnostics?.changed();
-    }, { route: () => router?.current(), diagnostics, reason: 'Promotion' }));
+    }, { route: () => router?.current(), diagnostics, reason: 'Promotion', onDrawn }));
     diagnostics?.add('Cards and tips held back', () => String(removed));
   },
 };

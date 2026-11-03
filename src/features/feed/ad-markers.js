@@ -434,11 +434,35 @@ export function inScope(row, ctx, route) {
 // The id a match is known by: the story's for an edge, the object's own otherwise.
 export const matchId = (value) => value.node?.post_id ?? value.node?.id ?? value.id ?? null;
 
+// The feed edges Facebook already drew on the server, each with its place in the feed (1 for
+// the first). React hydrates those posts from the page's inline data, so taking one out there
+// leaves the drawn post with nothing to match: React throws #418 and draws the page again. Live
+// 2026-11-03 on the groups feed, that happened on every load whose first post was a suggestion
+// and on none without one. They're the edges in an inline blob's own answer ({data, extensions}).
+// Edges streamed in after it come as blobs of their own with a path, and React draws those itself.
+export function drawnEdges(doc) {
+  const places = new Map();
+  walk(doc, (value) => {
+    if (!isObject(value) || !isObject(value.data) || !('extensions' in value) || 'path' in value) return undefined;
+    walk(value.data, (inner) => {
+      if (!isObject(inner) || !Array.isArray(inner.edges)) return undefined;
+      inner.edges.forEach((edge, i) => {
+        if (isObject(edge) && 'node' in edge) places.set(edge, i + 1);
+      });
+      return undefined;
+    });
+    return SKIP;
+  });
+  return places;
+}
+
 // The network rule for one switch: its rows, on every GraphQL answer and inline page blob
 // their scope allows. onPrune gets the ids of the rows that fired. With diagnostics and a
 // reason, each match goes on the Diagnostics decision list too. Both wait until the page gets
 // the pruned answer, and the decision's id is read before the match is changed.
-export function adRule(feature, enabled, onPrune, { route, diagnostics, reason } = {}) {
+// With onDrawn, an edge the server drew (drawnEdges) keeps its node, and onDrawn gets
+// [{ place, signal }] for the page to hide those posts instead. Without it they're dropped too.
+export function adRule(feature, enabled, onPrune, { route, diagnostics, reason, onDrawn } = {}) {
   const { rows, text } = markersFor(feature);
   const noting = Boolean(diagnostics && reason);
   return {
@@ -451,13 +475,21 @@ export function adRule(feature, enabled, onPrune, { route, diagnostics, reason }
       if (!active.length) return false;
       const decisions = [];
       const report = noting ? (row, value) => decisions.push({ post: matchId(value), rule: reason, signal: row.id, layer: 'data' }) : undefined;
-      const fired = pruneAds(doc, active, report);
-      if (!fired.length) return false;
+      const drawn = onDrawn && ctx.transport === 'json-parse' ? drawnEdges(doc) : null;
+      const kept = [];
+      const keep = drawn?.size ? (row, value) => {
+        const place = row.action === 'drop-node' ? drawn.get(value) : undefined;
+        if (place) kept.push({ place, signal: row.id });
+        return Boolean(place);
+      } : undefined;
+      const fired = pruneAds(doc, active, report, keep);
+      if (!fired.length && !kept.length) return false;
       later(stage, () => {
         for (const decision of decisions) diagnostics.decide(decision);
-        onPrune?.(fired);
+        if (fired.length) onPrune?.(fired);
+        if (kept.length) onDrawn(kept);
       });
-      return true;
+      return fired.length > 0;
     },
   };
 }
@@ -480,12 +512,13 @@ export function ownGroupsRule(id, enabled, onPost, { route } = {}) {
 
 // Applies each matching row's action. Returns the ids of the rows that fired, one entry per
 // match, so an empty list means nothing changed. report(row, value) hears each match before
-// it's changed.
-export function pruneAds(doc, rows = AD_MARKERS, report) {
+// it's changed. A match keep(row, value) says yes to is left as it is and not counted.
+export function pruneAds(doc, rows = AD_MARKERS, report, keep) {
   const fired = [];
   walk(doc, (value) => {
     const row = adMarkerFor(value, rows);
     if (!row) return undefined;
+    if (keep?.(row, value)) return SKIP;
     report?.(row, value);
     if (row.action === 'empty-list') {
       for (const [key, empty] of Object.entries(row.empty)) if (key in value) value[key] = Array.isArray(empty) ? [] : empty;

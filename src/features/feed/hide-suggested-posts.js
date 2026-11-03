@@ -16,6 +16,7 @@ import { adRule, FEEDS, groupInHref, ownGroupsRule } from './ad-markers.js';
 import { CANDIDATE_SELECTOR } from '../../core/dom/posts.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { normalizeText, visibleText } from '../../core/dom/visible-text.js';
+import { hideDrawnPosts } from './drawn-posts.js';
 
 const BUTTONS = new Map([['follow', 'Follow'], ['join', 'Join']]);
 // Your groups the data showed with a Join button, the most recent ones.
@@ -63,10 +64,15 @@ export default {
     const route = () => router?.current();
 
     if (net) {
+      // A suggestion Facebook drew on the server stays in the data and is hidden on the page.
+      const onDrawn = hideDrawnPosts({ posts, hider, router, settings, enabled, reason: 'Suggested', onHide: (signal) => {
+        tally(page, signal);
+        changed();
+      } });
       net.transformResponses(adRule('hideSuggestedPosts', enabled, (fired) => {
         for (const id of fired) tally(data, id);
         changed();
-      }, { route, diagnostics, reason: 'Suggested' }));
+      }, { route, diagnostics, reason: 'Suggested', onDrawn }));
       net.transformResponses(ownGroupsRule('hideSuggestedPosts-own-groups', enabled, (groups) => {
         own.data++;
         for (const group of groups) {

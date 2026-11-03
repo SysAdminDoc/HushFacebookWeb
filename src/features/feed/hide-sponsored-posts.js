@@ -5,6 +5,7 @@
 // a fresh load of Home sends already drawn.
 
 import { adRule } from './ad-markers.js';
+import { hideDrawnPosts } from './drawn-posts.js';
 import { createLabelCache } from '../../core/dom/label-cache.js';
 import { watchSponsoredPosts } from './sponsored-dom.js';
 import { COLUMN_AD_CSS, watchColumnAds } from './sponsored-column.js';
@@ -28,7 +29,7 @@ export default {
   default: true,
   css: () => COLUMN_AD_CSS,
 
-  setup({ doc, net, posts, hider, log, settings, diagnostics, enabled }) {
+  setup({ doc, net, router, posts, hider, log, settings, diagnostics, enabled }) {
     const data = new Map();
     const page = new Map();
     const unread = new WeakSet();
@@ -46,10 +47,12 @@ export default {
     };
 
     if (net) {
+      // An ad Facebook drew on the server stays in the data and is hidden on the page, as expected.
+      const onDrawn = hideDrawnPosts({ posts, hider, router, settings, enabled, reason: 'Sponsored', onHide: (signal) => hiddenOnPage(signal, false, true) });
       net.transformResponses(adRule('hideSponsoredPosts', enabled, (fired) => {
         for (const id of fired) data.set(id, (data.get(id) ?? 0) + 1);
         changed();
-      }, { diagnostics, reason: 'Sponsored' }));
+      }, { diagnostics, reason: 'Sponsored', onDrawn }));
     }
     // Rule ids and the script's own signal names, so Copy report can carry them.
     diagnostics?.add('Ads taken out of the data', () => (net ? summary(data) : "Off: the script can't reach the page's data"), { shareable: true });
