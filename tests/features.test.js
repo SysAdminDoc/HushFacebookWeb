@@ -26,9 +26,12 @@ test('every feature is complete and in a known section', () => {
   }
 });
 
-test('ported features retain their parity rows and the web-only addition is explicit', () => {
+// Switches with no Hushfacebook patch behind them, each added on purpose.
+const WEB_ONLY = new Set(['pauseOffscreenVideos', 'hideVideoSuggestions']);
+
+test('ported features retain their parity rows and the web-only additions are explicit', () => {
   for (const feature of features) {
-    if (feature.id === 'pauseOffscreenVideos') {
+    if (WEB_ONLY.has(feature.id)) {
       assert.equal(feature.webOnly, true, `${feature.id}: explicit web-only control`);
       assert.equal(feature.android, undefined, `${feature.id}: no invented Android counterpart`);
       continue;

@@ -36,6 +36,7 @@
 * Feed loading warnings ignore invisible markers and loaders inside readable posts. They require the same blocking loader across two checks and restart when feed pagination or posts advance. A short feed stays quiet while loading more posts, even before its post links appear on hover.
 * Hide the video comment box works when you're signed in. Facebook lays out a video's own page differently for a signed-in account, so the box stayed. It now goes away together with your picture beside it, and the boxes under feed posts and on a photo's page stay.
 * Screenshot mode covers more of a signed-in Home. Your chat list blurs each person's name, picture and last message, and notifications blur the sentence that names people while the time stays readable. Your first name in "What's on your mind" blurs too, along with names in the story viewer's list and the Pages and places a reel's caption tags.
+* New Playback switch, Hide suggested videos under a video, off by default. When a video opens on its own page, the list of other videos Facebook lines up under it goes away. When yours ends, the page no longer scrolls down and starts the next one. The video, its post and its comments stay.
 * Settings and page cleanup still start if another tool prevents the network hooks from loading. Partial hooks are removed, Diagnostics says which protection is off, and XHR wrappers with inherited response getters work.
 
 ## v0.0.6 (2026-10-22)
