@@ -29,6 +29,7 @@
 * Feed checks follow posts moved into or out of another post, so reused markup is checked again.
 * Download recognizes videos whose data contains only a stream manifest, and uses refreshed photo links when the picture size stays the same.
 * The XHR regression check waits for completion rather than racing a short timer.
+* The extension storage checks wait for a failed read's retries to run out instead of a fixed 225 ms, which a busy test run could miss.
 * Building requires Node 24.22.1 or a newer Node 24.x build. Release preflight explains how to update an older runtime.
 * The watched list keeps older entries during a slow startup and merges additions from other tabs. Clear keeps older pending entries out, and failed saves can be retried in Playback.
 * Trim the share menu follows targets that load their names and links late, and clears old choices when a dialog is reused. Copy link stays available, and unrelated social-link lists stay untouched.

@@ -41,7 +41,13 @@ const deferred = () => {
   });
   return { promise, resolve, reject };
 };
-const revisions = (epoch, order, keys = {}) => ({
+// The isolated half retries a failed read after 50 ms and 150 ms before it gives up, and a busy
+// test run fires those timers late, so this waits for the state rather than a fixed time.
+const untilState = async (storage, state, timeout = 5000) => {
+  const end = Date.now() + timeout;
+  while (storage.status().state !== state && Date.now() < end) await settle();
+};
+const revisions =(epoch, order, keys = {}) => ({
   [STORAGE_REVISION_EPOCH_KEY]: epoch,
   [STORAGE_REVISION_ORDER_KEY]: order,
   ...keys,
@@ -1561,7 +1567,7 @@ test('an unverifiable storage callback reports an error without replacing confir
   const read = chrome.storage.local.get;
   chrome.storage.local.get = async () => { throw new Error('storage unavailable'); };
   chrome.emitStorageChange({ settings: { oldValue: { older: true }, newValue: { stale: true } } });
-  await new Promise((resolve) => setTimeout(resolve, 225));
+  await untilState(storage, 'error');
 
   assert.deepEqual(storage.get('settings'), { current: true });
   assert.equal(storage.status().state, 'error');
@@ -1595,7 +1601,7 @@ test('retry adopts the current storage generation after its transition callback 
     settings: { oldValue: { before: true }, newValue: { fresh: true } },
     [STORAGE_REVISIONS_KEY]: { oldValue: before, newValue: current },
   });
-  await new Promise((resolve) => setTimeout(resolve, 225));
+  await untilState(storage, 'error');
   assert.equal(storage.status().state, 'error');
   assert.deepEqual(storage.get('settings'), { before: true });
 
@@ -1626,7 +1632,7 @@ test('retry classifies a missed same-token rollback as a new generation', async 
     settings: { oldValue: { before: true }, newValue: { rolledBack: true } },
     [STORAGE_REVISIONS_KEY]: { oldValue: before, newValue: rolledBack },
   });
-  await new Promise((resolve) => setTimeout(resolve, 225));
+  await untilState(storage, 'error');
   assert.equal(storage.status().state, 'error');
 
   chrome.storage.local.get = read;
@@ -1653,7 +1659,7 @@ test('a same-generation push during retry outranks its delayed snapshot', async 
   const read = chrome.storage.local.get;
   chrome.storage.local.get = async () => { throw new Error('storage unavailable'); };
   chrome.emitStorageChange({ settings: { oldValue: { older: true }, newValue: { missed: true } } });
-  await new Promise((resolve) => setTimeout(resolve, 225));
+  await untilState(storage, 'error');
   assert.equal(storage.status().state, 'error');
 
   const delayed = deferred();
@@ -1694,7 +1700,7 @@ test('a reconciliation failure during retry keeps its error and rejects the olde
   const read = chrome.storage.local.get;
   chrome.storage.local.get = async () => { throw new Error('first callback unavailable'); };
   chrome.emitStorageChange({ settings: { oldValue: { before: true }, newValue: { missed: true } } });
-  await new Promise((resolve) => setTimeout(resolve, 225));
+  await untilState(storage, 'error');
   assert.equal(storage.status().state, 'error');
 
   const delayed = deferred();
@@ -1708,7 +1714,7 @@ test('a reconciliation failure during retry keeps its error and rejects the olde
   await settle();
   chrome.data.settings = { newer: true };
   chrome.emitStorageChange({ settings: { oldValue: { missed: true }, newValue: { newer: true } } });
-  await new Promise((resolve) => setTimeout(resolve, 225));
+  await untilState(storage, 'error');
   assert.equal(storage.status().state, 'error');
 
   delayed.resolve({ settings: { stale: true }, [STORAGE_REVISIONS_KEY]: record });
@@ -1737,7 +1743,7 @@ test('a verified full snapshot recovers a dropped direct value at the same key r
   const read = chrome.storage.local.get;
   chrome.storage.local.get = async () => { throw new Error('storage unavailable'); };
   await chrome.storage.local.set({ settings: { fresh: true } });
-  await new Promise((resolve) => setTimeout(resolve, 225));
+  await untilState(storage, 'error');
   chrome.storage.local.get = read;
   assert.deepEqual(storage.get('settings'), { old: true }, 'the unverified direct callback stays hidden');
 
