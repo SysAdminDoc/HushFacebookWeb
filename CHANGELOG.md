@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Keep your place in the feed now says it also covers going back from a post or its comments. Facebook refreshes Home when you close a post after a time limit it sets per account. That's half an hour by default but can be a few seconds, so Back from the comments jumped to the top of a fresh feed. The switch already held that limit and was checked live with it set to five seconds.
 * The "feed is still loading" notice has a Stop these warnings button, and General has a Warn when the feed seems stuck switch to bring it back. With it off, Diagnostics and Copy report still record the check.
 * Ads in the first screen of the feed are removed from the data again instead of being hidden after they're drawn. Facebook checks whether its data reader has been tampered with, and the ad rules were tripping that check. When it trips, Facebook reads the first page with a reader of its own that Hush can't reach.
 * Feed data that another blocker edits while it streams in (uBlock Origin's Facebook quick fixes do this) is read one whole line at a time, so a line it rewrites halfway through can't end up spliced into the next one.

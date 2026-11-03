@@ -7,7 +7,10 @@
 //                                      back after FEED_STALE_TIMEOUT (600 s idle)
 //   useCometFeedPushViewCloseRefresh   reloads it when a post or photo opened over the feed
 //                                      closes after FEED_STALE_PUSH_VIEW_TIMEOUT (an experiment,
-//                                      1800 s when it's unset)
+//                                      1800 s when it's unset). Live 2026-11-03 with it set to
+//                                      5 s, Back from a post's comments scrolled Home to the top
+//                                      and fetched CometModernHomeFeedQuery again, and with the
+//                                      switch on stayed at the same post
 //   useStaleSessionReturnToFeed        sends a group, Marketplace, search, saved items and some
 //                                      other pages to Home after 1800 s away, with a "Pick up
 //                                      where you left off" toast, for the routes
@@ -70,7 +73,7 @@ export default {
   section: 'feed',
   android: 'Block background-return feed refresh',
   title: 'Keep your place in the feed',
-  description: "Facebook reloads Home from the top when you come back after a couple of minutes in another tab, or ten minutes away from the computer. After half an hour away it also moves you from a group, Marketplace or search to Home. With this on, you stay where you were.",
+  description: "Facebook reloads Home from the top when you come back after a couple of minutes in another tab, or ten minutes away from the computer. Going back from a post or its comments can refresh it too. After half an hour away it also moves you from a group, Marketplace or search to Home. With this on, you stay where you were.",
   default: false,
   needsPage: true,
 

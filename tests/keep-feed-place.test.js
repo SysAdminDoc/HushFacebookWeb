@@ -29,6 +29,8 @@ function fillRoutes(exports) {
 const reloadsHome = (limits, idleMs, hiddenMs) => idleMs > limits.FEED_STALE_TIMEOUT || hiddenMs > limits.FEED_VISIBILITY_TIMEOUT;
 // useStaleSessionReturnToFeed, half an hour away on one of the routes it covers:
 const sendsHome = (routes, route, awayMs) => routes.isRouteEligible(route) && awayMs > 1800 * 1e3;
+// useCometFeedPushViewCloseRefresh, when the last post or photo opened over Home closes:
+const reloadsOnClose = (limits, openMs) => openMs > limits.FEED_STALE_PUSH_VIEW_TIMEOUT;
 const HOUR = 3600 * 1e3;
 const WAITING = "Facebook's code isn't loaded yet";
 
@@ -39,7 +41,7 @@ const WAITING = "Facebook's code isn't loaded yet";
 // exports), and a factory that throws is kept as a failure. requireLazy asks for the modules it
 // names as soon as they're defined. Facebook's experiment values come with the page, and reading
 // one that hasn't arrived throws invariant 11799.
-function page({ loaderLater = false, stub = false, experimentsLater = false } = {}) {
+function page({ loaderLater = false, stub = false, experimentsLater = false, pushViewSeconds = null } = {}) {
   const factories = new Map();
   const results = new Map();
   const experiments = new Map();
@@ -110,7 +112,7 @@ function page({ loaderLater = false, stub = false, experimentsLater = false } = 
     win.__d = stub ? stubDefiner : loader;
     win.requireLazy = requireLazy;
   };
-  if (!experimentsLater) experiments.set('2712', null);
+  if (!experimentsLater) experiments.set('2712', pushViewSeconds);
   if (!loaderLater) setUp();
   return {
     win,
@@ -224,6 +226,19 @@ test('the limit for a post opened over the feed is a timer delay that waits, nev
   await new Promise((resolve) => setTimeout(resolve, 30));
   clearTimeout(timer);
   assert.equal(fired, false);
+});
+
+test("Back from a post's comments keeps Home where it was, even on an account Facebook gives a limit of seconds", () => {
+  // Live 2026-11-03 with the experiment at 5 s: Back after 7 s reloaded Home at the top without
+  // the switch, and stayed at the same post with it on.
+  const run = start({ pushViewSeconds: 5 });
+  run.fb.define(CONSTANTS, fillConstants);
+  const limits = run.fb.require(CONSTANTS);
+  assert.equal(reloadsOnClose(limits, 7 * 1e3), false);
+  assert.equal(reloadsOnClose(limits, 24 * HOUR), false);
+  run.turn(false);
+  assert.equal(limits.FEED_STALE_PUSH_VIEW_TIMEOUT, 5 * 1e3, "Facebook's own limit is back with the switch off");
+  assert.equal(reloadsOnClose(limits, 7 * 1e3), true);
 });
 
 test('a group, Marketplace or search stays put after half an hour away with the switch on', () => {
