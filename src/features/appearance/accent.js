@@ -73,8 +73,10 @@ export const INDICATOR = 3;
 // amoled.js) it had comment bubbles #333334 and cards #252728. Signed out on 2026-10-18 it had
 // bubbles #3A3B3C and cards #242526. Text boxes and toasts were #242526 in both. Where they
 // differ the lighter one is used, since a light shade reads worst there. AMOLED's surfaces
-// are all darker, so a shade that reads in dark mode reads there too.
-export const SURFACES = { white: '#FFFFFF', wash: '#F0F2F5', bubble: '#3A3B3C', card: '#252728', box: '#242526' };
+// are all darker, so a shade that reads in dark mode reads there too. Signed in on 2026-11-03
+// dark mode drew a hovered row on a card at #3B3D3E (white at 10% over #252728) and menus at
+// #3B3C3E, a touch lighter than the bubbles, and links sit on both.
+export const SURFACES = { white: '#FFFFFF', wash: '#F0F2F5', bubble: '#3A3B3C', card: '#252728', box: '#242526', raised: '#3B3D3E' };
 
 // Your color laid over a surface at some opacity, as Facebook draws dark mode's tinted buttons.
 export function over(rgb, surface, a) {
@@ -95,7 +97,14 @@ function readable([h, s], from, by, surfaces, ratio) {
 // Facebook's steps for its own blue (#0866FF, lightness 52): links #0064D1 (41) in light mode
 // and #5AA7FF (68) in dark mode, outlined buttons #DDEDFE (93), selected rows #EBF5FF (96).
 // A color too light or too dark for a step gets the nearest shade that still reads. Button
-// text is white or black, whichever stands out more on your color.
+// text is white or black, whichever stands out more on your color, and so is the text on dark
+// mode's toggles.
+//
+// Facebook's pressed button is a paler blue under the same white text (#77A7FF, 2.5:1). Here it
+// moves away from the text instead, darker under white and lighter under black, so the label
+// still reads while the button is held.
+const textOn = (hex) => (contrast(hex, '#FFFFFF') >= contrast(hex, '#000000') ? '#FFFFFF' : '#000000');
+
 export function palette(hex) {
   const rgb = parseHex(hex);
   if (!rgb) return null;
@@ -107,21 +116,25 @@ export function palette(hex) {
   const lighter = (from, surfaces, ratio = TEXT) => readable(hsl, from, 1, surfaces, ratio);
   const alpha = (a) => `rgba(${rgb.join(', ')}, ${a})`;
   const button = at(93);
+  const onBase = textOn(base);
+  const darkFocus = lighter(Math.max(l, 55), [SURFACES.card, SURFACES.bubble], INDICATOR);
   return {
     base,
-    onBase: contrast(base, '#FFFFFF') >= contrast(base, '#000000') ? '#FFFFFF' : '#000000',
+    onBase,
+    pressed: onBase === '#FFFFFF' ? darker(Math.max(l - 10, 0), [onBase]) : lighter(Math.min(l + 10, 100), [onBase]),
     alpha,
     light: {
       focus: darker(l, [SURFACES.white, SURFACES.wash], INDICATOR),
       link: darker(Math.min(l, 41), [SURFACES.white, SURFACES.wash, button]),
       toastLink: darker(Math.min(l, 49), [SURFACES.white]),
-      pressed: at(Math.max(l, 73)), button, highlight: at(95), selected: at(96),
+      button, highlight: at(95), selected: at(96),
     },
     dark: {
-      focus: lighter(Math.max(l, 55), [SURFACES.card, SURFACES.bubble], INDICATOR),
+      focus: darkFocus,
+      onFocus: textOn(darkFocus),
       label: lighter(Math.max(l, 61), [SURFACES.box]),
       toastLink: lighter(Math.max(l, 64), [SURFACES.box]),
-      link: lighter(Math.max(l, 68), [SURFACES.card, SURFACES.bubble]),
+      link: lighter(Math.max(l, 68), [SURFACES.card, SURFACES.bubble, SURFACES.raised]),
       deemphasized: lighter(Math.max(l, 73), [over(rgb, SURFACES.card, 0.2)]),
     },
   };
@@ -153,18 +166,19 @@ const block = (selector, vars) => `${selector} {\n${Object.entries(vars).map(([n
 export function accentCss(hex) {
   const colors = palette(hex);
   if (!colors) return '';
-  const { base, onBase, alpha, light, dark } = colors;
+  const { base, onBase, pressed, alpha, light, dark } = colors;
   const shared = {
-    '--accent': base, '--primary-button-background': base, '--primary-button-text': onBase, '--primary-button-icon': onBase,
+    '--accent': base, '--primary-button-background': base, '--primary-button-text': onBase, '--primary-button-icon': onBase, '--primary-button-pressed': pressed,
     '--cursor': base, '--progress-ring-blue-foreground': base, '--progress-ring-blue-background': alpha(0.2),
     '--primary-deemphasized-button-pressed-overlay': alpha(0.15), '--filter-primary-accent': url(FILTER_IDS.base),
   };
   // Light first: Facebook's light rule also matches a bare :root, so the dark block has to
-  // come after it to win on <html> in dark mode.
+  // come after it to win on <html> in dark mode. That also means anything the light block sets
+  // and the dark one doesn't shows in dark mode too, as the toggle text once did (live 2026-11-03).
   return [
     block(':root, .__fb-light-mode', {
       ...shared,
-      '--focus-ring-blue': light.focus, '--primary-button-pressed': light.pressed,
+      '--focus-ring-blue': light.focus,
       '--blue-link': light.link, '--primary-deemphasized-button-text': light.link, '--primary-deemphasized-button-icon': light.link,
       '--toggle-active-icon': light.link, '--toggle-active-text': light.link, '--input-label-color-highlighted': light.link,
       '--toast-text-link': light.toastLink, '--primary-deemphasized-button-background': light.button,
@@ -175,7 +189,7 @@ export function accentCss(hex) {
     }),
     block('.__fb-dark-mode', {
       ...shared,
-      '--focus-ring-blue': dark.focus, '--toggle-active-background': dark.focus, '--primary-button-pressed': dark.deemphasized,
+      '--focus-ring-blue': dark.focus, '--toggle-active-background': dark.focus, '--toggle-active-text': dark.onFocus, '--toggle-active-icon': dark.onFocus,
       '--blue-link': dark.link, '--primary-deemphasized-button-text': dark.deemphasized, '--primary-deemphasized-button-icon': dark.deemphasized,
       '--input-label-color-highlighted': dark.label, '--toast-text-link': dark.toastLink,
       '--primary-deemphasized-button-background': alpha(0.2), '--highlight-bg': alpha(0.31), '--text-highlight': alpha(0.45),

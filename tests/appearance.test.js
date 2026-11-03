@@ -322,7 +322,7 @@ test('accent text and focus shades read on the surfaces they sit on, for every p
   const customs = ['#999999', '#D1D100', '#FFD54F', '#00FFFF', '#FFFFFF', '#000000', '#202020', '#000080', '#FF00AA', '#0866FF', '#0014F0'];
   for (const hex of [...ACCENTS.map((accent) => accent.hex), ...customs]) {
     const rgb = parseHex(hex);
-    const { base, onBase, light, dark } = palette(hex);
+    const { base, onBase, pressed, light, dark } = palette(hex);
     const reads = (shade, surfaces, ratio, what) => {
       for (const surface of surfaces) {
         const ratioThere = contrast(shade, surface);
@@ -330,14 +330,16 @@ test('accent text and focus shades read on the surfaces they sit on, for every p
       }
     };
     reads(onBase, [base], 4.5, 'button text');
+    reads(onBase, [pressed], 4.5, 'button text on a pressed button');
     reads(light.link, [SURFACES.white, SURFACES.wash, light.button, light.highlight, light.selected], 4.5, 'light link');
     reads(light.toastLink, [SURFACES.white], 4.5, 'light toast link');
     reads(light.focus, [SURFACES.white, SURFACES.wash], 3, 'light focus ring');
-    reads(dark.link, [SURFACES.card, SURFACES.bubble, ...amoled], 4.5, 'dark link');
+    reads(dark.link, [SURFACES.card, SURFACES.bubble, SURFACES.raised, '#3B3C3E', ...amoled], 4.5, 'dark link on cards, bubbles, hovered rows and menus');
     reads(dark.label, [SURFACES.box, ...amoled], 4.5, 'dark field label');
     reads(dark.toastLink, [SURFACES.box, ...amoled], 4.5, 'dark toast link');
     reads(dark.deemphasized, [over(rgb, SURFACES.card, 0.2), over(rgb, '#000000', 0.2)], 4.5, 'dark outlined button');
     reads(dark.focus, [SURFACES.card, SURFACES.bubble, ...amoled], 3, 'dark focus ring');
+    reads(dark.onFocus, [dark.focus], 4.5, 'dark toggle text');
     // The shades only get lighter or darker, so a colorful choice keeps its hue.
     const [hue, saturation] = toHsl(rgb);
     if (saturation < 20) continue;
@@ -352,6 +354,13 @@ test('accent text and focus shades read on the surfaces they sit on, for every p
   assert.ok(contrast('#D1D100', SURFACES.white) < 2);
   assert.ok(toHsl(parseHex(yellow.light.link))[2] < 30);
   assert.notEqual(yellow.light.focus, yellow.base);
+  // Facebook's own pressed blue under white text, which the pressed shade used to copy.
+  assert.ok(contrast('#FFFFFF', '#77A7FF') < 3);
+  for (const { hex } of ACCENTS) {
+    const { base, onBase, pressed } = palette(hex);
+    assert.notEqual(pressed, base, `${hex} shows a press`);
+    assert.ok(contrast(onBase, pressed) > contrast(onBase, base), `${hex} pressed moves away from its text`);
+  }
 });
 
 test('accent color sets both themes, the dark one after the light one', () => {
@@ -369,6 +378,13 @@ test('accent color sets both themes, the dark one after the light one', () => {
   assert.equal(light['--blue-link'], colors.light.link);
   assert.equal(dark['--blue-link'], colors.dark.link);
   assert.notEqual(light['--blue-link'], dark['--blue-link']);
+  assert.equal(light['--primary-button-pressed'], colors.pressed);
+  assert.equal(dark['--primary-button-pressed'], colors.pressed);
+  // The light block also matches :root, so dark has to set its own toggle text or the light
+  // link shade shows on dark mode's toggles.
+  assert.equal(dark['--toggle-active-text'], colors.dark.onFocus);
+  assert.equal(dark['--toggle-active-icon'], colors.dark.onFocus);
+  assert.equal(dark['--toggle-active-background'], colors.dark.focus);
   assert.equal(light['--filter-accent'], 'url("#hfw-accent-base")');
   assert.equal(dark['--filter-blue-link-icon'], 'url("#hfw-accent-link-dark")');
   const pale = palette('#D1D100');
