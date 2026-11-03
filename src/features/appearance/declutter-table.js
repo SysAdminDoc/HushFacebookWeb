@@ -58,9 +58,13 @@ export const PROMOTION_ROWS = [
   { option: 'gaming', label: 'Gaming Video and Play games', link: [section('/gaming/'), section('/gaming/play/')].join(', ') },
 ];
 
-// Meta's other apps and devices. Meta Verified and Threads pitches haven't shown up on the web
-// for the test account, so there's no row for them yet.
-export const UPSELL_LINK = [OFFSITE, section('/messenger_kids/')].join(', ');
+// Meta's other apps and devices, and its AI chats: the menu's Chat with AIs is AI Studio, on a
+// Facebook subdomain the offsite rule leaves alone (live 2026-11-03, beside a Threads row that
+// leaves through the redirect like the rest). Meta Verified hasn't shown up on the web for the
+// test account (the menu, the account menu, Marketplace and Home swept 2026-11-03), so there's
+// no row for it yet.
+const AI_STUDIO = 'a[href^="https://aistudio.facebook.com/"]';
+export const UPSELL_LINK = [OFFSITE, section('/messenger_kids/'), AI_STUDIO].join(', ');
 
 // The box to hide for each place, given a link selector list.
 const each = (link, wrap) => link.split(/,\s*(?![^()]*\))/).map(wrap).join(',\n');

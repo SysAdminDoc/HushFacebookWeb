@@ -62,6 +62,7 @@ const HOME = `
     ${item('Events', `${FB}/events?ref=x`)}${item('Play games', `${FB}/gaming/play/?ref=x`)}${item('Ads Manager', `${FB}/ad_campaign/landing.php?ref=x`)}
     ${item('Your Ad Activity', `${FB}/ads/activity/?ref=x`)}${item('Meta AI', out('https://www.meta.ai/'))}${item('WhatsApp', out('https://www.whatsapp.com/'))}
     ${item('Instagram', out('https://www.instagram.com/'))}${item('Messenger Kids', `${FB}/messenger_kids/?ref=x`)}${item('Saved', `${FB}/saved/?ref=x`)}
+    ${item('Chat with AIs', 'https://aistudio.facebook.com/?entry_point=bookmark')}${item('Threads', out('https://www.threads.com/'))}
   </div>
   <div role="list">${item('Page', '/pages/creation/')}${item('Ad', '/ads/create_ad/')}${item('Event', '/events/create/')}${item('Fundraiser', '/fundraiser/with_presence/create_dialog/')}</div>
 </div>
@@ -120,7 +121,7 @@ test('Hide Meta upsells takes Meta\'s other apps out, never a post\'s links or M
   assert.equal(hideMetaUpsells.css, UPSELLS_CSS);
   assert.deepEqual(hiddenBy(win, UPSELLS_CSS), [
     'left:Messenger Kids', 'left:Meta AI', 'left:Meta Quest 3S', 'left:Ray-Ban Meta',
-    'menu:Instagram', 'menu:Messenger Kids', 'menu:Meta AI', 'menu:WhatsApp',
+    'menu:Chat with AIs', 'menu:Instagram', 'menu:Messenger Kids', 'menu:Meta AI', 'menu:Threads', 'menu:WhatsApp',
   ]);
 });
 
@@ -144,7 +145,7 @@ test('on web.facebook.com the absolute links carry that host, and every switch s
   ]);
   assert.deepEqual(hiddenBy(win, UPSELLS_CSS), [
     'left:Messenger Kids', 'left:Meta AI', 'left:Meta Quest 3S', 'left:Ray-Ban Meta',
-    'menu:Instagram', 'menu:Messenger Kids', 'menu:Meta AI', 'menu:WhatsApp',
+    'menu:Chat with AIs', 'menu:Instagram', 'menu:Messenger Kids', 'menu:Meta AI', 'menu:Threads', 'menu:WhatsApp',
   ]);
 });
 
