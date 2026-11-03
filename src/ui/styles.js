@@ -257,7 +257,7 @@ nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surfac
   .footer-brand { display: none; }
 }
 @media (max-width: 380px) { .brand-icon { display: none; } }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 @media (forced-colors: active) {
   .switch { appearance: auto; }
   .switch::after { display: none; }
