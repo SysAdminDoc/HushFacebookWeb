@@ -913,6 +913,30 @@ const press = (win, target, name, init = {}) => {
   return event;
 };
 
+// A reel in the feed as drawn live 2026-11-03: a square link to the reel around a letterboxed
+// video, its owner and Unmute inside.
+test('Tab to a reel in the feed brings its button up, though the video fills little of its link', () => {
+  const win = page('<div class="post" tabindex="0"><a class="reel" href="/reel/1/?s=single_unit"><video class="one"></video><div role="button" tabindex="0">Unmute</div></a><a class="elsewhere" href="/somepage/"><video class="two"></video></a></div>');
+  const doc = win.document;
+  const [post, reel, one, elsewhere, two] = ['.post', 'a.reel', 'video.one', 'a.elsewhere', 'video.two'].map((s) => doc.querySelector(s));
+  box(post, [0, 0, 680, 1400]);
+  box(reel, [0, 60, 680, 680]);
+  box(one, [148, 144, 383, 512]);
+  box(elsewhere, [0, 760, 680, 680]);
+  box(two, [148, 844, 383, 512]);
+  const found = [];
+  const button = createDownloadButton({ doc, win, active: () => true, find: (element) => (found.push(element.className), {}), run: async () => {} });
+  press(win, doc.body, 'Tab');
+  post.focus();
+  assert.equal(button.state().shown, false, 'the post is not its reel');
+  elsewhere.focus();
+  assert.equal(button.state().shown, false, 'a link somewhere else is not the video it holds');
+  reel.focus();
+  assert.equal(button.state().shown, true);
+  assert.deepEqual(found, ['one']);
+  button.stop();
+});
+
 test('Tab to a photo brings its Download button up, steps onto it and moves on past it', async () => {
   const win = page('<a class="before" href="/x">x</a><div class="post" tabindex="0"><a class="photo" href="/photo/?fbid=1"><img></a><div class="like" tabindex="0">Like</div></div><a class="other" href="/photo/?fbid=2"><img class="two"></a>');
   const doc = win.document;

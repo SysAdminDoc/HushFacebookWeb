@@ -28,6 +28,7 @@
 * Streamed video downloads enforce a combined 750 MB transfer limit, even when size hints are missing or too small. Cancel and transfer failures stop every part, and a failed save releases its temporary link.
 * Feed checks follow posts moved into or out of another post, so reused markup is checked again.
 * Download recognizes videos whose data contains only a stream manifest, and uses refreshed photo links when the picture size stays the same.
+* Tabbing to a reel in the feed now brings up its Download button, and Pop out when that's on. The reel's link is a big square with the video letterboxed inside it, so focus there never counted as being on the video.
 * The XHR regression check waits for completion rather than racing a short timer.
 * The extension storage checks wait for a failed read's retries to run out instead of a fixed 225 ms, which a busy test run could miss.
 * Building requires Node 24.22.1 or a newer Node 24.x build. Release preflight explains how to update an older runtime.

@@ -121,6 +121,24 @@ function covers(media, box) {
   return width > 0 && height > 0 && width * height >= area / 2;
 }
 
+// A link to the reel or video it holds is that video's frame, however little of it the video
+// fills: a reel in the feed is a 680x680 link around a letterboxed 383x512 video, with its
+// owner, Follow and Unmute drawn inside it (live 2026-11-03). A post isn't a link.
+const VIDEO_PATH = /^\/(?:reel|watch|videos?)\/|\/videos\//;
+
+function videoLinkFor(element) {
+  if (element.tagName !== 'A' || !element.hasAttribute('href')) return null;
+  let path;
+  try {
+    path = new URL(element.getAttribute('href'), element.ownerDocument.baseURI).pathname;
+  } catch {
+    return null;
+  }
+  if (!VIDEO_PATH.test(path)) return null;
+  const videos = [...element.querySelectorAll('video')].filter(isMedia);
+  return videos.length === 1 ? videos[0] : null;
+}
+
 // The photo or video a focused element belongs to: itself, the one filling it (a photo's link),
 // or one close by in the page that it sits on (a player's controls). A Like button under a
 // photo, or a whole post holding one, belongs to neither.
@@ -131,6 +149,8 @@ export function mediaFor(element) {
   for (const media of element.querySelectorAll('video, img')) {
     if (isMedia(media) && covers(media.getBoundingClientRect(), box)) return media;
   }
+  const framed = videoLinkFor(element);
+  if (framed) return framed;
   const x = (box.left + box.right) / 2;
   const y = (box.top + box.bottom) / 2;
   // Media inside the element was judged above, so a post isn't taken for its photo here.
