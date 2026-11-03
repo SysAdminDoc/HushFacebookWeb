@@ -57,6 +57,14 @@ import { feedCategory } from './feed-category.js';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+// A node Facebook draws is a Relay record, and every record names its __typename. Facebook's
+// anti-adblock code (GHLDetectionUtilsPreludeSafe, live 2026-11-03) first parses a canary whose
+// nodes are bare objects carrying th_dat_spo and the label's typename. A node missing from it
+// says JSON.parse is hooked, and Facebook then reads the first page's data with a parser of its
+// own, out of reach, so every ad on that page gets drawn. The rows keyed on a field take records
+// only.
+const isRecord = (node) => isObject(node) && typeof node.__typename === 'string';
+
 const LABEL_TYPENAME = 'CometStorySponsoredLabelStrategy';
 const FOLLOW_TYPENAME = 'CometFeedStoryFollowButtonStrategy';
 const JOIN_TYPENAME = 'GroupJoinForumAction';
@@ -220,7 +228,7 @@ export const AD_MARKERS = [
     surface: 'news feed (older shape)',
     seen: 'not yet',
     text: ['"sponsored_data":{'],
-    match: (edge, node) => isObject(node) && node.sponsored_data != null,
+    match: (edge, node) => isRecord(node) && node.sponsored_data != null,
     action: 'drop-node',
   },
   {
@@ -229,7 +237,7 @@ export const AD_MARKERS = [
     surface: 'news feed',
     seen: '2026-10-10: null on every organic feed story, set inside a search ad',
     text: ['"th_dat_spo":{'],
-    match: (edge, node) => isObject(node) && node.th_dat_spo != null,
+    match: (edge, node) => isRecord(node) && node.th_dat_spo != null,
     action: 'drop-node',
   },
   {
@@ -239,7 +247,7 @@ export const AD_MARKERS = [
     seen: '2026-10-10: the "Ad" label section of a search ad',
     text: [`"${LABEL_TYPENAME}"`],
     // Only on real edges (with a cursor): a wrapper holding an ad deep inside isn't an ad.
-    match: (edge, node) => isObject(node) && 'cursor' in edge && hasSponsoredLabel(node),
+    match: (edge, node) => isRecord(node) && 'cursor' in edge && hasSponsoredLabel(node),
     action: 'drop-node',
   },
   // After the rows above, which name the drop when they see it too.

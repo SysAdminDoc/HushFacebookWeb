@@ -11,6 +11,7 @@ import {
 } from '../src/features/feed/ad-markers.js';
 import { parseRoute } from '../src/core/route.js';
 import { features } from '../src/features/index.js';
+import { installNetworkHooks } from '../src/core/net/hooks.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
 import { categoryHash } from '../src/features/feed/feed-category.js';
 
@@ -547,4 +548,30 @@ test('AI-labeled posts go from the feeds and search, never from a post opened by
     assert.equal(run(inline)[1], expected, href);
   }
   assert.ok(fired.length > 0 && fired.every((id) => id === 'genai_label'));
+});
+
+// Facebook's anti-adblock code parses a canary before it trusts JSON.parse with the first page's
+// data, built as GHLDetectionUtilsPreludeSafe builds it (live 2026-11-03; the __bbox part only
+// when window.Env carries ubzald07). If any of its nodes comes back missing it reads the page
+// with its own parser instead, and the inline ads never reach the rules.
+const DECOY = '{"node":{"s":{"__typename":"SponsoredData"}}}';
+const LABEL_DECOY = ',"__bbox":{"result":{"data":{"node":{"s":{"__typename":"CometStorySponsoredLabelStrategy"},"th_dat_spo":{"s":1}}}}}';
+const canary = (extra) => `{"data":${DECOY},"edges":[${DECOY}],"require":[${DECOY}],"r2":"3f0a7c1b9e42d685","extensions":{"is_final":true}${extra}${' '.repeat(4079)}}`;
+const poisoned = (doc) => doc?.data?.node == null || doc?.edges?.[0]?.node == null || doc?.require?.[0]?.node == null
+  || (doc?.__bbox != null && doc.__bbox.result?.data?.node == null);
+
+test("Facebook's parse canary comes back whole, boxed or wrapped, while a real ad parsed the same way still goes", () => {
+  const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/' } };
+  const net = installNetworkHooks({ win, log: { error() {}, warn() {}, info() {}, debug() {} } });
+  for (const feature of new Set(AD_MARKERS.map((row) => row.feature))) net.transformResponses(adRule(feature, () => true));
+  for (const extra of ['', LABEL_DECOY]) {
+    const text = canary(extra);
+    assert.equal(poisoned(win.JSON.parse(text)), false, `plain ${extra ? 'with' : 'without'} the label part`);
+    assert.equal(poisoned(win.JSON.parse(`{"q7z":${text}}`).q7z), false, `boxed ${extra ? 'with' : 'without'} the label part`);
+    assert.equal(poisoned(win.JSON.parse(`[${text}]`)[0]), false, `wrapped ${extra ? 'with' : 'without'} the label part`);
+  }
+  const page = { data: { viewer: { news_feed: { edges: [edge2026('fine'), labelOnly(), SAMPLES.th_dat_spo()] } } } };
+  const boxed = win.JSON.parse(`{"q7z":${JSON.stringify(page)}}`).q7z;
+  assert.deepEqual(boxed.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null), ['fine', null, null]);
+  net.teardown();
 });
