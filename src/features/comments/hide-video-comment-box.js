@@ -9,6 +9,12 @@
 // more-videos posts stay, like every other comment box. The box is the one posts use
 // (hide-comment-stickers.js): a form[role=presentation] around a contenteditable text box. Works in
 // content mode.
+//
+// Live 2026-11-03 signed in, the same address draws no pagelets at all: the video fills a role=main
+// and the column is a role=complementary beside it, the post and its comments with the box pinned
+// under them, the account's picture to its left. Hiding the form alone left that picture and the
+// box's padding behind, so what hides is the box's row: its outermost wrapper with no words of its
+// own beyond the box's, short of the column.
 
 import { whenBodyReady } from '../../core/env.js';
 
@@ -28,7 +34,8 @@ const boxesIn = (root) => [...root.querySelectorAll(FORMS)].filter(isBox);
 const outside = (el) => el.matches(OUTSIDE) || Boolean(el.querySelector(OUTSIDE));
 
 // The column beside a video viewer's video: going up from its pagelet, the first sibling that holds
-// comments or a comment box, short of the level the more-videos list sits on.
+// comments or a comment box, short of the level the more-videos list sits on. Signed in, the
+// role=complementary beside a role=main that holds a video and no feed posts.
 export function commentColumns(doc) {
   const columns = [];
   for (const video of doc.querySelectorAll(VIDEO)) {
@@ -41,23 +48,36 @@ export function commentColumns(doc) {
     }
     if (column) columns.push(column);
   }
+  for (const side of doc.querySelectorAll('[role="complementary"]')) {
+    const main = [...(side.parentElement?.children ?? [])].find((sibling) => sibling.matches('[role="main"]'));
+    if (main?.querySelector('video') && !main.querySelector('[aria-posinset]') && !columns.includes(side)) columns.push(side);
+  }
   return columns;
 }
 
-// Marks the comment boxes beside a video, and lets go of any that aren't there any more.
+// The box's row: going up from the form while the wrapper holds no words but the box's own.
+export function rowOf(form, column) {
+  const words = form.textContent.trim();
+  let node = form;
+  while (node.parentElement && node.parentElement !== column && node.parentElement.textContent.trim() === words) node = node.parentElement;
+  return node;
+}
+
+// Marks the rows of the comment boxes beside a video, and lets go of any that aren't one any more.
 // Returns how many it newly marked.
 export function markVideoCommentBoxes(doc) {
-  const columns = commentColumns(doc);
-  for (const form of doc.querySelectorAll(`[${MARK}]`)) {
-    if (!columns.some((column) => column.contains(form))) form.removeAttribute(MARK);
+  const rows = new Set();
+  for (const column of commentColumns(doc)) {
+    for (const form of boxesIn(column)) rows.add(rowOf(form, column));
+  }
+  for (const row of doc.querySelectorAll(`[${MARK}]`)) {
+    if (!rows.has(row)) row.removeAttribute(MARK);
   }
   let marked = 0;
-  for (const column of columns) {
-    for (const form of boxesIn(column)) {
-      if (form.hasAttribute(MARK)) continue;
-      form.setAttribute(MARK, '');
-      marked++;
-    }
+  for (const row of rows) {
+    if (row.hasAttribute(MARK)) continue;
+    row.setAttribute(MARK, '');
+    marked++;
   }
   return marked;
 }

@@ -27,7 +27,7 @@ const viewer = ({ comments = true, alone = 0 } = {}) => `${'<div>'.repeat(alone)
     ${comments ? '<div role="article" aria-label="Comment by Someone"></div>' : ''}
     <form role="presentation" id="no-box"><div role="button">Search</div></form>
     ${box('viewer')}
-    <div id="thread">${box('reply')}</div>
+    <div id="thread">${comments ? '<div role="article" aria-label="Reply by Someone">Same here</div>' : ''}${box('reply')}</div>
   </div>
 </div>${'</div>'.repeat(alone)}
 <div role="main">
@@ -57,7 +57,7 @@ test('the boxes in the column beside the video hide, and none anywhere else', ()
 test('a video with no comments yet still has its box found by the box itself', () => {
   const doc = page(viewer({ comments: false, alone: 2 })).document;
   markVideoCommentBoxes(doc);
-  assert.deepEqual(marked(doc), ['viewer', 'reply']);
+  assert.deepEqual(marked(doc), ['viewer', 'thread'], 'a wrapper holding nothing but the box hides with it');
 });
 
 test('without the video viewer, or with nothing beside the video close by, nothing hides', () => {
@@ -86,6 +86,34 @@ test('with nothing in the column, the search stops at the more-videos list', () 
   assert.deepEqual([commentColumns(listed).length, markVideoCommentBoxes(listed), marked(listed)], [0, 0, []]);
   const posts = page(empty.replace('<div role="main">', '<div>')).document;
   assert.deepEqual([commentColumns(posts).length, markVideoCommentBoxes(posts), marked(posts)], [0, 0, []]);
+});
+
+// Signed in, live 2026-11-03 on a Page's video: no pagelets, the video in a role=main and beside it a
+// role=complementary with the post, its comments and the box pinned at the bottom, the account's
+// picture to its left and Facebook's "Write a comment…" words inside the form.
+const signedIn = (main = '<div><video></video></div>') => `<div>
+  <div role="main">${main}</div>
+  <div role="complementary" id="side">
+    <div>In The End<div>Linkin Park's Hits Are Coming This Fall</div></div>
+    <div id="comments-and-box">
+      <div>Comments<div>Be the first to leave a comment.</div></div>
+      <div id="footer"><div><div><div id="avatar"><svg><image></image></svg></div>
+        <div><form role="presentation" id="viewer"><div aria-hidden="true">Write a comment…</div><div role="textbox" contenteditable="true"></div><div role="button" aria-label="GIF"></div></form></div>
+      </div></div></div>
+    </div>
+  </div>
+</div>`;
+
+test('signed in, the box beside the video hides with its picture and padding, and nowhere else', () => {
+  const doc = page(signedIn()).document;
+  assert.deepEqual(commentColumns(doc).map((column) => column.id), ['side']);
+  assert.equal(markVideoCommentBoxes(doc), 1);
+  assert.deepEqual(marked(doc), ['footer'], 'the whole row, not the form with the picture left beside it');
+  // Home's right column sits beside a main full of posts, some with videos. A photo opened on its
+  // own page has the same two columns and no video.
+  const home = page(signedIn('<div aria-posinset="1"><video></video></div>'), 'https://www.facebook.com/').document;
+  const photo = page(signedIn('<div><img></div>'), 'https://www.facebook.com/photo/?fbid=1').document;
+  assert.deepEqual([markVideoCommentBoxes(home), markVideoCommentBoxes(photo)], [0, 0]);
 });
 
 test('a box that leaves the column is let go, and boxes drawn later are caught', async () => {
