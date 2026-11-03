@@ -109,7 +109,9 @@ export function markShareSheets(doc) {
     for (const list of dialog.querySelectorAll('[role="list"]')) {
       if (list.closest('[role="dialog"]') !== dialog) continue;
       const label = clean(list.getAttribute('aria-label'));
-      const namedShareList = /^(?:Share to|Share targets|Share options)$/i.test(label);
+      // Live 2026-11-03 some loads label the row 'List of available "share to" options in the
+      // unified share sheet.'
+      const namedShareList = /^(?:Share to|Share targets|Share options)$/i.test(label) || /\bunified share sheet\b/i.test(label);
       const found = targetsIn(list);
       if (found.length < MIN_TARGETS) continue;
       // A localized sheet can have no English words. Share-intent endpoints distinguish its

@@ -192,6 +192,18 @@ test('a labelled share-target row is recognized without treating unrelated label
   assert.equal(markShareSheets(other), 0, 'an unrelated unlabeled social-link list is also left alone');
 });
 
+test("the row Facebook labels as the unified share sheet's options is trimmed even without a share link in it", () => {
+  // Live 2026-11-03 some loads label the row of targets. Here WhatsApp and X are buttons, so
+  // there's no wa.me or intent link to vouch for the row.
+  const label = 'List of available &quot;share to&quot; options in the unified share sheet.';
+  const sheet = SHEET().replace('<div role="list">', `<div role="list" aria-label="${label}">`)
+    .replace(/<a role="link" href="[^"]*"><i><\/i><span>(WhatsApp|X)<\/span><\/a>/g, '<div role="button"><i></i><span>$1</span></div>');
+  const doc = page(sheet);
+  assert.equal(doc.querySelectorAll('[role="list"] a[href]').length, 0);
+  assert.equal(markShareSheets(doc), 9);
+  assert.deepEqual(marks(doc), ['contacts', 'contacts', 'contacts', 'messenger', 'whatsapp', 'story', 'group', 'friend', 'x']);
+});
+
 test('late href, accessible names and text are reapplied, and recycled targets lose stale marks', async () => {
   const doc = page('<div role="dialog"><div role="list">'+target('<div role="button">Messenger</div>')+target('<a id="late" href="/unknown">Send</a>')+target('<div id="named" role="button"></div>')+target('<div role="button"><span id="word">Pending</span></div>')+target('<div role="button">Copy link</div>')+'</div></div>');
   const timers = [];
