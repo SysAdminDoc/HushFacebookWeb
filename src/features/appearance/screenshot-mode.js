@@ -22,18 +22,35 @@
 //   times inside one labelled div. No other page we opened had that marquee.
 // - People and Pages named in a post or comment are links to facebook.com. Hashtags and links
 //   that leave through l.facebook.com aren't names.
-// Not seen live yet (signed in only): the left column's own row and shortcuts, the right
-// column's contacts, and a group post's group line on Home. Those rules only reach a link or
-// button holding a profile picture inside that column, or a group link in a post's heading.
+// Live 2026-11-03 signed in (Home, the chat and notification lists, a Page's story):
+// - The left column's own row and shortcuts and a group post's group line blur as built.
+// - The post composer's "What's on your mind, <first name>?" is a span in the button right
+//   under a region in role=main.
+// - A reel on Home is one link around its caption, so the people, Pages and places the caption
+//   names are links inside an <object> each.
+// - The chat list's rows are links to /messages/ in a grid cell. The picture is a plain <img>,
+//   and the name and the last message are a span[dir=auto] each. The time is an abbr inside the
+//   last message's span, so it blurs with it. The left column's Messenger row links to
+//   /messages/ too, outside any grid.
+// - A notification links with notif_id. Names are bold only while it's unread, so its whole
+//   sentence (one span[dir=auto]) blurs and the span[dir=auto] holding its time stays. The
+//   badge on its picture is a drawing of a reaction or a comment, not a person.
+// - The story viewer lists stories as buttons holding a picture, the name in a div[dir=auto]
+//   and "1 new · 4h" with an abbr. The card itself names its poster with a profile.php link.
+// Not seen live yet: the right column's contacts (empty on the account we used) and Home's
+// stories tray with someone's story in it. The contact rule only reaches a link or button
+// holding a profile picture inside that column.
 
 import { LEFT } from './declutter-table.js';
 
 const FACEBOOK_LINK = 'a[href*="facebook.com/"]:not([href*="l.facebook.com"], [href*="/hashtag/"])';
 const COMMENT = '[role="article"][aria-label]';
+const CHAT_ROW = '[role="gridcell"] a[href*="/messages/"]';
 
 export const PICTURES = [
   'svg:has(image)',
   'img[data-imgperflogname="profileCoverPhoto"]',
+  `${CHAT_ROW} img`,
 ];
 
 export const NAMES = [
@@ -50,6 +67,11 @@ export const NAMES = [
   `${LEFT} a:has(svg image)`,
   '[role="complementary"] :is(a, [role="button"]):has(svg image)',
   '[aria-posinset] :is(h2, h3, h4) a[href*="/groups/"]',
+  '[role="main"] [role="region"] > div > [role="button"] > div > span',
+  `a[href*="/reel/"] object ${FACEBOOK_LINK}`,
+  `${CHAT_ROW} span[dir="auto"]`,
+  'a[href*="notif_id="] span[dir="auto"]:not(:has(abbr))',
+  '[role="button"]:has(svg image):has(abbr) div[dir="auto"]',
 ];
 
 export const SCREENSHOT_CSS = `${PICTURES.join(',\n')} { filter: blur(8px) !important; }

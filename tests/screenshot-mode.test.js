@@ -1,6 +1,8 @@
 // Screenshot mode against the shapes seen live on 2026-10-22, signed out (NASA's Page, one of
 // its posts and its comments, a public group, a public reel), with made-up names. The left and
-// right columns follow declutter.test.js's Home and the column's usual contact row.
+// right columns follow declutter.test.js's Home and the column's usual contact row. The post
+// composer, a reel on Home, the chat list, notifications and the story viewer's list follow
+// signed-in Home on 2026-11-03.
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
@@ -23,6 +25,7 @@ const PAGE = `
   <li><a id="left-own" href="${FB}/profile.php?id=615000000000001">${PIC('left-own-pic')}<span>Pat Example</span></a></li>
   <li><a id="left-friends" href="${FB}/friends/?ref=bookmarks"><i></i><span>Friends</span></a></li>
   <li><a id="left-groups" href="${FB}/groups/?ref=bookmarks"><i></i><span>Groups</span></a></li>
+  <li><a id="left-messenger" href="${FB}/messages/t/"><i></i><span dir="auto">Messenger</span></a></li>
   <li><a id="left-shortcut" href="${FB}/groups/1234567890/">${PIC('left-shortcut-pic')}<span>Garden Club</span></a></li>
 </ul></div>
 <div role="main">
@@ -32,6 +35,10 @@ const PAGE = `
   <a id="group-media" href="/groups/gardenclub/media/">Media</a>
   <h2 id="photos-heading"><span><a id="photos-link" href="${FB}/examplepage/photos/">Photos</a></span></h2>
   <svg id="icon" viewBox="0 0 16 16"><path d="M1 1"></path></svg>
+  <div role="region" aria-label="Create a post">
+    <div>${PIC('composer-pic')}</div>
+    <div><div role="button" tabindex="0" id="composer"><div><span id="composer-prompt" style="-webkit-line-clamp:2">What's on your mind, Pat?</span></div><div role="none"></div></div></div>
+  </div>
 
   <div aria-posinset="1">
     <a href="${FB}/examplepage?__cft__[0]=x">${PIC('post-pic', 'role="img" aria-label="Example Page"')}</a>
@@ -83,7 +90,37 @@ const PAGE = `
   <div><div><div><h2 dir="auto"><span dir="auto"><span><span><div role="button" tabindex="0" id="reel-owner" aria-label="Reel Maker, see Reel Maker's profile">Reel Maker</div></span></span></span></h2></div></div>
   <div><span dir="auto"><span><span role="button" aria-label="Privacy: Public" id="reel-privacy"><img src="globe.png"></span>Public</span></span></div>
   <div><div data-type="hscroll-child"><div><div role="button" tabindex="0" id="reel-audio-button"><div><div><div><div><div><div></div><div></div></div></div></div><div><div aria-label="Reel Maker · Original audio" id="reel-audio"><div><span dir="auto">Reel Maker · Original audio</span></div><div><span dir="auto">Reel Maker · Original audio</span></div></div></div></div></div></div></div></div></div></div>
+
+  <div aria-posinset="3"><a role="link" aria-label="Open reel" id="reel-card" href="/reel/1234567890123456/"><div><span dir="auto" id="reel-caption"></span></div></a>
+    <div role="region" aria-label="Reactions"><div><div><span><div role="button" aria-label="Like" id="reel-like"><div><span><img src="like.webp"></span></div></div></span></div></div></div>
+  </div>
+
+  <div><div role="button" tabindex="0" id="story-row">
+    <div><div>${PIC('story-row-pic', 'role="none" aria-hidden="true"')}</div></div>
+    <div><div><div>
+      <div dir="auto" id="story-name"><div>Bistro Example</div><div aria-hidden="true"><span dir="auto"><span>Bistro Example</span></span></div></div>
+      <div><span dir="auto" id="story-new"><span>1 new</span><span><span aria-hidden="true"> · </span></span><span><span><abbr aria-label="4 hours ago"><span>4h</span></abbr></span></span></span></div>
+    </div></div></div>
+  </div></div>
 </div>
+<div role="grid" aria-label="Chats"><div role="row"><div role="gridcell"><div><div><div>
+  <a role="link" id="chat-row" href="/messages/e2ee/t/7000000000000001/"><div>
+    <div><div data-visualcompletion="ignore-dynamic"><img id="chat-pic" src="ann.jpg" height="56" width="56"></div></div>
+    <div><div><div>
+      <span dir="auto" id="chat-name"><span>Ann Example</span></span>
+      <div><span><span dir="auto" id="chat-preview"><span>You: see you Friday</span><span><span aria-hidden="true"> · </span></span><span><span><abbr aria-label="2 hours ago"><span>2h</span></abbr></span></span></span></span></div>
+    </div></div></div>
+  </div></a>
+</div></div></div></div></div></div>
+<div role="list" aria-label="Notifications"><div role="listitem"><div role="none" data-visualcompletion="ignore-dynamic">
+  <a role="link" id="notif-row" href="${FB}/groups/1234567890/?multi_permalinks=1&amp;notif_id=1762000000000000&amp;notif_t=feedback_reaction_generic&amp;ref=notif"><div>
+    <div><div>${PIC('notif-pic', 'role="none" aria-hidden="true"')}<div><div><div aria-hidden="true"><img id="notif-badge" aria-hidden="true" src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E"></div></div></div></div></div>
+    <div><div><div><div>
+      <div><span dir="auto" id="notif-text"><span><b>Ann Example</b> and 18 others reacted to your post in <b>Garden Club</b>: "See you all Friday"</span></span></div>
+      <div><span dir="auto" id="notif-time"><span><span><span><abbr aria-label="17 hours ago"><span>17h</span></abbr></span></span></span></span></div>
+    </div></div></div></div>
+  </div></a>
+</div></div></div>
 <div role="complementary">
   <a id="rc-ad" href="https://l.facebook.com/l.php?u=https%3A%2F%2Fshop.example"><img id="rc-ad-img" src="ad.jpg"><span>Shop now</span></a>
   <a id="rc-birthdays" href="${FB}/events/birthdays/"><i></i><span>Birthdays</span></a>
@@ -94,6 +131,20 @@ function page() {
   const win = testWindow(`${FB}/`);
   windows.push(win);
   win.document.body.innerHTML = PAGE;
+  // A reel's caption sits inside the link to the reel, so Facebook puts the people, Pages and
+  // places it names in an <object> each, keeping one link out of the other. Built by hand, as
+  // a parser would close the outer link.
+  const caption = win.document.getElementById('reel-caption');
+  for (const [id, href, words] of [['reel-mention', `${FB}/OutboardShop`, 'Outboard Shop'], ['reel-place', `${FB}/pages/Some-Town/108000000000001`, 'Some Town'], ['reel-tag', `${FB}/hashtag/boats`, '#boats']]) {
+    const span = win.document.createElement('span');
+    const object = win.document.createElement('object');
+    const link = win.document.createElement('a');
+    Object.assign(link, { id, href, textContent: words });
+    link.setAttribute('role', 'link');
+    object.append(link);
+    span.append(object, ' ');
+    caption.append(span);
+  }
   return win;
 }
 
@@ -102,18 +153,18 @@ const reached = (win, selectors) => [...win.document.querySelectorAll(selectors.
 
 test('profile pictures and cover photos blur, photos, reactions, emoji and icons stay sharp', () => {
   const win = page();
-  assert.deepEqual(reached(win, PICTURES), ['c1-pic', 'c2-pic', 'c3-pic', 'cover', 'left-own-pic', 'left-shortcut-pic', 'me-pic', 'post-pic', 'rc-contact-pic']);
+  assert.deepEqual(reached(win, PICTURES), ['c1-pic', 'c2-pic', 'c3-pic', 'chat-pic', 'composer-pic', 'cover', 'left-own-pic', 'left-shortcut-pic', 'me-pic', 'notif-pic', 'post-pic', 'rc-contact-pic', 'story-row-pic']);
 });
 
 test('names blur: post authors, commenters, people named in posts and comments, page and group names', () => {
   const win = page();
   assert.deepEqual(reached(win, NAMES), [
-    'c1-mention', 'c1-name', 'c2-name', 'c3-name', 'group-author', 'group-line', 'left-own', 'left-shortcut',
-    'page-title', 'people', 'post-author', 'post-mention', 'profile-id', 'rc-contact', 'reel-audio', 'reel-owner', 'related-author',
+    'c1-mention', 'c1-name', 'c2-name', 'c3-name', 'chat-name', 'chat-preview', 'composer-prompt', 'group-author', 'group-line', 'left-own', 'left-shortcut',
+    'notif-text', 'page-title', 'people', 'post-author', 'post-mention', 'profile-id', 'rc-contact', 'reel-audio', 'reel-mention', 'reel-owner', 'reel-place', 'related-author', 'story-name',
   ]);
   // Everything else on the page keeps its words: comment text, timestamps, hashtags, outside
   // links, a group's own tabs, a section heading, Facebook's rows and the ad.
-  for (const id of ['c1-text', 'c2-text', 'c3-text', 'c3-badge', 'c3-verified', 'c1-time', 'post-time', 'related-time', 'group-time', 'post-hashtag', 'c1-tag', 'post-out', 'group-about', 'group-media', 'photos-link', 'photos-heading', 'left-friends', 'left-groups', 'rc-ad', 'rc-birthdays', 'reel-privacy', 'reel-audio-button', 'c1-report']) {
+  for (const id of ['c1-text', 'c2-text', 'c3-text', 'c3-badge', 'c3-verified', 'c1-time', 'post-time', 'related-time', 'group-time', 'post-hashtag', 'c1-tag', 'post-out', 'group-about', 'group-media', 'photos-link', 'photos-heading', 'left-friends', 'left-groups', 'left-messenger', 'rc-ad', 'rc-birthdays', 'reel-privacy', 'reel-audio-button', 'c1-report', 'notif-time', 'story-new', 'reel-tag', 'reel-like']) {
     assert.ok(!win.document.getElementById(id).matches(NAMES.join(', ')), id);
   }
 });
