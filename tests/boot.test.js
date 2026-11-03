@@ -4,7 +4,7 @@ import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { boot } from '../src/boot.js';
-import { TAB_PAUSE_KEY } from '../src/core/load-watchdog.js';
+import { CONFIRM_MS, LOAD_WAIT_MS, TAB_PAUSE_KEY } from '../src/core/load-watchdog.js';
 import { MONSTER } from '../src/core/storage-report.js';
 import { features as allFeatures } from '../src/features/index.js';
 import { testWindow } from './helpers/dom.js';
@@ -140,6 +140,52 @@ test('a tab that is not paused hooks the page, and Pause for this tab marks the 
   block(false);
   started.pauseTab();
   assert.deepEqual(reloads, ['1']);
+});
+
+// A signed-in Home held behind Facebook's splash screen. The feed check's two waits run when
+// runChecks() says, everything else on happy-dom's clock.
+function stuckHome(t) {
+  const warnings = [];
+  t.mock.method(console, 'info', () => {});
+  t.mock.method(console, 'warn', (...args) => warnings.push(args.join(' ')));
+  const opened = tab();
+  const { win } = opened;
+  win.document.cookie = 'c_user=100';
+  const splash = win.document.createElement('div');
+  splash.id = 'splash-screen';
+  win.document.body.append(splash);
+  const due = [];
+  const schedule = win.setTimeout;
+  win.setTimeout = function (fn, ms, ...rest) {
+    if (ms === LOAD_WAIT_MS || ms === CONFIRM_MS) return due.push(fn);
+    return schedule.call(this, fn, ms, ...rest);
+  };
+  const started = boot({ win, doc: win.document, access: 'page', own: win, features: [counted()] });
+  const runChecks = () => {
+    while (due.length) due.shift()();
+  };
+  const tick = () => new Promise((resolve) => schedule.call(win, resolve, 0));
+  const stuck = () => notices(opened.shadow()).filter((notice) => /still loading after 20 seconds/.test(notice.textContent));
+  return { ...opened, started, runChecks, tick, stuck, warnings };
+}
+
+test('the stuck feed notice turns its own warning off from Stop these warnings', async (t) => {
+  const { started, runChecks, tick, stuck, shadow } = stuckHome(t);
+  runChecks();
+  assert.equal(stuck().length, 1);
+  assert.deepEqual([...stuck()[0].querySelectorAll('button')].map((entry) => entry.textContent), ['Pause for this tab', 'Stop these warnings', 'Copy report']);
+  button(stuck()[0], 'Stop these warnings').click();
+  for (let i = 0; i < 20 && !/Feed load warnings are off/.test(shadow().textContent); i++) await tick();
+  assert.equal(started.settings.get('ui.loadWarning'), false);
+  assert.match(notices(shadow()).at(-1).textContent, /Feed load warnings are off/);
+});
+
+test('with the feed warning off, a stuck feed is logged without a notice', async (t) => {
+  const { started, runChecks, stuck, warnings } = stuckHome(t);
+  await started.settings.set('ui.loadWarning', false);
+  runChecks();
+  assert.equal(stuck().length, 0);
+  assert.ok(warnings.some((line) => /Home was still loading 20 seconds after it opened/.test(line)), 'the log still has it for Copy report');
 });
 
 test('a network installation failure leaves the panel and page cleanup usable and names the missing protection', (t) => {

@@ -87,6 +87,7 @@ const GLOBAL_SETTINGS = [
   { key: 'paused', type: 'toggle', default: false, label: 'Pause HushFacebook Web' },
   { key: 'ui.launcher', type: 'toggle', default: true, label: 'Show the settings button on Facebook' },
   { key: 'ui.hiddenNote', type: 'toggle', default: false, label: 'Leave a note where a post was hidden' },
+  { key: 'ui.loadWarning', type: 'toggle', default: true, label: 'Warn when the feed seems stuck' },
   { key: 'ui.language', type: 'select', default: 'en', label: 'Language', choices: LANGUAGES.map(({ value, label }) => ({ value, label })) },
 ];
 

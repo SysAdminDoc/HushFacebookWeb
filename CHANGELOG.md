@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* The "feed is still loading" notice has a Stop these warnings button, and General has a Warn when the feed seems stuck switch to bring it back. With it off, Diagnostics and Copy report still record the check.
 * Ads in the first screen of the feed are removed from the data again instead of being hidden after they're drawn. Facebook checks whether its data reader has been tampered with, and the ad rules were tripping that check. When it trips, Facebook reads the first page with a reader of its own that Hush can't reach.
 * Feed data that another blocker edits while it streams in (uBlock Origin's Facebook quick fixes do this) is read one whole line at a time, so a line it rewrites halfway through can't end up spliced into the next one.
 * Playback has a Pause feed videos after they leave view switch, off by default. It pauses after a second fully out of view on Home and group feeds. Scrolling back doesn't start playback.

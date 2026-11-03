@@ -179,6 +179,15 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     }
     win.location.reload();
   };
+  const stopLoadWarnings = async () => {
+    try {
+      await settings.set('ui.loadWarning', false);
+      toast(() => t('Feed load warnings are off. Warn when the feed seems stuck in General turns them back on.'));
+    } catch (error) {
+      log.error("Couldn't turn off feed load warnings", error);
+      toast(() => t("Couldn't turn off these warnings. Try the switch in General."), { tone: 'error' });
+    }
+  };
   if (tabPaused) {
     log.info('Paused in this tab, so only the settings panel is running');
     toast(() => t('HushFacebook Web is paused in this tab.'), { action: { label: 'Turn back on', run: resumeTab }, duration: 10000 });
@@ -188,12 +197,15 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
       win, doc, router, posts, net, log,
       signedIn: () => signedInAccount(doc) !== null,
       paused: () => settings.get('paused') === true,
+      // Diagnostics records a stuck feed even with the warning off, so Copy report still has it.
       onStuck: () => {
         diagnostics.changed();
+        if (settings.get('ui.loadWarning') === false) return;
         toast(() => t("Facebook's feed is still loading after {seconds} seconds. If HushFacebook Web is getting in the way, pause it for this tab.", { seconds: LOAD_WAIT_MS / 1000 }), {
           duration: 60000,
           actions: [
             { label: 'Pause for this tab', run: pauseTab },
+            { label: 'Stop these warnings', run: stopLoadWarnings },
             { label: 'Copy report', run: () => panel?.copyReport(), keep: true },
           ],
         });

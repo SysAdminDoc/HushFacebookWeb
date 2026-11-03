@@ -57,6 +57,7 @@ const UNAVAILABLE_NOTES = {
 };
 const UNAVAILABLE_SHORT = { page: 'needs page access', network: 'network protection unavailable', api: 'missing from this browser or manager', failed: 'see the log' };
 const searchCount = (count) => (count === 0 ? t('No setting matches.') : plural(count, '{count} setting matches.', '{count} settings match.'));
+const LOAD_WARNING_NOTE = "A notice when Home or a group's feed still shows Facebook's loading cards 20 seconds after it opened, with a way to pause the script for that tab. Diagnostics keeps the result either way.";
 const LANGUAGE_NOTE = "The language for these settings and the script's notices. Facebook's own language doesn't change it, and Reset to defaults keeps it. The two tests stretch every phrase or mirror the panel, to show how a translation will fit.";
 const SEARCH_SETTLE_MS = 600;
 const ACTIVITY_CONTEXT_NOTES = {
@@ -562,6 +563,15 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           toggle('ui.hiddenNote', 'Leave a note where a post was hidden', { describedBy: 'hfw-ui.hiddenNote-desc' })));
   }
 
+  function loadWarningCard() {
+    return h('div', { class: 'card' },
+        h('div', { class: 'row' },
+          h('div', { class: 'text' },
+            h('div', { class: 'title', text: t('Warn when the feed seems stuck') }),
+            h('div', { class: 'desc', id: 'hfw-ui.loadWarning-desc', text: t(LOAD_WARNING_NOTE) })),
+          toggle('ui.loadWarning', 'Warn when the feed seems stuck', { describedBy: 'hfw-ui.loadWarning-desc' })));
+  }
+
   // Each language keeps its own name, never translated, so English can always be found again,
   // and the title keeps the English word beside the translated one.
   function languageCard() {
@@ -722,6 +732,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       { id: 'quick-setups', section: 'general', title: 'Quick setups', description: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.', options: QUICK_SETUPS.map((setup) => ({ label: setup.label, focusKey: `quick:${setup.id}`, keywords: setup.reset ? ['reset'] : [] })), focusKey: 'quick:quiet', render: quickSetupsCard },
       { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: "The sliders button in Facebook's bottom-left corner. {opener} always opens settings too.", vars: { opener: t(ALWAYS_OPENS) }, render: launcherCard },
       { id: 'ui.hiddenNote', section: 'general', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post.', render: hiddenNoteCard },
+      { id: 'ui.loadWarning', section: 'general', title: 'Warn when the feed seems stuck', description: LOAD_WARNING_NOTE, keywords: ['loading', 'popup'], render: loadWarningCard },
       { id: 'ui.language', section: 'general', title: 'Language', description: LANGUAGE_NOTE, options: LANGUAGES.map((entry) => ({ label: entry.label })), keywords: ['translation', 'locale', 'right to left'], focusKey: 'ui.language', render: languageCard },
       { id: 'backup-restore', section: 'general', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.',
         options: [
