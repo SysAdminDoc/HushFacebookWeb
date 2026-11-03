@@ -150,13 +150,20 @@ function start({ on = true, ...options } = {}) {
   const switchState = { on };
   const listeners = [];
   const rows = new Map();
+  const shared = new Set();
   const warnings = [];
   let unavailable = 0;
   keepFeedPlace.setup({
     win: fb.win,
     settings: { subscribe: (fn) => listeners.push(fn) },
     enabled: () => switchState.on,
-    diagnostics: { add: (name, read) => rows.set(name, read), changed() {} },
+    diagnostics: {
+      add: (name, read, { shareable } = {}) => {
+        rows.set(name, read);
+        if (shareable) shared.add(name);
+      },
+      changed() {},
+    },
     log: { warn: (message) => warnings.push(message), error: (message) => warnings.push(message) },
     markUnavailable: () => unavailable++,
   });
@@ -165,6 +172,7 @@ function start({ on = true, ...options } = {}) {
     warnings,
     unavailable: () => unavailable,
     row: (name) => rows.get(name)(),
+    shared,
     turn(value) {
       switchState.on = value;
       for (const fn of listeners) fn();
@@ -232,10 +240,14 @@ test("Back from a post's comments keeps Home where it was, even on an account Fa
   // Live 2026-11-03 with the experiment at 5 s: Back after 7 s reloaded Home at the top without
   // the switch, and stayed at the same post with it on.
   const run = start({ pushViewSeconds: 5 });
+  assert.equal(run.row("Facebook's refresh limits on Home"), WAITING);
   run.fb.define(CONSTANTS, fillConstants);
   const limits = run.fb.require(CONSTANTS);
   assert.equal(reloadsOnClose(limits, 7 * 1e3), false);
   assert.equal(reloadsOnClose(limits, 24 * HOUR), false);
+  // A copied report shows the account's own limits next to whether they're held.
+  assert.equal(run.row("Facebook's refresh limits on Home"), 'away 600 s, hidden 120 s, after a post closes 5 s');
+  assert.deepEqual([...run.shared].sort(), ["Facebook's refresh limits on Home", 'Return refresh on Home', 'Return to Home from other pages']);
   run.turn(false);
   assert.equal(limits.FEED_STALE_PUSH_VIEW_TIMEOUT, 5 * 1e3, "Facebook's own limit is back with the switch off");
   assert.equal(reloadsOnClose(limits, 7 * 1e3), true);

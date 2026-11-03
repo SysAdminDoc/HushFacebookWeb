@@ -67,6 +67,14 @@ export function holdRouteCheck(exports, enabled) {
 }
 
 const WAITING = "Facebook's code isn't loaded yet";
+const seconds = (ms) => (typeof ms === 'number' ? `${Math.round(ms / 1000)} s` : 'unset');
+
+// Facebook's own values as the module set them, before the hold. The opened-post one is an
+// experiment that can be seconds on some accounts, which is what a report needs to show.
+export function facebookLimits(exports) {
+  const read = (key) => seconds(exports && typeof exports === 'object' ? exports[key] : undefined);
+  return `away ${read('FEED_STALE_TIMEOUT')}, hidden ${read('FEED_VISIBILITY_TIMEOUT')}, after a post closes ${read('FEED_STALE_PUSH_VIEW_TIMEOUT')}`;
+}
 
 export default {
   id: 'keepFeedPlace',
@@ -78,12 +86,13 @@ export default {
   needsPage: true,
 
   setup({ win, settings, enabled, diagnostics, log, markUnavailable }) {
-    const state = { home: WAITING, pages: WAITING };
+    const state = { home: WAITING, pages: WAITING, limits: WAITING };
     let started = false;
     const start = () => {
       if (started || !enabled()) return;
       started = true;
       afterModuleRuns(win, CONSTANTS, (exports) => {
+        state.limits = facebookLimits(exports);
         const held = holdLimits(exports, enabled);
         state.home = held === LIMITS.length ? 'held' : `${held} of ${LIMITS.length} limits held, Facebook's code has changed`;
         if (!held) {
@@ -102,7 +111,10 @@ export default {
     // Facebook's modules are left alone until the switch is first turned on.
     start();
     settings?.subscribe(start);
-    diagnostics?.add('Return refresh on Home', () => (started ? state.home : 'switch off'));
-    diagnostics?.add('Return to Home from other pages', () => (started ? state.pages : 'switch off'));
+    // Only the script's own words and Facebook's timer lengths, so a report carries them.
+    const shareable = { shareable: true };
+    diagnostics?.add('Return refresh on Home', () => (started ? state.home : 'switch off'), shareable);
+    diagnostics?.add("Facebook's refresh limits on Home", () => (started ? state.limits : 'switch off'), shareable);
+    diagnostics?.add('Return to Home from other pages', () => (started ? state.pages : 'switch off'), shareable);
   },
 };
