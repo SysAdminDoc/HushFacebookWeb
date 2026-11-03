@@ -377,6 +377,28 @@ test("a video's own page names its file after the video's owner, whose name come
   assert.equal(index.ownerName(null), null);
 });
 
+test("the photo viewer names its file after the photo's owner, whose name comes on the same id elsewhere", () => {
+  // The viewer's photo gives its owner as a bare id, and the post's owning_profile and its
+  // actors carry the name (live 2026-11-03).
+  const viewer = page('<div role="dialog"><div><img></div></div>', 'https://www.facebook.com/photo/?fbid=9999999&set=a.1');
+  const save = (index) => planSave(findMedia(viewer.document.querySelector('img'), { href: viewer.location.href, index })).name;
+  const own = { ...photo('9999999'), owner: { __typename: 'User', id: '61550001' } };
+  const names = [
+    { owning_profile: { __typename: 'User', name: 'Harbor Band', short_name: 'Harbor', id: '61550001' } },
+    { actors: [{ __typename: 'User', name: 'Harbor Band', id: '61550001' }] },
+  ];
+  for (const named of names) {
+    const index = createMediaIndex();
+    index.scan({ q: own });
+    assert.equal(save(index), 'photo 9999999.jpg', 'until the name comes, the file has none in front');
+    index.scan({ s: named });
+    assert.equal(save(index), 'Harbor Band photo 9999999.jpg');
+  }
+  const index = createMediaIndex();
+  index.scan({ q: own, viewer: { actor: { __typename: 'User', name: 'Me Myself', id: '61550009' } }, other: { actors: [{ __typename: 'User', name: 'Someone Else', id: '61550002' }] } });
+  assert.equal(save(index), 'photo 9999999.jpg', "the signed-in account and other people don't name it");
+});
+
 test('a photo is found by its photo link, and pictures that are not post photos are left alone', () => {
   const win = page(POST('<a href="/photo/?fbid=9999999&set=a.1"><img class="p" src="https://cdn.example.invalid/shown.jpg"></a>')
     + '<a href="/pat"><img class="avatar" src="https://cdn.example.invalid/face.jpg"></a><img class="loose" src="x.jpg">');
@@ -936,6 +958,36 @@ test('Tab to a reel in the feed brings its button up, though the video fills lit
   assert.deepEqual(found, ['one']);
   button.stop();
 });
+
+// The photo viewer as drawn live 2026-11-03: Next photo and Zoom In beside the photo on a stage
+// of their own, Close in the box around the whole viewer with the comment box.
+const VIEWER = '<div role="dialog"><div class="whole"><div class="top"><div role="button" class="close" tabindex="0">Close</div></div>'
+  + '<div class="stage"><div><img class="photo"></div><div role="button" class="next" tabindex="0">Next photo</div>'
+  + '<div><div><div role="button" class="zoom" tabindex="0">Zoom In</div></div></div></div>'
+  + '<div class="side"><div role="textbox" contenteditable="true"></div></div></div></div>';
+
+for (const [href, viewer] of [['https://www.facebook.com/photo/?fbid=1&set=a.2', true], ['https://www.facebook.com/WHIO/photos/a.2/1234567/', true], ['https://www.facebook.com/', false]]) {
+  test(`Tab to the photo viewer's own buttons brings the photo's button up${viewer ? '' : ', and only in the viewer'} (${new URL(href).pathname})`, () => {
+    const win = page(VIEWER, href);
+    const doc = win.document;
+    const [close, photo, next, zoom] = ['.close', 'img.photo', '.next', '.zoom'].map((s) => doc.querySelector(s));
+    box(close, [16, 8, 40, 40]);
+    box(photo, [220, 0, 800, 1000]);
+    box(next, [1160, 0, 80, 1000]);
+    box(zoom, [1096, 16, 36, 36]);
+    const found = [];
+    const button = createDownloadButton({ doc, win, active: () => true, find: (element) => (found.push(element.className), {}), run: async () => {} });
+    press(win, doc.body, 'Tab');
+    close.focus();
+    assert.equal(button.state().shown, false, 'Close is the viewer\'s, not the photo\'s');
+    next.focus();
+    assert.equal(button.state().shown, viewer);
+    zoom.focus();
+    assert.equal(button.state().shown, viewer);
+    assert.deepEqual(found, viewer ? ['photo'] : []);
+    button.stop();
+  });
+}
 
 test('Tab to a photo brings its Download button up, steps onto it and moves on past it', async () => {
   const win = page('<a class="before" href="/x">x</a><div class="post" tabindex="0"><a class="photo" href="/photo/?fbid=1"><img></a><div class="like" tabindex="0">Like</div></div><a class="other" href="/photo/?fbid=2"><img class="two"></a>');

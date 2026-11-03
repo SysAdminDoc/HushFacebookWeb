@@ -131,7 +131,7 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
   const items = new Map(); // media id -> { kind, id, ... }
   const cards = new Map(); // story card id -> media id
   const owners = new Map(); // story card id -> whose story it is
-  const videoOwners = new Map(); // video id -> its owner's id
+  const mediaOwners = new Map(); // photo or video id -> its owner's id
   const names = new Map(); // owner id -> name
 
   // Newest last, and the oldest go once there are too many.
@@ -140,13 +140,19 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
     map.set(key, value);
     if (map.size > max) map.delete(map.keys().next().value);
   };
+  // An owner can come as a bare id, with the name on the same id elsewhere: the photo viewer's
+  // answers give its photo's owner that way, and name them in the post's owning_profile and its
+  // actors (live 2026-11-03).
+  const nameOf = (who) => {
+    if (typeof who?.id === 'string' && typeof who.name === 'string' && who.name.trim()) put(names, who.id, who.name);
+  };
 
   function record(value) {
     const id = typeof value.id === 'string' ? value.id : null;
     // A video's own page asks for it by id and gets it back as the answer's data with no
     // __typename (live 2026-10-22), so its delivery fragment marks it as a video too.
     if (id && (value.__typename === 'Video' || (value.__typename === undefined && isObject(value.videoDeliveryResponseFragment)))) {
-      if (typeof value.owner?.id === 'string') put(videoOwners, id, value.owner.id);
+      if (typeof value.owner?.id === 'string') put(mediaOwners, id, value.owner.id);
       const { files, dash, stream, sharper } = videoFiles(value);
       const old = items.get(id);
       // A bare reference to a video ({__typename, id}) carries nothing to save. A stream that
@@ -159,6 +165,7 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
         }
       }
     } else if (id && value.__typename === 'Photo') {
+      if (typeof value.owner?.id === 'string') put(mediaOwners, id, value.owner.id);
       const file = photoFile(value);
       const old = items.get(id);
       // A video's still never replaces the video itself. An equally sharp copy refreshes its
@@ -171,9 +178,9 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
       const media = value.attachments.map((attachment) => attachment?.media).find((m) => typeof m?.id === 'string');
       if (media) put(cards, id, media.id);
     }
-    if (typeof value.owner?.id === 'string' && typeof value.owner.name === 'string' && value.owner.name.trim()) {
-      put(names, value.owner.id, value.owner.name);
-    }
+    nameOf(value.owner);
+    nameOf(value.owning_profile);
+    if (Array.isArray(value.actors)) value.actors.forEach(nameOf);
     const owner = value.story_bucket_owner?.name;
     if (typeof owner === 'string' && Array.isArray(value.unified_stories_with_notes?.edges)) {
       for (const edge of value.unified_stories_with_notes.edges) {
@@ -195,8 +202,8 @@ export function createMediaIndex({ max = MAX_ITEMS } = {}) {
       const item = items.get(cards.get(cardId));
       return item ? { ...item, author: owners.get(cardId) ?? null } : null;
     },
-    // The name of whoever posted a video, when Facebook's data has said it.
-    ownerName: (id) => names.get(videoOwners.get(String(id))) ?? null,
+    // The name of whoever posted a photo or video, when Facebook's data has said it.
+    ownerName: (id) => names.get(mediaOwners.get(String(id))) ?? null,
     size: () => items.size,
   };
 }

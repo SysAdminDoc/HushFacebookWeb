@@ -139,9 +139,28 @@ function videoLinkFor(element) {
   return videos.length === 1 ? videos[0] : null;
 }
 
+// In the photo viewer the photo never takes focus, and its Previous and Next photo, Zoom and
+// Fullscreen buttons sit beside it, 3 to 5 levels below a stage holding just that photo (live
+// 2026-11-03). Close and the comment box only meet it in the box around the whole viewer, which
+// holds a text field. Only on the viewer's address: in the feed a post's Actions button shares a
+// mostly-photo box with its photo 5 levels up.
+const VIEWER_PATH = /^\/photo(?:\.php)?\/?$|\/photos\/[^/]+\/\d{6,}/;
+const FIELD = 'input, textarea, [role="textbox"], [contenteditable="true"]';
+
+function stageFor(element) {
+  if (!VIEWER_PATH.test(element.ownerDocument.location?.pathname ?? '')) return null;
+  let node = element.parentElement;
+  for (let level = 0; node && level < LOOK_UP; level++, node = node.parentElement) {
+    const media = [...node.querySelectorAll('video, img')].filter(isMedia);
+    if (media.length) return media.length === 1 && !node.querySelector(FIELD) ? media[0] : null;
+  }
+  return null;
+}
+
 // The photo or video a focused element belongs to: itself, the one filling it (a photo's link),
-// or one close by in the page that it sits on (a player's controls). A Like button under a
-// photo, or a whole post holding one, belongs to neither.
+// one close by in the page that it sits on (a player's controls), or the photo viewer's photo
+// for that viewer's own buttons. A Like button under a photo, or a whole post holding one,
+// belongs to neither.
 export function mediaFor(element) {
   if (element?.nodeType !== 1) return null;
   if (isMedia(element)) return element;
@@ -160,7 +179,7 @@ export function mediaFor(element) {
       if (isMedia(media) && !element.contains(media) && inside(media.getBoundingClientRect(), x, y)) return media;
     }
   }
-  return null;
+  return stageFor(element);
 }
 
 // The floating buttons on one page, so Tab can step through them in row order, and whether the

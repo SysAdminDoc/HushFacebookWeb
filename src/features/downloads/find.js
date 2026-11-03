@@ -98,8 +98,9 @@ const wordsOf = (el) => [...el.childNodes]
   .map((node) => (node.nodeType === 3 ? node.textContent : node.nodeType === 1 && node.localName !== 'svg' ? wordsOf(node) : ''))
   .join('');
 
-// The name on the post a photo or video is in, for the file name. A video's own page has no
-// post around its player, so its file is named after the video's owner instead (findMedia).
+// The name on the post a photo or video is in, for the file name. A video's own page and the
+// photo viewer have no post around their media, so the file is named after its owner instead
+// (findMedia).
 export function authorOf(element) {
   const post = element.closest(POST);
   if (!post) return null;
@@ -148,7 +149,10 @@ export function findMedia(element, { href, index }) {
   const link = element.closest('a[href]');
   const target = linkTarget(link?.getAttribute('href')) ?? (page?.kind === 'photo' && !element.closest(POST) ? page : null);
   if (target?.kind !== 'photo') return null;
-  return { feature: 'downloadPhotos', kind: 'photo', id: target.id, item: asKind(index?.get(target.id), 'photo'), author: authorOf(element), fallback };
+  // The photo viewer has no post around its photo, so the name comes from the data, as a
+  // video's own page does.
+  const author = authorOf(element) ?? index?.ownerName(target.id) ?? null;
+  return { feature: 'downloadPhotos', kind: 'photo', id: target.id, item: asKind(index?.get(target.id), 'photo'), author, fallback };
 }
 
 // A video put together from a picture copy and its sound, or the picture alone when it's silent.
