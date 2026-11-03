@@ -31,6 +31,7 @@
 * Tabbing to a reel in the feed now brings up its Download button, and Pop out when that's on. The reel's link is a big square with the video letterboxed inside it, so focus there never counted as being on the video.
 * In the photo viewer, Download now comes up from the keyboard too. The photo itself never takes focus there, so Tab onto Previous photo, Next photo, Zoom or Fullscreen brings it up, and the next Tab lands on it.
 * A photo saved from the photo viewer is named after whoever posted it, like one saved from the feed. It used to be just "photo" and the number.
+* A reel saved from the Reels row in your feed no longer starts its file name with "Reels". That's the row's heading, not who posted it.
 * The XHR regression check waits for completion rather than racing a short timer.
 * The extension storage checks wait for a failed read's retries to run out instead of a fixed 225 ms, which a busy test run could miss.
 * Building requires Node 24.22.1 or a newer Node 24.x build. Release preflight explains how to update an older runtime.

@@ -98,12 +98,24 @@ const wordsOf = (el) => [...el.childNodes]
   .map((node) => (node.nodeType === 3 ? node.textContent : node.nodeType === 1 && node.localName !== 'svg' ? wordsOf(node) : ''))
   .join('');
 
+// Facebook's Reels unit in the feed: one post holding several people's reels under a heading
+// that just says "Reels" (live 2026-11-03).
+function reelUnit(post) {
+  const ids = new Set();
+  for (const link of post.querySelectorAll('a[href]')) {
+    const target = linkTarget(link.getAttribute('href'));
+    if (target?.kind === 'reel' && link.closest(POST) === post) ids.add(target.id);
+    if (ids.size > 1) return true;
+  }
+  return false;
+}
+
 // The name on the post a photo or video is in, for the file name. A video's own page and the
-// photo viewer have no post around their media, so the file is named after its owner instead
-// (findMedia).
+// photo viewer have no post around their media, and the Reels unit's heading names no one, so
+// the file is named after its owner instead (findMedia).
 export function authorOf(element) {
   const post = element.closest(POST);
-  if (!post) return null;
+  if (!post || reelUnit(post)) return null;
   const heading = [...post.querySelectorAll('h2, h3, h4')].find((h) => h.closest(POST) === post);
   const name = heading?.querySelector('a, strong, span') ?? heading;
   const text = normalizeText(name ? wordsOf(name) : '');

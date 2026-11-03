@@ -377,6 +377,21 @@ test("a video's own page names its file after the video's owner, whose name come
   assert.equal(index.ownerName(null), null);
 });
 
+test("a reel in the feed's Reels unit is named after its owner, not the unit's Reels heading", () => {
+  // Several people's reels under one heading that names no one (live 2026-11-03).
+  const cell = (inner) => `<div role="gridcell" tabindex="0">${inner}</div>`;
+  const unit = `<div aria-posinset="2"><h3>Reels</h3>${cell('<a href="/reel/1111111/" aria-label="Reel by Harbor Band"><div><video class="one"></video></div></a>')}${cell('<a href="/reel/2222222/" aria-label="Reel by Pier Cafe"><img></a>')}</div>`;
+  const single = '<div aria-posinset="3"><h4><a href="/pat">Pat Example</a></h4><a href="/reel/3333333/?s=single_unit"><div><video class="three"></video></div></a></div>';
+  const win = page(unit + single);
+  const save = (index, selector) => planSave(findMedia(win.document.querySelector(selector), { href: win.location.href, index })).name;
+  const index = createMediaIndex();
+  index.scan({ a: video('1111111', [['HD', 'one']]), b: video('3333333', [['HD', 'three']]) });
+  assert.equal(save(index, 'video.one'), 'reel 1111111 HD.mp4', 'until the data names its owner, no name rather than "Reels"');
+  index.scan({ a: video('1111111', [['HD', 'one']], { owner: { __typename: 'Page', id: '61550001', name: 'Harbor Band' } }) });
+  assert.equal(save(index, 'video.one'), 'Harbor Band reel 1111111 HD.mp4');
+  assert.equal(save(index, 'video.three'), 'Pat Example reel 3333333 HD.mp4', 'a post of one reel keeps its own name');
+});
+
 test("the photo viewer names its file after the photo's owner, whose name comes on the same id elsewhere", () => {
   // The viewer's photo gives its owner as a bare id, and the post's owning_profile and its
   // actors carry the name (live 2026-11-03).
