@@ -86,6 +86,7 @@ import downloadReels from './downloads/download-reels.js';
 import downloadStories from './downloads/download-stories.js';
 import downloadMenu from './downloads/download-menu.js';
 import forceDarkMode from './appearance/force-dark.js';
+import calmTheme from './appearance/theme.js';
 import amoledTheme from './appearance/amoled.js';
 import accentColor from './appearance/accent.js';
 import systemFont from './appearance/system-font.js';
@@ -109,7 +110,7 @@ export const features = [
   hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, filterMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, keepNotificationsFilter, holdBackLogs, blockAdTelemetry,
   commentOrder, showAllReplies, hideCommentStickers, hideVideoCommentBox, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, downloadMenu, tapToPlay, pauseOffscreenVideos, limitHdr, resumeVideos,
   keepSpeed, keepVolume, holdForSpeed, pictureInPicture, frameStep, keepControls, videoQuality, rememberWatched, hideVideoSuggestions,
-  forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, hideActiveDots, widerFeed, screenshotMode,
+  forceDarkMode, calmTheme, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, hideActiveDots, widerFeed, screenshotMode,
   menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions, blockInstantGamesAds,
   // In this order: the first to claim a Home load redirects it (opening/start.js).
   marketplaceOnly, openOnTab, followingFeed, messengerPage,

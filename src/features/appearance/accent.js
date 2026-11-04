@@ -10,6 +10,7 @@
 // fill an icon's shape with the exact color, whatever color the icon was drawn in.
 
 import { whenBodyReady } from '../../core/env.js';
+import { chosenTheme } from './theme-palettes.js';
 
 export const ACCENTS = [
   { value: 'purple', label: 'Purple', hex: '#7B3FE4' },
@@ -84,6 +85,26 @@ export function over(rgb, surface, a) {
   return `#${rgb.map((c, i) => Math.round(c * a + under[i] * (1 - a)).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
 }
 
+const darkest = (...hexes) => hexes.reduce((a, b) => (luminance(parseHex(b)) < luminance(parseHex(a)) ? b : a));
+const lightest = (...hexes) => hexes.reduce((a, b) => (luminance(parseHex(b)) > luminance(parseHex(a)) ? b : a));
+
+// The same six surfaces for a Calm theme palette, each the one a shade reads worst on: the
+// darkest of what's under it in light mode and the lightest in dark mode. A hovered row is the
+// text color at 10% over a card, as Facebook draws its own.
+export function themeSurfaces({ light, dark }) {
+  return {
+    white: darkest(light.card, light.popover, light.input),
+    wash: darkest(light.page, light.flat),
+    bubble: lightest(dark.flat, dark.popover),
+    card: dark.card,
+    box: lightest(dark.input, dark.popover),
+    raised: lightest(over(parseHex(dark.text), dark.card, 0.1), dark.popover),
+  };
+}
+
+// With the Calm theme on, your color's shades are worked out on its surfaces instead.
+export const accentSurfaces = (get) => (get('calmTheme') === true ? themeSurfaces(chosenTheme(get)) : SURFACES);
+
 // Starts at Facebook's step and moves the lightness down (by -1) or up (by 1) until the shade
 // reaches the ratio on every surface given, so the hue and saturation stay yours.
 function readable([h, s], from, by, surfaces, ratio) {
@@ -105,37 +126,37 @@ function readable([h, s], from, by, surfaces, ratio) {
 // still reads while the button is held.
 const textOn = (hex) => (contrast(hex, '#FFFFFF') >= contrast(hex, '#000000') ? '#FFFFFF' : '#000000');
 
-export function palette(hex) {
+export function palette(hex, surfaces = SURFACES) {
   const rgb = parseHex(hex);
   if (!rgb) return null;
   const hsl = toHsl(rgb);
   const l = hsl[2];
   const base = toHex(hsl);
   const at = (lightness) => toHex([hsl[0], hsl[1], lightness]);
-  const darker = (from, surfaces, ratio = TEXT) => readable(hsl, from, -1, surfaces, ratio);
-  const lighter = (from, surfaces, ratio = TEXT) => readable(hsl, from, 1, surfaces, ratio);
+  const darker = (from, under, ratio = TEXT) => readable(hsl, from, -1, under, ratio);
+  const lighter = (from, under, ratio = TEXT) => readable(hsl, from, 1, under, ratio);
   const alpha = (a) => `rgba(${rgb.join(', ')}, ${a})`;
   const button = at(93);
   const onBase = textOn(base);
-  const darkFocus = lighter(Math.max(l, 55), [SURFACES.card, SURFACES.bubble], INDICATOR);
+  const darkFocus = lighter(Math.max(l, 55), [surfaces.card, surfaces.bubble], INDICATOR);
   return {
     base,
     onBase,
     pressed: onBase === '#FFFFFF' ? darker(Math.max(l - 10, 0), [onBase]) : lighter(Math.min(l + 10, 100), [onBase]),
     alpha,
     light: {
-      focus: darker(l, [SURFACES.white, SURFACES.wash], INDICATOR),
-      link: darker(Math.min(l, 41), [SURFACES.white, SURFACES.wash, button]),
-      toastLink: darker(Math.min(l, 49), [SURFACES.white]),
+      focus: darker(l, [surfaces.white, surfaces.wash], INDICATOR),
+      link: darker(Math.min(l, 41), [surfaces.white, surfaces.wash, button]),
+      toastLink: darker(Math.min(l, 49), [surfaces.white]),
       button, highlight: at(95), selected: at(96),
     },
     dark: {
       focus: darkFocus,
       onFocus: textOn(darkFocus),
-      label: lighter(Math.max(l, 61), [SURFACES.box]),
-      toastLink: lighter(Math.max(l, 64), [SURFACES.box]),
-      link: lighter(Math.max(l, 68), [SURFACES.card, SURFACES.bubble, SURFACES.raised]),
-      deemphasized: lighter(Math.max(l, 73), [over(rgb, SURFACES.card, 0.2)]),
+      label: lighter(Math.max(l, 61), [surfaces.box]),
+      toastLink: lighter(Math.max(l, 64), [surfaces.box]),
+      link: lighter(Math.max(l, 68), [surfaces.card, surfaces.bubble, surfaces.raised]),
+      deemphasized: lighter(Math.max(l, 73), [over(rgb, surfaces.card, 0.2)]),
     },
   };
 }
@@ -161,43 +182,51 @@ export function filterColors(colors) {
 }
 
 const url = (id) => `url("#${id}")`;
-const block = (selector, vars) => `${selector} {\n${Object.entries(vars).map(([name, value]) => `  ${name}: ${value} !important;`).join('\n')}\n}`;
+export const block = (selector, vars) => `${selector} {\n${Object.entries(vars).map(([name, value]) => `  ${name}: ${value} !important;`).join('\n')}\n}`;
 
-export function accentCss(hex) {
-  const colors = palette(hex);
-  if (!colors) return '';
+// The variables for one palette of shades: what both themes share, then each theme's own. The
+// icon filters are named by ids, so the Calm theme can keep its own beside these.
+export function accentVars(colors, ids = FILTER_IDS) {
   const { base, onBase, pressed, alpha, light, dark } = colors;
-  const shared = {
-    '--accent': base, '--primary-button-background': base, '--primary-button-text': onBase, '--primary-button-icon': onBase, '--primary-button-pressed': pressed,
-    '--cursor': base, '--progress-ring-blue-foreground': base, '--progress-ring-blue-background': alpha(0.2),
-    '--primary-deemphasized-button-pressed-overlay': alpha(0.15), '--filter-primary-accent': url(FILTER_IDS.base),
-  };
-  // Light first: Facebook's light rule also matches a bare :root, so the dark block has to
-  // come after it to win on <html> in dark mode. That also means anything the light block sets
-  // and the dark one doesn't shows in dark mode too, as the toggle text once did (live 2026-11-03).
-  return [
-    block(':root, .__fb-light-mode', {
-      ...shared,
+  return {
+    shared: {
+      '--accent': base, '--primary-button-background': base, '--primary-button-text': onBase, '--primary-button-icon': onBase, '--primary-button-pressed': pressed,
+      '--cursor': base, '--progress-ring-blue-foreground': base, '--progress-ring-blue-background': alpha(0.2),
+      '--primary-deemphasized-button-pressed-overlay': alpha(0.15), '--filter-primary-accent': url(ids.base),
+    },
+    light: {
       '--focus-ring-blue': light.focus,
       '--blue-link': light.link, '--primary-deemphasized-button-text': light.link, '--primary-deemphasized-button-icon': light.link,
       '--toggle-active-icon': light.link, '--toggle-active-text': light.link, '--input-label-color-highlighted': light.link,
       '--toast-text-link': light.toastLink, '--primary-deemphasized-button-background': light.button,
       '--highlight-bg': light.highlight, '--toggle-active-background': light.selected, '--hosted-view-selected-state': light.selected,
       '--text-highlight': alpha(0.2),
-      '--filter-accent': url(FILTER_IDS.base), '--filter-blue-link-icon': url(FILTER_IDS.lightLink),
-      '--filter-primary-deemphasized-button-icon': url(FILTER_IDS.lightLink),
-    }),
-    block('.__fb-dark-mode', {
-      ...shared,
+      '--filter-accent': url(ids.base), '--filter-blue-link-icon': url(ids.lightLink),
+      '--filter-primary-deemphasized-button-icon': url(ids.lightLink),
+    },
+    dark: {
       '--focus-ring-blue': dark.focus, '--toggle-active-background': dark.focus, '--toggle-active-text': dark.onFocus, '--toggle-active-icon': dark.onFocus,
       '--blue-link': dark.link, '--primary-deemphasized-button-text': dark.deemphasized, '--primary-deemphasized-button-icon': dark.deemphasized,
       '--input-label-color-highlighted': dark.label, '--toast-text-link': dark.toastLink,
       '--primary-deemphasized-button-background': alpha(0.2), '--highlight-bg': alpha(0.31), '--text-highlight': alpha(0.45),
       '--hosted-view-selected-state': alpha(0.1),
-      '--filter-accent': url(FILTER_IDS.darkLink), '--filter-blue-link-icon': url(FILTER_IDS.darkLink),
-      '--filter-primary-deemphasized-button-icon': url(FILTER_IDS.darkDeemphasized),
-    }),
-  ].join('\n');
+      '--filter-accent': url(ids.darkLink), '--filter-blue-link-icon': url(ids.darkLink),
+      '--filter-primary-deemphasized-button-icon': url(ids.darkDeemphasized),
+    },
+  };
+}
+
+// Light first: Facebook's light rule also matches a bare :root, so the dark block has to come
+// after it to win on <html> in dark mode. That also means anything the light block sets and the
+// dark one doesn't shows in dark mode too, as the toggle text once did (live 2026-11-03).
+export const LIGHT_SELECTOR = ':root, .__fb-light-mode';
+export const DARK_SELECTOR = '.__fb-dark-mode';
+
+export function accentCss(hex, surfaces = SURFACES) {
+  const colors = palette(hex, surfaces);
+  if (!colors) return '';
+  const { shared, light, dark } = accentVars(colors);
+  return [block(LIGHT_SELECTOR, { ...shared, ...light }), block(DARK_SELECTOR, { ...shared, ...dark })].join('\n');
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -205,11 +234,11 @@ export const FILTERS_MARK = 'data-hfw-accent-filters';
 
 // One hidden <svg> with a filter per color. Each fills the icon's shape (its alpha) with the
 // color, in sRGB so the result is the exact hex.
-export function writeFilters(doc, colors) {
-  let svg = doc.querySelector(`svg[${FILTERS_MARK}]`);
+export function writeFilters(doc, colors, mark = FILTERS_MARK) {
+  let svg = doc.querySelector(`svg[${mark}]`);
   if (!svg) {
     svg = doc.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute(FILTERS_MARK, '');
+    svg.setAttribute(mark, '');
     svg.setAttribute('aria-hidden', 'true');
     svg.setAttribute('width', '0');
     svg.setAttribute('height', '0');
@@ -244,7 +273,7 @@ export default {
     { key: 'color', type: 'select', label: 'Color', default: ACCENTS[0].value, choices: ACCENTS.map(({ value, label }) => ({ value, label })) },
     { key: 'custom', type: 'text', lines: 1, label: 'Or your own color, like #7B3FE4', default: '', maxLength: 7 },
   ],
-  css: (get) => accentCss(chosenColor(get)),
+  css: (get) => accentCss(chosenColor(get), accentSurfaces(get)),
 
   setup({ doc, settings, enabled, log }) {
     if (!doc) return;
@@ -255,7 +284,7 @@ export default {
           existing?.remove();
           return;
         }
-        writeFilters(doc, filterColors(palette(chosenColor(settings.get))));
+        writeFilters(doc, filterColors(palette(chosenColor(settings.get), accentSurfaces(settings.get))));
       } catch (error) {
         log?.error("Accent color: the icon colors couldn't be set", error);
       }
