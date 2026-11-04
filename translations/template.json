@@ -28,7 +28,7 @@
   "Activity operation ids collided": "Activity operation ids collided",
   "Activity recovery has conflicting changes. Choose a new value to continue": "Activity recovery has conflicting changes. Choose a new value to continue",
   "Activity recovery storage is full. Your earlier data stays saved": "Activity recovery storage is full. Your earlier data stays saved",
-  "Activity stays in this private tab and disappears when you close it. Saved settings still apply.": "Activity stays in this private tab and disappears when you close it. Saved settings still apply.",
+  "Activity stays in this private tab and disappears when you close it. Saved settings still apply, but your userscript manager may forget changes you make here once the private window closes.": "Activity stays in this private tab and disappears when you close it. Saved settings still apply, but your userscript manager may forget changes you make here once the private window closes.",
   "Activity values cannot contain cycles": "Activity values cannot contain cycles",
   "Ad reports held back": "Ad reports held back",
   "Add to this account": "Add to this account",

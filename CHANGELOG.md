@@ -34,7 +34,7 @@
 * Every failed restore or settings action shows fresh feedback, even after an earlier error notice has expired.
 * General's Ko-fi row shows its title alone and remains searchable by donate or kofi.
 * The translation template includes fixed validation errors passed through feedback helpers.
-* Private windows keep activity in the tab. Managers that can't report the window context do the same. Saved settings still apply, and the extension keeps the actual private-mode flag out of the page bridge.
+* Private windows keep activity in the tab. Managers that can't report the window context do the same. Saved settings still apply, and the extension keeps the actual private-mode flag out of the page bridge. A setting you change in a private window may not outlast it, though. Tampermonkey keeps those changes only until the private window closes, even with its incognito storage set to Permanent, so General's note in a private window says so now. Checked in Chrome 151 with Tampermonkey 5.5.1, where seen posts, video spots, the watched list, speed and volume all stayed in the private tab and your normal history came through untouched.
 * Storage access stops when a page changes Facebook accounts, including direct requests and updates from other tabs.
 * Forget every spot waits for the browser to confirm deletion. Failed clears restore the displayed list and remain available through Retry.
 * Moving or deleting activity from before accounts were kept apart waits for saves. Failed deletes stay available to retry, and Undo keeps the full original list through a partial failure.

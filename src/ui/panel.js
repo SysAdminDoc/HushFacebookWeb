@@ -62,7 +62,7 @@ const LANGUAGE_NOTE = "The language for these settings and the script's notices.
 const SEARCH_SETTLE_MS = 600;
 const ACTIVITY_CONTEXT_NOTES = {
   managed: 'Private windows keep activity in this tab. The extension also uses temporary activity when it cannot confirm the window type.',
-  private: 'Activity stays in this private tab and disappears when you close it. Saved settings still apply.',
+  private: 'Activity stays in this private tab and disappears when you close it. Saved settings still apply, but your userscript manager may forget changes you make here once the private window closes.',
   unknown: 'Your userscript manager does not report private browsing. Activity stays in this tab. Saved settings still apply.',
   loading: 'Checking where this tab keeps activity.',
 };
