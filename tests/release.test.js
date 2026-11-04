@@ -73,7 +73,7 @@ test('release notes are the whole CHANGELOG section for the version', () => {
 test('the real CHANGELOG yields notes for v0.0.1 with every bullet', async () => {
   const text = await readFile(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
   const notes = changelogSection(text, '0.0.1');
-  const bullets = text.split('## v0.0.1')[1].split('\n## ')[0].split('\n').filter((line) => line.startsWith('* '));
+  const bullets = text.split(/^## v0\.0\.1(?:\s|$)/m)[1].split('\n## ')[0].split('\n').filter((line) => line.startsWith('* '));
   assert.ok(bullets.length > 3);
   for (const bullet of bullets) assert.ok(notes.includes(bullet), bullet);
 });

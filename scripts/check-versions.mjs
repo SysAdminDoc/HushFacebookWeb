@@ -13,7 +13,9 @@ if (!badge) problems.push('README.md has no version badge');
 else if (badge[1] !== version) problems.push(`README.md badge says ${badge[1]}, package.json says ${version}`);
 
 const changelog = await read('CHANGELOG.md');
-if (!changelog.includes(`## v${version}`) && !changelog.includes('## Unreleased')) {
+// The heading has to end at the version, or v0.0.1 would pass on a v0.0.10 section.
+const heading = new RegExp(`^## v${version.replaceAll('.', '\\.')}(?:\\s|$)`, 'm');
+if (!heading.test(changelog) && !changelog.includes('## Unreleased')) {
   problems.push(`CHANGELOG.md has neither "## v${version}" nor "## Unreleased"`);
 }
 
