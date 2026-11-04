@@ -104,7 +104,7 @@ export function closeMenu(doc, row) {
   dialog.dispatchEvent(new Keyboard('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true, cancelable: true }));
 }
 
-// onFail: called once when the row can't be made, so the corner button comes back.
+// onFail: called once when the row can't be made, so the gear button comes back.
 export function createMenuEntry({ doc, enabled, openSettings, log, onFail, setTimer = setTimeout }) {
   let added = 0;
   let failed = false;
@@ -186,7 +186,7 @@ export default {
   description: 'Adds a HushFacebook Web row to the menu that opens from your picture at the right end of the top bar. Click it to open these settings.',
   default: true,
   options: [
-    { key: 'hideButton', type: 'toggle', label: 'Hide the round settings button in the corner', default: false },
+    { key: 'hideButton', type: 'toggle', label: 'Hide the gear settings button in the top bar', default: false },
   ],
 
   setup({ doc, settings, enabled, log, diagnostics, openSettings, markUnavailable }) {

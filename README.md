@@ -53,7 +53,7 @@ Unzipping over the same folder keeps everything it remembers, down to your video
 
 ## Settings
 
-Press and hold the Facebook logo at the top left to open settings. You can also click the sliders button in the bottom left corner or use the HushFacebook Web row in the menu under your profile picture. Your userscript manager's menu has a settings entry too, and in the extension the toolbar button opens them from any tab.
+Press and hold the Facebook logo at the top left to open settings. You can also click the gear in Facebook's top bar, next to Messenger and Notifications, or use the HushFacebook Web row in the menu under your profile picture. Your userscript manager's menu has a settings entry too, and in the extension the toolbar button opens them from any tab.
 
 Settings use a charcoal panel with blue switches, a section sidebar and search in the header. Each page has a larger heading and rows separated by thin lines. Changes save as you make them, and every switch explains what it does. On a narrow screen, the sections become a row you can scroll sideways. If you'd rather not have the corner button, turn it off under Menu or General.
 

@@ -13,7 +13,8 @@ import { MAX_BACKUP_BYTES } from '../core/settings.js';
 import { TARGET } from '../core/target.js';
 import { SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
-import { SLIDERS_ICON } from './icons.js';
+import { GEAR_ICON, SLIDERS_ICON } from './icons.js';
+import { trackLauncherSpot } from './launcher-place.js';
 import { navigationIcon } from './navigation-icons.js';
 import { createNewDots } from './new-dots.js';
 import { buildDiagnosticReport } from './diagnostic-report.js';
@@ -128,10 +129,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   };
 
   const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
-  // Small notices, about something just done on the page, sit in the corner beside the launcher,
-  // off the feed.
+  // Small notices, about something just done on the page, sit in the bottom-left corner, off the
+  // feed.
   const corner = h('div', { class: 'toasts corner', 'aria-live': 'polite' });
-  const launcher = h('button', { class: 'launcher', type: 'button', onclick: () => open() }, icon(SLIDERS_ICON));
+  // The gear in Facebook's top bar (launcher-place.js says where).
+  const launcher = h('button', { class: 'launcher', type: 'button', onclick: () => open() }, icon(GEAR_ICON));
   const nav = h('nav');
   const main = h('main', { 'aria-labelledby': 'hfw-section-title' });
   // One element for the life of the panel, so typing keeps its place across redraws.
@@ -189,6 +191,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   dialog.append(fileInput);
   root.append(launcher, dialog, toasts, corner);
   document.body.append(host);
+  const launcherSpot = trackLauncherSpot({ button: launcher, host, doc: document, router: environment.router });
 
   // The language chosen under General, for the panel and every toast after it. The parts drawn
   // once get their words again here; render() redraws the rest.
@@ -554,7 +557,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: t('Show the settings button') }),
-            h('div', { class: 'desc', id: 'hfw-ui.launcher-desc', text: t("The sliders button in Facebook's bottom-left corner. {opener} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.", { opener: t(ALWAYS_OPENS) }) })),
+            h('div', { class: 'desc', id: 'hfw-ui.launcher-desc', text: t("The gear in Facebook's top bar, next to Messenger and Notifications. A page without that bar shows it in the bottom-left corner. {opener} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.", { opener: t(ALWAYS_OPENS) }) })),
           toggle('ui.launcher', 'Show the settings button', { describedBy: 'hfw-ui.launcher-desc' })));
   }
 
@@ -734,7 +737,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         options: [{ label: environment.activity.perAccount ? 'Add to this account' : 'Use while signed out', focusKey: 'legacy:add' }, { label: 'Delete them', focusKey: 'legacy:delete' }], focusKey: 'legacy:add', render: () => legacyActivityCard(legacy),
       }] : []),
       { id: 'quick-setups', section: 'general', title: 'Quick setups', description: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.', options: QUICK_SETUPS.map((setup) => ({ label: setup.label, focusKey: `quick:${setup.id}`, keywords: setup.reset ? ['reset'] : [] })), focusKey: 'quick:quiet', render: quickSetupsCard },
-      { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: "The sliders button in Facebook's bottom-left corner. {opener} always opens settings too.", vars: { opener: t(ALWAYS_OPENS) }, render: launcherCard },
+      { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: "The gear in Facebook's top bar, next to Messenger and Notifications. {opener} always opens settings too.", vars: { opener: t(ALWAYS_OPENS) }, render: launcherCard },
       { id: 'ui.hiddenNote', section: 'general', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post.', render: hiddenNoteCard },
       { id: 'ui.loadWarning', section: 'general', title: 'Warn when the feed seems stuck', description: LOAD_WARNING_NOTE, keywords: ['loading', 'popup'], render: loadWarningCard },
       { id: 'ui.language', section: 'general', title: 'Language', description: LANGUAGE_NOTE, options: LANGUAGES.map((entry) => ({ label: entry.label })), keywords: ['translation', 'locale', 'right to left'], focusKey: 'ui.language', render: languageCard },
@@ -872,6 +875,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     // stopped working.
     const inMenu = hasMenuEntry && settings.enabled('menuEntry') && settings.get('menuEntry.hideButton') === true && !unavailable.has('menuEntry');
     launcher.hidden = settings.get('ui.launcher') !== true || inMenu;
+    launcherSpot.update();
   }
 
   function refreshSaveState() {

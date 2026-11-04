@@ -233,10 +233,10 @@ test('a menu with no row to copy is reported once, in the log and Diagnostics', 
   assert.equal(state.warnings.length, 1);
   assert.match(state.warnings[0], /no row to copy/);
   assert.deepEqual(entry.state(), { added: 0, failed: true });
-  assert.equal(state.failures, 1, 'the corner button is told to come back, once');
+  assert.equal(state.failures, 1, 'the gear button is told to come back, once');
 });
 
-test('the feature is in the Menu section, on by default, with the corner button left alone', () => {
+test('the feature is in the Menu section, on by default, with the gear button left alone', () => {
   assert.equal(menuEntry.section, 'menu');
   assert.equal(menuEntry.default, true);
   assert.equal(menuEntry.needsPage, undefined, 'it works in content mode');

@@ -267,7 +267,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
   whenBodyReady(() => {
     panel = mountPanel({
       settings, features, log, hider, diagnostics, actions, unavailable,
-      environment: { version, ...managerInfo(), update, resumeTab, checkForUpdate: host?.checkForUpdate ?? null, storage, activity, accountMatches: () => settings.startup.matchesAccount(signedInAccount(doc)) },
+      environment: { version, ...managerInfo(), update, resumeTab, checkForUpdate: host?.checkForUpdate ?? null, storage, activity, router, accountMatches: () => settings.startup.matchesAccount(signedInAccount(doc)) },
     });
     for (const entry of waiting.splice(0)) {
       if (!entry.gone) entry.shown = panel.toast(entry.message, entry.options);

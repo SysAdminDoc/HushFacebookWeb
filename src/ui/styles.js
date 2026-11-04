@@ -17,23 +17,30 @@ export const panelCss = `
   color: var(--text);
   --flip: 1;
 }
-/* Right to left: start and end swap sides, and a switch's knob slides the other way. The
-   launcher stays in Facebook's bottom-left corner. */
+/* Right to left: start and end swap sides, and a switch's knob slides the other way. The gear
+   follows Facebook's top bar, which mirrors on its own. */
 .root[dir="rtl"] { --flip: -1; }
 button, input, select, textarea { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 svg { flex: none; }
-/* Small and faded until pointed at: it sits over the corner of Facebook's left column, where
-   the footer links are. */
+/* The gear passes for one of the round buttons in Facebook's top bar: their size, and their
+   colors through Facebook's own variables, which reach in here (themes included). The fallbacks
+   are for a page that doesn't set them. launcher-place.js puts it beside them. */
 .launcher {
-  position: fixed; left: 12px; bottom: 12px; z-index: 2147483000;
-  width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--surface1);
-  background: var(--base); display: grid; place-items: center; box-shadow: 0 4px 14px #0004;
-  opacity: 0.8; transition: background 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+  position: fixed; z-index: 2147483000; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; color: var(--primary-icon, var(--text));
+  background: var(--secondary-button-background, var(--surface1));
 }
-.launcher:hover, .launcher:focus-visible { opacity: 1; background: var(--selected); transform: translateY(-2px); }
-.launcher svg { width: 20px; height: 20px; fill: var(--accent); }
+.launcher:hover { background-image: linear-gradient(var(--hover-overlay, #ffffff1a), var(--hover-overlay, #ffffff1a)); }
+.launcher:active { background-image: linear-gradient(var(--press-overlay, #ffffff33), var(--press-overlay, #ffffff33)); }
+/* 22 px, since the gear leaves more margin in its box than Facebook's icons do in their 20. */
+.launcher svg { width: 22px; height: 22px; fill: currentColor; fill-rule: evenodd; }
+/* Unseen while a fresh page draws its bar, so it doesn't flash in the corner first. */
+.launcher[data-place="wait"] { visibility: hidden; }
+/* A page without the bar: floating over the bottom-left corner, like Facebook's own floating
+   buttons. */
+.launcher[data-place="corner"] { left: 12px; bottom: 12px; background-color: var(--secondary-button-background-floating, var(--base)); box-shadow: 0 2px 12px #0006; }
 .launcher[hidden] { display: none; }
 .dialog {
   width: min(1224px, calc(100vw - 48px)); height: min(960px, calc(100dvh - 64px));
@@ -179,8 +186,10 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .toast .actions { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; margin-inline-start: auto; }
 .toast.error { border-color: var(--red); }
 .toast button { flex: none; min-height: 32px; border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 4px; }
-/* The corner notices sit beside the launcher, off the feed, one short line each. */
-.toasts.corner { left: 60px; bottom: 14px; transform: none; max-width: calc(100vw - 72px); gap: 6px; justify-items: start; }
+/* The corner notices sit in the bottom-left corner, off the feed, one short line each, and make
+   room for the gear when it's down there too. */
+.toasts.corner { left: 12px; bottom: 14px; transform: none; max-width: calc(100vw - 24px); gap: 6px; justify-items: start; }
+.root:has(> .launcher[data-place="corner"]:not([hidden])) .toasts.corner { left: 60px; max-width: calc(100vw - 72px); }
 .toast.small { gap: 4px 10px; padding: 5px 8px 5px 12px; font-size: 13px; box-shadow: 0 4px 14px #0004; }
 .toast.small span { flex: 0 1 auto; }
 .toast.small button { min-height: 24px; padding: 2px 4px; }

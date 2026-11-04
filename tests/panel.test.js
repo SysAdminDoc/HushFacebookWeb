@@ -667,7 +667,7 @@ test("a feature's status line shows on its card while it's on and changes withou
   assert.equal(line(), null, 'no line while the switch is off');
 });
 
-test('the corner button hides when Settings in your account menu stands in for it, or when General says so', () => {
+test('the gear button hides when Settings in your account menu stands in for it, or when General says so', () => {
   const { shadow, settings } = setup({ features: [menuEntry] });
   const launcher = shadow.querySelector('.launcher');
   assert.equal(launcher.hidden, false, 'shown by default, the menu row is on with its hide option off');
@@ -684,7 +684,7 @@ test('the corner button hides when Settings in your account menu stands in for i
   assert.equal(launcher.hidden, true);
 });
 
-test('the corner button comes back when the menu row stops working', () => {
+test('the gear button comes back when the menu row stops working', () => {
   const { shadow, settings, panel, unavailable } = setup({ features: [menuEntry] });
   const launcher = shadow.querySelector('.launcher');
   settings.set('menuEntry.hideButton', true);
@@ -728,7 +728,7 @@ test('each switch reads its help, why it is unavailable and the reload note, in 
   assert.deepEqual(describedText(shadow, shadow.querySelector('.result [data-key="needy"]')).slice(0, 2), [needyHelp, needyNote], 'a search result reads the same notes');
   search.value = 'settings button';
   search.dispatchEvent(new win.Event('input', { bubbles: true }));
-  assert.match(describedText(shadow, shadow.querySelector('.result [data-key="ui.launcher"]'))[0], /^The sliders button in Facebook's bottom-left corner/);
+  assert.match(describedText(shadow, shadow.querySelector('.result [data-key="ui.launcher"]'))[0], /^The gear in Facebook's top bar, next to Messenger and Notifications/);
 
   panel.open('general');
   assert.match(describedText(shadow, control('ui.hiddenNote'))[0], /^A short line that says why a post was hidden/);
@@ -1310,7 +1310,7 @@ test('a notice for something still running stays until it is dismissed, and its 
   timed.dismiss();
 });
 
-test('a small notice sits in the corner beside the launcher and goes at its own time', () => {
+test('a small notice sits in the bottom-left corner and goes at its own time', () => {
   const { shadow, panel } = setup();
   mock.timers.enable({ apis: ['setTimeout'] });
   cleanups.push(() => mock.timers.reset());

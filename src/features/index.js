@@ -17,7 +17,7 @@
 //               storage.get(key, fallback) / storage.set(key, value): GM storage beside the settings.
 //               Keys in ACTIVITY_KEYS (src/core/activity.js) are kept for each account
 //               toast('Message', { tone: 'error' }): a short note at the bottom of the page;
-//               { small: true } puts a one-liner in the corner beside the launcher instead
+//               { small: true } puts a one-liner in the bottom-left corner instead
 //               openSettings(sectionId?): opens the settings panel, at that section if given
 //               posts.on('post/add' | 'post/update' | 'post/remove' | 'reset', fn) (src/core/dom/posts.js)
 //               hider.hide(post.element, 'Reason', 'detail'), hider.show(element) (src/core/dom/hide.js)
