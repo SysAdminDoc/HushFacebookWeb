@@ -1,6 +1,7 @@
 // Keep posts you hide hidden: Facebook's X at the top of a post, as drawn live on 2026-11-04
 // (<a role="link" href="#" aria-label="Hide post by ..."> around a 20px cross), hides the post
-// here, remembers it for the next load and never reaches Facebook's own handlers.
+// here and remembers it for the next load. With Tell Facebook too off (setup's default here)
+// the press never reaches Facebook's own handlers, and on it all goes on to them.
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
@@ -67,7 +68,7 @@ function sharedStorage(initial = {}) {
   return storage;
 }
 
-function setup(win, { storage = sharedStorage(), href, net = null, on = { value: true }, clock = { now: 1000 } } = {}) {
+function setup(win, { storage = sharedStorage(), href, net = null, on = { value: true }, clock = { now: 1000 }, tell = false } = {}) {
   const doc = win.document;
   const posts = createPostTracker({ doc });
   const hider = createHider({ doc, posts });
@@ -80,7 +81,7 @@ function setup(win, { storage = sharedStorage(), href, net = null, on = { value:
     win, doc, net, router: { current: () => parseRoute(href ?? win.location.href) }, posts, hider, storage, diagnostics,
     actions: actions.for('keepPostsHidden'), toast: (message, options) => toasts.push({ message, ...options }),
     log: { warn() {}, info() {}, error: (message) => errors.push(message) }, settings: { subscribe: (fn) => subscribers.push(fn) },
-    enabled: () => on.value, now: () => clock.now,
+    enabled: () => on.value, option: (name) => (name === 'tellFacebook' ? tell : undefined), now: () => clock.now,
   });
   const button = (label) => actions.list('keepPostsHidden').find((action) => action.label === label);
   const rows = () => Object.fromEntries(diagnostics.rows().map(({ label, value }) => [label, value]));
@@ -137,6 +138,55 @@ test("the X hides the post, keeps it for the next load, and Facebook's handlers 
   assert.equal(note(next.doc, 2), null);
   assert.equal(next.rows()['Hidden posts kept away'], '1 hidden on the page');
   next.posts.stop();
+});
+
+// What Facebook draws in a post after hearing its X (live 2026-11-04), inside the post's own
+// wrapper, which keeps the mark.
+const NFX_CARD = '<div><span>Why aren\'t you interested?</span><div role="button" aria-label="Doesn\'t match my interests"></div><div role="button" aria-label="Unhide post"></div></div>';
+function facebookRedraws(doc, n) {
+  const wrapper = postOf(doc, n).querySelector(`[${MARK}]`) ?? postOf(doc, n).firstElementChild;
+  wrapper.innerHTML = NFX_CARD;
+  for (const other of [...postOf(doc, n).children]) if (other !== wrapper) other.remove();
+}
+
+test('with Tell Facebook too on, the whole press goes on to Facebook and its card stays hidden with the post', async () => {
+  const storage = sharedStorage();
+  const { win, heard } = page(post(1) + post(2));
+  const { doc, posts, toasts, rows } = setup(win, { storage, tell: true, clock: { now: 30 } });
+  assert.equal(press(win, xOf(doc, 1).querySelector('path')), true, "Facebook's own handler decides about the link");
+  assert.deepEqual(heard.filter((type) => !type.endsWith('(capture)')), ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'], 'the whole press');
+  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show', 'hidden before Facebook draws anything');
+  assert.deepEqual(storage.get(HIDDEN_KEY), Object.fromEntries(keysOf(1).map((k) => [k, 30])), 'remembered too, for a share of the same photo');
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0].message, 'Post hidden');
+  facebookRedraws(doc, 1);
+  await win.happyDOM.waitUntilComplete();
+  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show', "Facebook's card stays out of sight");
+  assert.equal(rows()['Hidden posts kept away'], '0 hidden on the page');
+  // Undo shows Facebook's card, which has its own Unhide post, and forgets the keys.
+  toasts[0].action.run();
+  assert.equal(note(doc, 1), null);
+  assert.ok(postOf(doc, 1).querySelector('[aria-label="Unhide post"]') !== null);
+  assert.deepEqual(storage.get(HIDDEN_KEY), {});
+  posts.stop();
+});
+
+test('with Tell Facebook too on, a post with nothing to know it by is hidden for good, and Enter reaches Facebook', () => {
+  const storage = sharedStorage();
+  const { win, heard } = page(post(1, { photo: false, text: '' }) + post(2));
+  const { doc, posts, toasts } = setup(win, { storage, tell: true });
+  assert.equal(key(win, xOf(doc, 1), 'Enter'), true, 'the key does what Facebook makes it do');
+  assert.equal(key(win, xOf(doc, 1), 'Enter', 'keyup'), true);
+  assert.deepEqual(heard.filter((type) => !type.endsWith('(capture)')), ['keydown', 'keyup']);
+  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  assert.equal(storage.get(HIDDEN_KEY, null), null, 'nothing to save');
+  assert.equal(toasts[0].message, 'Post hidden', 'Facebook keeps it away, not just until a reload');
+  // Undo on another post's toast leaves this one hidden while it's on the page.
+  press(win, xOf(doc, 2));
+  toasts[1].action.run();
+  assert.equal(note(doc, 2), null);
+  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  posts.stop();
 });
 
 test('Enter and Space on the X hide it too, and a held key or a second press adds nothing', () => {

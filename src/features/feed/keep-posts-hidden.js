@@ -5,10 +5,18 @@
 // load on it's taken out of Facebook's data before it's drawn in page mode, and hidden on the
 // page otherwise.
 //
-// Nothing goes to Facebook: the press stops before any of its handlers hear it, as Hide posts by
-// <name> sends nothing either. A post with no photo, video or 24 letters of text (live
-// 2026-11-04: a link shared with a few words on top) is remembered by who posted it, its words
-// and its link's title instead, and one with none of that is hidden for this visit only.
+// The press goes on to Facebook too (Tell Facebook too, on to start), after the post is hidden
+// here. Facebook sends a post again on the next load until it hears the X: live 2026-11-04 a
+// post whose X reached Facebook (CometFeedStoryExecuteNFXActionMutation, type 4) wasn't sent
+// in three reloads, while 7 to 9 of the other 15 from that visit were each time. Kept from
+// Facebook, the same posts come back and are hidden again, and with five posts to a feed page
+// Home can sit on its loading cards. Facebook draws its "Why aren't you interested?" card in the
+// post's place, which stays hidden with the post. With the option off the press stops before
+// any of Facebook's handlers hear it.
+//
+// A post with no photo, video or 24 letters of text (live 2026-11-04: a link shared with a few
+// words on top) is remembered by who posted it, its words and its link's title instead, and
+// one with none of that is hidden for this visit only unless Facebook was told.
 
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { posterOf } from '../../core/filters/page.js';
@@ -71,10 +79,13 @@ export default {
   section: 'filters',
   webOnly: true,
   title: 'Keep posts you hide hidden',
-  description: "The X at the top of a post on Home or in your groups feed hides it for good, not just until the feed loads again. The post is recognized by its photo or video, or by its first words, and Facebook isn't told.",
+  description: "The X at the top of a post on Home or in your groups feed hides it for good, not just until the feed loads again. The post is recognized by its photo or video, or by its first words. With Tell Facebook too on, Facebook hears the X as well and stops sending that post, which leaves room for new ones.",
   default: true,
+  options: [
+    { key: 'tellFacebook', type: 'toggle', label: 'Tell Facebook too, so it stops sending the post', default: true },
+  ],
 
-  setup({ win, net, router, posts, hider, storage, actions, diagnostics, settings, toast, log, enabled, now = Date.now }) {
+  setup({ win, net, router, posts, hider, storage, actions, diagnostics, settings, toast, log, enabled, option, now = Date.now }) {
     if (!win || !posts || !hider) return;
     const route = () => router?.current();
     const changed = () => diagnostics?.changed();
@@ -113,12 +124,14 @@ export default {
     };
     refresh();
     const isKept = (key) => known.has(key);
+    const telling = () => option?.('tellFacebook') === true;
     const hiding = () => enabled() && known.size > 0;
     let dropped = 0;
     let hidden = 0;
     // Posts hidden with their X during this visit, so a held key or a second press does nothing.
     const dismissed = new WeakSet();
-    // The ones with nothing to remember them by, kept hidden while they're on the page.
+    // Kept hidden while they're on the page: the ones with nothing to remember them by, and the
+    // ones whose X went on to Facebook, which draws its own card in them.
     const held = new Set();
     const watching = () => hiding() || (enabled() && held.size > 0);
     // The page signed in as someone else. The list can't be read or saved for them.
@@ -190,18 +203,26 @@ export default {
       return gone ? null : { element: post.element, keys: keysOf(post.element) };
     };
 
+    // The press stops here unless Facebook is told, and then all of it goes on to Facebook (a
+    // held key or the click Enter makes included).
+    const stop = (event) => {
+      if (telling()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+
     const dismiss = (event, { element, keys }) => {
       if (dismissed.has(element) && hider.isHidden(element)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
+        stop(event);
         return;
       }
       // Nowhere on the post to put the note, so Facebook's X has it.
       if (!hider.hide(element, REASON, undefined, PRESSED)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
+      const told = telling();
+      stop(event);
       dismissed.add(element);
-      if (!keys.length) {
+      if (told) held.add(element);
+      if (!keys.length && !told) {
         held.add(element);
         changed();
         toast?.(t('Post hidden until you reload'), {
@@ -219,17 +240,21 @@ export default {
       }
       const added = keys.filter((key) => !known.has(key));
       const at = now();
-      save((all) => {
-        for (const key of keys) all[key] = at;
-      });
+      if (keys.length) {
+        save((all) => {
+          for (const key of keys) all[key] = at;
+        });
+      }
       changed();
       toast?.(t('Post hidden'), {
         ...NOTE,
         action: {
           label: 'Undo',
           // Other posts the same keys hid come back too. One still matching an older key stays.
+          // A post Facebook was told about comes back as Facebook's card, with its Unhide post.
           run: () => {
             dismissed.delete(element);
+            held.delete(element);
             save((all) => {
               for (const key of added) delete all[key];
             });
@@ -242,7 +267,7 @@ export default {
     };
 
     const onPress = (event) => {
-      if (pick(event)) event.stopImmediatePropagation();
+      if (!telling() && pick(event)) event.stopImmediatePropagation();
     };
     const onClick = (event) => {
       const picked = pick(event);
@@ -253,10 +278,7 @@ export default {
       const picked = pick(event);
       if (!picked) return;
       if (event.type === 'keydown') dismiss(event, picked);
-      else {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }
+      else stop(event);
     };
     // On the window, capturing, so this hears the press before the page does.
     for (const type of PRESSES) win.addEventListener(type, onPress, true);
