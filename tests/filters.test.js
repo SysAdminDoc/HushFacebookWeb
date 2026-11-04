@@ -553,16 +553,34 @@ test('the captured search answer: a result goes by its story, and a filter that 
   const matching = edges.filter((edge) => storyFields(storyIn(edge)).authors.includes(author)).length;
   const doc = parseLine(line);
   const filter = { ...compileFilters(author), kinds: new Set() };
-  assert.deepEqual(pruneFiltered(doc, filter), Array(matching).fill(author));
+  assert.deepEqual(pruneFiltered(doc, filter, undefined, undefined, true), Array(matching).fill(author));
   assert.equal('node' in doc.data.serpResponse.results.edges[1], false);
   assert.equal(doc.data.serpResponse.results.edges[1].cursor, edges[1].cursor);
   const seen = [];
-  previewFiltered(parseLine(line), filter, (id, matches) => seen.push([id, matches.length > 0]));
+  previewFiltered(parseLine(line), filter, (id, matches) => seen.push([id, matches.length > 0]), true);
   assert.equal(seen.length, edges.length, 'preview looks at every result, the ad included');
   assert.equal(seen.filter(([, matched]) => matched).length, matching);
   const untouched = parseLine(line);
-  assert.deepEqual(pruneFiltered(untouched, { ...compileFilters('zzzz-not-there'), kinds: new Set() }), []);
+  assert.deepEqual(pruneFiltered(untouched, { ...compileFilters('zzzz-not-there'), kinds: new Set() }, undefined, undefined, true), []);
   assert.deepEqual(untouched, parseLine(line));
+  // Read as a feed's answer, a result is no story, so it stays.
+  const asFeed = parseLine(line);
+  assert.deepEqual(pruneFiltered(asFeed, filter), []);
+  assert.deepEqual(asFeed, parseLine(line));
+});
+
+test("a feed's answer reads each edge's node alone, so an edge shaped like a search result stays with the search option on or off", () => {
+  const rules = [];
+  const win = page('');
+  const { posts, set } = setupFeature(win, { words: 'bread', net: { transformResponses: (rule) => rules.push(rule) } });
+  const rule = rules.find((candidate) => candidate.id === 'hidePostsByWords');
+  const line = JSON.stringify({ data: { viewer: { news_feed: { edges: [searchResult(story())] } } } });
+  const feed = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+  assert.equal(transformDocumentLine(line, [rule], feed), line, 'search off');
+  set('search', true);
+  assert.equal(transformDocumentLine(line, [rule], feed), line, 'search on');
+  assert.deepEqual(resultIds(transformDocumentLine(searchLine([searchResult(story())]), [rule], SEARCH_CTX)), [], 'a search answer still loses it');
+  posts.stop();
 });
 
 test('with the search option on, the page check hides matching search results too', () => {

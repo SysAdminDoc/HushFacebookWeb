@@ -138,21 +138,23 @@ const phrasesOf = ({ rules, people = [], sites = [] }) => new Map([
   ...sites.map((entry) => [lineId('sites', entry), entry.phrase]),
 ]);
 
-// The story an edge with a cursor carries: a feed edge's node, or the story a search result
-// (a SearchRenderable node) keeps beside its node, in rendering_strategy (an ad's under
-// view_model.story). Null for anything else, a person or group result included.
-function storyOf(value) {
+// The story an edge with a cursor carries: a feed edge's node or, in a search answer (search
+// true), the story a result (a SearchRenderable node) keeps beside its node, in
+// rendering_strategy (an ad's under view_model.story). Null for anything else, a person or group
+// result included. Feeds read the node alone, so the search option off changes nothing there.
+function storyOf(value, search) {
   if (Array.isArray(value) || !('cursor' in value) || !value.node || typeof value.node !== 'object') return null;
   if (value.node.__typename === 'Story' || value.node.__isFeedUnit) return value.node;
+  if (!search) return null;
   const model = value.rendering_strategy?.view_model;
   const story = model?.click_model?.story ?? model?.story;
   return story && typeof story === 'object' ? story : null;
 }
 
-// Calls visit(edge, story) for each story edge in doc.
-function eachStory(doc, visit) {
+// Calls visit(edge, story) for each story edge in doc, a search answer's results too when search.
+function eachStory(doc, visit, search) {
   walk(doc, (value) => {
-    const story = storyOf(value);
+    const story = storyOf(value, search);
     if (!story) return undefined;
     visit(value, story);
     return SKIP;
@@ -162,7 +164,8 @@ function eachStory(doc, visit) {
 // Drops every story in doc that the filter hides, apart from the ones keep(edge) says yes to.
 // Taking the node and rendering_strategy leaves the edge and its cursor, so paging goes on.
 // Returns the reasons, one per story dropped. report(story, reason) hears each one before it goes.
-export function pruneFiltered(doc, filter, report, keep) {
+// search says doc is a search answer.
+export function pruneFiltered(doc, filter, report, keep, search = false) {
   const hits = [];
   eachStory(doc, (edge, story) => {
     const reason = filterVerdict(filter, storyFields(story));
@@ -171,13 +174,13 @@ export function pruneFiltered(doc, filter, report, keep) {
     delete edge.node;
     delete edge.rendering_strategy;
     hits.push(reason);
-  });
+  }, search);
   return hits;
 }
 
 // The preview's look at the same stories, changing nothing. see(id, matches) hears each one.
-export function previewFiltered(doc, filter, see) {
-  eachStory(doc, (edge, story) => see(story.post_id ?? story.id ?? null, filterMatches(filter, storyFields(story))));
+export function previewFiltered(doc, filter, see, search = false) {
+  eachStory(doc, (edge, story) => see(story.post_id ?? story.id ?? null, filterMatches(filter, storyFields(story))), search);
 }
 
 export const PREVIEW_LIMIT = 1000;
@@ -384,7 +387,8 @@ export default {
     const changed = () => diagnostics?.changed();
     const searching = () => option('search') === true;
     const filtersOn = (now) => FILTERED.routes(now) || (searching() && SEARCH.routes(now));
-    const answerInScope = (ctx) => inScope({ scope: FILTERED }, ctx, route) || (searching() && inScope({ scope: SEARCH }, ctx, route));
+    const searchAnswer = (ctx) => searching() && inScope({ scope: SEARCH }, ctx, route);
+    const answerInScope = (ctx) => inScope({ scope: FILTERED }, ctx, route) || searchAnswer(ctx);
 
     const lists = {
       people: memo(compileNames),
@@ -538,12 +542,13 @@ export default {
           if (previewing() || !answerInScope(ctx)) return false;
           const filter = current();
           if (!active(filter)) return false;
+          const search = searchAnswer(ctx);
           // Without a page check there's nothing to hide them with, so they go like the rest.
           const places = posts && hider && ctx.transport === 'json-parse' ? drawnEdges(doc) : null;
           const seen = [];
           if (places?.size) {
             for (const [edge, place] of places) {
-              const story = storyOf(edge);
+              const story = storyOf(edge, search);
               if (story) seen.push([place, storyFields(story)]);
             }
           }
@@ -562,7 +567,7 @@ export default {
             if (fuse.counting('data')) {
               previewFiltered(doc, filter, (id, matches) => {
                 if (id !== null) fuse.see('data', String(id), matches);
-              });
+              }, search);
               const fresh = tripHere();
               if (fresh.length) {
                 stage?.undo(() => {
@@ -575,7 +580,7 @@ export default {
           const live = unpaused(filter);
           if (!active(live)) return false;
           const decisions = [];
-          const reasons = pruneFiltered(doc, live, (story, reason) => decisions.push({ post: story.post_id ?? story.id, rule: 'Filter', detail: reason, layer: 'data' }), places?.size ? (edge) => places.has(edge) : undefined);
+          const reasons = pruneFiltered(doc, live, (story, reason) => decisions.push({ post: story.post_id ?? story.id, rule: 'Filter', detail: reason, layer: 'data' }), places?.size ? (edge) => places.has(edge) : undefined, search);
           if (!reasons.length) return false;
           later(stage, () => {
             for (const decision of decisions) diagnostics?.decide(decision);
@@ -598,7 +603,7 @@ export default {
           if (!active(filter)) return false;
           previewFiltered(doc, filter, (id, matches) => {
             if (id !== null) preview.data.see(String(id), matches);
-          });
+          }, searchAnswer(ctx));
           changed();
           return false;
         },
