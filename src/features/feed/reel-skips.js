@@ -83,11 +83,14 @@ const VISITS_LIMIT = 1000;
 // can go. Going back to a skipped reel skips it backward, and the first reel, with no Previous
 // Card, stays. After limit skips in a row the next match stays too, so a list that matches every
 // reel can't run the viewer away, and a reel that stays starts the count over. check() looks at
-// the reel on screen again, for its data coming in after it.
+// the reel on screen again, for its data coming in after it. A reel it clicked away from gets no
+// second click before the viewer's address moves, so data coming in between can't skip the next
+// reel unseen.
 export function createReelSkipper({ doc, router, verdict, skipped, limit = SKIP_LIMIT, delay = SKIP_DELAY, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
   let last = null;
   let at = null;
   let opened = null;
+  let left = null;
   let back = false;
   let run = 0;
   let visits = [];
@@ -95,7 +98,7 @@ export function createReelSkipper({ doc, router, verdict, skipped, limit = SKIP_
 
   function check() {
     timer = null;
-    if (at === null || at === opened) return;
+    if (at === null || at === opened || at === left) return;
     const reason = verdict(at);
     if (reason === null) {
       run = 0;
@@ -105,6 +108,7 @@ export function createReelSkipper({ doc, router, verdict, skipped, limit = SKIP_
     const button = cardButton(doc, back);
     if (!button) return;
     run += 1;
+    left = at;
     skipped(at, reason);
     button.click();
   }
@@ -116,11 +120,12 @@ export function createReelSkipper({ doc, router, verdict, skipped, limit = SKIP_
     const before = last;
     last = route;
     const id = reelIdOf(route);
+    if (id === at) return;
+    left = null;
     if (id === null) {
       at = null;
       return;
     }
-    if (id === at) return;
     if (at === null) {
       opened = before?.type === 'reel' && reelIdOf(before) === null ? null : id;
       visits = [];

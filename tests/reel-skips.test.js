@@ -108,8 +108,9 @@ test('card buttons: Previous is the first, Next the last, and an off or missing 
 });
 
 // A router that moves when the test says so, and a viewer whose card buttons move it through
-// reels in order, like Facebook's.
-function reelViewer({ start, order, first = false }) {
+// reels in order, like Facebook's. With lag, a click moves the address only on land(), as a
+// viewer still sliding to the next reel would.
+function reelViewer({ start, order, first = false, lag = false }) {
   const win = viewer({ first });
   const doc = win.document;
   const listeners = new Set();
@@ -120,15 +121,22 @@ function reelViewer({ start, order, first = false }) {
   };
   const router = { current: () => route, subscribe: (fn) => listeners.add(fn) };
   const clicks = [];
+  const pending = [];
   const move = (step) => () => {
-    const at = order.indexOf(reelIdOf(route));
     clicks.push(step > 0 ? 'next' : 'previous');
-    const next = order[at + step];
-    if (next) go(`https://www.facebook.com/reel/${next}`);
+    const arrive = () => {
+      const next = order[order.indexOf(reelIdOf(route)) + step];
+      if (next) go(`https://www.facebook.com/reel/${next}`);
+    };
+    if (lag) pending.push(arrive);
+    else arrive();
   };
   cardButton(doc, false).addEventListener('click', move(1));
   if (!first) cardButton(doc, true).addEventListener('click', move(-1));
-  return { doc, router, go, clicks, at: () => reelIdOf(route) };
+  const land = () => {
+    while (pending.length) pending.shift()();
+  };
+  return { doc, router, go, clicks, land, at: () => reelIdOf(route) };
 }
 
 // Timers the test runs by hand.
@@ -250,6 +258,26 @@ test('check() looks again at the reel on screen, for data that came in after it'
   skipper.check();
   timers.run();
   assert.equal(view.at(), '2');
+});
+
+test('data coming in before the viewer moves gets no second click, and a skipped reel come back to is skipped again', () => {
+  const view = reelViewer({ start: 'https://www.facebook.com/reel/?s=tab', order: ['1', '2', '3'], lag: true });
+  const timers = manualTimers();
+  const skipper = createReelSkipper({ doc: view.doc, router: view.router, setTimer: timers.setTimer, verdict: (id) => (id === '2' ? 'bread' : null), skipped() {} });
+  view.go('https://www.facebook.com/reel/1');
+  timers.run();
+  view.go('https://www.facebook.com/reel/2');
+  timers.run();
+  skipper.check();
+  timers.run();
+  assert.deepEqual(view.clicks, ['next'], 'one click while the address still says 2');
+  view.land();
+  assert.equal(view.at(), '3');
+  view.go('https://www.facebook.com/reel/2');
+  timers.run();
+  view.land();
+  assert.equal(view.at(), '1');
+  assert.deepEqual(view.clicks, ['next', 'previous']);
 });
 
 // The feature, end to end: its net rules on the documents, the skipper on the viewer.
