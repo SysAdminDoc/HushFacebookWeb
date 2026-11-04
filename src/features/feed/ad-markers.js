@@ -440,6 +440,9 @@ export const matchId = (value) => value.node?.post_id ?? value.node?.id ?? value
 // 2026-11-03 on the groups feed, that happened on every load whose first post was a suggestion
 // and on none without one. They're the edges in an inline blob's own answer ({data, extensions}).
 // Edges streamed in after it come as blobs of their own with a path, and React draws those itself.
+// Search results aren't drawn on the server even inline (live 2026-11-03, /search/posts/: a story
+// taken out of the inline answer threw nothing), and the page numbers only the results still
+// there, so after a pruned ad a place would name the next post. They're dropped like the rest.
 export function drawnEdges(doc) {
   const places = new Map();
   walk(doc, (value) => {
@@ -447,7 +450,7 @@ export function drawnEdges(doc) {
     walk(value.data, (inner) => {
       if (!isObject(inner) || !Array.isArray(inner.edges)) return undefined;
       inner.edges.forEach((edge, i) => {
-        if (isObject(edge) && 'node' in edge) places.set(edge, i + 1);
+        if (isObject(edge) && 'node' in edge && edge.node?.__typename !== 'SearchRenderable') places.set(edge, i + 1);
       });
       return undefined;
     });

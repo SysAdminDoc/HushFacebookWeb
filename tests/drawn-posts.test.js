@@ -25,10 +25,12 @@ const feedOf = (doc) => doc.require[0][3][0].__bbox.require[0][3][1].__bbox.resu
 const run = (doc, rule, ctx = INLINE) => JSON.parse(transformDocumentLine(JSON.stringify(doc), [rule], ctx));
 
 test("the edges in the page's own answer are the drawn ones, numbered from 1, and a streamed one isn't", () => {
-  const doc = initial(friend('a'), suggested('b'));
+  // A row that isn't a story (People you may know) is drawn too.
+  const people = { node: { __typename: 'PaginatedPeopleYouMayKnowFeedUnit', __isFeedUnit: 'PaginatedPeopleYouMayKnowFeedUnit' }, cursor: 'c-p' };
+  const doc = initial(friend('a'), suggested('b'), people);
   const places = drawnEdges(doc);
   const edges = feedOf(doc).viewer.groups_tab.cross_group_feed.edges;
-  assert.deepEqual([places.get(edges[0]), places.get(edges[1])], [1, 2]);
+  assert.deepEqual(edges.map((edge) => places.get(edge)), [1, 2, 3]);
   assert.equal(drawnEdges(streamed(suggested('c'), 1)).size, 0);
 });
 
@@ -49,6 +51,27 @@ test('a suggestion the server drew keeps its node and goes to onDrawn, and one s
   const fetched = run({ data: { viewer: { groups_tab: { cross_group_feed: { edges: [suggested('s3')] } } } }, extensions: {} }, adRule('hideSuggestedPosts', () => true, undefined, { onDrawn: (kept) => drawn.push(...kept) }), FETCHED);
   assert.equal(fetched.data.viewer.groups_tab.cross_group_feed.edges[0].node, undefined, 'a fetched page is dropped');
   assert.equal(drawn.length, 1);
+});
+
+// Live 2026-11-03 on /search/posts/: a story taken out of the inline answer threw no #418, and the
+// page numbered the results left 1, 2, 3..., so after the pruned ad an edge's place would name the
+// next post.
+test("search results in the page's own answer aren't drawn ones, so an AI-labeled one is dropped", () => {
+  const aiLabel = { __typename: 'CometFeedStoryGenAIContentTransparencyStrategy', was_detected_as_ai_generated: true };
+  const result = (id, story) => ({ node: { __typename: 'SearchRenderable', role: 'PUBLIC_POSTS' }, rendering_strategy: { view_model: { click_model: { story: { __typename: 'Story', id, ...story } } } }, cursor: `c-${id}` });
+  const ad = { node: { __typename: 'SearchRenderable', role: 'SEARCH_ADS' }, rendering_strategy: { view_model: {} }, cursor: 'c-ad' };
+  const labeled = result('ai', { comet_sections: { context_layout: { story: { comet_sections: { metadata: [aiLabel] } } } } });
+  const inline = { data: { serpResponse: { results: { edges: [result('a'), ad, labeled] } } }, extensions: { is_final: false } };
+  assert.equal(drawnEdges(inline).size, 0);
+
+  const drawn = [];
+  const pruned = [];
+  const rule = adRule('hideAiPosts', () => true, (ids) => pruned.push(...ids), { route: () => ({ type: 'search', path: '/search/posts/', href: 'https://www.facebook.com/search/posts/?q=bread' }), onDrawn: (kept) => drawn.push(...kept) });
+  const edges = run(inline, rule).data.serpResponse.results.edges;
+  assert.deepEqual(edges.map((edge) => edge.rendering_strategy?.view_model?.click_model?.story?.id ?? null), ['a', null, null]);
+  assert.equal(edges[2].cursor, 'c-ai');
+  assert.deepEqual(pruned, ['genai_label']);
+  assert.deepEqual(drawn, []);
 });
 
 test('without a page to hide it on, a drawn suggestion is dropped as before', () => {
