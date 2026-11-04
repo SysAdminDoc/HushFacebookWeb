@@ -41,6 +41,7 @@ import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { createPostMenuRow, menuPost } from '../../core/dom/post-menu.js';
 import { drawnEdges, inScope } from './ad-markers.js';
 import { drawnHere } from './drawn-posts.js';
+import { createReelSkipper, eachReel, reelFields, REELS } from './reel-skips.js';
 import { looksLikeCss } from '../../core/css-text.js';
 import { t } from '../../core/i18n.js';
 import { later } from '../../core/net/payload.js';
@@ -312,10 +313,13 @@ const OPTIONS = [
   ...KINDS.map(({ key, label }) => ({ key, type: 'toggle', label: `Hide all ${label}`, default: false })),
   { key: 'search', type: 'toggle', label: 'Hide them in search results too', default: false },
   { key: 'comments', type: 'toggle', label: 'Hide comments that match your words, people or sites too', default: false },
+  { key: 'reels', type: 'toggle', label: 'Skip reels that match your words, people or sites too', default: false },
   { key: 'preview', type: 'toggle', label: 'Preview: count what each line would hide, and hide nothing', default: false },
 ];
 
 const tally = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
+// How many reels' fields are kept, the newest.
+const REELS_KEPT = 500;
 // Builds once per distinct text.
 function memo(build) {
   let text = null;
@@ -335,7 +339,7 @@ export default {
   section: 'feed',
   android: 'Hide posts by words',
   title: 'Hide posts by words',
-  description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups, and in search results and comments if you choose. Posts you open by their link always show.',
+  description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups, and in search results, comments and Reels if you choose. Posts and reels you open by their link always show.',
   default: false,
   options: OPTIONS,
 
@@ -499,6 +503,29 @@ export default {
       return fields && drawnHere(element, fields.posters) ? fields : null;
     };
 
+    // Reels, with the reels option (reel-skips.js): each reel's fields by its video's id, read from
+    // the data, and the viewer skips the ones the filter hides. Preview hides nothing, so it skips
+    // nothing, and a line the fuse paused stays paused for reels too.
+    const reeling = () => enabled() && option('reels') === true && !previewing();
+    const reels = new Map();
+    const reelHits = new Map();
+    const skipper = doc && router ? createReelSkipper({
+      doc,
+      router,
+      verdict(id) {
+        const fields = reels.get(id);
+        if (!fields || !reeling()) return null;
+        const filter = unpaused(current());
+        return active(filter) ? filterVerdict(filter, fields) : null;
+      },
+      skipped(id, reason) {
+        diagnostics?.decide({ post: id, rule: 'Filter', detail: reason, layer: 'page' });
+        tally(reelHits, reason);
+        changed();
+      },
+    }) : null;
+    if (skipper) diagnostics?.add('Reels skipped by your filters', () => summary(reelHits));
+
     if (net) {
       const markers = ['"__isFeedUnit"'];
       const match = (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql');
@@ -573,6 +600,24 @@ export default {
             if (id !== null) preview.data.see(String(id), matches);
           });
           changed();
+          return false;
+        },
+      });
+      // Only reads, since a reel's words come after the reel itself (reel-skips.js).
+      net.transformResponses({
+        id: 'hidePostsByWords.reels',
+        enabled: reeling,
+        markers: ['"video_feed_unit_feed"'],
+        match,
+        observe: true,
+        transform(doc, ctx) {
+          if (!reeling() || !inScope({ scope: REELS }, ctx, route)) return false;
+          eachReel(doc, (id, story) => {
+            reels.delete(id);
+            reels.set(id, reelFields(story));
+            if (reels.size > REELS_KEPT) reels.delete(reels.keys().next().value);
+          });
+          skipper?.check();
           return false;
         },
       });
