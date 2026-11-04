@@ -1198,6 +1198,14 @@ test('a failed feature action gets its own error notice after another error', as
   assert.match(shadow.querySelector('.toast.error')?.textContent ?? '', /Run check failed/);
 });
 
+test('an error notice ends each sentence with one period', () => {
+  for (const [message, shown] of [['An earlier error', 'An earlier error. Details are in Diagnostics.'], ['Your settings may not be saving.', 'Your settings may not be saving. Details are in Diagnostics.']]) {
+    const { shadow, log } = setup();
+    log.error(message);
+    assert.equal(shadow.querySelector('.toast.error span')?.textContent, shown);
+  }
+});
+
 test('backup includes rejected validated choices and leaves invalid field text behind', async () => {
   const { storage, control } = laterStorage({});
   const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];

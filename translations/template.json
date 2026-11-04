@@ -738,6 +738,7 @@
     "other": "{count} video spots"
   },
   "{list} and {last}": "{list} and {last}",
+  "{message} Details are in Diagnostics.": "{message} Details are in Diagnostics.",
   "{message}. Details are in Diagnostics.": "{message}. Details are in Diagnostics.",
   "{name} is already on your list of people to hide.": "{name} is already on your list of people to hide.",
   "{name} is on your list of people to always show, so their posts keep showing.": "{name} is on your list of people to always show, so their posts keep showing.",

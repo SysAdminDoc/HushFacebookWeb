@@ -1222,8 +1222,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (!force && Date.now() - lastErrorToast < ERROR_TOAST_GAP_MS) return;
     if (force) lastErrorNotice?.dismiss();
     lastErrorToast = Date.now();
-    // The log keeps the English. The notice shows it translated where the catalog has it.
-    lastErrorNotice = toast(t('{message}. Details are in Diagnostics.', { message: translated ?? t(entry.message) }), { tone: 'error', action: { label: 'Open', run: () => open('diagnostics') } });
+    // The log keeps the English. The notice shows it translated where the catalog has it, and a
+    // message that already ends its sentence doesn't get a second period.
+    const message = translated ?? t(entry.message);
+    const text = /[.!?。！？]$/.test(message) ? t('{message} Details are in Diagnostics.', { message }) : t('{message}. Details are in Diagnostics.', { message });
+    lastErrorNotice = toast(text, { tone: 'error', action: { label: 'Open', run: () => open('diagnostics') } });
   };
   function actionError(message, error, vars) {
     log.error('A settings action failed. Try again', error);
