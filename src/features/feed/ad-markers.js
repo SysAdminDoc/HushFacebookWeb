@@ -318,6 +318,9 @@ export const AD_MARKERS = [
     action: 'empty-list',
     empty: { instream_video_ad_breaks: [], post_roll_ad_break: null },
   },
+  // The row comes streamed in with a path of its own (live 2026-11-04: news_feed.edges[2] on two
+  // loads), never in the answer the server drew, so emptying it needs no onDrawn: three loads of
+  // Home with it emptied threw no #418.
   {
     id: 'reels_showcase',
     feature: 'hideReelsInFeed',
