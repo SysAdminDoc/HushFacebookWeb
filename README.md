@@ -61,7 +61,7 @@ Settings use a charcoal panel with blue switches, a section sidebar and search i
 
 General has Quiet and Privacy Quick setups, and each one reports how many settings changed. Back to defaults resets everything in one click. You can also back up or restore a settings file up to 1 MB, open a filled problem report on GitHub, or use the Ko-fi link. Each Facebook account gets its own set of settings. If the extension can't reach its saved settings, General keeps a Retry notice visible until they load.
 
-Quick setups and a full settings restore offer Undo in General until another change replaces it. Backups include valid choices still waiting to save. Private windows keep seen posts, video spots, watched history, speed and volume in that tab. Managers that can't report the window's privacy context use the same temporary activity storage. Saved settings still apply.
+Quick setups and a full settings restore offer Undo in General until another change replaces it. Backups include valid choices still waiting to save. Private windows keep seen posts, video spots, watched history, speed and volume in that tab. Managers that can't report the window's privacy context use the same temporary activity storage. Saved settings still apply, but a setting you change in a private window may not outlast it (Tampermonkey keeps it only until that window closes).
 
 General offers to move or delete activity saved before accounts were kept apart. Tampermonkey and Violentmonkey retry failed saves automatically, and Undo stays available if recovery still fails. Restoring that activity preserves a newer value saved in another tab.
 
