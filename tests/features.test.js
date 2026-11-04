@@ -27,7 +27,7 @@ test('every feature is complete and in a known section', () => {
 });
 
 // Switches with no Hushfacebook patch behind them, each added on purpose.
-const WEB_ONLY = new Set(['pauseOffscreenVideos', 'hideVideoSuggestions', 'filterMarketplace', 'hidePostBox', 'hideActiveDots', 'widerFeed']);
+const WEB_ONLY = new Set(['pauseOffscreenVideos', 'hideVideoSuggestions', 'filterMarketplace', 'hidePostBox', 'hideActiveDots', 'widerFeed', 'keepNotificationsFilter']);
 
 test('ported features retain their parity rows and the web-only additions are explicit', () => {
   for (const feature of features) {
