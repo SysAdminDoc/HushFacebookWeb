@@ -21,9 +21,9 @@ const BADGE = '[data-visualcompletion="ignore"][style*="translate(50%, 50%)"]';
 
 export const ACTIVE_DOT_SELECTORS = [
   `${BADGE}:has(> [aria-hidden="false"]):not(:has(img, svg, i))`,
-  // The picture beside a dot. :has() can't hold another :has(), so this keys on the dot's
-  // first child.
-  `:has(> ${BADGE} > [aria-hidden="false"]) > svg mask circle[fill="black"][data-visualcompletion="ignore"]`,
+  // The picture beside a dot, the same badges as above. :has() can't hold another :has(), so
+  // the holder is checked twice instead.
+  `:has(> ${BADGE} > [aria-hidden="false"]):not(:has(> ${BADGE} :is(img, svg, i))) > svg mask circle[fill="black"][data-visualcompletion="ignore"]`,
 ];
 
 // A rule apiece, so a browser that turns one selector down still applies the other.

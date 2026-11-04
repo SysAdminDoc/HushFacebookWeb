@@ -24,7 +24,8 @@ export async function activeDots() {
   mountFeatureStyles({ features: [hideActiveDots], settings, doc: document });
   const main = document.createElement('main');
   main.innerHTML = PICTURE(DOT(DRAWN), 'drawn') + PICTURE(DOT(SERVED), 'served')
-    + Object.entries(DRAWINGS).map(([name, drawing]) => PICTURE(ICON(drawing), name)).join('') + PICTURE('', 'plain');
+    + Object.entries(DRAWINGS).map(([name, drawing]) => PICTURE(ICON(drawing), name)).join('') + PICTURE('', 'plain')
+    + PICTURE(DOT(DRAWN).replace('<div>Active</div>', `<div>Active</div>${DRAWINGS.svg}`), 'shownIcon');
   document.body.append(main);
   const gone = (el) => getComputedStyle(el).display === 'none';
   const parts = (id) => [main.querySelector(`#${id} .badge`), main.querySelector(`#${id} .notch`)];
@@ -39,6 +40,8 @@ export async function activeDots() {
     check(!gone(notch), `${id}: the notch for a notification's drawing was filled in`);
   }
   check([...main.querySelectorAll('#plain circle')].every((circle) => !gone(circle)), "a picture with no badge lost part of its mask");
+  // A shown badge with a picture in it is no dot, so it keeps the notch it sits in.
+  check(parts('shownIcon').every((el) => !gone(el)), 'a shown badge with a picture in it lost itself or its notch');
   settings.set('hideActiveDots', false);
   check(['drawn', 'served'].every((id) => parts(id).every((el) => !gone(el))), 'switching off left a dot hidden');
   settings.set('hideActiveDots', true);

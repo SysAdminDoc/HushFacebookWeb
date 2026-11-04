@@ -38,26 +38,24 @@ function page(html) {
   return win.document;
 }
 
-// happy-dom reads a chain inside :has() as any one of its parts, so the notch rule's other half
-// (a notification's picture keeps its notch) is checked in a real browser: tests/browser,
-// active-dots.
-const [DOT_RULE, NOTCH_RULE] = ACTIVE_DOT_SELECTORS;
+// happy-dom reads a chain inside :has() as any one of its parts, so the notch rule (the picture
+// beside a dot, and only that one) is checked in a real browser: tests/browser, active-dots.
+const [DOT_RULE] = ACTIVE_DOT_SELECTORS;
 const found = (doc, selector) => [...doc.querySelectorAll(selector)];
 const same = (list, expected) => list.length === expected.length && expected.every((el) => list.includes(el));
 
-test("the dot and the notch cut for it go, drawn or as the server sends it", () => {
+test('the dot goes, drawn or as the server sends it', () => {
   const doc = page(PICTURE(DOT()) + PICTURE(DOT(SERVED)));
-  assert.ok(same(found(doc, DOT_RULE), [...doc.querySelectorAll('.badge')]));
-  assert.ok(same(found(doc, NOTCH_RULE), [...doc.querySelectorAll('.notch')]));
-  assert.equal(doc.querySelectorAll('.badge, .notch').length, 4);
+  const dots = [...doc.querySelectorAll('.badge')];
+  assert.equal(dots.length, 2);
+  assert.ok(same(found(doc, DOT_RULE), dots));
 });
 
 test("a notification's drawing and a picture with no badge are no dot", () => {
   for (const [name, drawing] of Object.entries(DRAWINGS)) {
     assert.equal(found(page(PICTURE(ICON(drawing))), DOT_RULE).length, 0, name);
   }
-  const plain = page(PICTURE());
-  assert.equal(found(plain, DOT_RULE).length + found(plain, NOTCH_RULE).length, 0, 'no badge');
+  assert.equal(found(page(PICTURE()), DOT_RULE).length, 0, 'no badge');
   const shown = page('<div data-visualcompletion="ignore"><div aria-hidden="false"><span>Seen</span></div></div>');
   assert.equal(found(shown, DOT_RULE).length, 0, 'not in a corner');
   const doc = page(PICTURE(ICON(DRAWINGS.svg)) + PICTURE(DOT()));
