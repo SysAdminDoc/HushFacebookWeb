@@ -53,6 +53,7 @@ const scenarios = [
   { id: 'recycled-posts', fixture: 'recycledPosts', screenshot: true },
   { id: 'bounded-download', fixture: 'boundedDownload' },
   { id: 'active-dots', fixture: 'activeDots', screenshot: true },
+  { id: 'wider-feed', fixture: 'widerFeed', screenshot: true, viewport: { width: 1600, height: 1000 } },
 ];
 const results = [];
 let activeBrowser;
@@ -110,7 +111,7 @@ async function run() {
       for (const scenario of scenarios) {
         const started = Date.now();
         await within(SCENARIO_MS, `${name} ${scenario.id}`, async () => {
-          const context = await activeBrowser.newContext({ viewport: { width: 360, height: 760 }, serviceWorkers: 'block' });
+          const context = await activeBrowser.newContext({ viewport: scenario.viewport ?? { width: 360, height: 760 }, serviceWorkers: 'block' });
           try {
             context.setDefaultTimeout(5000);
             await context.route('**/*', (route) => {
