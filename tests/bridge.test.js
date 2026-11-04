@@ -26,6 +26,8 @@ import {
 import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createWatchList, entriesOf, WATCHED_KEY } from '../src/features/playback/remember-watched.js';
 import { MAX_OPENED, OPENED_KEY } from '../src/features/marketplace/filter-marketplace.js';
+import { HIDDEN_KEY, MAX_HIDDEN } from '../src/features/feed/keep-posts-hidden.js';
+import { textKey } from '../src/core/seen-keys.js';
 import { buildSchema, claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 import { applySeenOperation, seenClearKey } from '../src/core/seen.js';
@@ -2724,6 +2726,7 @@ test("a page reads and writes its own account's activity and the shared lists fr
     [activityKeyFor('keepVolume.state', account), { volume: 0.5, muted: false }],
     [activityKeyFor('seenPostsCleared', account), 50],
     [activityKeyFor(OPENED_KEY, account), { 1234567890: 5, 2234567890: 6 }],
+    [activityKeyFor(HIDDEN_KEY, account), { 'm:1234567890': 5, [textKey('Sunset over the jetty tonight, the water was so calm')]: 5 }],
   ]) {
     assert.equal((await forged.send('storage:set', { key, value })).ok, true, key);
     assert.deepEqual(chrome.data[key], value);
@@ -2735,6 +2738,13 @@ test("a page reads and writes its own account's activity and the shared lists fr
     await refused(forged.send('storage:set', { key: openedKey, value }), /not allowed/, JSON.stringify(value).slice(0, 40));
   }
   await refused(forged.send('storage:set', { key: activityKeyFor(OPENED_KEY, other), value: { 1234567890: 5 } }), /not allowed/, "another account's opened listings");
+  // Posts hidden with their X are photo, video and text keys and times, MAX_HIDDEN at most.
+  const hiddenKey = activityKeyFor(HIDDEN_KEY, account);
+  const tooManyHidden = Object.fromEntries(Array.from({ length: MAX_HIDDEN + 1 }, (_, i) => [`m:${1000000 + i}`, i]));
+  for (const value of [{ 'javascript:alert(1)': 5 }, { 'm:12345': 5 }, { 't:ABC': 5 }, { 'm:1234567890': -1 }, { 'm:1234567890': '5' }, [5], tooManyHidden]) {
+    await refused(forged.send('storage:set', { key: hiddenKey, value }), /not allowed/, JSON.stringify(value).slice(0, 40));
+  }
+  await refused(forged.send('storage:set', { key: activityKeyFor(HIDDEN_KEY, other), value: { 'm:1234567890': 5 } }), /not allowed/, "another account's hidden posts");
   const watchedKey = activityKeyFor(WATCHED_KEY, account);
   const history = [
     { kind: 'reel', id: '1088226293914076', at: 5, owner: 'Example Page', length: 42 },

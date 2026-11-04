@@ -275,6 +275,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       }
     },
     isHidden: (element) => markOf(element) !== null,
+    // Whether the person chose to see the post from its note, so hide() leaves it alone.
+    isRevealed: (element) => revealed.has(element),
     // Posts hidden since the page loaded, per reason.
     counts: () => Object.fromEntries(counts),
     subscribe(listener) {

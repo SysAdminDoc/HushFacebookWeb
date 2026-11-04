@@ -129,6 +129,13 @@ const openedRecord = (value) => (
   && Object.keys(value).length <= 1000
   && Object.entries(value).every(([id, at]) => /^\d{1,32}$/.test(id) && finite(at, 0))
 );
+// Keep posts you hide hidden keeps 3000 photo, video and text keys
+// (src/features/feed/keep-posts-hidden.js MAX_HIDDEN, keys from src/core/seen-keys.js).
+const hiddenRecord = (value) => (
+  isRecord(value)
+  && Object.keys(value).length <= 3000
+  && Object.entries(value).every(([key, at]) => /^(?:m:\d{6,32}|t:[0-9a-z]{2,14})$/.test(key) && finite(at, 0))
+);
 // The background's release check (extension/background.js lists the fields). A record saved
 // before checkedAt existed has `at` instead of the times after it.
 const UPDATE_FIELDS = ['at', 'current', 'latest', 'url', 'newer', 'checkedAt', 'triedAt', 'state', 'failures', 'nextAt', 'checking'];
@@ -159,6 +166,7 @@ const FACEBOOK_VALUES = new Map([
   ['resumeVideos.positions', positionRecord],
   ['rememberWatched.list', watchedList],
   ['filterMarketplace.opened', openedRecord],
+  ['keepPostsHidden.list', hiddenRecord],
   [GAME_KEY, (value) => typeof value === 'boolean'],
   ['hidePostsByWords.cssWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
   ['hidePostsByWords.skipWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],

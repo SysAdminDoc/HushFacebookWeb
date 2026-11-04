@@ -25,12 +25,13 @@ const VOLUME_KEY = 'keepVolume.state';
 const POSITIONS_KEY = 'resumeVideos.positions';
 const WATCHED_KEY = 'rememberWatched.list'; // WATCHED_KEY in features/playback/remember-watched.js
 const OPENED_KEY = 'filterMarketplace.opened'; // OPENED_KEY in features/marketplace/filter-marketplace.js
+const HIDDEN_KEY = 'keepPostsHidden.list'; // HIDDEN_KEY in features/feed/keep-posts-hidden.js
 const MAX_POSITIONS = 200; // MAX_KEPT in features/playback/resume-videos.js
 const SIGNED_OUT = 'signed-out';
 
-// The watched list and opened listings came after accounts were kept apart, so they never have
-// a shared copy to add.
-export const ACTIVITY_KEYS = Object.freeze([SEEN_KEY, CLEARED_KEY, SPEED_KEY, VOLUME_KEY, POSITIONS_KEY, WATCHED_KEY, OPENED_KEY]);
+// The watched list, opened listings and posts you hid came after accounts were kept apart, so
+// they never have a shared copy to add.
+export const ACTIVITY_KEYS = Object.freeze([SEEN_KEY, CLEARED_KEY, SPEED_KEY, VOLUME_KEY, POSITIONS_KEY, WATCHED_KEY, OPENED_KEY, HIDDEN_KEY]);
 const ACTIVITY = new Set(ACTIVITY_KEYS);
 export const ACCOUNT_CHANGED = 'The Facebook account on this page changed, so seen posts and video spots stop saving here until you reload';
 

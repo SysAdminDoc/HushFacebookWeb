@@ -141,11 +141,13 @@ test('a click on the note shows the post and Facebook never sees the click', () 
   win.document.addEventListener('click', () => facebook.push('document'));
 
   const event = new win.MouseEvent('click', { bubbles: true, cancelable: true });
+  assert.equal(hider.isRevealed(element), false);
   marker.dispatchEvent(event);
 
   assert.equal(event.defaultPrevented, true);
   assert.deepEqual(facebook, []);
   assert.equal(hider.isHidden(element), false);
+  assert.equal(hider.isRevealed(element), true);
   assert.equal(marker.hasAttribute(NOTE), false);
   assert.equal(hider.hide(element, 'Sponsored'), false, 'a shown post stays shown');
   assert.equal(hider.isHidden(element), false);
