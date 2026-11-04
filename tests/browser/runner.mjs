@@ -52,6 +52,7 @@ const scenarios = [
   { id: 'staged-share', fixture: 'stagedShare', screenshot: true },
   { id: 'recycled-posts', fixture: 'recycledPosts', screenshot: true },
   { id: 'bounded-download', fixture: 'boundedDownload' },
+  { id: 'active-dots', fixture: 'activeDots', screenshot: true },
 ];
 const results = [];
 let activeBrowser;
