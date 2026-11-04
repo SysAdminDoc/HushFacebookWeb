@@ -11,7 +11,7 @@ import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
 import { compileFilters, filterCache, firstMatch, matchingRules } from '../src/core/filters/engine.js';
 import { compileNames, compileSites, matchingNames, matchingSites } from '../src/core/filters/lists.js';
-import { postFields } from '../src/core/filters/page.js';
+import { commentFields, postFields } from '../src/core/filters/page.js';
 import { storyFields } from '../src/core/filters/story.js';
 import { parseRoute } from '../src/core/route.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
@@ -352,7 +352,7 @@ function setupFeature(win, { words = '', lists = {}, kinds = {}, preview = false
   const diagnostics = createDiagnostics();
   const warnings = [];
   hidePostsByWords.setup({
-    net, router: { current: () => parseRoute((typeof href === 'function' ? href() : href) ?? win.location.href) }, posts, hider, diagnostics, toast, storage, actions: actions.for('hidePostsByWords'),
+    doc, net, router: { current: () => parseRoute((typeof href === 'function' ? href() : href) ?? win.location.href) }, posts, hider, diagnostics, toast, storage, actions: actions.for('hidePostsByWords'),
     log: { warn: (message) => warnings.push(message), error() {}, info() {} },
     settings: { subscribe: (fn) => subscribers.push(fn) }, enabled: () => true, option: (key) => values[key],
   });
@@ -575,6 +575,104 @@ test('with the search option on, the page check hides matching search results to
   assert.deepEqual(notes(), ['Hidden: Filter: bread. Show', null]);
   set('search', false);
   assert.deepEqual(notes(), [null, null]);
+  posts.stop();
+});
+
+// A comment as three Page post permalinks drew them on 2026-11-04: avatar, name and timestamp
+// links carrying comment_id, then the words in a [dir=auto][lang] box.
+const comment = (n, name, words, extra = '') => `
+  <div role="article" aria-label="Comment by ${name}"><div>
+    <a role="link" href="/u${n}?comment_id=${n}"><svg><image href="a.jpg"></image></svg></a>
+    <div><a role="link" href="/u${n}?comment_id=${n}"><span><span dir="auto">${name}</span></span></a>
+      <div><span dir="auto" lang="en-US">${words}</span></div>${extra}
+      <a role="link" href="/page/posts/pfbid0P1?comment_id=${n}"><span dir="auto">2d</span></a></div>
+  </div></div>`;
+const PERMALINK = 'https://www.facebook.com/p1/posts/pfbid0P1';
+
+test('comment fields: its words, who wrote it, alt text and sites, and no kinds', () => {
+  const emoji = '<img src="https://static.xx.fbcdn.net/images/emoji.php/v9/t50/1/16/2728.png" alt="✨">';
+  const extra = `<a href="/photo/?fbid=9"><img alt="May be an image of a cat" src="x.jpg"></a>
+    <a href="https://l.facebook.com/l.php?u=${encodeURIComponent('https://shop.example/x')}">shop.example</a>`;
+  const win = page(post(1, { text: 'Our puppy', extra: comment(1, `Sam ${emoji} Writer`, `Love it <a href="/pat">Pat Example</a> ${emoji}`, extra) }), PERMALINK);
+  const fields = commentFields(win.document.querySelector('[role="article"]'));
+  assert.deepEqual(fields.text, ['Love it Pat Example ']);
+  assert.deepEqual(fields.authors, ['Sam ✨ Writer'], 'the name link, emoji kept, never the avatar, a mention or the time');
+  assert.deepEqual(fields.alt, ['May be an image of a cat'], "an emoji's alt is too short to count");
+  assert.deepEqual(fields.sites, ['shop.example']);
+  assert.equal(fields.kinds.size, 0);
+  assert.deepEqual(postFields(win.document.querySelector('[aria-posinset]')).text, ['Our puppy'], "the post's fields still leave its comments out");
+  // A writer whose name isn't a link names nobody, never someone mentioned in the words.
+  const unnamed = page(`<div role="article" aria-label="Comment by Anonymous participant"><div><span>Anonymous participant</span>
+    <div><span dir="auto" lang="en-US">Ask <a href="/pat">Pat Example</a></span></div></div></div>`, PERMALINK);
+  assert.deepEqual(commentFields(unnamed.document.querySelector('[role="article"]')).authors, []);
+});
+
+test('with the comments option on, matching comments are hidden anywhere, the post they are on included', async () => {
+  const comments = comment(1, 'Sam Writer', 'So many kittens here') + comment(2, 'Loud Page', 'Hello there')
+    + comment(3, 'Best Friend', 'kittens again') + comment(4, 'Pat Example', 'Nice photo', '<a href="/photo/?fbid=9"><img alt="photo" src="x.jpg"></a>');
+  const win = page(post(1, { text: 'kittens everywhere', extra: comments }), PERMALINK);
+  const { doc, posts, set, diagnostics, hider } = setupFeature(win, { words: 'kittens', href: PERMALINK, lists: { people: 'Loud Page', showPeople: 'Best Friend' }, kinds: { photo: true } });
+  const notes = () => [...doc.querySelectorAll('[role="article"]')].map((c) => c.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+  const row = () => diagnostics.rows().find((r) => r.label === 'Comments hidden by your filters').value;
+  assert.deepEqual(notes(), [null, null, null, null], 'off, comments are left alone');
+  set('comments', true);
+  // Best Friend is on the always-show list, and the photo switch names posts, not comments.
+  assert.deepEqual(notes(), ['Hidden: Filter: kittens. Show', 'Hidden: Filter: Loud Page. Show', null, null]);
+  assert.equal(doc.querySelector(`[aria-posinset] > [${MARK}]`) === null, true, 'the post opened by its link stays');
+  assert.equal(row(), 'kittens 1, Loud Page 1');
+  assert.deepEqual(hider.counts(), { Filter: 2 }, 'each comment counts, though their links name the same post');
+
+  // A comment drawn later inside a box of its own, and one whose words change after See more.
+  doc.querySelector('[aria-posinset]').insertAdjacentHTML('beforeend', `<div><div>${comment(5, 'New Person', 'kittens too')}</div></div>`);
+  doc.querySelectorAll('[role="article"]')[3].querySelector('[lang]').firstChild.nodeValue = 'Nice photo and kittens';
+  await settle();
+  assert.deepEqual(notes(), ['Hidden: Filter: kittens. Show', 'Hidden: Filter: Loud Page. Show', null, 'Hidden: Filter: kittens. Show', 'Hidden: Filter: kittens. Show']);
+
+  set('words', 'hello');
+  assert.deepEqual(notes(), [null, 'Hidden: Filter: Loud Page. Show', null, null, null], 'a new list applies at once');
+  set('words', 'kittens');
+  assert.equal(row(), 'kittens 3, Loud Page 1', 'hidden again, counted once');
+  set('preview', true);
+  assert.deepEqual(notes(), [null, null, null, null, null], 'preview hides nothing');
+  set('preview', false);
+  set('comments', false);
+  assert.deepEqual(notes(), [null, null, null, null, null]);
+  doc.querySelector('[aria-posinset]').insertAdjacentHTML('beforeend', comment(6, 'Other Person', 'kittens'));
+  await settle();
+  assert.equal(doc.querySelector(`[${MARK}]`) === null, true, 'off, a new comment stays');
+  // Switched off after a comment came in and before it was looked at.
+  set('comments', true);
+  doc.querySelector('[aria-posinset]').insertAdjacentHTML('beforeend', comment(7, 'Late Person', 'kittens'));
+  await Promise.resolve();
+  set('comments', false);
+  await settle();
+  assert.equal(doc.querySelector(`[${MARK}]`) === null, true, 'switched off, it stays');
+  posts.stop();
+});
+
+const commentNotes = (doc) => [...doc.querySelectorAll('[role="article"]')].map((c) => c.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+
+test('a comment shown from its note stays shown when it changes', async () => {
+  const win = page(post(1, { text: 'Hello', extra: comment(1, 'Sam Writer', 'kittens') + comment(2, 'Pat Example', 'more kittens') }), PERMALINK);
+  const { doc, posts, set } = setupFeature(win, { words: 'kittens', href: PERMALINK });
+  set('comments', true);
+  assert.deepEqual(commentNotes(doc), ['Hidden: Filter: kittens. Show', 'Hidden: Filter: kittens. Show']);
+  doc.querySelector(`[role="article"] [${MARK}]`).click();
+  assert.deepEqual(commentNotes(doc), [null, 'Hidden: Filter: kittens. Show']);
+  doc.querySelector('[role="article"] [lang]').append('!');
+  await settle();
+  assert.deepEqual(commentNotes(doc), [null, 'Hidden: Filter: kittens. Show']);
+  posts.stop();
+});
+
+test('a line the fuse paused on Home leaves the comments there alone too', async () => {
+  const extra = comment(1, 'Sam Writer', 'kittens') + comment(2, 'Pat Example', 'puppies');
+  const win = page([1, 2, 3, 4, 5, 6].map((n) => post(n, { text: 'kittens', extra: n === 1 ? extra : '' })).join(''));
+  const { doc, posts, set } = setupFeature(win, { words: 'kittens\npuppies' });
+  set('comments', true);
+  await settle();
+  assert.deepEqual([...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`:scope > [${MARK}]`) !== null), [false, false, false, false, false, false], 'kittens matched six of six, so it paused');
+  assert.deepEqual(commentNotes(doc), [null, 'Hidden: Filter: puppies. Show']);
   posts.stop();
 });
 

@@ -22,7 +22,7 @@
 // attributes go again with the note (or the focus), so a paused script or a note switched off
 // leaves Facebook's element as it was.
 
-import { postIdOf } from './posts.js';
+import { isComment, postIdOf } from './posts.js';
 
 export const MARK = 'data-hfw-hide';
 export const NOTE = 'data-hfw-note';
@@ -139,9 +139,10 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     else if (marker.parentElement) clear(marker.parentElement);
   }
 
-  // Counts a post the first time it's hidden. Returns whether it was new.
+  // Counts a post the first time it's hidden. Returns whether it was new. A comment's links name
+  // the post it's on, so a comment counts by its element alone.
   function count(element, reason) {
-    const id = postIdOf(element).id;
+    const id = isComment(element) ? null : postIdOf(element).id;
     const seen = countedElements.has(element) || (id !== null && countedIds.has(id));
     countedElements.add(element);
     if (id !== null) countedIds.add(id);

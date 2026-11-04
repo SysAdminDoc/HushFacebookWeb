@@ -34,8 +34,9 @@ import { walk, SKIP } from '../../core/json-walk.js';
 import { whenBodyReady } from '../../core/env.js';
 import { filterCache, firstMatch, matchingRules } from '../../core/filters/engine.js';
 import { compileNames, compileSites, matchingNames, matchingSites } from '../../core/filters/lists.js';
-import { postFields, posterOf } from '../../core/filters/page.js';
+import { commentFields, postFields, posterOf } from '../../core/filters/page.js';
 import { storyFields } from '../../core/filters/story.js';
+import { watchCommentChecks } from '../../core/dom/comment-checks.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { createPostMenuRow, menuPost } from '../../core/dom/post-menu.js';
 import { drawnEdges, inScope } from './ad-markers.js';
@@ -310,6 +311,7 @@ const OPTIONS = [
   { key: 'showSites', type: 'text', label: 'Always show posts that link to these sites, even when something here would hide them. One site per line.', default: '', maxLength: 20000 },
   ...KINDS.map(({ key, label }) => ({ key, type: 'toggle', label: `Hide all ${label}`, default: false })),
   { key: 'search', type: 'toggle', label: 'Hide them in search results too', default: false },
+  { key: 'comments', type: 'toggle', label: 'Hide comments that match your words, people or sites too', default: false },
   { key: 'preview', type: 'toggle', label: 'Preview: count what each line would hide, and hide nothing', default: false },
 ];
 
@@ -333,7 +335,7 @@ export default {
   section: 'feed',
   android: 'Hide posts by words',
   title: 'Hide posts by words',
-  description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups, and in search results if you choose. Posts you open by their link always show.',
+  description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups, and in search results and comments if you choose. Posts you open by their link always show.',
   default: false,
   options: OPTIONS,
 
@@ -739,9 +741,37 @@ export default {
       },
     });
 
+    // Comments, with the comments option, wherever they're drawn, a post opened by its link
+    // included: by what one says, who wrote it and the sites it links to (commentFields, which
+    // has no kinds, since those name kinds of posts). A line the fuse paused stays paused for
+    // comments too.
+    // Preview hides nothing, so it leaves comments alone.
+    const commentHits = new Map();
+    const commentsCounted = new WeakMap();
+    const comments = doc ? watchCommentChecks({
+      doc,
+      enabled: () => enabled() && option('comments') === true && !previewing(),
+      check(comment) {
+        const filter = unpaused(current());
+        if (!active(filter)) return false;
+        const reason = filterVerdict(filter, commentFields(comment));
+        if (reason === null) return false;
+        if (hider.hide(comment, 'Filter', reason)) {
+          if (!commentsCounted.has(comment)) commentsCounted.set(comment, new Set());
+          if (!commentsCounted.get(comment).has(reason)) tally(commentHits, reason);
+          commentsCounted.get(comment).add(reason);
+          changed();
+        }
+        return true;
+      },
+    }) : null;
+    if (comments) diagnostics?.add('Comments hidden by your filters', () => summary(commentHits));
+
     recheck = () => {
       hider.showAll('Filter');
       if (enabled()) watcher.recheckAll();
+      comments?.recheckAll();
     };
+    comments?.recheckAll();
   },
 };

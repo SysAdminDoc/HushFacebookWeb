@@ -104,6 +104,24 @@ export function isPost(post) {
   return own(HEADER).length > 0 || own(TEXT).length > 0 || authorsOf(post).length > 0;
 }
 
+// A comment as Facebook drew it on 2026-11-04 (three Page post permalinks): a div[role=article]
+// labeled "Comment by ..." (posts.js isComment), never inside another one. Its own links come
+// avatar (a picture with no words), name, then the timestamp, and its words are in a
+// [dir=auto][lang] box, where a link to someone mentioned sits too. None of the
+// data-ad-rendering-role boxes a post has are there.
+const COMMENT_TEXT = '[dir="auto"][lang]';
+
+// The same fields for a comment: its words, who wrote it, its pictures' alt text and the sites
+// it links to. No kinds, since those name kinds of posts.
+export function commentFields(comment) {
+  const own = ownOf(comment);
+  const text = own(COMMENT_TEXT).map((element) => visibleText(element)).filter(Boolean);
+  const writer = named(own('a[href]').filter((a) => !a.closest(COMMENT_TEXT)));
+  const alt = own('img[alt]').map((img) => img.getAttribute('alt')).filter((value) => value && value.length > 3);
+  const sites = [...new Set(own('a[href]').map((a) => hostOf(a.href || a.getAttribute('href'))).filter(Boolean))];
+  return { text, authors: writer ? [nameOf(writer)] : [], alt, sites, kinds: new Set() };
+}
+
 export function postFields(post) {
   const own = ownOf(post);
   const text = own(TEXT).map((element) => visibleText(element)).filter(Boolean);
