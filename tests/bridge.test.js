@@ -25,6 +25,7 @@ import {
 } from '../src/core/bridge.js';
 import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createWatchList, entriesOf, WATCHED_KEY } from '../src/features/playback/remember-watched.js';
+import { MAX_OPENED, OPENED_KEY } from '../src/features/marketplace/filter-marketplace.js';
 import { buildSchema, claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 import { applySeenOperation, seenClearKey } from '../src/core/seen.js';
@@ -2722,10 +2723,18 @@ test("a page reads and writes its own account's activity and the shared lists fr
     [activityKeyFor('keepSpeed.rate', account), 1.5],
     [activityKeyFor('keepVolume.state', account), { volume: 0.5, muted: false }],
     [activityKeyFor('seenPostsCleared', account), 50],
+    [activityKeyFor(OPENED_KEY, account), { 1234567890: 5, 2234567890: 6 }],
   ]) {
     assert.equal((await forged.send('storage:set', { key, value })).ok, true, key);
     assert.deepEqual(chrome.data[key], value);
   }
+  // Opened Marketplace listings are listing ids and times, MAX_OPENED at most.
+  const openedKey = activityKeyFor(OPENED_KEY, account);
+  const tooMany = Object.fromEntries(Array.from({ length: MAX_OPENED + 1 }, (_, i) => [String(1000000 + i), i]));
+  for (const value of [{ 'javascript:alert(1)': 5 }, { 1234567890: -1 }, { 1234567890: '5' }, [5], tooMany]) {
+    await refused(forged.send('storage:set', { key: openedKey, value }), /not allowed/, JSON.stringify(value).slice(0, 40));
+  }
+  await refused(forged.send('storage:set', { key: activityKeyFor(OPENED_KEY, other), value: { 1234567890: 5 } }), /not allowed/, "another account's opened listings");
   const watchedKey = activityKeyFor(WATCHED_KEY, account);
   const history = [
     { kind: 'reel', id: '1088226293914076', at: 5, owner: 'Example Page', length: 42 },

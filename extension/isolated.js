@@ -122,6 +122,13 @@ const positionRecord = (value) => (
 );
 // Remember what you watch keeps 50 (src/features/playback/remember-watched.js entryOf).
 const watchedList = validWatchedRecord;
+// Filter Marketplace listings keeps the 1000 listings opened last, by id
+// (src/features/marketplace/filter-marketplace.js MAX_OPENED).
+const openedRecord = (value) => (
+  isRecord(value)
+  && Object.keys(value).length <= 1000
+  && Object.entries(value).every(([id, at]) => /^\d{1,32}$/.test(id) && finite(at, 0))
+);
 // The background's release check (extension/background.js lists the fields). A record saved
 // before checkedAt existed has `at` instead of the times after it.
 const UPDATE_FIELDS = ['at', 'current', 'latest', 'url', 'newer', 'checkedAt', 'triedAt', 'state', 'failures', 'nextAt', 'checking'];
@@ -151,6 +158,7 @@ const FACEBOOK_VALUES = new Map([
   ['keepVolume.state', volumeRecord],
   ['resumeVideos.positions', positionRecord],
   ['rememberWatched.list', watchedList],
+  ['filterMarketplace.opened', openedRecord],
   [GAME_KEY, (value) => typeof value === 'boolean'],
   ['hidePostsByWords.cssWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
   ['hidePostsByWords.skipWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],

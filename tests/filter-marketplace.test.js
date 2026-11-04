@@ -7,11 +7,12 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
-import feature, { edgeListing, priceLimit } from '../src/features/marketplace/filter-marketplace.js';
+import feature, { edgeListing, MAX_OPENED, OPENED_KEY, priceLimit } from '../src/features/marketplace/filter-marketplace.js';
 import { LISTING_CSS, LISTING_MARK, listingPage } from '../src/features/marketplace/listing-cards.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { installNetworkHooks } from '../src/core/net/hooks.js';
 import { parseRoute } from '../src/core/route.js';
+import { createMemoryStorage } from '../src/core/storage.js';
 
 const SEARCH = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'MarketplaceSearchQuery' };
 const quiet = { error() {}, warn() {}, info() {}, debug() {} };
@@ -24,17 +25,44 @@ const tick = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // The feature's rule with these settings (keys without the feature's prefix are other features').
 // With a page, doc and router are its document and router, and subscribe hears settings changes.
-function setup(values = {}, { doc, router, subscribe } = {}) {
+function setup(values = {}, { doc, router, subscribe, storage } = {}) {
   const store = new Map(Object.entries(values));
   const settings = { get: (key) => store.get(key), subscribe };
   const option = (key) => store.get(`filterMarketplace.${key}`);
   const rules = [];
   const diagnostics = createDiagnostics();
-  feature.setup({ doc, router, net: { transformResponses: (rule) => rules.push(rule) }, settings, diagnostics, enabled: () => true, option });
+  const actions = new Map();
+  const toasts = [];
+  feature.setup({
+    doc, router, net: { transformResponses: (rule) => rules.push(rule) }, settings, storage, diagnostics, enabled: () => true, option,
+    toast: (message) => toasts.push(message), actions: { add: (label, run) => actions.set(label, run) },
+  });
   assert.equal(rules.length, 1);
   const row = (label) => diagnostics.rows().find((r) => r.label === label)?.value;
-  return { rule: rules[0], store, diagnostics, filtered: () => row('Marketplace listings filtered out') };
+  return { rule: rules[0], store, diagnostics, row, actions, toasts, filtered: () => row('Marketplace listings filtered out') };
 }
+
+// A Marketplace page whose router tells listeners about every move, and the results grid of the
+// search capture's listings.
+function marketplacePage(href, listings) {
+  const win = testWindow(href);
+  windows.push(win);
+  const doc = win.document;
+  doc.body.innerHTML = `<div role="main"><div class="grid">${listings.map((listing) => `<div class="cell" data-id="${listing.id}">
+    <a href="/marketplace/item/${listing.id}/?ref=search"><span>${listing.marketplace_listing_title}</span></a></div>`).join('')}</div></div>`;
+  let at = href;
+  const listeners = [];
+  const router = { current: () => parseRoute(at), subscribe: (fn) => listeners.push(fn) };
+  const go = (to) => {
+    at = to;
+    for (const fn of listeners) fn();
+  };
+  const marked = () => [...doc.querySelectorAll(`[${LISTING_MARK}]`)].map((el) => el.dataset.id);
+  return { doc, router, go, marked };
+}
+
+const SEARCH_PAGE = 'https://www.facebook.com/marketplace/search/?query=case';
+const itemPage = (id) => `https://www.facebook.com/marketplace/item/${id}/?ref=search`;
 
 const searchEdges = (doc) => doc.data.marketplace_search.feed_units.edges;
 const listingOf = (edge) => edge.node?.listing;
@@ -250,6 +278,96 @@ test('server-drawn search listings stay in the data and their cards are hidden o
     <div role="main"><div><h2>Results</h2><div class="grid"><div class="cell" data-id="${only}"><a href="/marketplace/item/${only}/">x</a></div></div></div></div>`;
   await tick();
   assert.deepEqual(marked(), [], 'neither the results nor the page go');
+});
+
+test('a listing page you open is kept while the option is on, the latest MAX_OPENED at most', () => {
+  const storage = createMemoryStorage();
+  const { router, go } = marketplacePage('https://www.facebook.com/marketplace/', []);
+  const { store, row } = setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.opened': true }, { router, storage, subscribe: (fn) => router.subscribe(fn) });
+  const kept = () => Object.keys(storage.get(OPENED_KEY) ?? {}).sort();
+  go(itemPage('1234567890'));
+  assert.deepEqual(kept(), ['1234567890']);
+  go('https://www.facebook.com/marketplace/category/vehicles');
+  go('https://www.facebook.com/groups/3234567890/posts/4234567890/');
+  assert.deepEqual(kept(), ['1234567890'], 'only listing pages count');
+  store.set('filterMarketplace.opened', false);
+  go(itemPage('2234567890'));
+  assert.deepEqual(kept(), ['1234567890'], 'nothing is kept with the option off');
+  store.set('filterMarketplace.opened', true);
+  go(itemPage('2234567890'));
+  assert.deepEqual(kept(), ['1234567890', '2234567890']);
+  assert.equal(row('Opened listings kept'), '2');
+
+  storage.set(OPENED_KEY, Object.fromEntries(Array.from({ length: MAX_OPENED }, (_, i) => [String(1000000 + i), i + 1])));
+  go(itemPage('1000000'));
+  go(itemPage('9999999'));
+  const all = storage.get(OPENED_KEY);
+  assert.equal(Object.keys(all).length, MAX_OPENED);
+  assert.ok(Object.hasOwn(all, '1000000'), 'opening one again makes it the latest');
+  assert.ok(!Object.hasOwn(all, '1000001'), 'the one opened longest ago goes');
+  assert.ok(Object.hasOwn(all, '9999999'));
+});
+
+test("a listing you opened goes the next time the results load, and the one you just opened stays put until then", async () => {
+  const [line] = await fixtureLines('marketplace-search.jsonl');
+  const listings = searchEdges(parseLine(line)).map(listingOf).filter(Boolean);
+  const [earlier, now] = listings.filter((listing) => !shipsOnsite(listing));
+  const storage = createMemoryStorage({ [OPENED_KEY]: { [earlier.id]: 1 } });
+  const values = { 'filterMarketplace.shipped': false, 'filterMarketplace.opened': true };
+  const inline = { transport: 'json-parse', path: '/marketplace/search/' };
+
+  const off = parseLine(line);
+  setup({ 'filterMarketplace.shipped': true, 'filterMarketplace.opened': false }, { storage }).rule.transform(off, SEARCH);
+  assert.ok(searchEdges(off).some((edge) => listingOf(edge)?.id === earlier.id), 'with the option off an opened listing stays');
+
+  const page = marketplacePage(SEARCH_PAGE, listings);
+  const { rule, filtered } = setup(values, { doc: page.doc, router: page.router, storage });
+  assert.equal(rule.transform(parseLine(line), inline), false, 'drawn on the server, so it stays in the data');
+  await tick();
+  assert.deepEqual(page.marked(), [earlier.id]);
+  assert.equal(filtered(), '1 opened before');
+  const fetched = parseLine(line);
+  assert.equal(rule.transform(fetched, SEARCH), true);
+  assert.equal(searchEdges(fetched).filter((edge) => !edge.node).length, 1, 'a later page leaves it out of the data');
+
+  page.go(itemPage(now.id));
+  page.go(SEARCH_PAGE);
+  assert.ok(Object.hasOwn(storage.get(OPENED_KEY), now.id));
+  assert.deepEqual(page.marked(), [earlier.id], 'the listing you came back from is still there');
+
+  const next = marketplacePage(SEARCH_PAGE, listings);
+  const reloaded = setup(values, { doc: next.doc, router: next.router, storage });
+  reloaded.rule.transform(parseLine(line), inline);
+  await tick();
+  assert.deepEqual(next.marked().sort(), [earlier.id, now.id].sort(), 'on the next load both go');
+
+  await reloaded.actions.get('Forget opened listings')();
+  assert.equal(storage.get(OPENED_KEY), undefined);
+  assert.deepEqual(next.marked(), [], 'forgetting brings them back');
+  assert.deepEqual(reloaded.toasts, ['Forgot every opened listing']);
+  assert.equal(reloaded.row('Opened listings kept'), '0');
+});
+
+test("nothing is kept before the extension's saved list loads, and cards drawn before then follow it once it does", async () => {
+  const [line] = await fixtureLines('marketplace-search.jsonl');
+  const listings = searchEdges(parseLine(line)).map(listingOf).filter(Boolean);
+  const [earlier, now] = listings;
+  const memory = createMemoryStorage();
+  const waiting = [];
+  const storage = { ...memory, whenReady: (run) => waiting.push(run) };
+  const page = marketplacePage(SEARCH_PAGE, listings);
+  const { rule } = setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.opened': true }, { doc: page.doc, router: page.router, storage });
+  rule.transform(parseLine(line), { transport: 'json-parse', path: '/marketplace/search/' });
+  await tick();
+  assert.deepEqual(page.marked(), []);
+  page.go(itemPage(now.id));
+  assert.equal(memory.get(OPENED_KEY), undefined, 'a write now would replace the saved list');
+
+  memory.set(OPENED_KEY, { [earlier.id]: 1 });
+  for (const run of waiting.splice(0)) run();
+  assert.deepEqual(Object.keys(memory.get(OPENED_KEY)).sort(), [earlier.id, now.id].sort(), 'the page you were on is kept with the rest');
+  page.go(SEARCH_PAGE);
+  assert.deepEqual(page.marked(), [earlier.id]);
 });
 
 test('with every option off the rule leaves the answer alone', async () => {
