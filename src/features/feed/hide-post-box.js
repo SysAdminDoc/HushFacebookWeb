@@ -71,10 +71,13 @@ export default {
     let queued = false;
     const check = () => {
       queued = false;
-      if (!enabled() || !onPage()) return;
-      const box = postBox(doc);
-      // React reuses blocks when it draws a page again.
-      for (const marked of doc.querySelectorAll(`[${POST_BOX_MARK}]`)) {
+      const marks = [...doc.querySelectorAll(`[${POST_BOX_MARK}]`)];
+      const live = enabled() && onPage();
+      // Most changes are posts coming in below a box already found.
+      if (live && marks.length === 1 && isPostBox(marks[0])) return;
+      const box = live ? postBox(doc) : null;
+      // React reuses blocks when it draws a page again, and a mark never outlives its page.
+      for (const marked of marks) {
         if (marked !== box) marked.removeAttribute(POST_BOX_MARK);
       }
       if (box && !box.hasAttribute(POST_BOX_MARK)) box.setAttribute(POST_BOX_MARK, '');
@@ -82,12 +85,18 @@ export default {
     const view = doc.defaultView;
     // Before the browser paints the change, once however many changes came in.
     const frame = view?.requestAnimationFrame ? (fn) => view.requestAnimationFrame(fn) : (fn) => setTimeout(fn, 16);
-    const Observer = view?.MutationObserver ?? globalThis.MutationObserver;
-    const observer = new Observer(() => {
-      if (queued || !enabled() || !onPage()) return;
+    const schedule = () => {
+      if (queued) return;
       queued = true;
       frame(check);
+    };
+    const Observer = view?.MutationObserver ?? globalThis.MutationObserver;
+    const observer = new Observer(() => {
+      if (enabled() && onPage()) schedule();
     });
+    // The address can change after Facebook's last change to the page (content mode reads it
+    // every half second).
+    router?.subscribe?.(schedule);
     whenRootReady(() => {
       observer.observe(doc.documentElement, { childList: true, subtree: true });
       check();

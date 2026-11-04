@@ -148,6 +148,25 @@ test('setup marks the box on a group and a profile, follows it when it is drawn 
   assert.ok(marked().length === 1 && marked()[0] === doc.querySelector('.box'));
 });
 
+test('a new address marks or clears the box without waiting for Facebook to change the page', async () => {
+  let type = 'home';
+  const listeners = [];
+  const router = { current: () => ({ type }), subscribe: (listener) => listeners.push(listener) };
+  const doc = page(GROUP, 'groups').document;
+  hidePostBox.setup({ doc, router, enabled: () => true });
+  await tick(30);
+  const marked = () => doc.querySelectorAll(`[${POST_BOX_MARK}]`).length;
+  assert.equal(marked(), 0, 'Home');
+  type = 'groups';
+  for (const listener of listeners) listener();
+  await tick(30);
+  assert.equal(marked(), 1, 'the group the address moved to');
+  type = 'home';
+  for (const listener of listeners) listener();
+  await tick(30);
+  assert.equal(marked(), 0, 'no mark left behind for the next group or profile');
+});
+
 test('with the switch off from the start, nothing is marked', async () => {
   const doc = page(GROUP, 'groups').document;
   hidePostBox.setup({ doc, router: { current: () => ({ type: 'groups' }) }, enabled: () => false });
