@@ -54,10 +54,12 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 test('nothing is pressed until you pick, then your pick is kept and pressed on the next load', () => {
   const first = page(LIST(0));
   const asked = wire(first.document);
-  const { kept, storage } = keeper(first);
+  const { kept, storage, pending } = keeper(first);
   kept.start();
   assert.equal(asked.length, 0, 'no pick yet, so Facebook keeps All');
   assert.equal(kept.kept(), null);
+  first.document.querySelector('h1').click();
+  assert.equal(pending(), 0, 'no pick, so a click elsewhere waits for nothing');
   first.document.querySelectorAll('[role="toolbar"] [role="button"]')[1].click();
   assert.equal(storage.get(PICK_KEY), 'unread', 'your click on Unread');
 
@@ -111,6 +113,32 @@ test("the bell's hidden list is left alone until a click opens it", () => {
   assert.equal(pressedIn(doc), 'false,true');
 });
 
+test('the bell opened with Enter gets the same look, other keys do not', () => {
+  const storage = createMemoryStorage({ [PICK_KEY]: 'unread' });
+  const win = page(BELL(0), '/');
+  const doc = win.document;
+  const asked = wire(doc);
+  const { kept, flush, pending } = keeper(win, { storage, onPage: () => false });
+  kept.start();
+  const bell = doc.querySelector('.bell');
+  bell.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+  assert.equal(pending(), 0, 'Tab');
+  doc.querySelector('[role="dialog"]').style.display = '';
+  bell.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  flush();
+  assert.deepEqual(asked, [1]);
+});
+
+test("the page's own clicks are not your pick", () => {
+  const storage = createMemoryStorage();
+  const win = page(LIST(0));
+  wire(win.document);
+  createFilterKeeper({ doc: win.document, storage, enabled: () => true, setTimer: () => assert.fail('nothing to look at') }).start();
+  win.document.querySelectorAll('[role="toolbar"] [role="button"]')[1].dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  assert.equal(pressedIn(win.document), 'false,true', 'Facebook still switched');
+  assert.equal(storage.get(PICK_KEY, null), null);
+});
+
 test('a list emptied by Unread still takes your pick of All', () => {
   const storage = createMemoryStorage();
   const win = page(LIST(0));
@@ -143,14 +171,38 @@ test('two pressed-or-not buttons anywhere else are not the filter', () => {
   assert.equal(askedThree.length, 0, 'three buttons in the list, not pressed');
 });
 
-test('a list that does not switch is pressed three times at most', () => {
+test('a list that does not switch is pressed three times at most, and three more after your next click', () => {
   const storage = createMemoryStorage({ [PICK_KEY]: 'unread' });
-  const win = page(LIST(0));
-  const asked = wire(win.document, { stuck: true });
-  const { kept } = keeper(win, { storage });
+  const win = page(`${BELL(0)}<div class="elsewhere"></div>`, '/');
+  const doc = win.document;
+  doc.querySelector('[role="dialog"]').style.display = '';
+  const asked = wire(doc, { stuck: true });
+  const { kept, flush } = keeper(win, { storage });
   kept.start();
   for (let i = 0; i < 5; i++) kept.apply();
   assert.equal(asked.length, 3);
+  doc.querySelector('.elsewhere').click();
+  flush();
+  for (let i = 0; i < 5; i++) kept.apply();
+  assert.equal(asked.length, 6);
+});
+
+test('a bell that goes back to All is kept each time you open it', () => {
+  const storage = createMemoryStorage({ [PICK_KEY]: 'unread' });
+  const win = page(BELL(0), '/');
+  const doc = win.document;
+  doc.querySelector('[role="dialog"]').style.display = '';
+  const asked = wire(doc);
+  const { kept, flush } = keeper(win, { storage, onPage: () => false });
+  kept.start();
+  const [all] = doc.querySelectorAll('[role="toolbar"] [role="button"]');
+  for (let open = 0; open < 4; open++) {
+    all.setAttribute('aria-pressed', 'true');
+    all.nextElementSibling.setAttribute('aria-pressed', 'false');
+    doc.querySelector('.bell').click();
+    flush();
+  }
+  assert.deepEqual(asked, [1, 1, 1, 1, 1], 'once at start and once per opening');
 });
 
 test('switched off, nothing is pressed or kept', () => {
@@ -158,11 +210,13 @@ test('switched off, nothing is pressed or kept', () => {
   const win = page(LIST(0));
   const asked = wire(win.document);
   let on = false;
-  const { kept } = keeper(win, { storage, on: () => on });
+  const { kept, pending } = keeper(win, { storage, on: () => on });
   kept.start();
   win.document.querySelectorAll('[role="toolbar"] [role="button"]')[0].click();
   assert.deepEqual(asked, [0], 'only your click');
   assert.equal(storage.get(PICK_KEY), 'unread', 'not kept while off');
+  kept.lookSoon();
+  assert.equal(pending(), 0, 'a page change waits for nothing while off');
   on = true;
   kept.apply();
   assert.deepEqual(asked, [0, 1], 'pressed once it is on');
@@ -183,7 +237,7 @@ test('on the Notifications page the list is pressed as it draws, elsewhere it wa
   }
 });
 
-test('starts off, web only, with a way back to All', () => {
+test('starts off, web only, with a way back to All', async () => {
   assert.equal(keepNotificationsFilter.default, false);
   assert.equal(keepNotificationsFilter.webOnly, true);
   assert.equal(keepNotificationsFilter.section, 'notifications');
@@ -191,9 +245,20 @@ test('starts off, web only, with a way back to All', () => {
   assert.equal(pickLabel(null), 'Not picked yet');
   const storage = createMemoryStorage({ [PICK_KEY]: 'unread' });
   const win = page(LIST(0));
+  const asked = wire(win.document);
   const added = {};
   const toasts = [];
-  keepNotificationsFilter.setup({ doc: win.document, router: { current: () => ({ type: 'notifications' }) }, storage, enabled: () => true, actions: { add: (name, fn) => { added[name] = fn; } }, diagnostics: { add: (name, read) => { added[name] = read; } }, toast: (text) => toasts.push(text) });
+  let moved = null;
+  const router = { current: () => ({ type: 'notifications' }), subscribe: (listener) => { moved = listener; } };
+  keepNotificationsFilter.setup({ doc: win.document, router, storage, enabled: () => true, actions: { add: (name, fn) => { added[name] = fn; } }, diagnostics: { add: (name, read) => { added[name] = read; } }, toast: (text) => toasts.push(text) });
+  assert.deepEqual(asked, [1], 'pressed as it starts');
+  // Back onto the page with the list already drawn on All: the route change alone brings a look.
+  const [all, unread] = win.document.querySelectorAll('[role="toolbar"] [role="button"]');
+  all.setAttribute('aria-pressed', 'true');
+  unread.setAttribute('aria-pressed', 'false');
+  moved({ type: 'notifications' });
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.deepEqual(asked, [1, 1], 'pressed again after the move');
   assert.equal(added['Notifications filter kept'](), 'Unread');
   added['Open Notifications on All again']();
   assert.equal(storage.get(PICK_KEY, null), null);

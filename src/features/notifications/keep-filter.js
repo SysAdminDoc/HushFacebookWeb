@@ -22,8 +22,9 @@ export const PICKS = ['all', 'unread'];
 const BUTTONS = '[role="button"][aria-pressed]';
 const LINKS = 'a[href*="notif_t="]';
 const DELAY = 120;
-// After a click that may have opened the bell's list, which draws over the next second.
-const AFTER_CLICK = [100, 400, 1000];
+// After a click, key or page change that may have shown a list, which draws over the next second.
+const LOOKS = [100, 400, 1000];
+// Per list, until you do something again, so the script can't go back and forth with Facebook.
 const MAX_PRESSES = 3;
 
 const buttonsOf = (bar) => [...bar.querySelectorAll(BUTTONS)];
@@ -31,7 +32,7 @@ const drawn = (element) => element.checkVisibility?.({ visibilityProperty: true,
 
 export function createFilterKeeper({ doc, storage, enabled, onPage = () => false, trusted = (event) => event.isTrusted, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
   const known = new WeakSet();
-  const presses = new WeakMap(); // toolbar -> times the script pressed in it
+  let presses = new WeakMap(); // toolbar -> times the script pressed in it since your last input
   let timer = null;
 
   const kept = () => {
@@ -67,9 +68,16 @@ export function createFilterKeeper({ doc, storage, enabled, onPage = () => false
     }, DELAY);
   };
 
+  // The bell's list stays in the page all along, so each look gets fresh presses.
+  function lookSoon() {
+    if (!enabled() || !kept()) return;
+    presses = new WeakMap();
+    for (const ms of LOOKS) setTimer(apply, ms);
+  }
+
   // Your own click, or Enter or Space, on All or Unread is the pick. The script's click() comes
-  // in untrusted, and it only ever presses the pick already kept. Any other click of yours may
-  // have opened the bell's list, so it gets looked at as it draws.
+  // in untrusted, and it only ever presses the pick already kept. Any other click or key of yours
+  // may have opened the bell's list, so it gets looked at as it draws.
   function onInput(event) {
     if (!enabled() || !trusted(event)) return;
     if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
@@ -80,7 +88,7 @@ export function createFilterKeeper({ doc, storage, enabled, onPage = () => false
       if (pick && pick !== kept()) storage.set(PICK_KEY, pick);
       return;
     }
-    if (event.type === 'click' && kept()) for (const ms of AFTER_CLICK) setTimer(apply, ms);
+    lookSoon();
   }
 
   return {
@@ -95,6 +103,7 @@ export function createFilterKeeper({ doc, storage, enabled, onPage = () => false
       apply();
     },
     apply,
+    lookSoon,
     kept,
     reset: () => storage.remove(PICK_KEY),
   };
@@ -114,6 +123,8 @@ export default {
     if (!doc) return;
     const keeper = createFilterKeeper({ doc, storage, enabled, onPage: () => router?.current()?.type === 'notifications' });
     whenBodyReady(() => keeper.start(), doc);
+    // Back or Forward onto the Notifications page may draw it before the route says so.
+    router?.subscribe?.(() => keeper.lookSoon());
     settings?.subscribe?.(() => keeper.apply());
     diagnostics?.add('Notifications filter kept', () => pickLabel(keeper.kept()));
     actions?.add('Open Notifications on All again', () => {
