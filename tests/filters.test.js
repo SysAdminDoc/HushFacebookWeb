@@ -16,6 +16,8 @@ import { storyFields } from '../src/core/filters/story.js';
 import { parseRoute } from '../src/core/route.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
 import { adRule } from '../src/features/feed/ad-markers.js';
+import hideSponsoredPosts from '../src/features/feed/hide-sponsored-posts.js';
+import hideSuggestedPosts from '../src/features/feed/hide-suggested-posts.js';
 import hidePostsByWords, { createFilterFuse, createPreviewTally, filterMatches, filterVerdict, fuseReport, previewFiltered, previewReport, pruneFiltered, siteNotice, skipNotice } from '../src/features/feed/filters.js';
 import { createSettings, EXPORT_SCHEMA } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
@@ -1188,5 +1190,40 @@ test('with the search option, each search starts the fuse over', () => {
   assert.equal(resultIds(transformDocumentLine(results(1), rules, SEARCH_CTX)).length, 1, 'it stays paused for this search');
   href = 'https://www.facebook.com/search/posts/?q=roses';
   assert.equal(resultIds(transformDocumentLine(results(2), rules, SEARCH_CTX)).length, 0, 'another search counts again from nothing');
+  posts.stop();
+});
+
+// Facebook can open a post in a dialog without leaving Home (fb-bs-blocker 0.5.0, 2026-10-28,
+// fixed its label rules hiding a whole dialog). A post shown that way is one the reader opened.
+const allRules = (attrs, { follow = true, sponsored = true, words = true, extra = '' } = {}) => `
+  <div ${attrs}>
+    <div class="header">
+      <h4><span data-ad-rendering-role="profile_name"><a href="/brand">Brand</a></span>${follow ? ' · <span><div role="button" tabindex="0"><span>Follow</span></div></span>' : ''}</h4>
+      <div class="byline">${sponsored ? '<span>Sponsored</span> · <span>Public</span>' : '<a href="/brand/posts/pfbid0P9">2h</a>'}</div>
+    </div>
+    <div data-ad-rendering-role="story_message"><div>${words ? 'Big football game tonight' : 'Garden photos'}</div></div>
+    ${sponsored ? '<div data-ad-rendering-role="cta-button"><a href="https://shop.example/">Shop now</a></div>' : ''}${extra}
+  </div>`;
+
+test('a post opened in a dialog over Home stays, while the same posts in the feed behind it and a comment under it go', async () => {
+  const win = page(`<div>${allRules('aria-posinset="1"', { follow: false, words: false })}</div>`
+    + `<div>${allRules('aria-posinset="2"', { sponsored: false, words: false })}</div>`
+    + `<div>${allRules('aria-posinset="3"', { follow: false, sponsored: false })}</div>`);
+  const doc = win.document;
+  doc.body.insertAdjacentHTML('beforeend', `<div role="dialog" aria-label="Brand's post"><div>${allRules('role="article"', { extra: comment(8, 'Sam Writer', 'More football talk') })}</div></div>`);
+  const log = { info() {}, warn() {}, error() {} };
+  const posts = createPostTracker({ doc, log });
+  const hider = createHider({ doc, posts, log });
+  const shared = { doc, net: null, router: { current: () => parseRoute(win.location.href) }, posts, hider, log, diagnostics: createDiagnostics(), settings: { subscribe() {} }, enabled: () => true, option: () => false };
+  hideSponsoredPosts.setup(shared);
+  hideSuggestedPosts.setup(shared);
+  hidePostsByWords.setup({ ...shared, actions: createActions().for('hidePostsByWords'), option: (key) => ({ words: 'football', preview: false, comments: true })[key] });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const notes = [...doc.querySelectorAll('[aria-posinset]')].map((element) => element.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+  assert.deepEqual(notes, ['Hidden: Sponsored. Show', 'Hidden: Suggested. Show', 'Hidden: Filter: football. Show'], 'each feed post goes by its own rule');
+  const [opened, reply] = doc.querySelectorAll('[role="dialog"] [role="article"]');
+  assert.equal(hider.isHidden(opened), false);
+  assert.equal(opened.firstElementChild.hasAttribute(MARK), false, 'no note on the opened post');
+  assert.equal(hider.isHidden(reply), true, 'its comments still go by the comment filter');
   posts.stop();
 });

@@ -29,7 +29,7 @@
 // becomes a button the same way the mark does, after it in Tab order. A first element that
 // can't draw a ::before (REPLACED) leaves the note with no second button.
 
-import { isComment, postIdOf } from './posts.js';
+import { inDialog, isComment, postIdOf } from './posts.js';
 
 export const MARK = 'data-hfw-hide';
 export const NOTE = 'data-hfw-note';
@@ -300,9 +300,12 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // Hides a post found by the post tracker. reason is what Diagnostics counts
     // ("Sponsored", "Filter"); detail narrows it in the note ("Filter: cats"). signal says
     // what matched, for the decision list only, when detail doesn't already say it.
-    // Returns false when the post can't be marked or the person chose to see it.
+    // Returns false when the post can't be marked, the person chose to see it or opened it in a
+    // dialog.
     hide(element, reason, detail, signal) {
       if (revealed.has(element)) return false;
+      // Every feature leaves a post opened in a dialog alone. Its comments still go by their rules.
+      if (inDialog(element) && !isComment(element)) return false;
       const marker = markOf(element) ?? element.firstElementChild;
       if (!marker || REPLACED.has(marker.tagName)) return false;
       watchRecycling();

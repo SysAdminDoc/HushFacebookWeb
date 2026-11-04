@@ -99,6 +99,10 @@ export function isComment(element) {
   return ownLinks(element).some((a) => COMMENT_ID.test(a.getAttribute('href')));
 }
 
+// A post Facebook shows in a dialog over the page, as it does for a post opened from Home
+// (post-dialog.js), is one the reader asked to see, like a post opened by its link.
+export const inDialog = (element) => element.closest('[role="dialog"]') !== null;
+
 // { ok: true, kind } for a post, or { ok: false, reason, retry } where retry means the
 // candidate may still become a post once Facebook fills it in.
 export function classifyCandidate(element) {
