@@ -5,14 +5,14 @@
 // load on it's taken out of Facebook's data before it's drawn in page mode, and hidden on the
 // page otherwise.
 //
-// The press goes on to Facebook too (Tell Facebook too, on to start), after the post is hidden
-// here. Facebook sends a post again on the next load until it hears the X: live 2026-11-04 a
-// post whose X reached Facebook (CometFeedStoryExecuteNFXActionMutation, type 4) wasn't sent
-// in three reloads, while 7 to 9 of the other 15 from that visit were each time. Kept from
-// Facebook, the same posts come back and are hidden again, and with five posts to a feed page
-// Home can sit on its loading cards. Facebook draws its "Why aren't you interested?" card in the
-// post's place, which stays hidden with the post. With the option off the press stops before
-// any of Facebook's handlers hear it.
+// Facebook isn't told: the press stops before any of Facebook's handlers hear it. Tell Facebook
+// too (off to start) lets it go on to Facebook after the post is hidden here. Facebook sends a
+// post again on the next load until it hears the X: live 2026-11-04 a post whose X reached
+// Facebook (CometFeedStoryExecuteNFXActionMutation, type 4) wasn't sent in three reloads, while
+// 7 to 9 of the other 15 from that visit were each time. Kept from Facebook, the same posts come
+// back and are hidden again, and with five posts to a feed page Home can sit on its loading
+// cards. Told, Facebook draws its "Why aren't you interested?" card in the post's place, which
+// stays hidden with the post.
 //
 // A post with no photo, video or 24 letters of text (live 2026-11-04: a link shared with a few
 // words on top) is remembered by who posted it, its words and its link's title instead, and
@@ -79,10 +79,10 @@ export default {
   section: 'filters',
   webOnly: true,
   title: 'Keep posts you hide hidden',
-  description: "The X at the top of a post on Home or in your groups feed hides it for good, not just until the feed loads again. The post is recognized by its photo or video, or by its first words. With Tell Facebook too on, Facebook hears the X as well and stops sending that post, which leaves room for new ones.",
+  description: "The X at the top of a post on Home or in your groups feed hides it for good, not just until the feed loads again. The post is recognized by its photo or video, or by its first words. Facebook isn't told. Turn on Tell Facebook too if you'd rather it stop sending that post, which leaves room for new ones.",
   default: true,
   options: [
-    { key: 'tellFacebook', type: 'toggle', label: 'Tell Facebook too, so it stops sending the post', default: true },
+    { key: 'tellFacebook', type: 'toggle', label: 'Tell Facebook too, so it stops sending the post', default: false },
   ],
 
   setup({ win, net, router, posts, hider, storage, actions, diagnostics, settings, toast, log, enabled, option, now = Date.now }) {

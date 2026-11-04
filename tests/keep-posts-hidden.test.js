@@ -1,7 +1,8 @@
 // Keep posts you hide hidden: Facebook's X at the top of a post, as drawn live on 2026-11-04
 // (<a role="link" href="#" aria-label="Hide post by ..."> around a 20px cross), hides the post
-// here and remembers it for the next load. With Tell Facebook too off (setup's default here)
-// the press never reaches Facebook's own handlers, and on it all goes on to them.
+// here and remembers it for the next load. With Tell Facebook too off (its shipped default,
+// which setup uses) the press never reaches Facebook's own handlers, and on it all goes on to
+// them.
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
@@ -68,7 +69,9 @@ function sharedStorage(initial = {}) {
   return storage;
 }
 
-function setup(win, { storage = sharedStorage(), href, net = null, on = { value: true }, clock = { now: 1000 }, tell = false } = {}) {
+const TELL_DEFAULT = keepPostsHidden.options.find((option) => option.key === 'tellFacebook').default;
+
+function setup(win, { storage = sharedStorage(), href, net = null, on = { value: true }, clock = { now: 1000 }, tell = TELL_DEFAULT } = {}) {
   const doc = win.document;
   const posts = createPostTracker({ doc });
   const hider = createHider({ doc, posts });
