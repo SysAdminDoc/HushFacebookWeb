@@ -242,6 +242,8 @@ test('price boxes take a currency written in letters on either end', () => {
   const cases = {
     'R$ 1.500': 1500, 'Rp 50.000': 50000, '50 zł': 50, '100 kr': 100, '100 kr.': 100, "CHF 1'000": 1000, RM50: 50, 'Rs. 500': 500, '1.500 Kč': 1500, '$50 USD': 50,
     '50,-': 50, '50,- kr': 50, 'Fr. 50.–': 50, 'US$ 50': 50, 'S/ 80': 80, 'Ksh 1,500': 1500, '500円': 500, '200 euros': 200, '300 лв.': 300,
+    // Never the sol's dot as a decimal point (0.8), and never "Dh" with an "s" left over.
+    'S/. 80': 80, 'S/.2500': 2500, 'Dhs 500': 500, 'Dhs. 500': 500, 'AU$ 50': 50, 'CA$ 50': 50,
   };
   for (const [typed, number] of Object.entries(cases)) assert.equal(priceLimit(typed), number, typed);
   // Shorthand (2k) and words for a number stay not-a-price: read as a currency they'd leave a

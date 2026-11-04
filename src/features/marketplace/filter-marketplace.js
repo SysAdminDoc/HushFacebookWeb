@@ -107,13 +107,15 @@ const grouped = (digits, sep) => {
 };
 
 // Currencies people write in letters, as codes or the way prices are marked locally, plus what's
-// left of US$, R$, C$ and the like once the sign goes. Only these: a word for a number ("500rb",
-// "2 mil", "5 lakh", "3 тыс", "5万円") would leave a limit a thousand times too small.
+// left of US$, AU$, R$, C$ and the like once the sign goes, and Peru's S/. Only these: a word for
+// a number ("500rb", "2 mil", "5 lakh", "3 тыс", "5万円") would leave a limit a thousand times too
+// small. Before the number, the currency only goes when the number comes straight after it, so
+// "Dhs" isn't read as "Dh" and an "s", and "S/." never leaves ".80".
 const CODES = 'usd|cad|aud|nzd|eur|gbp|chf|pln|czk|huf|ron|bgn|rsd|bam|mkd|sek|nok|dkk|isk|try|uah|rub|kzt|gel|amd|azn|inr|pkr|bdt|lkr|npr|idr|myr|php|thb|vnd|sgd|hkd|twd|krw|jpy|cny|rmb|brl|mxn|ars|clp|cop|pen|uyu|zar|ngn|kes|ugx|tzs|ghs|egp|mad|aed|sar|qar|kwd|bhd|omr|jod|ils|tnd';
-const LOCAL = 'us|nz|hk|nt|mx|rp|rs|rm|kr|kč|kc|zł|zl|ft|lei|lv|лв|грн|руб|tl|dh|dhs|sr|qr|kd|bd|ro|jd|dt|din|km|ksh|ush|tsh|gh|tk|lek|sfr|fr';
+const LOCAL = 'us|au|ca|nz|hk|nt|mx|rp|rs|rm|kr|kč|kc|zł|zl|ft|lei|lv|лв|грн|руб|tl|dh|dhs|sr|qr|kd|bd|ro|jd|dt|din|km|ksh|ush|tsh|gh|tk|lek|sfr|fr';
 const NAMES = 'dollars?|euros?|pesos?|reais|real|rupees?|rand|lira|naira|cedis?|baht|dinars?|dirhams?|riyals?|zlotys?|złotych|forint|leva?|yen|yuan|won|ringgit|rupiah|shillings?|pounds?|francs?|kronor|krona|kroner|krone';
 const CURRENCY = `${CODES}|${LOCAL}|${NAMES}`;
-const CURRENCY_BEFORE = new RegExp(`^(?:${CURRENCY}|[rcas])[./]?`, 'iu');
+const CURRENCY_BEFORE = new RegExp(`^(?:${CURRENCY}|[rcas])(?:\\/\\.?|\\.)?(?=\\d)`, 'iu');
 const CURRENCY_AFTER = new RegExp(`(?:${CURRENCY}|р|円|元|원)\\.?$`, 'iu');
 
 // A price box's number: null when it's empty, NaN when it isn't a price. Spaces, a currency's
