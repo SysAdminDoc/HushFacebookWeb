@@ -57,7 +57,22 @@ const inComment = (element, post) => {
 };
 
 const ownOf = (post) => (selector) => [...post.querySelectorAll(selector)].filter((element) => !inComment(element, post));
-const named = (links) => links.find((a) => normalizeText(a.textContent));
+
+// Facebook draws an emoji as <img alt="✨"> from /images/emoji.php/ (system-emoji.js, which keeps
+// the alt when it swaps the picture), and textContent leaves it out. A name keeps its emoji, as
+// it is in the data and in a name list.
+const EMOJI = 'img[src*="/images/emoji.php/"], img[data-hfw-emoji]';
+const nameOf = (link) => {
+  if (!link.querySelector(EMOJI)) return normalizeText(link.textContent);
+  let text = '';
+  const walker = link.ownerDocument.createTreeWalker(link, 1 | 4 /* NodeFilter.SHOW_ELEMENT | SHOW_TEXT */);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === 3) text += node.nodeValue;
+    else if (node.matches(EMOJI)) text += node.getAttribute('alt') ?? '';
+  }
+  return normalizeText(text);
+};
+const named = (links) => links.find((a) => nameOf(a));
 
 // Who posted, by name, or null: the first named link in the post's first header (or its headings
 // when it has no header). When that's a group, the member who posted it instead, never the group,
@@ -67,18 +82,26 @@ export function posterOf(post) {
   const header = own(HEADER)[0];
   const first = named(header ? [...header.querySelectorAll('a[href]')] : own(HEADINGS));
   if (!first) return null;
-  if (!isGroup(first)) return normalizeText(first.textContent);
+  if (!isGroup(first)) return nameOf(first);
   // Node.DOCUMENT_POSITION_FOLLOWING: the link comes before the text and the second header.
   const stops = [own(TEXT)[0], own(HEADER)[1]].filter(Boolean);
   const member = named(own(MEMBER).filter((a) => stops.every((stop) => a.compareDocumentPosition(stop) & 4)));
-  return member ? normalizeText(member.textContent) : null;
+  return member ? nameOf(member) : null;
 }
 
 export function authorsOf(post) {
-  const authors = ownOf(post)(HEADINGS).map((a) => normalizeText(a.textContent)).filter(Boolean);
+  const authors = ownOf(post)(HEADINGS).map(nameOf).filter(Boolean);
   const poster = posterOf(post);
   if (poster && !authors.includes(poster)) authors.push(poster);
   return authors;
+}
+
+// Whether the post is drawn as somebody's post yet: a header, a name in its headings or text of
+// its own. A feed row that isn't a post (People you may know, group suggestions) names nobody in
+// the data.
+export function isPost(post) {
+  const own = ownOf(post);
+  return own(HEADER).length > 0 || own(TEXT).length > 0 || authorsOf(post).length > 0;
 }
 
 export function postFields(post) {

@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 const joinTitle = { __typename: 'CometFeedStoryCommunityAttributionTitleStrategy', if_viewer_can_join_group: { join_action: { __typename: 'GroupJoinForumAction' } } };
-const suggested = (id) => ({ node: { __typename: 'Story', id, comet_sections: { context_layout: { story: { actors: [{ __typename: 'User', name: 'Sam Example' }], comet_sections: { title: joinTitle } } } } }, cursor: `c-${id}` });
+const suggested = (id) => ({ node: { __typename: 'Story', id, comet_sections: { context_layout: { story: { actors: [{ __typename: 'User', name: 'Sam Example' }], to: { __typename: 'Group', name: 'Garden Swap Group' }, comet_sections: { title: joinTitle } } } } }, cursor: `c-${id}` });
 const friend = (id) => ({ node: { __typename: 'Story', id }, cursor: `c-${id}` });
 
 const handle = (result, sequence) => ({ require: [['ScheduledServerJS', 'handle', null, [{ __bbox: { require: [['RelayPrefetchedStreamCache', 'next', [], ['adp_GroupsFeed', { __bbox: { complete: false, result, sequence_number: sequence } }]]] } }]]] });
@@ -47,7 +47,7 @@ test('a suggestion the server drew keeps its node and goes to onDrawn, and one s
 
   const first = run(initial(suggested('s1'), friend('f1')), rule);
   assert.ok(feedOf(first).viewer.groups_tab.cross_group_feed.edges[0].node, 'the drawn suggestion keeps its node');
-  assert.deepEqual(drawn, [{ place: 1, signal: 'group_join', authors: ['Sam Example'] }]);
+  assert.deepEqual(drawn, [{ place: 1, signal: 'group_join', posters: ['Sam Example'] }]);
   assert.deepEqual(pruned, []);
 
   const next = run(streamed(suggested('s2'), 1), rule);
@@ -86,46 +86,11 @@ test('without a page to hide it on, a drawn suggestion is dropped as before', ()
   assert.equal(hideDrawnPosts({ posts: null, hider: {}, router: {} }), undefined);
 });
 
-test('the page hides the post at the drawn place, on the feed it loaded with only', () => {
-  const listeners = new Map();
-  const current = [];
-  const posts = {
-    on: (event, fn) => {
-      listeners.set(event, fn);
-      return () => listeners.delete(event);
-    },
-    current: () => current,
-  };
-  const add = (place) => {
-    const element = { isConnected: true, getAttribute: (name) => (name === 'aria-posinset' ? String(place) : null) };
-    current.push({ element });
-    listeners.get('post/add')({ element });
-    return element;
-  };
-  const hidden = [];
-  const hider = { hide: (element, reason) => hidden.push([element, reason]) > 0 };
-  let route = GROUPS;
-  const signals = [];
-  const onDrawn = hideDrawnPosts({ posts, hider, router: { current: () => route }, enabled: () => true, reason: 'Suggested', onHide: (signal) => signals.push(signal), schedule: () => 0, cancel: () => {} });
-
-  const first = add(1);
-  add(2);
-  assert.equal(hidden.length, 0, 'nothing before the data says which');
-  onDrawn([{ place: 1, signal: 'group_join' }]);
-  assert.deepEqual(hidden, [[first, 'Suggested']]);
-  assert.deepEqual(signals, ['group_join']);
-
-  route = { type: 'home', path: '/', href: 'https://www.facebook.com/' };
-  add(1);
-  assert.equal(hidden.length, 1, 'another feed numbers its posts from 1 too');
-  route = GROUPS;
-  const again = add(1);
-  assert.equal(hidden.at(-1)[0], again, 'back on the feed, Facebook draws the same edge there again');
-});
-
 // A post in the groups feed as drawn on 2026-11-03: the group in the heading, then the member who
 // posted as a link of their own (page.js).
 const groupPost = (place, member) => `<div aria-posinset="${place}"><h4><a href="/groups/garden/">Garden Swap Group</a></h4>${member ? `<a href="/groups/garden/user/1/">${member}</a>` : ''}<div>Hello</div></div>`;
+// A feed row that isn't anybody's post, like People you may know.
+const row = (place, id = '') => `<div id="${id}" aria-posinset="${place}"><span>People you may know</span><a href="/friends/suggestions/">See all</a></div>`;
 function domPage() {
   const win = testWindow('https://www.facebook.com/groups/feed/');
   windows.push(win);
@@ -137,16 +102,79 @@ function domPage() {
   };
 }
 
+// The tests are told which feed rows go and which stay by their ids, never by the elements.
+test('the page hides the post at the drawn place, on the feed it loaded with only', () => {
+  const element = domPage();
+  const listeners = new Map();
+  const current = [];
+  const posts = {
+    on: (event, fn) => {
+      listeners.set(event, fn);
+      return () => listeners.delete(event);
+    },
+    current: () => current,
+  };
+  const add = (place, id) => {
+    const post = element(row(place, id));
+    current.push({ element: post });
+    listeners.get('post/add')({ element: post });
+  };
+  const hidden = [];
+  const hider = { hide: (post, reason) => hidden.push([post.id, reason]) > 0 };
+  let route = GROUPS;
+  const signals = [];
+  const onDrawn = hideDrawnPosts({ posts, hider, router: { current: () => route }, enabled: () => true, reason: 'Suggested', onHide: (signal) => signals.push(signal), schedule: () => 0, cancel: () => {} });
+
+  add(1, 'first');
+  add(2, 'second');
+  assert.equal(hidden.length, 0, 'nothing before the data says which');
+  onDrawn([{ place: 1, signal: 'people_you_may_know', posters: [] }]);
+  assert.deepEqual(hidden, [['first', 'Suggested']]);
+  assert.deepEqual(signals, ['people_you_may_know']);
+
+  route = { type: 'home', path: '/', href: 'https://www.facebook.com/' };
+  add(1, 'home');
+  assert.equal(hidden.length, 1, 'another feed numbers its posts from 1 too');
+  route = GROUPS;
+  add(1, 'again');
+  assert.equal(hidden.at(-1)[0], 'again', 'back on the feed, Facebook draws the same edge there again');
+});
+
 test('a drawn place goes for the post the data drew there, by who posted it', () => {
   const element = domPage();
-  const authors = ['Sam Example', 'Garden Swap Group'];
-  assert.equal(drawnHere(element(groupPost(1, 'Sam Example')), authors), true);
-  assert.equal(drawnHere(element(groupPost(1, 'SAM  example')), authors), true, 'in any case or spacing');
-  assert.equal(drawnHere(element(groupPost(1, 'Pat Other')), authors), false, 'another member of the same group');
-  assert.equal(drawnHere(element('<div aria-posinset="1"><h4><a href="/sam">Sam Example</a></h4></div>'), authors), true);
-  assert.equal(drawnHere(element(groupPost(1, null)), authors), true, 'posted as the group, which its heading names');
-  assert.equal(drawnHere(element('<div aria-posinset="1"><div>Hello</div></div>'), authors), null, "its header isn't in yet");
-  assert.equal(drawnHere(element('<div aria-posinset="1"><div>Hello</div></div>'), []), true, 'a row that names nobody goes by its place');
+  const posters = ['Sam Example'];
+  assert.equal(drawnHere(element(groupPost(1, 'Sam Example')), posters), true);
+  assert.equal(drawnHere(element(groupPost(1, 'SAM  example')), posters), true, 'in any case or spacing');
+  assert.equal(drawnHere(element(groupPost(1, 'Pat Other')), posters), false, 'another member of the same group');
+  assert.equal(drawnHere(element('<div aria-posinset="1"><h4><a href="/sam">Sam Example</a></h4></div>'), posters), true);
+  assert.equal(drawnHere(element(groupPost(1, null)), ['Garden Swap Group']), true, 'posted as the group, which its heading names');
+  assert.equal(drawnHere(element(groupPost(1, null)), posters), false, "an anonymous post, or one as the group, isn't Sam's though it's in Sam's group");
+  assert.equal(drawnHere(element('<div aria-posinset="1"><div>Hello</div></div>'), posters), null, "its header isn't in yet");
+});
+
+test("a place whose data names nobody goes for a row that isn't a post, and never for somebody's post", () => {
+  const element = domPage();
+  assert.equal(drawnHere(element(row(1)), []), true, 'the row the data drew');
+  assert.equal(drawnHere(element('<div aria-posinset="1"><h4><a href="/alice">Alice Friend</a></h4><div>Lunch</div></div>'), []), false, "a friend's post Home drew there after fetching its feed again");
+  assert.equal(drawnHere(element('<div aria-posinset="1"><div data-ad-rendering-role="story_message"><div>Lunch</div></div></div>'), []), false, 'a post whose header is still on its way');
+  assert.equal(drawnHere(element('<div aria-posinset="1"><div data-ad-rendering-role="profile_name"><span>·</span></div><span>3h</span></div>'), []), false, 'a post whose header is drawn before the name in it');
+  assert.equal(drawnHere(element(groupPost(1, null)), []), false, 'an anonymous post');
+  assert.equal(drawnHere(element('<div aria-posinset="1"><div></div></div>'), []), null, 'nothing drawn yet');
+});
+
+// Live 2026-10-11, Facebook draws an emoji as <img alt> from /images/emoji.php/ (system-emoji.js).
+test('a name with an emoji in it is the name the data gives', () => {
+  const element = domPage();
+  const emoji = '<img src="https://static.xx.fbcdn.net/images/emoji.php/v9/t4/1/16/2728.png" alt="✨" width="16" height="16">';
+  const header = (name) => `<div aria-posinset="1"><div data-ad-rendering-role="profile_name"><h4><a href="/glow">${name}</a></h4></div><div data-ad-rendering-role="story_message"><div>Shop now</div></div></div>`;
+  assert.equal(drawnHere(element(header(`Glow Skincare ${emoji}`)), ['Glow Skincare ✨']), true);
+  assert.equal(drawnHere(element(header(`Glow Skincare ${emoji}`)), ['Glow Skincare']), false, 'the emoji is part of the name');
+  const swapped = '<img src="data:image/svg+xml,x" data-hfw-emoji="https://static.xx.fbcdn.net/images/emoji.php/v9/t4/1/16/2728.png" alt="✨">';
+  assert.equal(drawnHere(element(header(`Glow Skincare ${swapped}`)), ['Glow Skincare ✨']), true, 'with the phone emoji switch on');
+  const avatar = '<img src="https://scontent.xx.fbcdn.net/v/p.jpg" alt="Glow Skincare">';
+  assert.equal(drawnHere(element(header(`${avatar}Glow Skincare ${emoji}`)), ['Glow Skincare ✨']), true, "a picture that isn't an emoji isn't read");
+  const group = `<div aria-posinset="1"><h4><a href="/groups/sun/">${emoji} Sunflower Swap</a></h4><div>Rules</div></div>`;
+  assert.equal(drawnHere(element(group), ['✨ Sunflower Swap']), true, 'posted as the group');
 });
 
 test('when the feed comes again on the same page, a new post at the drawn place stays, and one waits for its header', () => {
@@ -169,7 +197,7 @@ test('when the feed comes again on the same page, a new post at the drawn place 
   const hidden = [];
   const hider = { hide: (post) => hidden.push(post) > 0 };
   const onDrawn = hideDrawnPosts({ posts, hider, router: { current: () => GROUPS }, enabled: () => true, reason: 'Suggested', schedule: () => 0, cancel: () => {} });
-  onDrawn([{ place: 1, signal: 'group_join', authors: ['Sam Example', 'Garden Swap Group'] }]);
+  onDrawn([{ place: 1, signal: 'group_join', posters: ['Sam Example'] }]);
 
   add(groupPost(1, 'Pat Other'));
   assert.equal(hidden.length, 0, 'a new post at the drawn place');
@@ -183,8 +211,7 @@ test('when the feed comes again on the same page, a new post at the drawn place 
 test('switched off, the drawn post comes back, and switched on it hides again', () => {
   const current = [];
   const posts = { on: () => () => {}, current: () => current };
-  const element = { isConnected: true, getAttribute: () => '1' };
-  current.push({ element });
+  current.push({ element: domPage()(row(1)) });
   let on = true;
   let notify;
   const shown = [];

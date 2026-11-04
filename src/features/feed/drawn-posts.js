@@ -9,20 +9,25 @@
 
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { nameKey } from '../../core/filters/lists.js';
-import { authorsOf, posterOf } from '../../core/filters/page.js';
+import { normalizeText } from '../../core/dom/visible-text.js';
+import { authorsOf, isPost, posterOf } from '../../core/filters/page.js';
 
 // Whether the post at a drawn place is the one the data drew there, by who posted it. Facebook
 // also puts another feed on the same page: Home fetches its feed again (the Home button, coming
 // back after a while, Back from a post: keep-feed-place.js), and a group sorts its posts another
-// way, with new posts at the same places. authors are the data's (storyFields), and data that
-// names nobody (a row that isn't a post) goes by its place alone. null while the post's header
-// isn't drawn yet (post-checks.js).
-export function drawnHere(element, authors) {
-  if (!authors?.length) return true;
+// way, with new posts at the same places. posters are the data's actors (storyFields), never the
+// group a post went to, which every post from that group shares. Data that names nobody is a row
+// that isn't a post (People you may know, group suggestions), so a post there isn't it. null
+// while the post isn't drawn far enough to tell (post-checks.js).
+export function drawnHere(element, posters) {
+  if (!posters?.length) {
+    if (isPost(element)) return false;
+    return normalizeText(element.textContent) ? true : null;
+  }
   const poster = posterOf(element);
   const names = poster ? [poster] : authorsOf(element);
   if (!names.length) return null;
-  const keys = new Set(authors.map(nameKey));
+  const keys = new Set(posters.map(nameKey));
   return names.some((name) => keys.has(nameKey(name)));
 }
 
@@ -42,7 +47,7 @@ export function hideDrawnPosts({ posts, hider, router, settings, enabled, reason
       if (router.current().path !== loaded) return true;
       const drawn = places.get(Number(element.getAttribute('aria-posinset')));
       if (!drawn) return true;
-      const here = drawnHere(element, drawn.authors);
+      const here = drawnHere(element, drawn.posters);
       if (here === null) return false;
       if (here && hider.hide(element, reason)) onHide?.(drawn.signal);
       return true;
@@ -60,7 +65,7 @@ export function hideDrawnPosts({ posts, hider, router, settings, enabled, reason
 
   return (kept) => {
     loaded ??= router.current().path;
-    for (const { place, signal, authors } of kept) places.set(place, { signal, authors });
+    for (const { place, signal, posters } of kept) places.set(place, { signal, posters });
     watcher.recheckAll();
   };
 }

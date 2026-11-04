@@ -472,7 +472,7 @@ export default {
     const drawnFields = (element) => {
       if (!drawn.size || route()?.path !== drawnPath) return null;
       const fields = drawn.get(Number(element.getAttribute('aria-posinset')));
-      return fields && drawnHere(element, fields.authors) ? fields : null;
+      return fields && drawnHere(element, fields.posters) ? fields : null;
     };
 
     if (net) {

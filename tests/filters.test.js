@@ -467,6 +467,10 @@ test("drawn data only goes for the post it drew, so a new feed on the same page 
   doc.querySelector('.feed').innerHTML = memberPost(1, 'Pat Example', 'Hello');
   await settle();
   assert.deepEqual(notes(), [HIDDEN], 'the post the data drew, its member named');
+  doc.querySelector('.feed').innerHTML = `<div><div aria-posinset="1"><h4><a href="/groups/garden/">Garden Swap Group</a></h4><span>Anonymous participant</span>
+    <div data-ad-rendering-role="story_message"><div>Lost cat</div></div></div></div>`;
+  await settle();
+  assert.deepEqual(notes(), [null], "an anonymous post from the same group isn't Pat's, though the data names the group too");
 
   // Until its header is in, a post goes by its markup.
   doc.querySelector('.feed').innerHTML = '<div><div aria-posinset="1"><div data-ad-rendering-role="story_message"><div>Hello</div></div></div></div>';

@@ -465,7 +465,7 @@ export function drawnEdges(doc) {
 // reason, each match goes on the Diagnostics decision list too. Both wait until the page gets
 // the pruned answer, and the decision's id is read before the match is changed.
 // With onDrawn, an edge the server drew (drawnEdges) keeps its node, and onDrawn gets
-// [{ place, signal, authors }] for the page to hide those posts instead (drawn-posts.js). Without
+// [{ place, signal, posters }] for the page to hide those posts instead (drawn-posts.js). Without
 // it they're dropped too.
 export function adRule(feature, enabled, onPrune, { route, diagnostics, reason, onDrawn } = {}) {
   const { rows, text } = markersFor(feature);
@@ -484,7 +484,7 @@ export function adRule(feature, enabled, onPrune, { route, diagnostics, reason, 
       const kept = [];
       const keep = drawn?.size ? (row, value) => {
         const place = row.action === 'drop-node' ? drawn.get(value) : undefined;
-        if (place) kept.push({ place, signal: row.id, authors: storyFields(value.node).authors });
+        if (place) kept.push({ place, signal: row.id, posters: storyFields(value.node).posters });
         return Boolean(place);
       } : undefined;
       const fired = pruneAds(doc, active, report, keep);

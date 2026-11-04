@@ -6,6 +6,7 @@
 //   text     message.text, title.text, description.text (message_container, attachments,
 //            reels' fb_shorts_story)
 //   authors  actors[].name, and to.name: the group a post was made in (81 of 137)
+//   posters  actors[].name alone: who posted, never where (drawn-posts.js)
 //   alt      media.accessibility_caption ("May be an image of ...")
 //   sites    external_url, web_link.url and action_links[].url that leave Facebook
 //   kinds    photo (StoryAttachmentPhotoStyleRenderer, Album, AlbumFrame), video
@@ -44,6 +45,7 @@ export function hostOf(href) {
 export function storyFields(node) {
   const text = new Set();
   const authors = new Set();
+  const posters = new Set();
   const alt = new Set();
   const sites = new Set();
   const kinds = new Set();
@@ -56,6 +58,7 @@ export function storyFields(node) {
     }
     if (TEXT_HOLDERS.has(key) && typeof value.text === 'string') text.add(value.text);
     if ((key === 'actors' || key === 'to') && typeof value.name === 'string') authors.add(value.name);
+    if (key === 'actors' && typeof value.name === 'string') posters.add(value.name);
     if (typeof value.accessibility_caption === 'string') alt.add(value.accessibility_caption);
     if (KINDS.has(value.__typename)) kinds.add(KINDS.get(value.__typename));
     if (key === 'attached_story') kinds.add('shared');
@@ -74,5 +77,5 @@ export function storyFields(node) {
     }
   })(node, null, null, 0);
 
-  return { text: [...text], authors: [...authors], alt: [...alt], sites: [...sites], kinds };
+  return { text: [...text], authors: [...authors], posters: [...posters], alt: [...alt], sites: [...sites], kinds };
 }
