@@ -652,6 +652,36 @@ test('in page mode the data rule drops seen stories from Home and leaves search 
   posts.stop();
 });
 
+// The page's own inline answer ({data, extensions}, no path) holds the stories the server drew.
+// Taking a seen one out made React throw #418 and draw Home again (live 2026-11-04).
+test('a seen story the server drew stays in the data, and the page hides its post', () => {
+  const rules = [];
+  const storage = sharedStorage({ [SEEN_KEY]: { 'm:99887766': Date.now() - DAY } });
+  const photo = '<a href="/photo/?fbid=99887766&set=a.1"><img alt="May be an image of the sea" src="x.jpg"></a>';
+  const win = page(post(1, { extra: photo }) + post(2));
+  const { doc, posts, rows } = setupFeature(win, { storage, net: { transformResponses: (rule) => rules.push(rule) } });
+  const photoStory = (id, media) => ({ __typename: 'Story', __isFeedUnit: 'Story', id, attachments: [{ media: { __typename: 'Photo', id: media } }] });
+  const INLINE = { transport: 'json-parse', method: '', url: '', host: '', path: '', friendlyName: '' };
+  const line = JSON.stringify({ data: { viewer: { news_feed: { edges: [{ node: photoStory('s1', '99887766'), cursor: 'c1' }] } } }, extensions: { is_final: false } });
+  assert.equal(transformDocumentLine(line, rules, INLINE), line, 'the drawn story keeps its data');
+  assert.equal(note(doc, 1), 'Hidden: Seen. Show');
+  assert.equal(note(doc, 2), null);
+  assert.equal(rows()['Seen posts hidden'], '0 taken out of the data, 1 hidden on the page');
+
+  // Streamed in after the first answer, with a path, a seen story isn't drawn, so it goes.
+  const streamed = JSON.stringify({ data: { node: photoStory('s2', '99887766'), cursor: 'c2' }, extensions: {}, path: ['viewer', 'news_feed', 'edges', 1] });
+  assert.equal(JSON.parse(transformDocumentLine(streamed, rules, INLINE)).data.node, undefined);
+  assert.equal(rows()['Seen posts hidden'], '1 taken out of the data, 1 hidden on the page');
+  // One blob can carry both, and only the streamed one goes.
+  const both = JSON.parse(transformDocumentLine(`{"first":${line},"next":${streamed}}`, rules, INLINE));
+  assert.ok(both.first.data.viewer.news_feed.edges[0].node);
+  assert.equal(both.next.data.node, undefined);
+  // A fetched page of the feed comes as the same shape and isn't drawn either.
+  const fetched = JSON.parse(transformDocumentLine(line, rules, { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' }));
+  assert.equal(fetched.data.viewer.news_feed.edges[0].node, undefined);
+  posts.stop();
+});
+
 test('a seen story in an answer another rule fails on is not counted as taken out', () => {
   const rules = [];
   const storage = sharedStorage({ [SEEN_KEY]: { 'm:99887766': Date.now() - DAY } });

@@ -13,7 +13,7 @@ import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { watchSeen } from '../../core/dom/seen-watch.js';
 import { pageKeys, storyKeys } from '../../core/seen-keys.js';
 import { createSeenStore } from '../../core/seen-store.js';
-import { inScope } from './ad-markers.js';
+import { drawnEdges, inScope } from './ad-markers.js';
 import { FILTERED } from './filters.js';
 import { later } from '../../core/net/payload.js';
 import { t } from '../../core/i18n.js';
@@ -25,15 +25,16 @@ export const SHOW_KEY = 'hfw.showSeen';
 // What a seen key says matched, for the Diagnostics decision list.
 const matchedBy = (key) => (key.startsWith('m:') ? 'same photo or video' : 'same text');
 
-// Drops every feed story in doc that has a seen key. Returns how many went. report(story,
-// key) hears each one, with the key that matched, before it goes.
-export function pruneSeen(doc, isSeen, report) {
+// Drops every feed story in doc that has a seen key, apart from the ones keep(edge) says yes to.
+// Returns how many went. report(story, key) hears each one, with the key that matched, before it
+// goes.
+export function pruneSeen(doc, isSeen, report, keep) {
   let dropped = 0;
   walk(doc, (value) => {
     if (Array.isArray(value) || !('cursor' in value) || !value.node || typeof value.node !== 'object') return undefined;
     if (value.node.__typename !== 'Story' && !value.node.__isFeedUnit) return undefined;
     const key = storyKeys(value.node).find(isSeen);
-    if (key === undefined) return SKIP;
+    if (key === undefined || keep?.(value)) return SKIP;
     report?.(value.node, key);
     delete value.node;
     delete value.rendering_strategy;
@@ -114,7 +115,12 @@ export default {
         transform(doc, ctx, stage) {
           if (!inScope(scope, ctx, route)) return false;
           const decisions = [];
-          const count = pruneSeen(doc, isSeen, (story, key) => decisions.push({ post: story.post_id ?? story.id, rule: 'Seen', signal: matchedBy(key), layer: 'data' }));
+          // The stories Facebook drew on the server stay, or React throws #418 and draws Home again
+          // (live 2026-11-04, three loads of three with a seen post first). The page check hides
+          // them by what they show, as it does without the data.
+          const drawn = posts && hider && ctx.transport === 'json-parse' ? drawnEdges(doc) : null;
+          const keep = drawn?.size ? (edge) => drawn.has(edge) : undefined;
+          const count = pruneSeen(doc, isSeen, (story, key) => decisions.push({ post: story.post_id ?? story.id, rule: 'Seen', signal: matchedBy(key), layer: 'data' }), keep);
           if (!count) return false;
           later(stage, () => {
             for (const decision of decisions) diagnostics?.decide(decision);
