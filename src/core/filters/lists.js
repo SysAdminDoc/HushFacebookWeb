@@ -15,7 +15,7 @@
 
 import { normalizeText } from '../dom/visible-text.js';
 
-const nameKey = (value) => normalizeText(value).normalize('NFC').toLowerCase();
+export const nameKey = (value) => normalizeText(value).normalize('NFC').toLowerCase();
 
 // Each line that holds something, with its number counted from 1 in the list as written.
 function lines(text) {

@@ -38,6 +38,7 @@ import { storyFields } from '../../core/filters/story.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { createPostMenuRow, menuPost } from '../../core/dom/post-menu.js';
 import { drawnEdges, inScope } from './ad-markers.js';
+import { drawnHere } from './drawn-posts.js';
 import { looksLikeCss } from '../../core/css-text.js';
 import { t } from '../../core/i18n.js';
 import { later } from '../../core/net/payload.js';
@@ -464,12 +465,15 @@ export default {
     // from 1, as drawnEdges does), with what their data says. Taking one out of the data makes
     // React throw #418 and draw the page again (live 2026-11-03, Home and the groups feed with
     // re:.), so they stay, and the page check reads these fields for them in place of the
-    // markup's. Places only hold on the page that loaded with them (drawn-posts.js).
+    // markup's. Places only hold on the page that loaded with them, and for the post the data drew
+    // there (drawn-posts.js). Until its header is in, the post goes by its markup.
     const drawn = new Map();
     let drawnPath = null;
-    const drawnFields = (element) => (drawn.size && route()?.path === drawnPath
-      ? drawn.get(Number(element.getAttribute('aria-posinset'))) ?? null : null);
-    let checkDrawn = null;
+    const drawnFields = (element) => {
+      if (!drawn.size || route()?.path !== drawnPath) return null;
+      const fields = drawn.get(Number(element.getAttribute('aria-posinset')));
+      return fields && drawnHere(element, fields.authors) ? fields : null;
+    };
 
     if (net) {
       const scope = { scope: FILTERED };
@@ -491,10 +495,11 @@ export default {
             for (const [edge, place] of places) if (isStory(edge)) seen.push([place, storyFields(edge.node)]);
           }
           if (seen.length) {
+            // The data can come after the post is drawn, and a post its markup hid may stay.
             later(stage, () => {
               drawnPath ??= route()?.path ?? null;
               for (const [place, fields] of seen) drawn.set(place, fields);
-              checkDrawn?.();
+              recheck?.();
             });
           }
           // The fuse looks at the whole answer before anything goes, so the answer that trips it
@@ -672,7 +677,7 @@ export default {
       return pageKeys.get(element);
     };
     // A check runs again on a post that's already hidden (the list changed back, or drawn data
-    // came in), and hide() says yes again, so each post is counted once for what it matched.
+    // came in), and hide() says yes again, so each post is counted once for each thing it matched.
     const counted = new WeakMap();
     posts.on('post/remove', ({ element }) => counted.delete(element));
 
@@ -701,8 +706,9 @@ export default {
         const reason = filterVerdict(unpaused(filter), fields);
         if (reason === null) return false;
         if (hider.hide(element, 'Filter', reason)) {
-          if (counted.get(element) !== reason) tally(hits, reason);
-          counted.set(element, reason);
+          if (!counted.has(element)) counted.set(element, new Set());
+          if (!counted.get(element).has(reason)) tally(hits, reason);
+          counted.get(element).add(reason);
           changed();
         }
         return true;
@@ -711,10 +717,6 @@ export default {
 
     recheck = () => {
       hider.showAll('Filter');
-      if (enabled()) watcher.recheckAll();
-    };
-    // The data can come after the post is drawn.
-    checkDrawn = () => {
       if (enabled()) watcher.recheckAll();
     };
   },

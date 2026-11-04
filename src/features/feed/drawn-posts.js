@@ -8,6 +8,23 @@
 // which leaves adRule dropping those edges like any other.
 
 import { watchPostChecks } from '../../core/dom/post-checks.js';
+import { nameKey } from '../../core/filters/lists.js';
+import { authorsOf, posterOf } from '../../core/filters/page.js';
+
+// Whether the post at a drawn place is the one the data drew there, by who posted it. Facebook
+// also puts another feed on the same page: Home fetches its feed again (the Home button, coming
+// back after a while, Back from a post: keep-feed-place.js), and a group sorts its posts another
+// way, with new posts at the same places. authors are the data's (storyFields), and data that
+// names nobody (a row that isn't a post) goes by its place alone. null while the post's header
+// isn't drawn yet (post-checks.js).
+export function drawnHere(element, authors) {
+  if (!authors?.length) return true;
+  const poster = posterOf(element);
+  const names = poster ? [poster] : authorsOf(element);
+  if (!names.length) return null;
+  const keys = new Set(authors.map(nameKey));
+  return names.some((name) => keys.has(nameKey(name)));
+}
 
 export function hideDrawnPosts({ posts, hider, router, settings, enabled, reason, onHide, schedule, cancel }) {
   if (!posts || !hider || !router) return undefined;
@@ -23,8 +40,11 @@ export function hideDrawnPosts({ posts, hider, router, settings, enabled, reason
       // The data can come after the post is drawn, so the retries wait for it.
       if (!places.size) return false;
       if (router.current().path !== loaded) return true;
-      const signal = places.get(Number(element.getAttribute('aria-posinset')));
-      if (signal && hider.hide(element, reason)) onHide?.(signal);
+      const drawn = places.get(Number(element.getAttribute('aria-posinset')));
+      if (!drawn) return true;
+      const here = drawnHere(element, drawn.authors);
+      if (here === null) return false;
+      if (here && hider.hide(element, reason)) onHide?.(drawn.signal);
       return true;
     },
   });
@@ -40,7 +60,7 @@ export function hideDrawnPosts({ posts, hider, router, settings, enabled, reason
 
   return (kept) => {
     loaded ??= router.current().path;
-    for (const { place, signal } of kept) places.set(place, signal);
+    for (const { place, signal, authors } of kept) places.set(place, { signal, authors });
     watcher.recheckAll();
   };
 }

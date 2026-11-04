@@ -74,12 +74,17 @@ export function posterOf(post) {
   return member ? normalizeText(member.textContent) : null;
 }
 
+export function authorsOf(post) {
+  const authors = ownOf(post)(HEADINGS).map((a) => normalizeText(a.textContent)).filter(Boolean);
+  const poster = posterOf(post);
+  if (poster && !authors.includes(poster)) authors.push(poster);
+  return authors;
+}
+
 export function postFields(post) {
   const own = ownOf(post);
   const text = own(TEXT).map((element) => visibleText(element)).filter(Boolean);
-  const authors = own(HEADINGS).map((a) => normalizeText(a.textContent)).filter(Boolean);
-  const poster = posterOf(post);
-  if (poster && !authors.includes(poster)) authors.push(poster);
+  const authors = authorsOf(post);
   const alt = own('img[alt]').map((img) => img.getAttribute('alt')).filter((value) => value && value.length > 3);
   const links = own('a[href]');
   const sites = [...new Set(links.map((a) => hostOf(a.href || a.getAttribute('href'))).filter(Boolean))];

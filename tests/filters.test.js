@@ -397,7 +397,7 @@ test('a story the server drew stays in the data, and its post goes on the page b
   const rules = [];
   let href = 'https://www.facebook.com/';
   // Post 3 is a unit that isn't a story, so its own markup still decides.
-  const win = page(post(1, { text: 'Hello' }) + post(2, { text: 'Hello' }) + post(3, { text: 'bread rolls' }));
+  const win = page(post(1, { author: 'Pat Example', text: 'Hello' }) + post(2, { text: 'Hello' }) + post(3, { text: 'bread rolls' }));
   const { doc, posts, set, diagnostics } = setupFeature(win, { words: 'bread', href: () => href, net: { transformResponses: (rule) => rules.push(rule) } });
   const [rule] = rules;
   const notes = () => [...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
@@ -431,6 +431,68 @@ test('a story the server drew stays in the data, and its post goes on the page b
   href = 'https://www.facebook.com/groups/feed/';
   set('words', 'bread ');
   assert.deepEqual(notes(), [null, null, HIDDEN]);
+  posts.stop();
+});
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+const INLINE_CTX = { transport: 'json-parse', method: '', url: '', host: '', path: '', friendlyName: '' };
+const inlineFeed = (...nodes) => JSON.stringify({ data: { viewer: { news_feed: { edges: nodes.map((node, i) => ({ node, cursor: `c${i + 1}` })) } } }, extensions: { is_final: false } });
+const memberPost = (n, member, text) => `
+  <div><div aria-posinset="${n}">
+    <h4><a href="/groups/garden/">Garden Swap Group</a></h4><a href="/groups/garden/user/${n}/">${member}</a>
+    <div data-ad-rendering-role="story_message"><div>${text}</div></div>
+  </div></div>`;
+
+// Home fetches its feed again on the same page (the Home button, coming back after a while, Back
+// from a post: keep-feed-place.js), and a group sorts its posts another way, so new posts take the
+// drawn places. The data only speaks for the post whose poster it names.
+test("drawn data only goes for the post it drew, so a new feed on the same page goes by its own words", async () => {
+  const rules = [];
+  const win = page(post(1, { author: 'Pat Example' }) + post(2) + post(3));
+  const { doc, posts } = setupFeature(win, { words: 'bread', net: { transformResponses: (rule) => rules.push(rule) } });
+  const notes = () => [...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+  const HIDDEN = 'Hidden: Filter: bread. Show';
+  const hello = { __typename: 'Story', id: 's2', comet_sections: { content: { story: { actors: [{ __typename: 'User', name: 'Friend' }], message: { text: 'Hello' } } } } };
+  transformDocumentLine(inlineFeed(story(), hello), rules, INLINE_CTX);
+  assert.deepEqual(notes(), [HIDDEN, null, null]);
+
+  doc.querySelector('.feed').innerHTML = post(1, { text: 'Weather today' }) + post(2, { author: 'Lee Example', text: 'bread rolls for sale' }) + post(3);
+  await settle();
+  assert.deepEqual(notes(), [null, HIDDEN, null], 'the new post at place 1 has its own author and words');
+
+  // In a group, the member who posted decides, not the group every post there shares.
+  doc.querySelector('.feed').innerHTML = memberPost(1, 'Sam Other', 'Lost cat') + memberPost(2, 'Pat Example', 'Hello');
+  await settle();
+  assert.deepEqual(notes(), [null, null]);
+  doc.querySelector('.feed').innerHTML = memberPost(1, 'Pat Example', 'Hello');
+  await settle();
+  assert.deepEqual(notes(), [HIDDEN], 'the post the data drew, its member named');
+
+  // Until its header is in, a post goes by its markup.
+  doc.querySelector('.feed').innerHTML = '<div><div aria-posinset="1"><div data-ad-rendering-role="story_message"><div>Hello</div></div></div></div>';
+  await settle();
+  assert.deepEqual(notes(), [null]);
+  posts.stop();
+});
+
+test('a post its markup hid comes back when the data drawn for it says to show it', async () => {
+  const rules = [];
+  // On the page the group isn't named, and the data names it.
+  const win = page(post(1, { author: 'Pat Example', text: 'Fresh bread' }));
+  const { doc, posts } = setupFeature(win, { words: 'bread', lists: { showPeople: 'Garden Swap Group' }, net: { transformResponses: (rule) => rules.push(rule) } });
+  const notes = () => [...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+  assert.deepEqual(notes(), ['Hidden: Filter: bread. Show']);
+  transformDocumentLine(inlineFeed(story()), rules, INLINE_CTX);
+  assert.deepEqual(notes(), [null]);
+  posts.stop();
+});
+
+test('a post hidden by one line, then another, then the first again counts once for each', () => {
+  const win = page(post(1, { text: 'bread rolls' }));
+  const { posts, diagnostics, set } = setupFeature(win, { words: 'bread' });
+  set('words', 'rolls');
+  set('words', 'bread');
+  assert.equal(diagnostics.rows().find((row) => row.label === 'Posts hidden by your filters').value, 'bread 1, rolls 1');
   posts.stop();
 });
 
