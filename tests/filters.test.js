@@ -391,6 +391,49 @@ test('a post opened by its link, a profile and an empty list are left alone', ()
   posts.stop();
 });
 
+// The page's own inline answer ({data, extensions}, no path) holds the stories the server drew.
+// Taking one out made React throw #418 (live 2026-11-03, Home and the groups feed with re:.).
+test('a story the server drew stays in the data, and its post goes on the page by what the data says', () => {
+  const rules = [];
+  let href = 'https://www.facebook.com/';
+  // Post 3 is a unit that isn't a story, so its own markup still decides.
+  const win = page(post(1, { text: 'Hello' }) + post(2, { text: 'Hello' }) + post(3, { text: 'bread rolls' }));
+  const { doc, posts, set, diagnostics } = setupFeature(win, { words: 'bread', href: () => href, net: { transformResponses: (rule) => rules.push(rule) } });
+  const [rule] = rules;
+  const notes = () => [...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+  const HIDDEN = 'Hidden: Filter: bread. Show';
+  assert.deepEqual(notes(), [null, null, HIDDEN], "the page's own words match only post 3");
+  const unit = { __typename: 'GroupsYouShouldJoinFeedUnit', id: 'u3' };
+  const inline = { data: { viewer: { news_feed: { edges: [{ node: story(), cursor: 'c1' }, { node: { ...story(), id: 's2', comet_sections: {} }, cursor: 'c2' }, { node: unit, cursor: 'c3' }] } } }, extensions: { is_final: false } };
+  const INLINE = { transport: 'json-parse', method: '', url: '', host: '', path: '', friendlyName: '' };
+  const line = JSON.stringify(inline);
+  assert.equal(transformDocumentLine(line, [rule], INLINE), line, 'the drawn stories keep their data');
+  assert.deepEqual(notes(), [HIDDEN, null, HIDDEN]);
+  assert.equal(diagnostics.rows().find((row) => row.label === 'Posts hidden by your filters').value, 'bread 2');
+
+  set('words', 'zzz');
+  assert.deepEqual(notes(), [null, null, null], 'a new list applies to the drawn post too');
+  set('words', 'bread');
+  assert.deepEqual(notes(), [HIDDEN, null, HIDDEN]);
+  assert.equal(diagnostics.rows().find((row) => row.label === 'Posts hidden by your filters').value, 'bread 2', 'hidden again, counted once');
+
+  // Streamed in after the first answer (with a path), or fetched, a story isn't drawn, so it goes.
+  // A blob can carry both, and only the story that went counts as hidden in the data.
+  const streamedBlob = { data: { node: story(), cursor: 'c4' }, extensions: {}, path: ['viewer', 'news_feed', 'edges', 3] };
+  const both = JSON.parse(transformDocumentLine(JSON.stringify({ first: inline, next: streamedBlob }), [rule], INLINE));
+  assert.equal(both.next.data.node, undefined);
+  assert.deepEqual(both.first, inline);
+  assert.equal(diagnostics.decisions().filter((decision) => decision.layer === 'data').length, 1);
+  const fetched = JSON.parse(transformDocumentLine(line, [rule], { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' }));
+  assert.equal(fetched.data.viewer.news_feed.edges[0].node, undefined);
+
+  // Another feed numbers its posts from 1 too, and the drawn data isn't about them.
+  href = 'https://www.facebook.com/groups/feed/';
+  set('words', 'bread ');
+  assert.deepEqual(notes(), [null, null, HIDDEN]);
+  posts.stop();
+});
+
 test('in page mode the data rule drops matching feed stories on Home and leaves search alone', async () => {
   const rules = [];
   const win = page('');

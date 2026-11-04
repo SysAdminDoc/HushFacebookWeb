@@ -37,7 +37,7 @@ import { postFields, posterOf } from '../../core/filters/page.js';
 import { storyFields } from '../../core/filters/story.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { createPostMenuRow, menuPost } from '../../core/dom/post-menu.js';
-import { inScope } from './ad-markers.js';
+import { drawnEdges, inScope } from './ad-markers.js';
 import { looksLikeCss } from '../../core/css-text.js';
 import { t } from '../../core/i18n.js';
 import { later } from '../../core/net/payload.js';
@@ -126,23 +126,27 @@ const phrasesOf = ({ rules, people = [], sites = [] }) => new Map([
   ...sites.map((entry) => [lineId('sites', entry), entry.phrase]),
 ]);
 
-// Calls visit(edge) for each feed story edge in doc: an object with a cursor and a story node.
+// A feed story edge: an object with a cursor and a story node.
+const isStory = (value) => !Array.isArray(value) && 'cursor' in value && Boolean(value.node) && typeof value.node === 'object'
+  && (value.node.__typename === 'Story' || Boolean(value.node.__isFeedUnit));
+
+// Calls visit(edge) for each feed story edge in doc.
 function eachStory(doc, visit) {
   walk(doc, (value) => {
-    if (Array.isArray(value) || !('cursor' in value) || !value.node || typeof value.node !== 'object') return undefined;
-    if (value.node.__typename !== 'Story' && !value.node.__isFeedUnit) return undefined;
+    if (!isStory(value)) return undefined;
     visit(value);
     return SKIP;
   });
 }
 
-// Drops every feed story in doc that the filter hides. Returns the reasons, one per story.
-// report(story, reason) hears each one before it goes.
-export function pruneFiltered(doc, filter, report) {
+// Drops every feed story in doc that the filter hides, apart from the ones keep(edge) says yes
+// to. Returns the reasons, one per story dropped. report(story, reason) hears each one before
+// it goes.
+export function pruneFiltered(doc, filter, report, keep) {
   const hits = [];
   eachStory(doc, (edge) => {
     const reason = filterVerdict(filter, storyFields(edge.node));
-    if (reason === null) return;
+    if (reason === null || keep?.(edge)) return;
     report?.(edge.node, reason);
     delete edge.node;
     delete edge.rendering_strategy;
@@ -456,6 +460,17 @@ export default {
       changed();
     }
 
+    // The stories Facebook drew on the server, by their place in the feed (aria-posinset counts
+    // from 1, as drawnEdges does), with what their data says. Taking one out of the data makes
+    // React throw #418 and draw the page again (live 2026-11-03, Home and the groups feed with
+    // re:.), so they stay, and the page check reads these fields for them in place of the
+    // markup's. Places only hold on the page that loaded with them (drawn-posts.js).
+    const drawn = new Map();
+    let drawnPath = null;
+    const drawnFields = (element) => (drawn.size && route()?.path === drawnPath
+      ? drawn.get(Number(element.getAttribute('aria-posinset'))) ?? null : null);
+    let checkDrawn = null;
+
     if (net) {
       const scope = { scope: FILTERED };
       const markers = ['"__isFeedUnit"'];
@@ -469,6 +484,19 @@ export default {
           if (previewing() || !inScope(scope, ctx, route)) return false;
           const filter = current();
           if (!active(filter)) return false;
+          // Without a page check there's nothing to hide them with, so they go like the rest.
+          const places = posts && hider && ctx.transport === 'json-parse' ? drawnEdges(doc) : null;
+          const seen = [];
+          if (places?.size) {
+            for (const [edge, place] of places) if (isStory(edge)) seen.push([place, storyFields(edge.node)]);
+          }
+          if (seen.length) {
+            later(stage, () => {
+              drawnPath ??= route()?.path ?? null;
+              for (const [place, fields] of seen) drawn.set(place, fields);
+              checkDrawn?.();
+            });
+          }
           // The fuse looks at the whole answer before anything goes, so the answer that trips it
           // still carries the posts the paused line would have taken.
           if (fusing(filter)) {
@@ -489,7 +517,7 @@ export default {
           const live = unpaused(filter);
           if (!active(live)) return false;
           const decisions = [];
-          const reasons = pruneFiltered(doc, live, (story, reason) => decisions.push({ post: story.post_id ?? story.id, rule: 'Filter', detail: reason, layer: 'data' }));
+          const reasons = pruneFiltered(doc, live, (story, reason) => decisions.push({ post: story.post_id ?? story.id, rule: 'Filter', detail: reason, layer: 'data' }), places?.size ? (edge) => places.has(edge) : undefined);
           if (!reasons.length) return false;
           later(stage, () => {
             for (const decision of decisions) diagnostics?.decide(decision);
@@ -643,6 +671,10 @@ export default {
       if (!pageKeys.has(element)) pageKeys.set(element, ++nextKey);
       return pageKeys.get(element);
     };
+    // A check runs again on a post that's already hidden (the list changed back, or drawn data
+    // came in), and hide() says yes again, so each post is counted once for what it matched.
+    const counted = new WeakMap();
+    posts.on('post/remove', ({ element }) => counted.delete(element));
 
     const watcher = watchPostChecks({
       posts,
@@ -651,12 +683,12 @@ export default {
         if (!FILTERED.routes(route())) return true;
         const filter = current();
         if (!active(filter)) return true;
+        const fields = drawnFields(element) ?? postFields(element);
         if (previewing()) {
-          preview.page.see(keyOf(element), filterMatches(filter, postFields(element)));
+          preview.page.see(keyOf(element), filterMatches(filter, fields));
           changed();
           return false;
         }
-        const fields = postFields(element);
         if (fusing(filter)) {
           fuseHere();
           if (fuse.counting('page')) {
@@ -669,7 +701,8 @@ export default {
         const reason = filterVerdict(unpaused(filter), fields);
         if (reason === null) return false;
         if (hider.hide(element, 'Filter', reason)) {
-          tally(hits, reason);
+          if (counted.get(element) !== reason) tally(hits, reason);
+          counted.set(element, reason);
           changed();
         }
         return true;
@@ -678,6 +711,10 @@ export default {
 
     recheck = () => {
       hider.showAll('Filter');
+      if (enabled()) watcher.recheckAll();
+    };
+    // The data can come after the post is drawn.
+    checkDrawn = () => {
       if (enabled()) watcher.recheckAll();
     };
   },
