@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.8 (2026-11-04, unreleased)
 
 * New switch, on to start: Keep posts you hide hidden. Press the X at the top of a post on Home or in your groups feed and the post goes away and stays away, after a reload and in your other tabs too. It's remembered by its photo or video, or by its first words, separately for each Facebook account. Facebook isn't told, the same as Hide posts by. Undo on the note that pops up brings it back, and Forget posts you hid on the switch's card clears the list. A post with no photo or video and only a few words can't be recognized later, so its X is left to Facebook.
 * New switch, off to start: Keep your Notifications filter. Facebook puts the Notifications list back on All every time it loads. With this on, pick Unread once and the list under the bell and the Notifications page open on Unread from then on, until you pick All again. Nothing is asked of Facebook until you open the list, and Open Notifications on All again on the switch's card forgets your pick. It goes by the buttons' layout, not their words, so it works in any language.
