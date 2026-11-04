@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.0.15 (2026-11-04, unreleased)
+## v0.0.16 (2026-11-04, unreleased)
 
 * New Feed switch, on to start: Show progress while posts load. With a lot of posts hidden, Home or a group could sit on Facebook's gray loading boxes after a refresh and look stuck. It wasn't. Facebook sends five posts at a time, about seven seconds apart, and when every one of them gets hidden the screen never changes. Now a line above those boxes counts the posts hidden so far, with a slow shimmer while more come in. Facebook often sends a hidden post again in a later batch, and each one only counts once. On the test account with most kinds of post filtered out, it read "Hid 7 posts so far" five seconds after a refresh and kept climbing until posts worth showing turned up.
 * New Feed switch, off to start: Load more posts ahead. Facebook sends Home's posts five at a time, waits for your first scroll before it asks for any more, and then only looks a couple of screens ahead. So a quick scroll keeps landing on gray loading cards. With this on, Home starts fetching as soon as it opens and keeps going while you read, 25 screens ahead to start (pick 10 or 50 under How far ahead). Each batch of five still takes Facebook a few seconds, but many more posts are waiting below you by the time you get there. On the test account, 40 seconds on Home without touching anything used to load 1 post, and with the switch on it loaded 13. Groups and every other page work as before.
