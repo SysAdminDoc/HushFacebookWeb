@@ -112,13 +112,24 @@ test('the Birthdays box is the block around its link, up to its own heading and 
   ({ doc, found } = blocks(`<div class="pair"><div class="bare"><a href="/events/birthdays/">Pat Example has a birthday today.</a></div>${CONTACTS}</div>`));
   assert.ok(found.length === 1 && found[0] === doc.querySelector('.bare'), 'a heading after the link');
 
-  // A link to someone's profile in the same block stops the climb below it.
-  ({ doc, found } = blocks('<div class="mixed"><div class="row"><a href="/events/birthdays/">Birthdays</a></div><a href="/pat.example">Pat Example</a></div>'));
+  // A link to someone's profile in the same block stops the climb below it, even before it.
+  ({ doc, found } = blocks('<div class="mixed"><a href="/pat.example">Pat Example</a><div class="row"><a href="/events/birthdays/">Birthdays</a></div></div>'));
   assert.ok(found.length === 1 && found[0] === doc.querySelector('.mixed .row'), 'another link');
 
   // Two headings before the link: the box above it is more than Birthdays.
   ({ doc, found } = blocks(`<div class="two"><h3>Friend requests</h3>${BIRTHDAYS}</div>`));
   assert.ok(found.length === 1 && found[0] === doc.querySelector('.birthdays'), 'another heading before it');
+
+  // A box below it, past an empty spacer, with a plain title and plain rows: no heading, link or
+  // button to stop at.
+  ({ doc, found } = blocks(`<div class="plain-pair">${BIRTHDAYS}<div></div><div><span>Contacts</span><div><span>Pat Example</span></div></div></div>`));
+  assert.ok(found.length === 1 && found[0] === doc.querySelector('.birthdays'), 'words after it');
+  ({ doc, found } = blocks(`<div class="icon-pair">${BIRTHDAYS}<div><div role="button"><svg></svg></div></div></div>`));
+  assert.ok(found.length === 1 && found[0] === doc.querySelector('.birthdays'), 'a button after it');
+
+  // Its heading inside the link.
+  ({ doc, found } = blocks(`<div class="in-link"><div><a href="/events/birthdays/"><h3>Birthdays</h3><span>Pat Example has a birthday today.</span></a></div></div>${CONTACTS}`));
+  assert.ok(found.length === 1 && found[0] === doc.querySelector('.in-link'), 'a heading in the link');
 
   // The whole column can be Birthdays, but never the column itself.
   ({ doc, found } = blocks(BIRTHDAYS));

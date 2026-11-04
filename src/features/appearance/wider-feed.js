@@ -22,7 +22,8 @@
 // Birthdays: the account we used showed none in the column. Other extensions find the block by
 // its link to /events/birthdays/ (the address the left column's Birthdays row uses too), so the
 // block taken is the largest one around that link that holds no other link and no heading but
-// its own, in front of it. Contacts would need its word, so it isn't touched.
+// its own, in front of it, with nothing drawn after it. Contacts would need its word, so it isn't
+// touched.
 
 import { whenRootReady } from '../../core/env.js';
 
@@ -80,19 +81,26 @@ export const showsSomething = (column) => Boolean(column.innerText.trim()) || [.
 
 const isBirthdaysLink = (a) => (a.getAttribute('href') ?? '').includes(BIRTHDAYS);
 
-// A block that's still only the Birthdays box: every link goes to Birthdays, and its one heading,
-// if it has one, comes before the link.
-function onlyBirthdays(block, link) {
-  if (![...block.querySelectorAll('a[href]')].every(isBirthdaysLink)) return false;
-  const headings = block.querySelectorAll(HEADING);
-  return headings.length === 0 || (headings.length === 1 && Boolean(headings[0].compareDocumentPosition(link) & 4));
+// A block that's still only the Birthdays box: every link goes to Birthdays and it has one heading
+// at most. A heading after the link never gets this far, since followed() stops at it.
+const onlyBirthdays = (block) => [...block.querySelectorAll('a[href]')].every(isBirthdaysLink) && block.querySelectorAll(HEADING).length <= 1;
+
+const DRAWN = `[role="button"], button, ${PICTURES}`;
+
+// Words, a button or a picture after the block, which the block above it would take in. A box
+// below Birthdays whose title isn't a heading and whose rows aren't links stops the climb here.
+function followed(block) {
+  for (let next = block.nextElementSibling; next; next = next.nextElementSibling) {
+    if (next.textContent.trim() || next.matches(DRAWN) || next.querySelector(DRAWN)) return true;
+  }
+  return false;
 }
 
 export function birthdaysBlocks(column) {
   const blocks = new Set();
   for (const link of column.querySelectorAll(`a[href*="${BIRTHDAYS}"]`)) {
     let block = link;
-    for (let parent = block.parentElement; parent && parent !== column && onlyBirthdays(parent, link); parent = parent.parentElement) block = parent;
+    for (let parent = block.parentElement; parent && parent !== column && !followed(block) && onlyBirthdays(parent); parent = parent.parentElement) block = parent;
     blocks.add(block);
   }
   return [...blocks];
