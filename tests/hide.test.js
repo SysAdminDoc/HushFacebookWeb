@@ -113,6 +113,7 @@ test('counts go up once per post, per reason, and tell subscribers', () => {
   hider.hide(c, 'Suggested');
   hider.hide(c, 'Filter', 'cats');
   assert.deepEqual(hider.counts(), { Sponsored: 2, Suggested: 1 });
+  assert.equal(hider.hiddenPosts(), 3);
   assert.equal(heard, 3);
 });
 

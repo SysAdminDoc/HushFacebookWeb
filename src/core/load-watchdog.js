@@ -45,6 +45,9 @@ export function setTabPause(win, on) {
   else win.sessionStorage.removeItem(TAB_PAUSE_KEY);
 }
 
+// The queries that bring Home's and a group's next posts.
+export const FEED_PAGES = /^(?:CometNewsFeed|GroupsCometCrossGroupFeed|GroupsCometFeedRegularStories)PaginationQuery$/;
+
 // /groups/<name> pages that aren't a group's own feed.
 const GROUP_PAGES = new Set(['discover', 'joins', 'create', 'notifications', 'search', 'category', 'browse', 'you']);
 
@@ -58,7 +61,7 @@ export function feedKind(route) {
   return parts[0] === 'groups' && parts.length === 2 && !GROUP_PAGES.has(parts[1]) ? 'group' : null;
 }
 
-const shown = (element) => {
+export const shown = (element) => {
   if (!element.isConnected || element.checkVisibility?.({ visibilityProperty: true, opacityProperty: true, checkVisibilityCSS: true, checkOpacity: true }) === false) return false;
   // Older browsers have no checkVisibility, and not every implementation supports its flags.
   const view = element.ownerDocument.defaultView;
@@ -76,7 +79,7 @@ const shown = (element) => {
 // links yet (a skeleton, as posts.js reads it), counts.
 const LOADING = '[data-visualcompletion="loading-state"], [role="progressbar"]';
 const UNIT = '[aria-posinset], [role="article"]';
-const loadingSign = (element) => {
+export const loadingSign = (element) => {
   for (let unit = element.closest(UNIT); unit; unit = unit.parentElement?.closest(UNIT)) {
     if (unit.querySelector('a[href]')) return false;
   }
@@ -210,7 +213,7 @@ export function watchFeedLoads({ win, doc, router, posts, net, signedIn, paused,
   // item in an answer was removed before the page could draw it. Never report those cursors.
   net?.transformResponses({
     id: 'feed-load-progress', enabled: () => !stopped && !fired,
-    match: (ctx) => /^(?:CometNewsFeed|GroupsCometCrossGroupFeed|GroupsCometFeedRegularStories)PaginationQuery$/.test(ctx.friendlyName),
+    match: (ctx) => FEED_PAGES.test(ctx.friendlyName),
     markers: ['"cursor"'], observe: true,
     transform(data) {
       let moved = false;

@@ -639,6 +639,7 @@ test('with the comments option on, matching comments are hidden anywhere, the po
   assert.equal(doc.querySelector(`[aria-posinset] > [${MARK}]`) === null, true, 'the post opened by its link stays');
   assert.equal(row(), 'kittens 1, Loud Page 1');
   assert.deepEqual(hider.counts(), { Filter: 2 }, 'each comment counts, though their links name the same post');
+  assert.equal(hider.hiddenPosts(), 0, 'comments stay out of the post count');
 
   // A comment drawn later inside a box of its own, and one whose words change after See more.
   doc.querySelector('[aria-posinset]').insertAdjacentHTML('beforeend', `<div><div>${comment(5, 'New Person', 'kittens too')}</div></div>`);

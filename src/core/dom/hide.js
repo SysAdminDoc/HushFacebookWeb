@@ -61,6 +61,8 @@ const drawn = (element) => element.getClientRects().length > 0;
 // when the same reason is applied again, for the Diagnostics decision list.
 export function createHider({ doc = globalThis.document, posts, log, notesShown = () => true, onHide } = {}) {
   const counts = new Map();
+  // The same count without comments, for the line above the feed's loading cards.
+  let postsHidden = 0;
   // A post counts once, under the first reason it was hidden for. By id, so a post Facebook
   // draws again counts once, and by element, for posts whose id isn't known yet.
   const countedIds = new Set();
@@ -142,12 +144,14 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   // Counts a post the first time it's hidden. Returns whether it was new. A comment's links name
   // the post it's on, so a comment counts by its element alone.
   function count(element, reason) {
-    const id = isComment(element) ? null : postIdOf(element).id;
+    const comment = isComment(element);
+    const id = comment ? null : postIdOf(element).id;
     const seen = countedElements.has(element) || (id !== null && countedIds.has(id));
     countedElements.add(element);
     if (id !== null) countedIds.add(id);
     if (seen) return false;
     counts.set(reason, (counts.get(reason) ?? 0) + 1);
+    if (!comment) postsHidden++;
     return true;
   }
 
@@ -279,6 +283,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     isRevealed: (element) => revealed.has(element),
     // Posts hidden since the page loaded, per reason.
     counts: () => Object.fromEntries(counts),
+    // Posts hidden since the page loaded, comments left out.
+    hiddenPosts: () => postsHidden,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
