@@ -55,7 +55,20 @@ const scenarios = [
 ];
 const results = [];
 let activeBrowser;
-let timer;
+// A fixture's page.evaluate has no timeout of its own, so each scenario gets one. It's per
+// scenario because a loaded machine slows every scenario: a 90 second clock on the whole run
+// failed Firefox there while each step finished within its own limits.
+const SCENARIO_MS = 60000;
+
+async function within(ms, label, work) {
+  let timer;
+  try {
+    return await Promise.race([
+      work(),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} took over ${ms / 1000} seconds`)), ms); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
 
 async function panel(page, engine) {
   await page.evaluate(() => window.hfwBrowserFixture.preparePanel());
@@ -94,37 +107,37 @@ async function run() {
     try {
       console.log(`${name} ${activeBrowser.version()}`);
       for (const scenario of scenarios) {
-        const context = await activeBrowser.newContext({ viewport: { width: 360, height: 760 }, serviceWorkers: 'block' });
-        try {
-          context.setDefaultTimeout(5000);
-          await context.route('**/*', (route) => {
-            const requested = new URL(route.request().url());
-            return requested.origin === origin ? route.continue() : route.abort('blockedbyclient');
-          });
-          await context.routeWebSocket('**/*', (socket) => socket.close());
-          const page = await context.newPage();
-          const errors = [];
-          page.on('pageerror', (error) => errors.push(error.message));
-          await page.goto(origin, { waitUntil: 'load', timeout: 5000 });
-          await page.waitForFunction(() => Boolean(window.hfwBrowserFixture));
-          const detail = scenario.fixture === 'panel'
-            ? await panel(page, name)
-            : await page.evaluate(({ fixture, ...options }) => window.hfwBrowserFixture[fixture](options), scenario);
-          assert.deepEqual(errors, [], `${name} ${scenario.id} raised a page error`);
-          if (scenario.screenshot) await page.screenshot({ path: join(output, `${name}-${scenario.id}.png`), animations: 'disabled' });
-          results.push({ browser: name, scenario: scenario.id, detail });
-          console.log(`PASS ${name} ${scenario.id}`);
-        } finally { await context.close(); }
+        const started = Date.now();
+        await within(SCENARIO_MS, `${name} ${scenario.id}`, async () => {
+          const context = await activeBrowser.newContext({ viewport: { width: 360, height: 760 }, serviceWorkers: 'block' });
+          try {
+            context.setDefaultTimeout(5000);
+            await context.route('**/*', (route) => {
+              const requested = new URL(route.request().url());
+              return requested.origin === origin ? route.continue() : route.abort('blockedbyclient');
+            });
+            await context.routeWebSocket('**/*', (socket) => socket.close());
+            const page = await context.newPage();
+            const errors = [];
+            page.on('pageerror', (error) => errors.push(error.message));
+            await page.goto(origin, { waitUntil: 'load', timeout: 5000 });
+            await page.waitForFunction(() => Boolean(window.hfwBrowserFixture));
+            const detail = scenario.fixture === 'panel'
+              ? await panel(page, name)
+              : await page.evaluate(({ fixture, ...options }) => window.hfwBrowserFixture[fixture](options), scenario);
+            assert.deepEqual(errors, [], `${name} ${scenario.id} raised a page error`);
+            if (scenario.screenshot) await page.screenshot({ path: join(output, `${name}-${scenario.id}.png`), animations: 'disabled' });
+            results.push({ browser: name, scenario: scenario.id, detail });
+          } finally { await context.close(); }
+        });
+        console.log(`PASS ${name} ${scenario.id} (${((Date.now() - started) / 1000).toFixed(1)} s)`);
       }
     } finally { await activeBrowser.close(); activeBrowser = null; }
   }
 }
 
 try {
-  await Promise.race([
-    run(),
-    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Browser regressions exceeded 90 seconds')), 90000); }),
-  ]);
+  await run();
   await writeFile(join(output, 'results.json'), `${JSON.stringify(results, null, 2)}\n`);
   console.log(`Passed ${results.length} local browser scenarios. Screenshots: ${output}`);
 } catch (error) {
@@ -132,7 +145,6 @@ try {
   if (error.cause) console.error(error.cause.message);
   process.exitCode = 1;
 } finally {
-  clearTimeout(timer);
   await activeBrowser?.close();
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));

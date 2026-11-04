@@ -14,6 +14,7 @@
 * A failed seen-history save stays available through Retry saving seen posts. Managers without the needed storage APIs show the feature as unavailable.
 * Credits name the included FB Feed Filter adaptations, and the dependency notice lists RE2JS 2.9.1. Browser support wording distinguishes startup checks from full live testing.
 * Local browser regression checks run in Chromium and Firefox without Facebook credentials or outbound page requests.
+* Each browser check gets a minute of its own instead of 90 seconds for the whole run, so a busy machine no longer fails them. One that hangs names its browser and check, and every pass shows how long it took.
 * Unit tests run two files at a time.
 * Settings backups include valid choices waiting to save. Failed backup handoffs release their temporary file link.
 * Quiet, Privacy, Back to defaults and a full settings restore offer persistent Undo in General. Bulk actions wait for saved choices before taking their recovery snapshot.
