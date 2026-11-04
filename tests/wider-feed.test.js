@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
-import widerFeed, { BIRTHDAYS_MARK, birthdaysBlocks, feedWrappers, FOLDED_MARK, showsSomething, sideColumns, WIDE_MARK, widerFeedCss, widthOf } from '../src/features/appearance/wider-feed.js';
+import widerFeed, { BIRTHDAYS_MARK, birthdaysBlocks, feedWrappers, FILL_MARK, fillBlocks, FOLDED_MARK, FULL, showsSomething, sideColumns, WIDE_MARK, widerFeedCss, widthOf } from '../src/features/appearance/wider-feed.js';
 import { COLUMN_AD_CSS, COLUMN_AD_MARK } from '../src/features/feed/sponsored-column.js';
 import { features } from '../src/features/index.js';
 
@@ -81,6 +81,73 @@ test('with no post, no role=main or only posts elsewhere, nothing takes the widt
   assert.equal(feedWrappers(page(`<div role="main">${POST(1)}${POST(2)}</div>`).document).length, 0, 'no list');
 });
 
+// As live on an account with no friends' stories: Create story in the column beside the post box,
+// with 680 px of its own, and the 1 px "Feed posts" heading above the list.
+const STORY = '<div class="story"><div><div role="button">Create story</div></div></div>';
+const HEADING = '<h3 class="heading">Feed posts</h3><div class="spacer"></div>';
+const sized = (element, width) => {
+  element.getBoundingClientRect = () => ({ width });
+};
+
+function storyPage() {
+  const doc = page(HOME(AD)).document;
+  doc.querySelector('.column').insertAdjacentHTML('beforeend', STORY);
+  doc.querySelector('.list').insertAdjacentHTML('beforebegin', HEADING);
+  return doc;
+}
+
+test("blocks beside the feed with a width of their own take the feed's, a 1 px heading, the posts and a flex row's blocks don't", () => {
+  const doc = storyPage();
+  const wrappers = feedWrappers(doc);
+  const row = doc.querySelector('.row');
+  row.insertAdjacentHTML('afterbegin', '<div class="beside"></div>');
+  doc.querySelector('.column').insertAdjacentHTML('beforeend', '<div class="floating"></div>');
+  for (const selector of ['.story', '.column > [role="region"]', '.list', '.feed-wrap', '.beside', '.floating', '.spacer']) sized(doc.querySelector(selector), 680);
+  sized(doc.querySelector('.heading'), 1);
+  const view = {
+    getComputedStyle: (element) => ({ display: element === row ? 'flex' : 'block', position: element.matches('.floating') ? 'absolute' : 'static' }),
+  };
+  const filled = fillBlocks(wrappers, view);
+  const has = (selector) => filled.includes(doc.querySelector(selector));
+  assert.equal(has('.story'), true, 'Create story');
+  assert.equal(has('.column > [role="region"]'), true, 'the post box');
+  assert.equal(has('.spacer'), true, 'an empty block beside the list');
+  assert.equal(has('.heading'), false, 'the 1 px heading');
+  assert.equal(has('.list'), false, 'the list');
+  assert.equal(has('.feed-wrap'), false, 'a block on the way to the posts');
+  assert.equal(has('.beside'), false, 'beside the column in a flex row');
+  assert.equal(has('.floating'), false, 'out of the flow');
+  assert.equal(filled.some((block) => block.closest('.list')), false, 'nothing in the list');
+});
+
+test('setup marks Create story and takes the mark off when switched off or away from Home', async () => {
+  let type = 'home';
+  let on = true;
+  const routeListeners = [];
+  const settingsListeners = [];
+  const doc = storyPage();
+  sized(doc.querySelector('.story'), 680);
+  sized(doc.querySelector('.heading'), 1);
+  widerFeed.setup({ doc, router: { current: () => ({ type }), subscribe: (listener) => routeListeners.push(listener) }, settings: { subscribe: (listener) => settingsListeners.push(listener) }, enabled: () => on });
+  await tick(30);
+  const story = doc.querySelector('.story');
+  assert.equal(story.hasAttribute(FILL_MARK), true, 'Create story');
+  assert.equal(doc.querySelector('.heading').hasAttribute(FILL_MARK), false, 'the heading');
+
+  type = 'groups';
+  for (const listener of routeListeners) listener();
+  await tick(30);
+  assert.equal(doc.querySelectorAll(`[${FILL_MARK}]`).length, 0, 'left Home');
+  type = 'home';
+  for (const listener of routeListeners) listener();
+  await tick(30);
+  assert.equal(story.hasAttribute(FILL_MARK), true, 'back on Home');
+  on = false;
+  for (const listener of settingsListeners) listener();
+  await tick(30);
+  assert.equal(doc.querySelectorAll(`[${FILL_MARK}]`).length, 0, 'switched off');
+});
+
 test('a column with nothing drawn in it shows nothing, words or a picture show', () => {
   const column = (html) => page(HOME(html)).document.querySelector('[role="complementary"]');
   assert.equal(showsSomething(column(AD)), false, 'the hidden Sponsored box');
@@ -139,9 +206,12 @@ test('the Birthdays box is the block around its link, up to its own heading and 
 
 test('the rules count on Home only, at the width picked, and Birthdays only with its option', () => {
   assert.equal(widthOf((key) => (key === 'widerFeed.width' ? '1000' : undefined)), '1000');
-  assert.equal(widthOf(() => '1200'), '900', 'a width not offered');
+  assert.equal(widthOf(() => '1400'), '1400');
+  assert.equal(widthOf(() => FULL), FULL);
+  assert.equal(widthOf(() => '1100'), '900', 'a width not offered');
   assert.equal(widthOf(() => undefined), '900');
   assert.match(widerFeedCss('800', false), /width: 800px !important/);
+  assert.match(widerFeedCss(FULL, false), new RegExp(`\\[${WIDE_MARK}\\] \\{ box-sizing: border-box !important; width: 100% !important;`));
   assert.doesNotMatch(widerFeedCss('800', false), new RegExp(BIRTHDAYS_MARK));
   assert.match(widerFeedCss('800', true), new RegExp(`\\[${BIRTHDAYS_MARK}\\] \\{ display: none !important; \\}`));
   assert.equal(widerFeed.css((key) => ({ 'widerFeed.width': '1000', 'widerFeed.birthdays': true })[key]), widerFeedCss('1000', true));
@@ -150,7 +220,8 @@ test('the rules count on Home only, at the width picked, and Birthdays only with
   const selectors = widerFeedCss('900', true).split('\n').map((rule) => rule.split(' {')[0]);
   for (const [route, count] of [['home', 4], ['feeds', 0], ['groups', 0]]) {
     const doc = page(HOME(BIRTHDAYS), { route }).document;
-    doc.querySelector('.outer').setAttribute(WIDE_MARK, 'outer');
+    doc.querySelector('.outer').setAttribute(WIDE_MARK, '');
+    doc.querySelector('.column').firstElementChild.setAttribute(FILL_MARK, '');
     doc.querySelector('[role="complementary"]').setAttribute(FOLDED_MARK, '');
     doc.querySelector('.birthdays').setAttribute(BIRTHDAYS_MARK, '');
     assert.equal(selectors.filter((selector) => doc.querySelector(selector)).length, count, route);
@@ -172,8 +243,7 @@ test('setup marks the feed and folds the empty column, opens it for contacts, an
   const column = doc.querySelector('[role="complementary"]');
   const folded = () => column.hasAttribute(FOLDED_MARK);
   assert.equal(wide().length, 7);
-  assert.ok(wide().filter((block) => block.getAttribute(WIDE_MARK) === 'outer').every((block) => block === doc.querySelector('.outer')));
-  assert.equal(doc.querySelectorAll(`[${WIDE_MARK}="outer"]`).length, 1);
+  assert.ok(wide().includes(doc.querySelector('.outer')), 'the block in role=main');
   assert.equal(folded(), true, 'only the hidden Sponsored box');
 
   // Contacts come in: the column opens again.
@@ -227,5 +297,5 @@ test('the switch starts off, sits in Appearance with a width and a Birthdays opt
   assert.equal(widerFeed.default, false);
   assert.equal(widerFeed.section, 'layout');
   assert.deepEqual(widerFeed.options.map(({ key, default: start }) => [key, start]), [['width', '900'], ['birthdays', false]]);
-  assert.deepEqual(widerFeed.options[0].choices.map(({ value }) => value), ['800', '900', '1000']);
+  assert.deepEqual(widerFeed.options[0].choices.map(({ value, label }) => [value, label]), [['800', '800 px'], ['900', '900 px'], ['1000', '1000 px'], ['1200', '1200 px'], ['1400', '1400 px'], ['full', 'Full width']]);
 });

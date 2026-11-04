@@ -1,6 +1,7 @@
 // Wider feed on Home in a real engine, at 1600x1000 with Home's flex values as seen live on
-// 2026-11-04: the left column, role=main (flex 1 1 744px, centering) and the right column
-// (sticky, flex 0 9999 360px, 280 to 360 px), with Facebook's 680 px on one block of seven.
+// 2026-11-04: the left column, role=main (flex 1 1 744px, centering, 32 px padding each side) and the right column
+// (sticky, flex 0 9999 360px, 280 to 360 px), with Facebook's 680 px on one block of seven and
+// on the Create story card, and the 1 px "Feed posts" heading above the list.
 // Whether a folded column still notices words coming into it is only known here: happy-dom
 // lays nothing out.
 import { createSettings } from '../../../src/core/settings.js';
@@ -19,19 +20,22 @@ const CONTACTS = '<div class="contacts"><h2>Contacts</h2><div role="button"><spa
 const PAGE = `<style>
   .fb-page { display: flex; justify-content: space-between; }
   .fb-left { flex: 0 1 360px; min-width: 280px; height: 600px; background: #202124; }
-  .fb-main { display: flex; flex: 1 1 744px; justify-content: center; min-width: 0; position: relative; }
+  .fb-main { display: flex; flex: 1 1 744px; justify-content: center; min-width: 0; position: relative; padding: 0 32px; }
   .fb-outer { display: flex; flex: 0 0 auto; flex-direction: column; max-width: 100%; box-sizing: border-box; }
   .fb-row { display: flex; justify-content: center; }
   .fb-full { width: 100%; }
-  @media (min-width: 1320px) { .fb-col { width: 680px; } }
+  @media (min-width: 1320px) { .fb-col, .fb-story { width: 680px; } }
   .fb-col { max-width: 100%; }
+  .fb-story { height: 200px; background: #242526; margin-bottom: 16px; }
+  .fb-heading { width: 1px; height: 1px; margin: 0; overflow: hidden; }
   .fb-side { position: sticky; top: 0; flex: 0 9999 360px; min-width: 280px; max-width: 360px; height: 900px; background: #1c1d1f; }
 </style>
 <div class="fb-page">
   <div class="fb-left" role="navigation"></div>
   <div class="fb-main" role="main"><div class="fb-outer"><div><div class="fb-full"><div class="fb-row"><div class="fb-col">
     <div></div><div role="region" style="height:60px;background:#242526;margin-bottom:16px"></div><div><div data-focus-target="stories_tray" role="region" style="height:160px;background:#242526;margin-bottom:16px"></div></div>
-    <div><div><div class="list">${POST(1)}${POST(2)}${POST(3)}</div></div></div>
+    <div class="fb-story"><div role="button">Create story</div></div>
+    <div><div><h3 class="fb-heading">Feed posts</h3><div></div><div class="list">${POST(1)}${POST(2)}${POST(3)}</div></div></div>
   </div></div></div></div></div></div>
   <div class="fb-side" role="complementary"><div class="inner">${AD}</div></div>
 </div>`;
@@ -49,8 +53,15 @@ export async function widerFeed() {
   const side = document.querySelector('[role="complementary"]');
   const post = document.querySelector('.post');
   const picture = post.querySelector('img');
-  check(width(post) === 680 && width(side) === 360, `Facebook's own layout: post ${width(post)}, column ${width(side)}`);
+  const story = document.querySelector('.fb-story');
+  const heading = document.querySelector('.fb-heading');
+  check(width(post) === 680 && width(side) === 360 && width(story) === 680, `Facebook's own layout: post ${width(post)}, column ${width(side)}, Create story ${width(story)}`);
   const sideways = () => document.scrollingElement.scrollWidth > innerWidth;
+  const followed = (at) => {
+    check(width(story) === width(post), `Create story didn't follow the posts at ${at}: ${width(story)} beside ${width(post)}`);
+    check(width(heading) === 1, `the 1 px heading took ${width(heading)} px at ${at}`);
+    check(!sideways(), `the page scrolls sideways at ${at}`);
+  };
 
   settings.set('widerFeed', true);
   widerFeedFeature.setup({ doc: document, router: { current: () => ({ type: 'home' }), subscribe() {} }, settings, enabled: () => settings.enabled('widerFeed') });
@@ -59,14 +70,15 @@ export async function widerFeed() {
   const room = width(main);
   check(room > 1100, `role=main didn't take the column's room: ${room}`);
   check(width(picture) === width(post), `a photo didn't follow its post: ${width(picture)} of ${width(post)}`);
-  check(!sideways(), 'the page scrolls sideways at 900 px');
+  await until(() => width(story) === 900, `Create story stayed at ${width(story)} px`);
+  followed('900 px');
 
   settings.set('widerFeed.width', '1000');
   await until(() => width(post) === 1000, `the 1000 px pick: ${width(post)}`);
   // The width shows before the next check runs, so give it frames to undo the fold.
   await delay(100);
   check(side.hasAttribute(FOLDED_MARK) && width(side) === 0 && width(post) === 1000, `the folded column came back on its own: post ${width(post)}, column ${width(side)}`);
-  check(!sideways(), 'the page scrolls sideways at 1000 px');
+  followed('1000 px');
   const atWidest = { post: width(post), main: width(main) };
 
   // Contacts come in while the column is folded: the column opens and the feed fits beside it.
@@ -74,18 +86,33 @@ export async function widerFeed() {
   await until(() => !side.hasAttribute(FOLDED_MARK) && width(side) >= 280, `a folded column missed its contacts: ${width(side)} px`);
   const gap = side.getBoundingClientRect().left - post.getBoundingClientRect().right;
   check(gap >= 15, `the feed runs into the column: ${Math.round(gap)} px apart`);
-  check(width(post) < 1000 && Math.abs(width(post) - (width(main) - 32)) <= 1, `beside the column the feed should take role=main less the gaps: ${width(post)} of ${width(main)}`);
-  check(!sideways(), 'the page scrolls sideways beside the column');
+  check(width(post) < 1000 && Math.abs(width(post) - (width(main) - 64)) <= 1, `beside the column the feed should take role=main inside its padding: ${width(post)} of ${width(main)}`);
+  followed('1000 px beside the column');
 
   document.querySelector('.contacts').remove();
   await until(() => side.hasAttribute(FOLDED_MARK) && width(post) === 1000, 'the column stayed open after its contacts left');
   await delay(100);
   check(side.hasAttribute(FOLDED_MARK) && width(side) === 0, `the column opened again with nothing in it: ${width(side)} px`);
 
+  // Full width: all of role=main inside its padding, with the column folded or beside it.
+  const full = () => Math.abs(width(post) - (width(main) - 64)) <= 1;
+  settings.set('widerFeed.width', 'full');
+  await until(() => full() && width(post) > 1100, `Full width with the column folded: ${width(post)} of ${width(main)}`);
+  await delay(100);
+  check(side.hasAttribute(FOLDED_MARK) && full(), `the column came back at Full width: post ${width(post)}, column ${width(side)}`);
+  check(width(picture) === width(post), `a photo didn't follow its post at Full width: ${width(picture)} of ${width(post)}`);
+  followed('Full width');
+  const atFull = { post: width(post), main: width(main) };
+  document.querySelector('.inner').insertAdjacentHTML('beforeend', CONTACTS);
+  await until(() => !side.hasAttribute(FOLDED_MARK) && width(side) >= 280 && full(), `Full width beside contacts: post ${width(post)} of ${width(main)}, column ${width(side)}`);
+  followed('Full width beside the column');
+  document.querySelector('.contacts').remove();
+  await until(() => side.hasAttribute(FOLDED_MARK) && width(post) > 1100, 'the column stayed open at Full width after its contacts left');
+
   settings.set('widerFeed', false);
-  await until(() => width(post) === 680 && width(side) === 360, `switching off left post ${width(post)}, column ${width(side)}`);
+  await until(() => width(post) === 680 && width(side) === 360 && width(story) === 680, `switching off left post ${width(post)}, column ${width(side)}, Create story ${width(story)}`);
   await until(() => !document.querySelector(`[${FOLDED_MARK}]`), 'switching off left the fold mark');
   settings.set('widerFeed', true);
-  await until(() => width(post) === 1000, 'switching back on');
-  return { folded: true, widest: atWidest, besideColumn: true };
+  await until(() => full() && width(post) > 1100 && width(story) === width(post), 'switching back on');
+  return { folded: true, widest: atWidest, full: atFull, besideColumn: true };
 }

@@ -19,6 +19,14 @@
 //   reports the words of everything in it, hidden or not, so it would come straight back.
 // - The Feeds page (/feeds/) has no such column and its own side column inside role=main, so
 //   it's left alone.
+// Live 2026-11-04 again, an account with no friends' stories: Facebook shows a Create story card
+// in place of the Stories row. It's a child of the column holding the post box and the posts,
+// with 680 px of its own on that child, so it stayed narrow beside 1000 px posts. Taking that
+// child's width off widened the whole card. The same column holds an empty 680 px block, and the
+// block above the list holds a 1 px "Feed posts" heading for screen readers, which must stay
+// 1 px. So a block beside the feed takes its width only when it's in the flow and 300 px or more.
+// role=main pads itself 32 px on each side (seen at 1000, 1280, 1600 and 1919 px wide), which
+// keeps the feed off the column, so Full width is all of role=main inside that padding.
 // Birthdays: the account we used showed none in the column. Other extensions find the block by
 // its link to /events/birthdays/ (the address the left column's Birthdays row uses too), so the
 // block taken is the largest one around that link that holds no other link and no heading but
@@ -28,6 +36,7 @@
 import { whenRootReady } from '../../core/env.js';
 
 export const WIDE_MARK = 'data-hfw-wide-feed';
+export const FILL_MARK = 'data-hfw-wide-fill';
 export const FOLDED_MARK = 'data-hfw-folded-column';
 export const BIRTHDAYS_MARK = 'data-hfw-birthdays';
 
@@ -36,8 +45,12 @@ const COLUMN = '[role="complementary"]';
 const HEADING = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 const BIRTHDAYS = '/events/birthdays';
 const PICTURES = 'img, svg, video, canvas, iframe';
+const FILL_FROM = 300;
 
-export const WIDTHS = ['800', '900', '1000'];
+// Full takes all the room Home has, between the left column and the right one, or the window's
+// edge when the right column is folded. Any width is capped by that room.
+export const FULL = 'full';
+export const WIDTHS = ['800', '900', '1000', '1200', '1400', FULL];
 const DEFAULT_WIDTH = '900';
 
 export function widthOf(get) {
@@ -47,9 +60,8 @@ export function widthOf(get) {
 
 export function widerFeedCss(width, birthdays) {
   return [
-    `${HOME} [${WIDE_MARK}] { box-sizing: border-box !important; width: ${width}px !important; max-width: 100% !important; }`,
-    // A gap on each side when the column stays, so the feed never runs into it.
-    `${HOME} [${WIDE_MARK}="outer"] { max-width: calc(100% - 32px) !important; }`,
+    `${HOME} [${WIDE_MARK}] { box-sizing: border-box !important; width: ${width === FULL ? '100%' : `${width}px`} !important; max-width: 100% !important; }`,
+    `${HOME} [${FILL_MARK}] { width: auto !important; max-width: 100% !important; }`,
     `${HOME} [${FOLDED_MARK}] { flex: 0 0 0px !important; width: 0 !important; min-width: 0 !important; max-width: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; overflow: hidden !important; }`,
     ...(birthdays ? [`${HOME} [${BIRTHDAYS_MARK}] { display: none !important; }`] : []),
   ].join('\n');
@@ -69,6 +81,22 @@ export function feedWrappers(doc) {
   const wrappers = [];
   for (let block = list.parentElement; block !== main; block = block.parentElement) wrappers.push(block);
   return wrappers;
+}
+
+// Blocks beside the feed that hold a width of their own, such as the Create story card: a
+// child of a plain block on the way down to the posts, in the flow and FILL_FROM px or wider,
+// holding no post. A flex row would shrink a child that lost its width, so those are skipped.
+export function fillBlocks(wrappers, view) {
+  const fill = [];
+  for (const wrapper of wrappers) {
+    if (view.getComputedStyle(wrapper).display !== 'block') continue;
+    for (const kid of wrapper.children) {
+      if (wrappers.includes(kid) || kid.matches('[aria-posinset]') || kid.querySelector('[aria-posinset]')) continue;
+      if (['absolute', 'fixed'].includes(view.getComputedStyle(kid).position)) continue;
+      if (kid.getBoundingClientRect().width >= FILL_FROM) fill.push(kid);
+    }
+  }
+  return fill;
 }
 
 // The page's own side columns, not one inside the feed or a dialog.
@@ -120,11 +148,11 @@ export default {
   id: 'widerFeed',
   section: 'layout',
   title: 'Wider feed on Home',
-  description: "Lets Home's posts grow to the width you pick and folds away the right column when there's nothing left in it, which is often the case with ads hidden. Contacts and anything else Facebook shows there keep the column.",
+  description: "Lets Home's posts, the post box and Create story grow to the width you pick, up to all the room there is. The right column folds away when there's nothing left in it, which is often the case with ads hidden. Contacts and anything else Facebook shows there keep the column.",
   default: false,
   webOnly: true,
   options: [
-    { key: 'width', type: 'select', label: 'Width', default: DEFAULT_WIDTH, choices: WIDTHS.map((value) => ({ value, label: `${value} px` })) },
+    { key: 'width', type: 'select', label: 'Width', default: DEFAULT_WIDTH, choices: WIDTHS.map((value) => ({ value, label: value === FULL ? 'Full width' : `${value} px` })) },
     { key: 'birthdays', type: 'toggle', label: 'Hide Birthdays in the right column', default: false },
   ],
   css: (get) => widerFeedCss(widthOf(get), get('widerFeed.birthdays') === true),
@@ -137,7 +165,8 @@ export default {
       queued = false;
       const live = enabled() && onHome();
       const wrappers = live ? feedWrappers(doc) : [];
-      sync(doc, WIDE_MARK, new Map(wrappers.map((block, i) => [block, i === wrappers.length - 1 ? 'outer' : ''])));
+      sync(doc, WIDE_MARK, new Map(wrappers.map((block) => [block, ''])));
+      sync(doc, FILL_MARK, new Map((view ? fillBlocks(wrappers, view) : []).map((block) => [block, ''])));
       const columns = live ? sideColumns(doc) : [];
       sync(doc, BIRTHDAYS_MARK, new Map(columns.flatMap(birthdaysBlocks).map((block) => [block, ''])));
       // After the Birthdays mark, so each column is judged as it's drawn now.
