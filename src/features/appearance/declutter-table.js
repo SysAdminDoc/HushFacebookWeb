@@ -82,4 +82,13 @@ export const FIND_FRIENDS = '[role="banner"] [role="navigation"] div:has(> a[hre
 // "> svg path" in it happy-dom matches every button (2026-10-22).
 export const NEW_MESSAGE = '[role="button"]:has(path[d^="M17.99.93a1.75"]):not([role="banner"] *):not([role="main"] *):not([role="navigation"] *):not([role="dialog"] *)';
 
+// Live 2026-11-04 (Home, 1600 px): the Privacy, Consumer Health Privacy, Terms, Advertising, Ad
+// Choices, Cookies and More links are a footer[role=contentinfo] alone in a box with 16 px of
+// padding at the bottom of the left column, so the box goes with it. The menu under the profile
+// picture ends with the same footer, in a [role=dialog] in the top bar, and that one stays so the
+// links are still a click away. Its label is the page's language, so it's found by its role.
+const FOOTER_TAG = 'footer[role="contentinfo"]';
+const OUTSIDE_MENUS = ':not([role="banner"] *):not([role="dialog"] *)';
+export const FOOTER = `${FOOTER_TAG}${OUTSIDE_MENUS},\ndiv:has(> ${FOOTER_TAG}:only-child)${OUTSIDE_MENUS}`;
+
 export const hide = (selectors) => `${selectors} { display: none !important; }`;

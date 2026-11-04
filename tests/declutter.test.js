@@ -12,7 +12,8 @@ import hideTabBadges, { BADGE_MARK, badgeBox, cleanTitle, createBadgeHider, mark
 import hideMenuPromotions, { promotionsCss } from '../src/features/menu/hide-menu-promotions.js';
 import hideMetaUpsells, { UPSELLS_CSS } from '../src/features/meta/hide-meta-upsells.js';
 import hideNewMessageButton, { NEW_MESSAGE_CSS } from '../src/features/appearance/hide-new-message.js';
-import { LEFT, NEW_MESSAGE, section } from '../src/features/appearance/declutter-table.js';
+import hideFooterLinks, { FOOTER_CSS } from '../src/features/appearance/hide-footer.js';
+import { FOOTER, LEFT, NEW_MESSAGE, section } from '../src/features/appearance/declutter-table.js';
 
 const windows = [];
 afterEach(async () => {
@@ -167,6 +168,25 @@ test('Hide the New message button takes the corner button by its icon, in any la
   // checked as text. A compose button in Messenger's list or a dialog keeps its icon.
   for (const place of ['banner', 'main', 'navigation', 'dialog']) assert.ok(NEW_MESSAGE.includes(`:not([role="${place}"] *)`), place);
   assert.doesNotMatch(NEW_MESSAGE, /aria-label/, 'not keyed on words');
+});
+
+// The footer as drawn live 2026-11-04 at the bottom of the left column, alone in its padded box,
+// with its label in another language.
+const FOOTER_LINKS = '<span><a href="/privacy/policy/">Privacidad</a> · <a href="/policies/">Condiciones</a> · <a href="/policies/cookies/">Cookies</a> · <div role="button">Más</div></span>';
+const LEFT_FOOTER = `
+<div role="navigation" aria-label="Accesos directos"><ul>${left('Friends', `${FB}/friends/`)}</ul>
+  <div data-row="footer-box"><footer aria-label="Facebook" role="contentinfo" data-row="footer">${FOOTER_LINKS}</footer></div>
+</div>
+<div role="complementary"><div data-row="shared-box"><div data-row="beside-footer">Categories</div><footer role="contentinfo" data-row="side-footer">${FOOTER_LINKS}</footer></div></div>`;
+
+test('Hide the footer links takes the footer and its box out of the left column, and only a box that holds nothing else', () => {
+  const win = page(LEFT_FOOTER);
+  assert.equal(hideFooterLinks.css, FOOTER_CSS);
+  assert.deepEqual(hiddenBy(win, FOOTER_CSS), ['footer', 'footer-box', 'side-footer']);
+  // happy-dom ignores a descendant selector inside :not(), so the menu under the profile picture,
+  // whose footer stays, is checked as text.
+  for (const place of ['banner', 'dialog']) assert.ok(FOOTER.split(',\n').every((rule) => rule.includes(`:not([role="${place}"] *)`)), place);
+  assert.doesNotMatch(FOOTER, /aria-label/, 'not keyed on words');
 });
 
 test('a count drawn as a badge is marked, a name that is a number is not', () => {

@@ -39,7 +39,7 @@ test('every group sits on a page, and every page has switches in at least one of
 });
 
 // Switches with no Hushfacebook patch behind them, each added on purpose.
-const WEB_ONLY = new Set(['pauseOffscreenVideos', 'hideVideoSuggestions', 'filterMarketplace', 'hidePostBox', 'hideActiveDots', 'widerFeed', 'keepNotificationsFilter', 'keepPostsHidden', 'calmTheme']);
+const WEB_ONLY = new Set(['pauseOffscreenVideos', 'hideVideoSuggestions', 'filterMarketplace', 'hidePostBox', 'hideActiveDots', 'widerFeed', 'keepNotificationsFilter', 'keepPostsHidden', 'calmTheme', 'hideFooterLinks']);
 
 test('ported features retain their parity rows and the web-only additions are explicit', () => {
   for (const feature of features) {

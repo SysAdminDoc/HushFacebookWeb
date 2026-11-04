@@ -95,6 +95,7 @@ import noTransitions from './appearance/no-transitions.js';
 import hideTabs from './appearance/hide-tabs.js';
 import hideTabBadges from './appearance/hide-tab-badges.js';
 import hideNewMessageButton from './appearance/hide-new-message.js';
+import hideFooterLinks from './appearance/hide-footer.js';
 import hideActiveDots from './appearance/hide-active-dots.js';
 import widerFeed from './appearance/wider-feed.js';
 import screenshotMode from './appearance/screenshot-mode.js';
@@ -110,7 +111,7 @@ export const features = [
   hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, filterMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, keepNotificationsFilter, holdBackLogs, blockAdTelemetry,
   commentOrder, showAllReplies, hideCommentStickers, hideVideoCommentBox, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, downloadMenu, tapToPlay, pauseOffscreenVideos, limitHdr, resumeVideos,
   keepSpeed, keepVolume, holdForSpeed, pictureInPicture, frameStep, keepControls, videoQuality, rememberWatched, hideVideoSuggestions,
-  forceDarkMode, calmTheme, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, hideActiveDots, widerFeed, screenshotMode,
+  forceDarkMode, calmTheme, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, hideFooterLinks, hideActiveDots, widerFeed, screenshotMode,
   menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions, blockInstantGamesAds,
   // In this order: the first to claim a Home load redirects it (opening/start.js).
   marketplaceOnly, openOnTab, followingFeed, messengerPage,
