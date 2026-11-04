@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.0.8 (2026-11-04, unreleased)
+## v0.0.9 (2026-11-04, unreleased)
 
 * The settings button moved up to Facebook's top bar. It's a gear now, right next to Messenger and Notifications, the same size and color as Facebook's own round buttons in light and dark mode (Calm theme too). When Find friends comes and goes or the window gets narrower, it moves with them. In its old spot at the bottom left it covered the Privacy and Terms links on Home. A page without the top bar still shows it down in that corner. The option that hides it is now called Hide the gear settings button in the top bar.
 * New Appearance switch, off to start: Calm theme. Facebook's light mode puts near-black text on pure white cards, which glares after a while, and in dark mode the cards barely stand out from the page. Calm theme softens both. Pick Soft (cool grays, the default), Catppuccin, Nord or Paper (warm and bookish) under Palette. Each one has a light side and a dark side, and you get whichever matches Facebook's own setting or Force dark mode. Main text stays at 6:1 contrast or better and gray text at 4.5:1 on every surface, without the 20:1 glare. Links and buttons take the palette's own accent, shaded so they read on its backgrounds. More room between lines (on to start) gives post and comment text taller lines, which makes long posts easier to follow. Posts on a colored background keep Facebook's sizing. AMOLED black theme and Accent color still win when they're on, so you can keep a palette and swap in your own color.
