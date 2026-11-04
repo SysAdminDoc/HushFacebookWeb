@@ -22,7 +22,7 @@ function summary(counts) {
 
 export default {
   id: 'hideSponsoredPosts',
-  section: 'feed',
+  section: 'ads',
   android: 'Hide sponsored posts',
   title: 'Hide sponsored posts',
   description: "Removes ads from the news feed and Home's right column before Facebook draws them, and hides any that get drawn anyway.",

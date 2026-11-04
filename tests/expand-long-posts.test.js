@@ -180,8 +180,8 @@ test('without IntersectionObserver every button opens at once, but not while off
   assert.equal(expander.opened(), 2);
 });
 
-test('the switch starts off in News feed', () => {
+test('the switch starts off under While you read', () => {
   assert.equal(expandLongPosts.default, false);
-  assert.equal(expandLongPosts.section, 'feed');
+  assert.equal(expandLongPosts.section, 'reading');
   assert.ok(features.includes(expandLongPosts));
 });

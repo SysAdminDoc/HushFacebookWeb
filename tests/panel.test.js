@@ -14,6 +14,7 @@ import { createLog } from '../src/core/log.js';
 import { createSettings } from '../src/core/settings.js';
 import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
 import { features as allFeatures } from '../src/features/index.js';
+import { PAGES, SECTIONS } from '../src/features/sections.js';
 import { startFeatures } from '../src/core/start-features.js';
 import { mountPanel } from '../src/ui/panel.js';
 import { SEEN_SETTINGS_KEY } from '../src/ui/new-dots.js';
@@ -152,7 +153,7 @@ test('the language under General redraws the panel in it, mirrors it for right t
   assert.match(titleOf(), /^\[\S+ /);
   assert.deepEqual([...shadow.querySelector('select[data-key="ui.language"]').options].map((option) => option.textContent), ['English', 'Test: long text', 'Test: right to left'], 'each language keeps its own name');
   assert.equal(shadow.querySelector('[data-key="search"]').placeholder, t('Find a setting'));
-  assert.equal(shadow.querySelector('nav').getAttribute('aria-label'), t('Settings sections'));
+  assert.equal(shadow.querySelector('nav').getAttribute('aria-label'), t('Settings pages'));
   panel.toast(() => t('Saved {name}', { name: 'photo.jpg' }));
   assert.match(shadow.querySelector('.toast span').textContent, /^\[\S+ photo\.jpg .+\]$/, 'a notice made as a function is worded when it shows');
 
@@ -216,25 +217,69 @@ test('General puts a privacy-safe filled problem report directly above Ko-fi', (
   assert.ok(body.length <= 6000);
 });
 
+test('settings open on Overview: Quick setups, then a tile per page that counts what is on and opens it', () => {
+  const { shadow, panel, settings } = setup({ features: allFeatures });
+  panel.open();
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Overview');
+  assert.deepEqual([...shadow.querySelectorAll('main [data-group]')].map((group) => group.dataset.group), ['quick-setups', 'pages']);
+  assert.deepEqual([...shadow.querySelectorAll('main [data-key^="go:"]')].map((tile) => tile.dataset.key), PAGES.map((page) => `go:${page.id}`));
+  const onVideo = allFeatures.filter((feature) => SECTIONS.find((section) => section.id === feature.section).page === 'video');
+  const count = () => shadow.querySelector('[data-key="go:video"] .tile-count').textContent;
+  const before = onVideo.filter((feature) => settings.get(feature.id) === true).length;
+  assert.equal(count(), `${before} of ${onVideo.length} on`);
+  settings.set(onVideo.find((feature) => settings.get(feature.id) !== true).id, true);
+  assert.equal(count(), `${before + 1} of ${onVideo.length} on`, 'the count follows a change');
+  assert.equal(shadow.querySelector('[data-key="nav:video"] .nav-count [aria-hidden]').textContent, String(before + 1), 'and so does the sidebar');
+  shadow.querySelector('[data-key="go:video"]').click();
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Video');
+  assert.equal(shadow.querySelector('[data-key="nav:video"]').getAttribute('aria-current'), 'page');
+});
+
+test('a page with several groups names each one, and an old section id opens its page at that group', () => {
+  const { shadow, panel } = setup({ features: allFeatures });
+  panel.open('video');
+  const groups = SECTIONS.filter((section) => section.page === 'video');
+  assert.deepEqual([...shadow.querySelectorAll('main [data-group]')].map((group) => group.dataset.group), groups.map((group) => group.id));
+  for (const group of shadow.querySelectorAll('main [data-group]')) {
+    assert.equal(group.getAttribute('role'), 'group');
+    assert.equal(shadow.querySelector(`#${group.getAttribute('aria-labelledby')}`).textContent, groups.find((entry) => entry.id === group.dataset.group).title);
+  }
+  panel.open('downloads');
+  assert.equal(shadow.querySelector('main .group-title'), null, 'a page with one group shows no group heading');
+  panel.open('reels');
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Video');
+});
+
+test('a Quick setup shows its Undo on Overview, and General has it too', async () => {
+  const { shadow, panel } = setup({ features: allFeatures });
+  panel.open('overview');
+  shadow.querySelector('[data-key="quick:privacy"]').click();
+  await tick();
+  assert.equal(shadow.querySelector('main [data-group]').dataset.group, 'overview-attention', 'the Undo leads the page');
+  assert.ok(shadow.querySelector('[data-group="overview-attention"] [data-key="reset:undo"]'));
+  panel.open('general');
+  assert.ok(shadow.querySelector('[data-key="reset:undo"]'));
+});
+
 test('Quick setups report their changed count and Back to defaults raises Reload when needed', () => {
   const quiet = QUICK_SETUPS.find((setup) => setup.id === 'quiet');
   const privacy = QUICK_SETUPS.find((setup) => setup.id === 'privacy');
   const first = setup({ features: allFeatures });
-  first.panel.open('general');
-  const clickSetup = (label) => [...first.shadow.querySelectorAll('[data-key="quick-setups"] button')].find((button) => button.textContent === label).click();
+  first.panel.open('overview');
+  const clickSetup = (id) => first.shadow.querySelector(`[data-key="quick:${id}"]`).click();
   const expectedQuiet = quiet.keys.filter((key) => first.settings.get(key) !== true).length;
-  clickSetup('Quiet');
+  clickSetup('quiet');
   assert.equal(first.shadow.querySelector('.toast:last-child span').textContent, `Changed ${expectedQuiet} settings`);
   assert.ok(quiet.keys.every((key) => first.settings.get(key) === true));
   const expectedPrivacy = privacy.keys.filter((key) => first.settings.get(key) !== true).length;
-  clickSetup('Privacy');
+  clickSetup('privacy');
   assert.equal(first.shadow.querySelector('.toast:last-child span').textContent, `Changed ${expectedPrivacy} settings`);
   assert.ok(privacy.keys.every((key) => first.settings.get(key) === true));
 
   const storage = createMemoryStorage({ settings: { blockInstantGamesAds: true } });
   const second = setup({ features: allFeatures, storage });
-  second.panel.open('general');
-  [...second.shadow.querySelectorAll('[data-key="quick-setups"] button')].find((button) => button.textContent === 'Back to defaults').click();
+  second.panel.open('overview');
+  second.shadow.querySelector('[data-key="quick:defaults"]').click();
   assert.equal(second.settings.get('blockInstantGamesAds'), false);
   assert.ok(second.shadow.querySelector('[data-key="reload-facebook"]'), 'resetting a reload-gated page-load choice raises Reload');
 });
@@ -250,8 +295,8 @@ test('Back to defaults clears invalid drafts even when saved settings already us
   assert.equal(input.getAttribute('aria-invalid'), 'true');
   assert.equal(settings.get('demo.days'), 7);
 
-  panel.open('general');
-  [...shadow.querySelectorAll('[data-key="quick-setups"] button')].find((button) => button.textContent === 'Back to defaults').click();
+  panel.open('overview');
+  shadow.querySelector('[data-key="quick:defaults"]').click();
   panel.open('feed');
   input = shadow.querySelector('[data-key="demo.days"]');
   assert.equal(input.value, '7');
@@ -273,10 +318,11 @@ test('Quick setups wait for extension storage and preserve unrelated saved choic
   };
   const quiet = QUICK_SETUPS.find((setup) => setup.id === 'quiet');
   const { shadow, panel, settings } = setup({ features: allFeatures, storage });
-  panel.open('general');
+  panel.open('overview');
   shadow.querySelector('[data-key="quick:quiet"]').click();
   assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), 'true');
   assert.equal(settings.get('cleanUpReels'), false, 'the setup has not used unloaded defaults');
+  panel.open('general');
   const laterToggle = shadow.querySelector('[data-key="ui.hiddenNote"]');
   assert.equal(laterToggle.disabled, true, 'later preference actions wait behind the deferred setup');
   laterToggle.click();
@@ -289,8 +335,9 @@ test('Quick setups wait for extension storage and preserve unrelated saved choic
   assert.equal(settings.get('forceDarkMode'), true);
   assert.ok(quiet.keys.every((key) => settings.get(key) === true));
   assert.equal(data.get('settings').forceDarkMode, true);
-  assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), null);
   assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').disabled, false);
+  panel.open('overview');
+  assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), null);
   assert.match(shadow.querySelector('.toast:last-child span').textContent, /^Changed \d+ settings$/);
   assert.equal(shadow.querySelector('.toast:last-child button').textContent, 'Undo');
 });
@@ -324,7 +371,7 @@ test('a Quick setup waiting on failed startup storage leaves Retry available', a
     },
   };
   const { shadow, panel } = setup({ features: allFeatures, storage, environment: { storage } });
-  panel.open('general');
+  panel.open('overview');
   shadow.querySelector('[data-key="quick:privacy"]').click();
 
   state = 'error';
@@ -363,7 +410,7 @@ test('a reload-required change shows the top row and remembers its settings page
 
   const second = setup({ features: [feature], environment: { sessionStorage, now: () => 1_001, reload() {} } });
   assert.equal(second.shadow.querySelector('dialog').open, true);
-  assert.equal(second.shadow.querySelector('#hfw-section-title').textContent, 'News feed');
+  assert.equal(second.shadow.querySelector('#hfw-section-title').textContent, 'Feed');
   assert.equal(values.size, 0, 'the marker is one shot');
 
   const changedLate = setup({
@@ -405,8 +452,8 @@ test('reload returns to the active Search page and query', () => {
   assert.equal(values.size, 0);
 });
 
-test('reload distinguishes the Search section from finding a setting', () => {
-  const feature = { id: 'restartMe', section: 'search', title: 'Restart me', description: 'Needs a reload.', default: false, reload: true, setup() {} };
+test('reload distinguishes a settings page from finding a setting', () => {
+  const feature = { id: 'restartMe', section: 'ads', title: 'Restart me', description: 'Needs a reload.', default: false, reload: true, setup() {} };
   const values = new Map();
   const sessionStorage = {
     getItem: (key) => values.get(key) ?? null,
@@ -414,14 +461,14 @@ test('reload distinguishes the Search section from finding a setting', () => {
     removeItem: (key) => values.delete(key),
   };
   const first = setup({ features: [feature], environment: { sessionStorage, now: () => 3_000, reload() {} } });
-  first.panel.open('search');
+  first.panel.open('ads');
   first.settings.set('restartMe', true);
   first.shadow.querySelector('[data-key="reload-facebook"] button').click();
-  assert.deepEqual(JSON.parse([...values.values()][0]), { page: 'search', timestamp: 3_000 });
+  assert.deepEqual(JSON.parse([...values.values()][0]), { page: 'ads', timestamp: 3_000 });
 
   const second = setup({ features: [feature], environment: { sessionStorage, now: () => 3_001, reload() {} } });
   assert.equal(second.shadow.querySelector('dialog').open, true);
-  assert.equal(second.shadow.querySelector('[data-key="nav:search"]').getAttribute('aria-current'), 'page');
+  assert.equal(second.shadow.querySelector('[data-key="nav:ads"]').getAttribute('aria-current'), 'page');
   assert.equal(second.shadow.querySelector('[data-key="search"]').value, '');
   assert.equal(values.size, 0);
 });
@@ -921,7 +968,7 @@ test('Reset stays busy until extension settings load and Undo receives the saved
 test('an unavailable section request keeps the existing settings page usable', () => {
   const { shadow, panel } = setup();
   panel.open('missing');
-  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'General');
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Overview');
   assert.equal(shadow.querySelector('dialog').open, true);
 });
 
@@ -1000,13 +1047,13 @@ test('every Quick setup keeps a persistent Undo with its earlier choices and foc
     const { shadow, panel, settings } = setup({ features: allFeatures });
     settings.setMany({ hideSponsoredPosts: false, noWatchHistory: false, 'ui.hiddenNote': true, accentColor: true, 'accentColor.custom': '#123456' });
     const before = settings.snapshot();
-    panel.open('general');
+    panel.open('overview');
     shadow.querySelector(`[data-key="quick:${id}"]`).focus();
     shadow.querySelector(`[data-key="quick:${id}"]`).click();
     await tick();
     assert.notDeepEqual(settings.snapshot(), before, id);
     const undo = shadow.querySelector('[data-key="reset:undo"]');
-    assert.ok(undo, `${id} offers Undo in General`);
+    assert.ok(undo, `${id} offers Undo on Overview, where it was applied`);
     for (const toast of shadow.querySelectorAll('.toast')) toast.remove();
     assert.ok(undo.isConnected, 'the card survives its notice');
     undo.focus();
@@ -1073,7 +1120,7 @@ test('a failed bulk Undo survives failed Retry and ends only when Retry saves th
   const { storage, data, control } = laterStorage({ noWatchHistory: false, 'ui.hiddenNote': true });
   const context = setup({ storage, features: allFeatures });
   const { shadow, panel, settings } = context;
-  panel.open('general');
+  panel.open('overview');
   const before = settings.snapshot();
   shadow.querySelector('[data-key="quick:privacy"]').click();
   await tick();
@@ -1101,7 +1148,7 @@ test('unrelated local or remote choices and an account switch invalidate a Quick
     const { storage, control } = laterStorage({ noWatchHistory: false });
     let sameAccount = true;
     const { shadow, panel, settings } = setup({ storage, features: allFeatures, environment: { accountMatches: () => sameAccount } });
-    panel.open('general');
+    panel.open('overview');
     shadow.querySelector('[data-key="quick:privacy"]').click();
     await tick();
     assert.ok(shadow.querySelector('[data-key="reset:undo"]'), change);
@@ -1542,7 +1589,7 @@ test('a preference refresh preserves an unfinished draft, caret and scroll posit
   assert.equal(settings.get('demo.words'), '');
 });
 
-test('search finds settings by their words, changes toggles in place, and clears back to the sections', () => {
+test('search finds settings by their words, changes toggles in place, and clears back to the pages', () => {
   const features = [
     { id: 'quiet', section: 'feed', android: 'Quiet', title: 'Hide sponsored posts', description: 'Ads leave the feed.', default: false },
     { id: 'speedy', section: 'playback', android: 'Speedy', title: 'Keep your video speed', description: 'The speed you pick stays.', default: false,
@@ -1559,7 +1606,7 @@ test('search finds settings by their words, changes toggles in place, and clears
   assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Search');
   assert.deepEqual([...shadow.querySelectorAll('.result .title')].map((node) => node.textContent), ['Keep your video speed'], 'choice names count');
   assert.ok(shadow.querySelector('.result [data-key="speedy.step"]'), 'the matching option works from the results while its parent is off');
-  assert.equal(shadow.querySelector('nav [aria-current="page"]'), null, 'no section is current while searching');
+  assert.equal(shadow.querySelector('nav [aria-current="page"]'), null, 'no page is current while searching');
   const resultToggle = shadow.querySelector('.result [data-key="speedy"]');
   resultToggle.checked = true;
   resultToggle.dispatchEvent(new win.Event('change', { bubbles: true }));
@@ -1568,12 +1615,12 @@ test('search finds settings by their words, changes toggles in place, and clears
   assert.match(shadow.querySelector('main .empty').textContent, /No setting matches "zebra"/);
   type('SPEED keep');
   shadow.querySelector('[data-key="show:speedy"]').click();
-  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Playback');
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Video');
   assert.equal(shadow.activeElement?.dataset.key, 'speedy', "the feature's switch has focus");
   assert.equal(search.value, '');
   type('sponsored');
   shadow.querySelector('[data-key="nav:general"]').click();
-  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'General', 'a section button clears the search');
+  assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'General', 'a page button clears the search');
   assert.equal(search.value, '');
 });
 
@@ -1625,7 +1672,7 @@ test("General's switches and backup actions come up by their own words, and the 
     const link = shadow.querySelector(`[data-key="show:${row}"]`);
     assert.ok(link, `${query} finds ${row}`);
     link.click();
-    assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'General', query);
+    assert.equal(shadow.querySelector('#hfw-section-title').textContent, row === 'quick-setups' ? 'Overview' : 'General', query);
     assert.equal(shadow.activeElement?.dataset.key, focused, `${query} lands on ${focused}`);
     assert.equal(search.value, '', query);
   }
@@ -1857,7 +1904,7 @@ test('In a tab paused after a stuck feed, the power switch turns it back on with
 // list, as boot.js gives the panel.
 const DOT_FEED = { id: 'dotFeed', section: 'feed', title: 'Dot feed', description: 'A feed switch.', default: false, options: [{ key: 'words', type: 'text', default: '', label: 'Words' }], setup() {} };
 const DOT_ON = { id: 'dotOn', section: 'feed', title: 'Dot on', description: 'A switch that starts on.', default: true, options: [{ key: 'quiet', type: 'toggle', default: false, label: 'Quietly' }, { key: 'size', type: 'number', default: 2, min: 1, max: 9, label: 'Size' }], setup() {} };
-const DOT_SEARCH = { id: 'dotSearch', section: 'search', title: 'Dot search', description: 'A search switch.', default: false, setup() {} };
+const DOT_ADS = { id: 'dotAds', section: 'ads', title: 'Dot ads', description: 'An ads switch.', default: false, setup() {} };
 const dotsIn = (root) => [...root.querySelectorAll('.new-dot')].map((dot) => {
   const holder = dot.closest('[data-key], .title, label');
   return holder.dataset?.key ?? holder.textContent.replace(/New$/, '');
@@ -1865,33 +1912,33 @@ const dotsIn = (root) => [...root.querySelectorAll('.new-dot')].map((dot) => {
 
 test('the first time settings open nothing has a dot, and every setting counts as seen from then on', async () => {
   const storage = createMemoryStorage();
-  const { shadow, panel } = setup({ features: [DOT_FEED, DOT_SEARCH], storage, environment: { storage } });
+  const { shadow, panel } = setup({ features: [DOT_FEED, DOT_ADS], storage, environment: { storage } });
   panel.open('feed');
   assert.deepEqual(dotsIn(shadow), []);
-  assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed', 'dotFeed.words', 'dotSearch']);
+  assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed', 'dotFeed.words', 'dotAds']);
   panel.close();
   await tick();
-  panel.open('search');
+  panel.open('ads');
   assert.deepEqual(dotsIn(shadow), []);
 });
 
 test('a setting an update added keeps its dot, and its section its own, until settings close after that section was shown', async () => {
   const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotFeed', 'gone'] });
-  const { shadow, panel } = setup({ features: [DOT_FEED, DOT_SEARCH], storage, environment: { storage } });
+  const { shadow, panel } = setup({ features: [DOT_FEED, DOT_ADS], storage, environment: { storage } });
   panel.open('feed');
   // dotFeed is off, so its new option hides with it and the card carries the dot.
-  assert.deepEqual(dotsIn(shadow), ['nav:feed', 'nav:search', 'Dot feed']);
+  assert.deepEqual(dotsIn(shadow), ['nav:ads', 'nav:feed', 'Dot feed']);
   assert.equal(shadow.querySelector('.title .new-dot').textContent, 'New', 'a screen reader hears it');
   panel.close();
   await tick();
   assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed', 'gone', 'dotFeed.words'], 'only what was shown, and a removed setting stays');
   panel.open('feed');
-  assert.deepEqual(dotsIn(shadow), ['nav:search'], 'Search was never shown');
-  shadow.querySelector('[data-key="nav:search"]').click();
-  assert.deepEqual(dotsIn(shadow), ['nav:search', 'Dot search'], 'dots stay while settings are open');
+  assert.deepEqual(dotsIn(shadow), ['nav:ads'], 'Ads was never shown');
+  shadow.querySelector('[data-key="nav:ads"]').click();
+  assert.deepEqual(dotsIn(shadow), ['nav:ads', 'Dot ads'], 'dots stay while settings are open');
   panel.close();
   await tick();
-  panel.open('search');
+  panel.open('ads');
   assert.deepEqual(dotsIn(shadow), []);
 });
 
@@ -1905,13 +1952,13 @@ test("a new option on a switch that's on has its own dot, and the card has one t
 
 test('opening settings again while they are open keeps what was already shown', async () => {
   const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotFeed'] });
-  const { shadow, panel } = setup({ features: [DOT_FEED, DOT_SEARCH], storage, environment: { storage } });
+  const { shadow, panel } = setup({ features: [DOT_FEED, DOT_ADS], storage, environment: { storage } });
   panel.open('feed');
-  panel.open('search');
-  assert.deepEqual(dotsIn(shadow), ['nav:feed', 'nav:search', 'Dot search']);
+  panel.open('ads');
+  assert.deepEqual(dotsIn(shadow), ['nav:ads', 'nav:feed', 'Dot ads']);
   panel.close();
   await tick();
-  assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed', 'dotFeed.words', 'dotSearch']);
+  assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed', 'dotFeed.words', 'dotAds']);
 });
 
 test('search results show no dots and searching counts as nothing shown', async () => {
@@ -1929,7 +1976,7 @@ test("storage that hasn't loaded, or can't be read, shows no dots and saves noth
   const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotFeed'] });
   let state = 'loading';
   storage.status = () => ({ state, error: null });
-  const { shadow, panel, settings } = setup({ features: [DOT_FEED, DOT_SEARCH], storage, environment: { storage } });
+  const { shadow, panel, settings } = setup({ features: [DOT_FEED, DOT_ADS], storage, environment: { storage } });
   panel.open('feed');
   assert.deepEqual(dotsIn(shadow), []);
   panel.close();
@@ -1937,7 +1984,7 @@ test("storage that hasn't loaded, or can't be read, shows no dots and saves noth
   assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed']);
   state = 'ready';
   panel.open('feed');
-  assert.deepEqual(dotsIn(shadow), ['nav:feed', 'nav:search', 'Dot feed'], 'once loaded, the next open has them');
+  assert.deepEqual(dotsIn(shadow), ['nav:ads', 'nav:feed', 'Dot feed'], 'once loaded, the next open has them');
   assert.equal(Object.hasOwn(JSON.parse(settings.exportJson()), SEEN_SETTINGS_KEY), false);
   assert.doesNotMatch(settings.exportJson(), /seenSettings|dotFeed\.words/);
   panel.close();

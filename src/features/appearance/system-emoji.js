@@ -102,7 +102,7 @@ export function createEmojiSwapper({ doc, enabled, log }) {
 
 export default {
   id: 'systemEmoji',
-  section: 'appearance',
+  section: 'text',
   android: "Use the phone's emoji",
   title: "Use your computer's emoji",
   description: "Shows emoji in posts, comments and chats with your own system's emoji instead of Facebook's pictures of them.",

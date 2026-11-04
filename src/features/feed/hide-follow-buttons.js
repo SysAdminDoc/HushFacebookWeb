@@ -92,7 +92,7 @@ export function createFollowHider({ doc, enabled, setTimer = (fn, ms) => setTime
 
 export default {
   id: 'hideFollowButtons',
-  section: 'feed',
+  section: 'reading',
   android: 'Hide Follow and Join buttons',
   title: 'Hide Follow and Join buttons',
   description: "Takes the Follow and Join buttons off the names in posts from people, pages and groups you don't follow, so a post's header shows just who wrote it.",

@@ -105,7 +105,7 @@ export function createHold({ doc, win, enabled, trusted = (event) => event.isTru
 
 export default {
   id: 'holdForSpeed',
-  section: 'reels',
+  section: 'controls',
   android: 'Hold a reel for 2x',
   title: 'Hold a reel for 2x',
   description: 'Press and hold the mouse on a reel and it plays at double speed until you let go. A quick click still works as before.',

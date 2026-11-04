@@ -8,7 +8,7 @@ import { AD_CSS, watchAdCards } from './listing-cards.js';
 
 export default {
   id: 'hideSponsoredMarketplace',
-  section: 'marketplace',
+  section: 'ads',
   android: 'Hide sponsored Marketplace listings',
   title: 'Hide sponsored Marketplace listings',
   description: 'Takes ad cards out of Marketplace before Facebook draws them. The listings around them stay where they are.',

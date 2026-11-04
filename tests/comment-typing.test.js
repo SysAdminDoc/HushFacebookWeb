@@ -60,11 +60,11 @@ test('the comment itself, mentions, reactions and chat typing go through', () =>
   assert.equal(COMMENT_TYPING.test('CometUFILiveTypingBroadcastMutation_Start'), false);
 });
 
-test('the switch starts off, sits with Comments and needs the page', () => {
+test('the switch starts off, sits under What people see and needs the page', () => {
   const { rule } = setUp(false);
   assert.equal(rule.enabled(), false);
   assert.equal(hideCommentTyping.default, false);
-  assert.equal(hideCommentTyping.section, 'comments');
+  assert.equal(hideCommentTyping.section, 'people');
   assert.equal(hideCommentTyping.needsPage, true);
 });
 

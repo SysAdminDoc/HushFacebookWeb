@@ -1,6 +1,6 @@
 // Every feature, in settings order. A feature module exports:
 //   id          settings key and stable identity (never rename once shipped)
-//   section     one of SECTIONS in sections.js
+//   section     a group id from SECTIONS in sections.js. The group decides the page it's on
 //   android     the matching Hushfacebook patch (docs/feature-parity.md), or webOnly: true
 //   title, description, default
 //   needsPage   true when it hooks Facebook's window (skipped in content-script mode)
@@ -18,7 +18,7 @@
 //               Keys in ACTIVITY_KEYS (src/core/activity.js) are kept for each account
 //               toast('Message', { tone: 'error' }): a short note at the bottom of the page;
 //               { small: true } puts a one-liner in the bottom-left corner instead
-//               openSettings(sectionId?): opens the settings panel, at that section if given
+//               openSettings(sectionId?): opens the settings panel, at that page or group if given
 //               posts.on('post/add' | 'post/update' | 'post/remove' | 'reset', fn) (src/core/dom/posts.js)
 //               hider.hide(post.element, 'Reason', 'detail'), hider.show(element) (src/core/dom/hide.js)
 

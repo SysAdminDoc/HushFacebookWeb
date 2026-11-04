@@ -11,7 +11,7 @@ export const SEARCH_HISTORY_MUTATIONS = new Set(['CometAddTypeaheadRecentSearchM
 
 export default {
   id: 'noSearchHistory',
-  section: 'search',
+  section: 'privacy',
   android: "Don't save search history",
   title: "Don't save search history",
   description: "Searches you make aren't added to your recent searches on Facebook. Search itself works the same.",

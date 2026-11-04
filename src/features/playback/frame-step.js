@@ -65,7 +65,7 @@ export function createFrameStep({ doc, win, enabled, log, onStep }) {
 
 export default {
   id: 'frameStep',
-  section: 'playback',
+  section: 'controls',
   android: 'Frame step',
   title: 'Frame step buttons',
   description: 'Pause a video or reel, then point at it or Tab to it, and Back a frame and Next frame show in its corner. Each click moves the picture one frame and leaves it paused.',

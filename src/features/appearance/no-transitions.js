@@ -16,7 +16,7 @@ html { scroll-behavior: auto !important; }`;
 
 export default {
   id: 'noTransitions',
-  section: 'appearance',
+  section: 'text',
   android: 'Turn off screen transitions',
   title: 'Turn off screen transitions',
   description: "Menus, dialogs and pages appear at once, without Facebook's fades and slides. Loading spinners keep turning.",

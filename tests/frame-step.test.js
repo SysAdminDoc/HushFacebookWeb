@@ -293,7 +293,7 @@ test('the corner stack closes up: only buttons up on the same video take a row',
 
 test('Frame step is off by default and counts steps each way for Diagnostics', async () => {
   assert.equal(frameStep.id, 'frameStep');
-  assert.equal(frameStep.section, 'playback');
+  assert.equal(frameStep.section, 'controls');
   assert.equal(frameStep.android, 'Frame step');
   assert.equal(frameStep.default, false);
   const { win, doc } = player();

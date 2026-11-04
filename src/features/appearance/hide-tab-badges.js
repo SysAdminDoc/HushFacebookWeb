@@ -137,7 +137,7 @@ export function createBadgeHider({ doc, enabled, log, delay = 150 }) {
 
 export default {
   id: 'hideTabBadges',
-  section: 'appearance',
+  section: 'layout',
   android: 'Hide tab badges',
   title: 'Hide tab badges',
   description: "Hides the red counts on the top bar and left column, and the count in front of the browser tab's title. The notifications are still there when you open them.",

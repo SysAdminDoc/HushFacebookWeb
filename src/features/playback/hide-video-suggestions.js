@@ -14,7 +14,7 @@ export const SUGGESTIONS = '#watch_feed > div > div ~ div:has([data-virtualized]
 
 export default {
   id: 'hideVideoSuggestions',
-  section: 'playback',
+  section: 'watched',
   webOnly: true,
   title: 'Hide suggested videos under a video',
   description: "When a video opens on its own page, the videos Facebook lines up under it go away, so the page stays on yours when it ends. The video, its post and comments stay.",

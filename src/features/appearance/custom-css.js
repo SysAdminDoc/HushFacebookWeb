@@ -5,7 +5,7 @@
 
 export default {
   id: 'customCss',
-  section: 'appearance',
+  section: 'tools',
   android: 'Custom CSS',
   title: 'Custom CSS',
   description: 'Your own CSS rules for Facebook, applied after everything else the script does. Handy when Facebook moves something before a switch catches up.',

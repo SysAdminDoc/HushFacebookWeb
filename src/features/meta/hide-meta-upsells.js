@@ -11,7 +11,7 @@ export const UPSELLS_CSS = hide([place.left(UPSELL_LINK), place.menu(UPSELL_LINK
 
 export default {
   id: 'hideMetaUpsells',
-  section: 'meta',
+  section: 'promotions',
   android: 'Hide Meta upsells',
   title: 'Hide Meta upsells',
   description: "Takes Meta AI, Chat with AIs, Meta Quest, Ray-Ban Meta, WhatsApp, Instagram, Threads and Messenger Kids out of the left column and Facebook's menu.",

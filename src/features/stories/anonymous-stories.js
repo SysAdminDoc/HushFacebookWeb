@@ -6,7 +6,7 @@ export const SEEN_MUTATIONS = new Set(['storiesUpdateSeenStateMutation']);
 
 export default {
   id: 'anonymousStories',
-  section: 'stories',
+  section: 'people',
   android: 'View stories anonymously',
   title: 'View stories anonymously',
   description: "Keeps you off the viewer list of stories you watch, because Facebook isn't told which ones you've seen. Replying or reacting still shows you.",

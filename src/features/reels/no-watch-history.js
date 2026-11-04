@@ -11,7 +11,7 @@ export const EMPTY_SUCCESS = '{"data":{},"errors":[]}';
 
 export default {
   id: 'noWatchHistory',
-  section: 'reels',
+  section: 'privacy',
   android: "Don't send reel watch history",
   title: "Don't send watch history",
   description: "Facebook isn't told which reels and videos you've watched, so they don't shape what it shows you next. Ones you've already seen can come around again.",

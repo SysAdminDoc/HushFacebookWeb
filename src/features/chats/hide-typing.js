@@ -9,7 +9,7 @@ export const PRESENCE = '3';
 
 export default {
   id: 'hideTyping',
-  section: 'chats',
+  section: 'people',
   android: 'Hide typing indicator',
   title: 'Hide typing indicator',
   description: "People you chat with don't see the dots while you type. End-to-end encrypted chats aren't covered.",

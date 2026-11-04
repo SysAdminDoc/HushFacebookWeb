@@ -439,7 +439,7 @@ test("an error in the hook goes to the script's log and never into Facebook's lo
 
 test('the switch starts off, sits with the feed and needs the page', () => {
   assert.equal(keepFeedPlace.default, false);
-  assert.equal(keepFeedPlace.section, 'feed');
+  assert.equal(keepFeedPlace.section, 'reading');
   assert.equal(keepFeedPlace.needsPage, true);
   assert.equal(keepFeedPlace.android, 'Block background-return feed refresh');
 });

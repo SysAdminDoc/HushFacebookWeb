@@ -63,10 +63,10 @@ test('the reel itself, its ads check, story views and other mutations go through
   for (const name of HISTORY_MUTATIONS) assert.equal(SEEN_MUTATIONS.has(name), false);
 });
 
-test('the switch starts off, sits with Reels and needs the page', () => {
+test('the switch starts off, sits under What Facebook learns and needs the page', () => {
   const { rule } = setUp(false);
   assert.equal(rule.enabled(), false);
   assert.equal(noWatchHistory.default, false);
-  assert.equal(noWatchHistory.section, 'reels');
+  assert.equal(noWatchHistory.section, 'privacy');
   assert.equal(noWatchHistory.needsPage, true);
 });

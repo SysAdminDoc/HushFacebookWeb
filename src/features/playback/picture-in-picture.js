@@ -37,7 +37,7 @@ export function createPopOut({ doc, win, enabled, log, onPopOut }) {
 
 export default {
   id: 'pictureInPicture',
-  section: 'playback',
+  section: 'controls',
   android: 'Picture-in-picture',
   title: 'Picture-in-picture button',
   description: 'Point at a video or reel, or Tab to it, and a Pop out button shows in its corner. Click it and the video keeps playing in a small window that stays on top while you use other tabs and apps.',

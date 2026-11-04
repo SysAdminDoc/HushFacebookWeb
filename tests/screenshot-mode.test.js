@@ -171,7 +171,7 @@ test('names blur: post authors, commenters, people named in posts and comments, 
 
 test('Screenshot mode is one switch, off by default, CSS only and not keyed on words', () => {
   assert.equal(screenshotMode.id, 'screenshotMode');
-  assert.equal(screenshotMode.section, 'appearance');
+  assert.equal(screenshotMode.section, 'tools');
   assert.equal(screenshotMode.default, false);
   assert.equal(screenshotMode.css, SCREENSHOT_CSS);
   assert.equal(screenshotMode.options, undefined);

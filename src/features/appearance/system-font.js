@@ -27,7 +27,7 @@ export function fontCss(get) {
 
 export default {
   id: 'systemFont',
-  section: 'appearance',
+  section: 'text',
   android: 'Use the system font',
   title: 'Use the system font',
   description: "Draws Facebook's text in your computer's own interface font, or in a font you have installed.",

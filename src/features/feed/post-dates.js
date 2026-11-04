@@ -154,7 +154,7 @@ export function showDate(doc, post, seconds, lang = doc.documentElement?.lang, n
 
 export default {
   id: 'keepPostDates',
-  section: 'feed',
+  section: 'reading',
   android: 'Keep post dates',
   title: 'Show full post dates',
   description: "Each post shows the day and time it went up next to Facebook's short \"3h\" or \"2d\", so you don't have to point at it to find out.",

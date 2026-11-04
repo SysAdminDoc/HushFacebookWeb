@@ -314,7 +314,7 @@ test("a press on a reel's buttons, a paused reel, other pages and the switch off
   switched.press(offReel.video);
   assert.equal(switched.timers.length, 0);
   assert.equal(HOLD_MS > 200, true);
-  assert.equal(holdForSpeed.section, 'reels');
+  assert.equal(holdForSpeed.section, 'controls');
 });
 
 test("a long press on the script's own buttons is a click on them, and the running flag on the page's root doesn't get in the way", () => {

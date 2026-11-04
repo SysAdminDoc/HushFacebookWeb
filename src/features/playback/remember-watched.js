@@ -233,7 +233,7 @@ export function describe(entry, now, lang) {
 
 export default {
   id: 'rememberWatched',
-  section: 'playback',
+  section: 'watched',
   android: 'Remember what you watch',
   title: 'Remember what you watch',
   description: "Lists the last 50 reels, videos and stories you watched, so one the feed took away is easy to open again. A video in the feed counts once it's played with sound. The list stays in this browser for each Facebook account, and Copy report leaves it out.",

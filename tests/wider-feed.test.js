@@ -225,7 +225,7 @@ test('setup marks the feed and folds the empty column, opens it for contacts, an
 test('the switch starts off, sits in Appearance with a width and a Birthdays option', () => {
   assert.ok(features.includes(widerFeed));
   assert.equal(widerFeed.default, false);
-  assert.equal(widerFeed.section, 'appearance');
+  assert.equal(widerFeed.section, 'layout');
   assert.deepEqual(widerFeed.options.map(({ key, default: start }) => [key, start]), [['width', '900'], ['birthdays', false]]);
   assert.deepEqual(widerFeed.options[0].choices.map(({ value }) => value), ['800', '900', '1000']);
 });

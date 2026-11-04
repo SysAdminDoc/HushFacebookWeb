@@ -70,7 +70,7 @@ test('a shown badge with a picture in it is no dot', () => {
 test('the switch starts off, sits in Appearance and is one rule per selector', () => {
   assert.ok(features.includes(hideActiveDots));
   assert.equal(hideActiveDots.default, false);
-  assert.equal(hideActiveDots.section, 'appearance');
+  assert.equal(hideActiveDots.section, 'layout');
   assert.equal(hideActiveDots.css, ACTIVE_DOTS_CSS);
   assert.equal(ACTIVE_DOTS_CSS.split('{').length - 1, ACTIVE_DOT_SELECTORS.length);
 });

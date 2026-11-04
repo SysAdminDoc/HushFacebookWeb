@@ -183,7 +183,7 @@ export function createCountHider({ doc, enabled, setTimer = (fn, ms) => setTimeo
 
 export default {
   id: 'hideCounts',
-  section: 'feed',
+  section: 'reading',
   android: 'Hide counts on posts',
   title: 'Hide counts',
   description: "Takes the numbers off the Like, Comment and Share buttons under posts and beside reels, along with a post's reaction pictures and the reactions on comments, so you read without the tallies. The buttons keep working and your own reaction still shows.",

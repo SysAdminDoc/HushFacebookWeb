@@ -221,7 +221,7 @@ export function createShareSheetMarker({ doc, enabled, setTimer = (fn, ms) => se
 
 export default {
   id: 'shareSheet',
-  section: 'links',
+  section: 'menu',
   android: 'Share sheet items',
   title: 'Trim the share menu',
   description: "Takes the share targets you pick out of Facebook's share menu. Copy link always stays. WhatsApp and X are found in any language, the rest by their English names for now.",

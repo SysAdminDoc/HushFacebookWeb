@@ -68,7 +68,7 @@ export function isHideControl(control, post) {
 
 export default {
   id: 'keepPostsHidden',
-  section: 'feed',
+  section: 'filters',
   webOnly: true,
   title: 'Keep posts you hide hidden',
   description: "The X at the top of a post on Home or in your groups feed hides it for good, not just until the feed loads again. The post is recognized by its photo or video, or by its first words, and Facebook isn't told.",

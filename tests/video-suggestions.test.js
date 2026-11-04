@@ -47,7 +47,7 @@ test('nothing hides while only the chosen video is drawn, on a section of anothe
 
 test('Hide suggested videos is an off-by-default playback switch with nothing but its rule', () => {
   assert.equal(hideVideoSuggestions.id, 'hideVideoSuggestions');
-  assert.equal(hideVideoSuggestions.section, 'playback');
+  assert.equal(hideVideoSuggestions.section, 'watched');
   assert.equal(hideVideoSuggestions.default, false);
   assert.equal(hideVideoSuggestions.webOnly, true);
   assert.equal(hideVideoSuggestions.setup, undefined);

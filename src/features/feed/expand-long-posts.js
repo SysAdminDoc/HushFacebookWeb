@@ -92,7 +92,7 @@ export function createExpander({ doc, enabled, setTimer = (fn, ms) => setTimeout
 
 export default {
   id: 'expandLongPosts',
-  section: 'feed',
+  section: 'reading',
   android: 'Expand long posts',
   title: 'Expand long posts',
   description: 'Long posts and comments open in full as you scroll to them, instead of stopping at "See more".',

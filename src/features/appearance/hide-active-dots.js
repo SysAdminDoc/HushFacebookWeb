@@ -31,7 +31,7 @@ export const ACTIVE_DOTS_CSS = ACTIVE_DOT_SELECTORS.map(hide).join('\n');
 
 export default {
   id: 'hideActiveDots',
-  section: 'appearance',
+  section: 'layout',
   title: 'Hide active status dots',
   description: "Takes the green dot off people's profile pictures, so you don't see who's online. Your own Active Status doesn't change, that's still in Facebook's settings.",
   default: false,

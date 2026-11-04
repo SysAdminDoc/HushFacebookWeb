@@ -67,7 +67,7 @@ function tabFlag(win) {
 
 export default {
   id: 'hideSeenPosts',
-  section: 'feed',
+  section: 'filters',
   android: 'Hide seen posts',
   title: 'Hide seen posts',
   description: "Hides posts on Home and in your groups feed that you've already scrolled past. A post counts as seen after a second on screen, and it's recognized by its photo or video, or by its first words.",

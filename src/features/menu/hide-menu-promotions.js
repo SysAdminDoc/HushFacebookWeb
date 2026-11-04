@@ -13,7 +13,7 @@ export function promotionsCss(get) {
 
 export default {
   id: 'hideMenuPromotions',
-  section: 'menu',
+  section: 'promotions',
   android: 'Hide Menu promotions',
   title: 'Hide Menu promotions',
   description: "Takes Facebook's ad tools and gaming pitches out of the left column and Facebook's menu.",

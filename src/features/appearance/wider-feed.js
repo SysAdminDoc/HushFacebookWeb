@@ -118,7 +118,7 @@ function sync(doc, mark, wanted) {
 
 export default {
   id: 'widerFeed',
-  section: 'appearance',
+  section: 'layout',
   title: 'Wider feed on Home',
   description: "Lets Home's posts grow to the width you pick and folds away the right column when there's nothing left in it, which is often the case with ads hidden. Contacts and anything else Facebook shows there keep the column.",
   default: false,

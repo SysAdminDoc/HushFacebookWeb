@@ -9,7 +9,7 @@ export const MARK_READ = '21';
 
 export default {
   id: 'hideReadReceipts',
-  section: 'chats',
+  section: 'people',
   android: 'Hide read receipts',
   title: 'Hide read receipts',
   description: "People you chat with don't see that you've read their messages, and the chat stays unread in your other apps. When you reply they'll know anyway. End-to-end encrypted chats, which most one-to-one chats are now, aren't covered, because their receipts are encrypted before the script can see them.",

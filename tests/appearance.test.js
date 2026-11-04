@@ -10,6 +10,7 @@ import amoledTheme, { AMOLED_VARS, LINE } from '../src/features/appearance/amole
 import { createSettings } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import { renderFeatureCss } from '../src/core/style.js';
+import { SECTIONS } from '../src/features/sections.js';
 import accentColor, {
   accentCss, ACCENTS, chosenColor, contrast, FILTERS_MARK, over, palette, parseHex, SURFACES, toHex, toHsl,
 } from '../src/features/appearance/accent.js';
@@ -562,10 +563,10 @@ test('turning off transitions keeps progress spinners turning', () => {
   assert.match(ANIMATED, /:not\(\[role="progressbar"\], \[role="progressbar"\] \*\)$/);
 });
 
-test('every Appearance switch is off by default and in the Appearance section', () => {
+test('every Appearance switch is off by default and on the Appearance page', () => {
   for (const feature of [forceDarkMode, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions]) {
     assert.equal(feature.default, false, feature.id);
-    assert.equal(feature.section, 'appearance', feature.id);
+    assert.equal(SECTIONS.find((section) => section.id === feature.section)?.page, 'appearance', feature.id);
     assert.ok(!feature.needsPage, `${feature.id} works in content mode`);
   }
 });

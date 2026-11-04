@@ -16,10 +16,12 @@ test('every word has to appear, in any case and order', () => {
   assert.deepEqual(ids('   '), []);
 });
 
-test('section names, option labels and choice names are searched too', () => {
+test('group and page names, option labels and choice names are searched too', () => {
   assert.ok(ids('whatsapp').includes('shareSheet'), 'an option label');
-  const playback = ids('playback');
-  assert.ok(playback.includes('keepSpeed') && playback.includes('keepVolume'), 'the section name');
+  const playing = ids('playing');
+  assert.ok(playing.includes('keepSpeed') && playing.includes('keepVolume'), 'the group name');
+  const words = searchText({ title: 'Step', description: '', section: 'controls' }, SECTIONS);
+  assert.ok(words.includes('controls') && words.includes('video'), 'its group and its page');
   assert.ok(searchText({ title: 'Café', description: '', section: 'feed' }, SECTIONS).includes('cafe'), 'accents fold');
 });
 

@@ -31,8 +31,8 @@ test('the template holds what each kind of call shows, and no names that stay as
     'Opening', // a floating button's busyText
     'Saving', // the busyText it has when it's given none
   ]) assert.equal(template[phrase], phrase, phrase);
-  assert.deepEqual(template['{count} settings'], { one: '{count} setting', other: '{count} settings' });
-  assert.ok(!('{count} setting' in template), 'a plural phrase is keyed by its plural form only');
+  assert.deepEqual(template['{count} settings changed'], { one: '{count} setting changed', other: '{count} settings changed' });
+  assert.ok(!('{count} setting changed' in template), 'a plural phrase is keyed by its plural form only');
   for (const name of ['English', 'WhatsApp', 'Ad']) assert.ok(!(name in template), name);
 });
 

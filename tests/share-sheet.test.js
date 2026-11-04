@@ -175,9 +175,9 @@ test('a sheet that opens later is marked once the page settles, and nothing is m
   });
 });
 
-test('the switch starts off, sits under Links and works without the page', () => {
+test('the switch starts off, sits under Menus and works without the page', () => {
   assert.equal(shareSheet.default, false);
-  assert.equal(shareSheet.section, 'links');
+  assert.equal(shareSheet.section, 'menu');
   assert.equal(shareSheet.needsPage, undefined);
   assert.equal(shareSheet.android, 'Share sheet items');
   assert.deepEqual(shareSheet.options.map((option) => option.key), ['contacts', 'messenger', 'whatsapp', 'story', 'group', 'friend', 'x']);

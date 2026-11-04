@@ -14,7 +14,7 @@ export function tabsCss(get) {
 
 export default {
   id: 'hideTabs',
-  section: 'appearance',
+  section: 'layout',
   android: 'Hide tabs',
   title: 'Hide tabs',
   description: "Takes the top bar tabs you pick off Facebook, and the Find friends button. Home always stays, and the tabs' pages still open from the left column.",

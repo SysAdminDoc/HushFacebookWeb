@@ -180,7 +180,7 @@ test('each choice hides its own kind through the style', () => {
 
 test('the switch starts off, and marks counts drawn later and counts that show up on a post', async () => {
   assert.equal(hideCounts.default, false);
-  assert.equal(hideCounts.section, 'feed');
+  assert.equal(hideCounts.section, 'reading');
   assert.ok(features.includes(hideCounts));
   assert.ok(!hideCounts.needsPage, 'works in content mode');
   const win = page('');

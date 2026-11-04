@@ -63,10 +63,10 @@ test('the search itself, typeahead suggestions, watch reports and other mutation
   for (const name of SEARCH_HISTORY_MUTATIONS) assert.equal(HISTORY_MUTATIONS.has(name), false);
 });
 
-test('the switch starts off, sits with Search and needs the page', () => {
+test('the switch starts off, sits under What Facebook learns and needs the page', () => {
   const { rule } = setUp(false);
   assert.equal(rule.enabled(), false);
   assert.equal(noSearchHistory.default, false);
-  assert.equal(noSearchHistory.section, 'search');
+  assert.equal(noSearchHistory.section, 'privacy');
   assert.equal(noSearchHistory.needsPage, true);
 });

@@ -34,7 +34,7 @@ src/
     download.js        saves a file through the manager, or fetches it and hands it to a link
     actions.js         buttons a feature puts on its own card in the panel
     style.js           one style element for every CSS feature that's on
-  features/            one file per feature, grouped by settings section
+  features/            one file per feature, grouped by the part of Facebook it works on
   ui/                  the settings panel (closed shadow root, no innerHTML)
 extension/
   isolated.js          the extension's content script beside the page: chrome.storage and messages
@@ -46,12 +46,12 @@ docs/feature-parity.md every Hushfacebook patch and its web plan
 
 ## Adding a feature
 
-Make a file under `src/features/<section>/`, add it to `src/features/index.js` and give it a row in `docs/feature-parity.md`. A feature is a plain object:
+Make a file under `src/features/<area>/`, add it to `src/features/index.js` and give it a row in `docs/feature-parity.md`. A feature is a plain object:
 
 ```js
 export default {
   id: 'hideStoriesTray',        // settings key, never renamed once released
-  section: 'feed',              // see src/features/sections.js
+  section: 'feed',              // a group in src/features/sections.js, which sets its page
   android: 'Hide Stories tray', // the Hushfacebook patch it matches
   title: 'Hide Stories tray',
   description: 'What it does, in a sentence or two.',

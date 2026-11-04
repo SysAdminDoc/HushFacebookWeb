@@ -9,9 +9,9 @@
 import { decisionLine } from '../core/diagnostics.js';
 import { saveThroughLink } from '../core/download.js';
 import { language, LANGUAGES, plural, setLanguage, t } from '../core/i18n.js';
-import { MAX_BACKUP_BYTES } from '../core/settings.js';
+import { KEPT_ON_RESET, MAX_BACKUP_BYTES } from '../core/settings.js';
 import { TARGET } from '../core/target.js';
-import { SECTIONS } from '../features/sections.js';
+import { PAGES, SECTIONS } from '../features/sections.js';
 import { h, icon } from './h.js';
 import { GEAR_ICON, SLIDERS_ICON } from './icons.js';
 import { trackLauncherSpot } from './launcher-place.js';
@@ -28,26 +28,22 @@ const ERROR_TOAST_GAP_MS = 15000;
 const KOFI_URL = 'https://ko-fi.com/X8K126YVER';
 const RELOAD_MARKER_KEY = 'hfw:settings-reload';
 const RELOAD_MARKER_MAX_AGE_MS = 90_000;
-const SECTION_DESCRIPTIONS = {
-  feed: 'Choose what makes it into your feed.',
-  reels: 'Make video time your own.',
-  stories: 'Watch stories at your own pace.',
-  comments: 'Read the conversation your way.',
-  search: 'Keep the results you came for.',
-  marketplace: 'A clearer place to buy and sell.',
-  chats: 'Choose what your conversations share.',
-  notifications: 'Keep the updates that matter to you.',
-  privacy: 'Choose what Facebook gets to know.',
-  links: 'Cleaner links, fewer detours.',
-  downloads: 'Save the moments you want to keep.',
-  playback: 'More control over every video.',
-  appearance: 'Make Facebook feel like yours.',
-  menu: 'Keep your menu focused.',
-  meta: 'Less promotion, more room for you.',
-  opening: 'Start where you want to be.',
-  general: 'Settings for HushFacebook Web.',
-  diagnostics: 'See how HushFacebook Web is running.',
-};
+// The pages around the feature pages (features/sections.js has those): Overview first, where
+// settings open, then General and Diagnostics under a line at the end.
+const OVERVIEW = { id: 'overview', title: 'Overview', description: 'Start here. Turn on a set of switches at once, or pick a page.' };
+const GENERAL = { id: 'general', title: 'General', description: 'Settings for HushFacebook Web itself.', divider: true };
+const DIAGNOSTICS = { id: 'diagnostics', title: 'Diagnostics', description: 'See how HushFacebook Web is running.' };
+// General's rows by group, in this order. The first has no heading: it's for rows that need you
+// now (a failed save, an Undo, a newer release), so they head the page.
+const GENERAL_GROUPS = [
+  { id: 'attention', title: null },
+  { id: 'facebook', title: 'On Facebook' },
+  { id: 'yours', title: 'Language and backups' },
+  { id: 'about', title: 'About' },
+];
+// The rows of that first group that also lead Overview: a Quick setup's Undo, saving or loading
+// trouble, and a newer release.
+const OVERVIEW_ATTENTION = ['storage-recovery', 'save-recovery', 'reset-undo', 'update'];
 // Why a feature isn't running, by the reason startFeatures recorded: on its card, then
 // shorter in Diagnostics.
 const UNAVAILABLE_NOTES = {
@@ -60,6 +56,7 @@ const UNAVAILABLE_SHORT = { page: 'needs page access', network: 'network protect
 const searchCount = (count) => (count === 0 ? t('No setting matches.') : plural(count, '{count} setting matches.', '{count} settings match.'));
 const LOAD_WARNING_NOTE = "A notice when Home or a group's feed still shows Facebook's loading cards 20 seconds after it opened, with a way to pause the script for that tab. Diagnostics keeps the result either way.";
 const LANGUAGE_NOTE = "The language for these settings and the script's notices. Facebook's own language doesn't change it, and Reset to defaults keeps it. The two tests stretch every phrase or mirror the panel, to show how a translation will fit.";
+const QUICK_SETUPS_NOTE = 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.';
 const SEARCH_SETTLE_MS = 600;
 const ACTIVITY_CONTEXT_NOTES = {
   managed: 'Private windows keep activity in this tab. The extension also uses temporary activity when it cannot confirm the window type.',
@@ -76,12 +73,22 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const root = h('div', { class: 'root' });
   shadow.append(h('style', { text: panelCss }), root);
 
-  const sections = [
-    ...SECTIONS.filter((section) => features.some((feature) => feature.section === section.id)),
-    { id: 'general', title: 'General', divider: true },
-    { id: 'diagnostics', title: 'Diagnostics' },
-  ];
-  let current = sections[0].id;
+  // Groups with something in them, and the pages that have such a group. A feature's section is
+  // its group; Overview and General rows name their page instead.
+  const groups = SECTIONS.filter((group) => features.some((feature) => feature.section === group.id));
+  const groupPage = new Map(groups.map((group) => [group.id, group.page]));
+  const featurePages = PAGES.filter((page) => groups.some((group) => group.page === page.id));
+  const pages = [OVERVIEW, ...featurePages, GENERAL, DIAGNOSTICS];
+  // Search reads a row's group and page names from these.
+  const places = [...groups, { id: OVERVIEW.id, title: OVERVIEW.title }, { id: GENERAL.id, title: GENERAL.title }];
+  // A page id, or a group's page, as long as that page is shown.
+  const pageOf = (id) => {
+    const page = pages.some((entry) => entry.id === id) ? id : SECTIONS.find((group) => group.id === id)?.page;
+    return pages.some((entry) => entry.id === page) ? page : null;
+  };
+  const pageFeatures = (pageId) => features.filter((feature) => groupPage.get(feature.section) === pageId);
+  const pageIsNew = (pageId) => groups.some((group) => group.page === pageId && newDots.sectionIsNew(group.id));
+  let current = OVERVIEW.id;
   let query = '';
   let renderedDirection = null;
   let opener = null;
@@ -148,12 +155,14 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // only this one speaks, and only once the count has held still for a moment.
   const searchStatus = h('p', { class: 'visually-hidden', role: 'status', dataset: { key: 'search-status' } });
   let searchStatusTimer = null;
-  // Checked means running, so the switch agrees with the "On" chip beside it.
+  // Checked means running, so the switch agrees with the "On" beside it.
   const power = h('input', {
     class: 'switch', type: 'checkbox', role: 'switch', dataset: { key: 'power' },
     // A pause for this tab ends with a reload, since the page started without the script's hooks.
     onchange: (event) => (settings.tabPaused && event.target.checked ? environment.resumeTab?.() : apply('paused', !event.target.checked)),
   });
+  // The switch and the word beside it share one pill, so On or Paused reads as the switch's state.
+  const powerControl = h('label', { class: 'power' }, h('span', { class: 'power-dot', 'aria-hidden': 'true' }), pauseState, power);
   const closeButton = h('button', { class: 'icon-button', type: 'button', dataset: { key: 'close' }, onclick: () => close() }, navigationIcon('close'));
   const subtitle = h('span', { class: 'brand-subtitle' });
   const dialog = h(
@@ -166,12 +175,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           h('h2', { id: 'hfw-title', text: 'HushFacebook Web' }),
           subtitle)),
       searchField,
-      h('div', { class: 'header-actions' },
-        h('span', { class: 'chip', text: `v${environment.version}` }), pauseState, power, closeButton)),
+      h('div', { class: 'header-actions' }, powerControl, closeButton)),
     h('div', { class: 'body' }, nav, main),
     h('footer', null,
       saveState,
-      h('span', { class: 'footer-brand', text: 'HushFacebook Web' })),
+      h('span', { class: 'footer-version', text: `HushFacebook Web v${environment.version}` })),
     searchStatus,
   );
   dialog.addEventListener('click', (event) => {
@@ -202,7 +210,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     root.setAttribute('dir', shown.dir);
     launcher.setAttribute('aria-label', t('Open HushFacebook Web settings'));
     launcher.title = t('HushFacebook Web settings');
-    nav.setAttribute('aria-label', t('Settings sections'));
+    nav.setAttribute('aria-label', t('Settings pages'));
     search.placeholder = t('Find a setting');
     search.setAttribute('aria-label', t('Find a setting'));
     power.setAttribute('aria-label', t('HushFacebook Web on'));
@@ -399,8 +407,27 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       on ? featureActions(feature) : null);
   }
 
-  function sectionView(section) {
-    return features.filter((feature) => feature.section === section.id).map((feature) => featureCard(feature, { dots: true }));
+  // A heading over a box of rows. tiles: a grid of tiles instead of the box.
+  function groupBlock(id, title, children, { description, tiles = false } = {}) {
+    const headingId = `hfw-group-${id}`;
+    return h('div', { class: 'group', role: title ? 'group' : null, 'aria-labelledby': title ? headingId : null, dataset: { group: id } },
+      title ? h('h4', { class: 'group-title', id: headingId, text: title }) : null,
+      description ? h('p', { class: 'group-desc', text: description }) : null,
+      h('div', { class: tiles ? 'tiles' : 'settings-group' }, ...children));
+  }
+
+  // A feature page's groups. A page with one group needs no heading over it.
+  function pageView(pageId) {
+    const shown = groups.filter((group) => group.page === pageId);
+    return shown.map((group) => groupBlock(group.id, shown.length > 1 ? t(group.title) : null,
+      features.filter((feature) => feature.section === group.id).map((feature) => featureCard(feature, { dots: true }))));
+  }
+
+  function showPage(pageId) {
+    clearSearch();
+    current = pageId;
+    main.scrollTop = 0;
+    render();
   }
 
   function clearSearch() {
@@ -408,12 +435,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     search.value = '';
   }
 
-  // A search result's section link: opens the section with that row's control focused, or the
-  // row's button the words typed name (Reset, Restore).
+  // A search result's link: opens its page with that row's control focused, or the row's button
+  // the words typed name (Reset, Restore).
   function showSetting(setting) {
     const focusKey = matchingAction(setting, query) ?? setting.focusKey ?? setting.id;
     clearSearch();
-    current = setting.section;
+    current = pageOf(setting.section) ?? current;
     main.scrollTop = 0;
     render();
     const control = main.querySelector(`[data-key="${CSS.escape(focusKey)}"]`);
@@ -421,14 +448,19 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     control?.focus({ preventScroll: true });
   }
 
+  // Where a row lives, as its result link names it: the page, and the group on a page with more
+  // than one. The angle mirrors itself in right to left text.
+  function placeName(sectionId) {
+    const group = groups.find((entry) => entry.id === sectionId);
+    const page = t(pages.find((entry) => entry.id === (group?.page ?? sectionId)).title);
+    return group && groups.filter((entry) => entry.page === group.page).length > 1 ? `${page} › ${t(group.title)}` : page;
+  }
+
   function resultsView(found) {
-    if (!found.length) return [h('p', { class: 'empty', text: t('No setting matches "{query}". Try a shorter word, or pick a section.', { query: query.trim() }) })];
-    return [h('div', { class: 'settings-group results' }, found.map((setting) => {
-      const section = sections.find((entry) => entry.id === setting.section);
-      return h('div', { class: 'result' },
-        h('button', { class: 'result-section', type: 'button', text: t('In {section}', { section: t(section.title) }), dataset: { key: `show:${setting.id}` }, onclick: () => showSetting(setting) }),
-        setting.render ? setting.render() : featureCard(setting, { showOptions: true }));
-    }))];
+    if (!found.length) return [h('p', { class: 'empty', text: t('No setting matches "{query}". Try a shorter word, or pick a page.', { query: query.trim() }) })];
+    return [h('div', { class: 'settings-group results' }, found.map((setting) => h('div', { class: 'result' },
+      h('button', { class: 'result-section', type: 'button', text: t('In {section}', { section: placeName(setting.section) }), dataset: { key: `show:${setting.id}` }, onclick: () => showSetting(setting) }),
+      setting.render ? setting.render() : featureCard(setting, { showOptions: true }))))];
   }
 
   // How the extension's release check went (environment.update, extension only, from
@@ -538,18 +570,63 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     });
   }
 
+  // How much of a Quick setup is already on, or for Back to defaults how much it would change.
+  function setupStatus(setup) {
+    if (setup.reset) {
+      const changed = [...settings.schema].filter(([key, spec]) => !KEPT_ON_RESET.includes(key) && JSON.stringify(settingValue(key)) !== JSON.stringify(spec.default)).length;
+      return changed ? plural(changed, '{count} setting changed', '{count} settings changed') : t('Nothing changed yet');
+    }
+    const keys = setup.keys.filter((key) => settings.schema.has(key));
+    const on = keys.filter((key) => settingValue(key) === true).length;
+    return on === keys.length ? t('All on') : t('{on} of {total} on', { on, total: keys.length });
+  }
+
+  // One tile per Quick setup. The button reads with its tile's name: Turn on, Quiet.
+  function setupTiles() {
+    return h('div', { class: 'setup-tiles', dataset: { key: 'quick-setups' } }, QUICK_SETUPS.map((setup) => {
+      const key = `quick:${setup.id}`;
+      const ids = { title: `hfw-setup-${setup.id}`, button: `hfw-setup-${setup.id}-button` };
+      return h('div', { class: `tile setup-tile${setup.reset ? ' reset' : ''}` },
+        h('div', { class: 'tile-title', id: ids.title, text: t(setup.label) }),
+        h('div', { class: 'tile-desc', text: t(setup.description) }),
+        h('div', { class: 'tile-foot' },
+          h('span', { class: 'tile-count', text: setupStatus(setup) }),
+          h('button', {
+            class: `button${setup.reset ? '' : ' primary'}`, type: 'button', id: ids.button, 'aria-labelledby': `${ids.button} ${ids.title}`,
+            text: t(pending.has(key) ? 'Waiting...' : setup.reset ? 'Reset' : 'Turn on'), dataset: { key },
+            disabled: bulkChangePending(), 'aria-busy': pending.has(key) ? 'true' : null,
+            onclick: () => applySetup(setup.id),
+          })));
+    }));
+  }
+
+  // The same tiles as a search result, with the heading Overview gives them.
   function quickSetupsCard() {
-    return h('div', { class: 'card', dataset: { key: 'quick-setups' } },
+    return h('div', { class: 'card' },
       h('div', { class: 'title', text: t('Quick setups') }),
-      h('div', { class: 'desc', text: t('Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.') }),
-      h('div', { class: 'actions' }, QUICK_SETUPS.map((setup) => {
-        const key = `quick:${setup.id}`;
-        return h('button', {
-          class: 'button', type: 'button', text: t(pending.has(key) ? 'Waiting...' : setup.label), dataset: { key },
-          disabled: bulkChangePending(), 'aria-busy': pending.has(key) ? 'true' : null,
-          onclick: () => applySetup(setup.id),
-        });
-      })));
+      h('div', { class: 'desc', text: t(QUICK_SETUPS_NOTE) }),
+      setupTiles());
+  }
+
+  // A tile for each feature page: what it's for, and how many of its switches are on.
+  function pageTile(page) {
+    const list = pageFeatures(page.id);
+    const on = list.filter((feature) => settingValue(feature.id) === true).length;
+    return h('button', { class: 'tile page-tile', type: 'button', dataset: { key: `go:${page.id}` }, onclick: () => showPage(page.id) },
+      h('span', { class: 'tile-icon' }, navigationIcon(page.id)),
+      h('span', { class: 'tile-copy' },
+        h('span', { class: 'tile-title' }, t(page.title), pageIsNew(page.id) ? newDot() : null),
+        h('span', { class: 'tile-desc', text: t(page.description) }),
+        h('span', { class: `tile-count${on ? ' some' : ''}`, text: t('{on} of {total} on', { on, total: list.length }) })));
+  }
+
+  function overviewView() {
+    const attention = generalRows().filter((row) => row.group === 'attention' && OVERVIEW_ATTENTION.includes(row.id));
+    return [
+      attention.length ? groupBlock('overview-attention', null, attention.map((row) => row.render())) : null,
+      groupBlock('quick-setups', t('Quick setups'), [setupTiles()], { description: t(QUICK_SETUPS_NOTE), tiles: true }),
+      groupBlock('pages', t('Pages'), featurePages.map(pageTile), { tiles: true }),
+    ].filter(Boolean);
   }
 
   function launcherCard() {
@@ -706,56 +783,67 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     // Once the account changed, here or in another tab, nothing goes to any account until a reload.
     const legacy = environment.activity?.check() ? environment.activity.legacy() : null;
     const activityNote = ACTIVITY_CONTEXT_NOTES[environment.activity?.context?.()];
+    // Titles, descriptions and labels in English, as in a feature (see updateRow). group is one
+    // of GENERAL_GROUPS.
     return [
-      // Titles, descriptions and labels in English, as in a feature (see updateRow).
       ...(storageState && storageState !== 'ready' ? [{
-        id: 'storage-recovery', section: 'general', title: storageState === 'loading' ? 'Loading saved settings' : "Saved settings aren't available",
+        id: 'storage-recovery', section: 'general', group: 'attention', title: storageState === 'loading' ? 'Loading saved settings' : "Saved settings aren't available",
         description: 'Retry extension storage without treating defaults as loaded choices.', options: [{ label: 'Retry' }], focusKey: 'storage:retry',
         render: () => storageRecoveryCard(environment.storage.status().state),
       }] : []),
       ...(preferenceSave.state === 'error' ? [{
-        id: 'save-recovery', section: 'general', title: "Changes couldn't be saved",
+        id: 'save-recovery', section: 'general', group: 'attention', title: "Changes couldn't be saved",
         description: 'Retry unsaved choices without losing the draft.', options: [{ label: 'Retry' }], focusKey: 'settings:retry',
         render: saveRecoveryCard,
       }] : []),
       ...(currentUndo() ? [{
-        id: 'reset-undo', section: 'general', title: resetUndo.kind === 'reset' ? 'Undo the settings reset' : 'Undo the settings change',
+        id: 'reset-undo', section: 'general', group: 'attention', title: resetUndo.kind === 'reset' ? 'Undo the settings reset' : 'Undo the settings change',
         description: 'Put back your earlier choices, until you change a setting or leave this page.',
         options: [{ label: resetUndo.kind === 'reset' ? 'Undo reset' : 'Undo changes', focusKey: 'reset:undo' }, { label: 'Dismiss', focusKey: 'reset:dismiss' }], focusKey: 'reset:undo', render: resetUndoCard,
       }] : []),
-      ...(update?.update ? [updateRow(update)] : []),
+      ...(update?.update ? [{ ...updateRow(update), group: 'attention' }] : []),
       ...(activityNote ? [{
-        id: 'activity-context', section: 'general', title: 'Activity in this tab', description: activityNote,
+        id: 'activity-context', section: 'general', group: 'attention', title: 'Activity in this tab', description: activityNote,
         render: () => h('div', { class: 'card', dataset: { key: 'activity-context' } },
           h('div', { class: 'title', text: t('Activity in this tab') }), h('div', { class: 'desc', text: t(activityNote) })),
       }] : []),
       ...(legacy ? [{
-        id: 'legacy-activity', section: 'general', title: 'Activity from before accounts were kept apart',
+        id: 'legacy-activity', section: 'general', group: 'attention', title: 'Activity from before accounts were kept apart',
         description: environment.activity.perAccount
           ? 'Seen posts and video spots shared by everyone on this browser. Add them to this account or delete them.'
           : 'Seen posts and video spots shared by everyone on this browser. Use them while signed out or delete them.',
         options: [{ label: environment.activity.perAccount ? 'Add to this account' : 'Use while signed out', focusKey: 'legacy:add' }, { label: 'Delete them', focusKey: 'legacy:delete' }], focusKey: 'legacy:add', render: () => legacyActivityCard(legacy),
       }] : []),
-      { id: 'quick-setups', section: 'general', title: 'Quick setups', description: 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.', options: QUICK_SETUPS.map((setup) => ({ label: setup.label, focusKey: `quick:${setup.id}`, keywords: setup.reset ? ['reset'] : [] })), focusKey: 'quick:quiet', render: quickSetupsCard },
-      { id: 'ui.launcher', section: 'general', title: 'Show the settings button', description: "The gear in Facebook's top bar, next to Messenger and Notifications. {opener} always opens settings too.", vars: { opener: t(ALWAYS_OPENS) }, render: launcherCard },
-      { id: 'ui.hiddenNote', section: 'general', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post.', render: hiddenNoteCard },
-      { id: 'ui.loadWarning', section: 'general', title: 'Warn when the feed seems stuck', description: LOAD_WARNING_NOTE, keywords: ['loading', 'popup'], render: loadWarningCard },
-      { id: 'ui.language', section: 'general', title: 'Language', description: LANGUAGE_NOTE, options: LANGUAGES.map((entry) => ({ label: entry.label })), keywords: ['translation', 'locale', 'right to left'], focusKey: 'ui.language', render: languageCard },
-      { id: 'backup-restore', section: 'general', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.',
+      { id: 'ui.launcher', section: 'general', group: 'facebook', title: 'Show the settings button', description: "The gear in Facebook's top bar, next to Messenger and Notifications. {opener} always opens settings too.", vars: { opener: t(ALWAYS_OPENS) }, render: launcherCard },
+      { id: 'ui.hiddenNote', section: 'general', group: 'facebook', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post.', render: hiddenNoteCard },
+      { id: 'ui.loadWarning', section: 'general', group: 'facebook', title: 'Warn when the feed seems stuck', description: LOAD_WARNING_NOTE, keywords: ['loading', 'popup'], render: loadWarningCard },
+      { id: 'ui.language', section: 'general', group: 'yours', title: 'Language', description: LANGUAGE_NOTE, options: LANGUAGES.map((entry) => ({ label: entry.label })), keywords: ['translation', 'locale', 'right to left'], focusKey: 'ui.language', render: languageCard },
+      { id: 'backup-restore', section: 'general', group: 'yours', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.',
         options: [
           { label: 'Back up settings', focusKey: 'backup', keywords: ['backup', 'export'] },
           { label: 'Restore from a file', focusKey: 'restore', keywords: ['import', 'load'] },
           { label: 'Reset to defaults', focusKey: 'reset' },
         ], focusKey: 'backup', render: backupCard },
-      ...(update && !update.update ? [updateRow(update)] : []),
-      { id: 'report-problem', section: 'general', title: 'Report a problem', description: 'Opens a GitHub report with your versions and settings filled in. Add what happened.', keywords: ['bug', 'issue'], render: reportProblemCard },
-      { id: 'kofi', section: 'general', title: 'Buy me a coffee', keywords: ['donate', 'kofi'], render: kofiCard },
+      ...(update && !update.update ? [{ ...updateRow(update), group: 'about' }] : []),
+      { id: 'report-problem', section: 'general', group: 'about', title: 'Report a problem', description: 'Opens a GitHub report with your versions and settings filled in. Add what happened.', keywords: ['bug', 'issue'], render: reportProblemCard },
+      { id: 'kofi', section: 'general', group: 'about', title: 'Buy me a coffee', keywords: ['donate', 'kofi'], render: kofiCard },
     ];
   }
 
   function generalView() {
-    return generalRows().map((row) => row.render());
+    const rows = generalRows();
+    return GENERAL_GROUPS.map((group) => {
+      const shown = rows.filter((row) => row.group === group.id);
+      return shown.length ? groupBlock(`general-${group.id}`, group.title && t(group.title), shown.map((row) => row.render())) : null;
+    }).filter(Boolean);
   }
+
+  // Overview's own row for search, as a General row is.
+  const overviewRows = () => [{
+    id: 'quick-setups', section: 'overview', title: 'Quick setups', description: QUICK_SETUPS_NOTE,
+    options: QUICK_SETUPS.map((setup) => ({ label: setup.label, focusKey: `quick:${setup.id}`, keywords: setup.reset ? ['reset'] : [] })),
+    focusKey: 'quick:quiet', render: quickSetupsCard,
+  }];
 
   function hiddenSummary() {
     const counts = Object.entries(hider?.counts() ?? {});
@@ -796,13 +884,28 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     ];
   }
 
-  function pageHeading(id, title, description, count = 0) {
+  // status: a feature page's switches, as { on, total }.
+  function pageHeading(id, title, description, status = null) {
     return h('div', { class: 'page-heading' },
       h('span', { class: 'page-icon', 'aria-hidden': 'true' }, navigationIcon(id)),
       h('div', { class: 'page-copy' },
         h('h3', { id: 'hfw-section-title', text: title }),
         h('p', { text: description })),
-      count ? h('span', { class: 'setting-count', text: plural(count, '{count} setting', '{count} settings') }) : null);
+      status ? h('span', { class: `setting-count${status.on ? ' some' : ''}`, text: t('{on} of {total} on', status) }) : null);
+  }
+
+  function navButton(page, searching) {
+    const list = pageFeatures(page.id);
+    const on = list.filter((feature) => settingValue(feature.id) === true).length;
+    return h('button', {
+      type: 'button', dataset: { key: `nav:${page.id}` },
+      'aria-current': !searching && page.id === current ? 'page' : null,
+      onclick: () => showPage(page.id),
+    },
+    navigationIcon(page.id),
+    h('span', { class: 'nav-title', text: t(page.title) }),
+    pageIsNew(page.id) ? newDot() : null,
+    on ? h('span', { class: 'nav-count' }, h('span', { 'aria-hidden': 'true', text: String(on) }), h('span', { class: 'visually-hidden', text: t('{count} on', { count: on }) })) : null);
   }
 
   function render() {
@@ -816,16 +919,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const navScroll = [nav.scrollLeft, nav.scrollTop];
     const searching = query.trim() !== '';
     power.disabled = bulkChangePending();
-    nav.replaceChildren(h('div', { class: 'nav-label', text: t('Settings') }), ...sections.flatMap((section) => [
-      section.divider ? h('hr') : null,
-      h('button', {
-        type: 'button', dataset: { key: `nav:${section.id}` },
-        'aria-current': !searching && section.id === current ? 'page' : null,
-        onclick: () => { clearSearch(); current = section.id; main.scrollTop = 0; render(); },
-      }, navigationIcon(section.id), h('span', { text: t(section.title) }), newDots.sectionIsNew(section.id) ? newDot() : null),
+    nav.replaceChildren(h('div', { class: 'nav-label', text: t('Settings') }), ...pages.flatMap((page) => [
+      page.divider ? h('hr') : null,
+      navButton(page, searching),
     ]).filter(Boolean));
     if (searching) {
-      const found = findFeatures([...features, ...generalRows()], sections, query);
+      const found = findFeatures([...features, ...overviewRows(), ...generalRows()], places, query);
       main.replaceChildren(
         pageHeading('search', t('Search'), searchCount(found.length)),
         ...(reloadPending ? [reloadCard()] : []),
@@ -833,13 +932,15 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       announceSearch(searchCount(found.length));
     } else {
       announceSearch('');
-      newDots.visit(current);
-      const section = sections.find((entry) => entry.id === current);
-      const count = current === 'general' ? generalRows().length : features.filter((feature) => feature.section === current).length;
+      for (const group of groups) if (group.page === current) newDots.visit(group.id);
+      const page = pages.find((entry) => entry.id === current);
+      const list = pageFeatures(current);
+      const status = list.length ? { on: list.filter((feature) => settingValue(feature.id) === true).length, total: list.length } : null;
+      const views = { overview: overviewView, general: generalView, diagnostics: diagnosticsView };
       main.replaceChildren(
-        pageHeading(current, t(section.title), t(SECTION_DESCRIPTIONS[current] ?? ''), count),
+        pageHeading(current, t(page.title), t(page.description), status),
         ...(reloadPending ? [reloadCard()] : []),
-        ...(current === 'diagnostics' ? diagnosticsView() : [h('div', { class: 'settings-group' }, ...(current === 'general' ? generalView() : sectionView(section)))]));
+        ...(views[current] ?? (() => pageView(current)))());
     }
     main.scrollTop = scrollTop;
     nav.scrollLeft = navScroll[0];
@@ -871,6 +972,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const paused = settingValue('paused') === true;
     power.checked = !paused;
     pauseState.textContent = t(settings.tabPaused ? 'Paused in this tab' : paused ? 'Paused' : 'On');
+    powerControl.dataset.state = settings.tabPaused || paused ? 'paused' : 'on';
     // Settings in your account menu can stand in for the button, unless it couldn't start or
     // stopped working.
     const inMenu = hasMenuEntry && settings.enabled('menuEntry') && settings.get('menuEntry.hideButton') === true && !unavailable.has('menuEntry');
@@ -1027,11 +1129,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const age = now() - marker.timestamp;
     if (age < 0 || age >= RELOAD_MARKER_MAX_AGE_MS) return;
     if (marker.page === 'find') {
-      const validSection = sections.some((section) => section.id === marker.section);
-      if (validSection && typeof marker.query === 'string' && marker.query.trim()) open(marker.section, marker.query);
+      if (pageOf(marker.section) && typeof marker.query === 'string' && marker.query.trim()) open(marker.section, marker.query);
       return;
     }
-    if (sections.some((section) => section.id === marker.page)) open(marker.page);
+    if (pageOf(marker.page)) open(marker.page);
   }
 
   async function copyReport() {
@@ -1059,10 +1160,12 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   // ---- open, close, live updates ----
 
+  // sectionId: a page, or a group, which opens its page scrolled to it.
   function open(sectionId, searchQuery) {
-    if (sectionId && sections.some((section) => section.id === sectionId)) {
-      if (sectionId !== current || query) main.scrollTop = 0;
-      current = sectionId;
+    const pageId = sectionId ? pageOf(sectionId) : null;
+    if (pageId) {
+      if (pageId !== current || query) main.scrollTop = 0;
+      current = pageId;
       if (typeof searchQuery === 'string' && searchQuery.trim()) {
         query = searchQuery;
         search.value = searchQuery;
@@ -1077,6 +1180,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     render();
     dialog.append(toasts, corner);
     if (!dialog.open) dialog.showModal();
+    if (pageId && pageId !== sectionId && !query) main.querySelector(`[data-group="${CSS.escape(sectionId)}"]`)?.scrollIntoView?.({ block: 'start' });
     closeButton.focus({ preventScroll: true });
   }
 

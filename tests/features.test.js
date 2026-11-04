@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { features } from '../src/features/index.js';
-import { SECTIONS } from '../src/features/sections.js';
+import { PAGES, SECTIONS } from '../src/features/sections.js';
 import { buildSchema, isValid } from '../src/core/settings.js';
 
 const parity = await readFile(new URL('../docs/feature-parity.md', import.meta.url), 'utf8');
@@ -24,6 +24,18 @@ test('every feature is complete and in a known section', () => {
     assert.ok(feature.title?.length && feature.description?.length, `${feature.id}: title and description`);
     assert.ok(feature.setup || feature.css, `${feature.id}: needs setup or css`);
   }
+});
+
+test('every group sits on a page, and every page has switches in at least one of its groups', () => {
+  const pageIds = PAGES.map((page) => page.id);
+  assert.equal(new Set(pageIds).size, pageIds.length);
+  assert.equal(sectionIds.size, SECTIONS.length);
+  for (const section of SECTIONS) assert.ok(pageIds.includes(section.page), `${section.id}: unknown page ${section.page}`);
+  for (const page of PAGES) {
+    const groups = SECTIONS.filter((section) => section.page === page.id).map((section) => section.id);
+    assert.ok(features.some((feature) => groups.includes(feature.section)), `${page.id}: an empty page`);
+  }
+  for (const section of SECTIONS) assert.ok(features.some((feature) => feature.section === section.id), `${section.id}: an empty group`);
 });
 
 // Switches with no Hushfacebook patch behind them, each added on purpose.

@@ -4,6 +4,7 @@ export const QUICK_SETUPS = Object.freeze([
   Object.freeze({
     id: 'quiet',
     label: 'Quiet',
+    description: "Hides ads, suggested posts, Reels in the feed, red badges and Facebook's pitches for its other apps.",
     keys: Object.freeze([
       'hideSponsoredPosts',
       'hideSuggestedPosts',
@@ -27,6 +28,7 @@ export const QUICK_SETUPS = Object.freeze([
   Object.freeze({
     id: 'privacy',
     label: 'Privacy',
+    description: 'Keeps what you watch, search, read and type to yourself, and strips tracking from links.',
     keys: Object.freeze([
       'noWatchHistory',
       'noSearchHistory',
@@ -41,7 +43,7 @@ export const QUICK_SETUPS = Object.freeze([
       'directLinks',
     ]),
   }),
-  Object.freeze({ id: 'defaults', label: 'Back to defaults', reset: true }),
+  Object.freeze({ id: 'defaults', label: 'Back to defaults', description: 'Puts every setting back the way it came, with Undo in case you change your mind.', reset: true }),
 ]);
 
 export function applyQuickSetup(settings, id) {

@@ -1,6 +1,6 @@
 // Every phrase the script can show through t(), plural() or english(), in English, for the
 // translation template. Three sources: the feature list's own words (titles, descriptions,
-// option labels and choices, section and quick setup names), Diagnostics' row labels
+// option labels and choices, page and group names, quick setup names), Diagnostics' row labels
 // (diagnostics.add), card buttons' labels (actions.add) and an empty link list's words
 // (actions.links), and every call in src, read with a parser. An argument is followed to the
 // words it can end up as: a string, either side of ?: ?? or ||, a const or a lookup table in
@@ -239,7 +239,7 @@ export async function collectPhrases() {
 
   // The feature list's own words, drawn through t(feature.title) and the like.
   const { features } = await import(pathToFileURL(join(SRC, 'features', 'index.js')));
-  const { SECTIONS } = await import(pathToFileURL(join(SRC, 'features', 'sections.js')));
+  const { PAGES, SECTIONS } = await import(pathToFileURL(join(SRC, 'features', 'sections.js')));
   const { QUICK_SETUPS } = await import(pathToFileURL(join(SRC, 'ui', 'quick-setups.js')));
   for (const feature of features) {
     phrases.add(feature.title).add(feature.description);
@@ -248,8 +248,9 @@ export async function collectPhrases() {
       for (const choice of option.choices ?? []) if (choice.label) phrases.add(choice.label);
     }
   }
+  for (const page of PAGES) phrases.add(page.title).add(page.description);
   for (const section of SECTIONS) phrases.add(section.title);
-  for (const setup of QUICK_SETUPS) phrases.add(setup.label);
+  for (const setup of QUICK_SETUPS) phrases.add(setup.label).add(setup.description);
 
   // A plural phrase is keyed by its English plural form only.
   for (const [key, forms] of plurals) {

@@ -339,7 +339,7 @@ const summary = (map) => (map.size ? [...map].sort((a, b) => b[1] - a[1]).slice(
 
 export default {
   id: 'hidePostsByWords',
-  section: 'feed',
+  section: 'filters',
   android: 'Hide posts by words',
   title: 'Hide posts by words',
   description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups, and in search results, comments and Reels if you choose. Posts and reels you open by their link always show.',

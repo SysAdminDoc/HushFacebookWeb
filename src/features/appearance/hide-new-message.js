@@ -8,7 +8,7 @@ export const NEW_MESSAGE_CSS = hide(NEW_MESSAGE);
 
 export default {
   id: 'hideNewMessageButton',
-  section: 'appearance',
+  section: 'layout',
   android: 'Hide the New message button',
   title: 'Hide the New message button',
   description: 'Takes the round New message button out of the bottom corner of Facebook. Chats you have open stay where they are.',

@@ -79,7 +79,7 @@ ${NAMES.join(',\n')} { filter: blur(5px) !important; }`;
 
 export default {
   id: 'screenshotMode',
-  section: 'appearance',
+  section: 'tools',
   android: 'Screenshot mode',
   title: 'Screenshot mode',
   description: "Blurs people's names, profile pictures and group names while it's on, so you can share a screenshot without them. Posts, photos and comments stay readable, and nothing leaves your browser.",

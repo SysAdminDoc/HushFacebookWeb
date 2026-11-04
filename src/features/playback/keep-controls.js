@@ -92,7 +92,7 @@ export function createControlsKeeper({ doc, enabled, now = () => Date.now(), sty
 
 export default {
   id: 'keepControls',
-  section: 'playback',
+  section: 'controls',
   android: 'Keep the progress bar',
   title: 'Keep video controls on screen',
   description: "A video's progress bar and buttons stay on screen instead of fading out when you move the mouse away. Reels already keep theirs.",

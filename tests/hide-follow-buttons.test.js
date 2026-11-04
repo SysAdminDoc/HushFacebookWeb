@@ -53,7 +53,7 @@ test('other dotted buttons, the name itself and buttons outside posts stay', () 
 
 test('the switch starts off, hides through its style, and marks new posts as they come', async () => {
   assert.equal(hideFollowButtons.default, false);
-  assert.equal(hideFollowButtons.section, 'feed');
+  assert.equal(hideFollowButtons.section, 'reading');
   assert.ok(features.includes(hideFollowButtons));
   assert.match(hideFollowButtons.css, /display: none/);
   const win = page('');

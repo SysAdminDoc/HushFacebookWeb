@@ -78,7 +78,7 @@ export function facebookLimits(exports) {
 
 export default {
   id: 'keepFeedPlace',
-  section: 'feed',
+  section: 'reading',
   android: 'Block background-return feed refresh',
   title: 'Keep your place in the feed',
   description: "Facebook reloads Home from the top when you come back after a couple of minutes in another tab, or ten minutes away from the computer. Going back from a post or its comments can refresh it too. After half an hour away it also moves you from a group, Marketplace or search to Home. With this on, you stay where you were.",

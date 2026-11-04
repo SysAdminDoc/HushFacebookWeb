@@ -2,7 +2,7 @@ import { adRule } from '../feed/ad-markers.js';
 
 export default {
   id: 'hideSponsoredReels',
-  section: 'reels',
+  section: 'ads',
   android: 'Hide sponsored reels',
   title: 'Hide sponsored reels',
   description: 'Drops the ad breaks Facebook schedules inside videos and reels.',

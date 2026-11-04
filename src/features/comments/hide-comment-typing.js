@@ -11,7 +11,7 @@ export const COMMENT_TYPING = /^CometUFILiveTypingBroadcastMutation_(?:Start|Sto
 
 export default {
   id: 'hideCommentTyping',
-  section: 'comments',
+  section: 'people',
   android: 'Hide typing indicator',
   title: "Hide that you're writing a comment",
   description: "Others looking at the same post don't see that you're writing a comment while you type one.",
