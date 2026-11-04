@@ -53,9 +53,12 @@ const marketplacePage = (route) => route?.type === 'marketplace';
 // Sets mark on every card that cardsOf() gives as [card, id, reason], once per frame of changes,
 // and takes it off the ones it no longer gives, on the pages page(route) says yes to. active()
 // says there may be something to hide. onHidden(id, reason, card) runs each time a card gets
-// its mark.
+// its mark, or keeps it for another id.
 function watchCards({ doc, route, page, active, mark, cardsOf, onHidden }) {
   let queued = false;
+  // The id each marked card was hidden for: a reused card can show another listing that's
+  // hidden for the same reason.
+  const ids = new WeakMap();
   const check = () => {
     queued = false;
     if (!page(route())) return;
@@ -64,8 +67,9 @@ function watchCards({ doc, route, page, active, mark, cardsOf, onHidden }) {
       for (const [card, id, reason] of cardsOf()) {
         if (!card || wanted.has(card)) continue;
         wanted.add(card);
-        if (card.getAttribute(mark) === reason) continue;
+        if (card.getAttribute(mark) === reason && ids.get(card) === id) continue;
         card.setAttribute(mark, reason);
+        ids.set(card, id);
         onHidden?.(id, reason, card);
       }
     }

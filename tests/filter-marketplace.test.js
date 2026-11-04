@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
-import feature, { edgeListing, MAX_OPENED, OPENED_KEY, priceLimit } from '../src/features/marketplace/filter-marketplace.js';
-import { LISTING_CSS, LISTING_MARK, listingPage } from '../src/features/marketplace/listing-cards.js';
+import feature, { decimalMark, edgeListing, MAX_OPENED, OPENED_KEY, priceLimit } from '../src/features/marketplace/filter-marketplace.js';
+import { LISTING_CSS, LISTING_MARK, listingPage, watchListingCards } from '../src/features/marketplace/listing-cards.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { installNetworkHooks } from '../src/core/net/hooks.js';
 import { parseRoute } from '../src/core/route.js';
@@ -191,7 +191,7 @@ test('the word list matches titles and sellers, the people list sellers only, an
 test('price boxes take spaces, commas and a currency sign, and a range typed backwards still works', () => {
   assert.equal(priceLimit(''), null);
   assert.equal(priceLimit('   '), null);
-  assert.equal(priceLimit(' 1,200 '), 1200);
+  assert.equal(priceLimit(' 1,200 ', '.'), 1200);
   assert.equal(priceLimit('$50'), 50);
   assert.equal(priceLimit('€12.50'), 12.5);
   assert.ok(Number.isNaN(priceLimit('cheap')));
@@ -209,6 +209,47 @@ test('price boxes take spaces, commas and a currency sign, and a range typed bac
   assert.deepEqual(left({ 'filterMarketplace.maxPrice': 'cheap' }), ['a', 'b', 'c', 'd'], "a box that isn't a price is no limit");
   assert.deepEqual(left({ 'filterMarketplace.minPrice': '0', 'filterMarketplace.maxPrice': '0' }), ['d'], 'free only');
   assert.deepEqual(left({ 'filterMarketplace.minPrice': '50', 'filterMarketplace.maxPrice': '50' }), ['b', 'd'], 'a price right on a limit stays');
+});
+
+test("price boxes read decimal commas too, and a lone mark before three digits goes by the browser's language", () => {
+  assert.equal(priceLimit('12,50'), 12.5);
+  assert.equal(priceLimit('1 000,00 €'), 1000);
+  assert.equal(priceLimit('1.234,56'), 1234.56);
+  assert.equal(priceLimit('1,234.56'), 1234.56);
+  assert.equal(priceLimit('1.000.000'), 1000000);
+  assert.equal(priceLimit('1,00,000'), 100000, 'lakhs');
+  assert.equal(priceLimit("1'000"), 1000);
+  assert.equal(priceLimit('.99'), 0.99);
+  assert.equal(priceLimit('1.000', ','), 1000);
+  assert.equal(priceLimit('1,000', ','), 1);
+  assert.equal(priceLimit('1.000', '.'), 1);
+  assert.equal(priceLimit('1,000', '.'), 1000);
+  assert.equal(priceLimit('1234,567', '.'), 1234.567, 'no thousands mark comes after four digits');
+  for (const bad of ['5.', '1,2,3', '1,2,345', '1,2345,678', '1.2,5', '1,234,5', '1,2.345', ',', '-5', '1e5']) assert.ok(Number.isNaN(priceLimit(bad)), bad);
+  assert.equal(decimalMark('de-DE'), ',');
+  assert.equal(decimalMark('en-US'), '.');
+  const own = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const language = (tag) => Object.defineProperty(globalThis, 'navigator', { value: { language: tag }, configurable: true });
+  try {
+    language('de-DE');
+    assert.deepEqual([priceLimit('1.000'), priceLimit('1,000')], [1000, 1]);
+    language('en-US');
+    assert.deepEqual([priceLimit('1.000'), priceLimit('1,000')], [1, 1000]);
+  } finally {
+    Object.defineProperty(globalThis, 'navigator', own);
+  }
+});
+
+test('a listing fetched on its own, with no feed edge around it, stays whole', () => {
+  const listing = { __typename: 'GroupCommerceProductItem', id: '1', marketplace_listing_title: 't', delivery_types: ['SHIPPING_ONSITE'] };
+  const { rule, filtered } = setup({ 'filterMarketplace.shipped': true });
+  const single = { data: { node: { __typename: 'MarketplaceFeedListingStory', listing } } };
+  assert.equal(rule.transform(single, SEARCH), false);
+  assert.ok(single.data.node, 'node() answers keep their listing');
+  const edge = { data: { node: { __typename: 'MarketplaceFeedListingStory', listing }, cursor: 'c' }, path: ['viewer', 'edges', 0] };
+  assert.equal(rule.transform(edge, SEARCH), true, 'a streamed edge still goes');
+  assert.ok(!('node' in edge.data));
+  assert.equal(filtered(), '1 ships to you');
 });
 
 // Search results Facebook drew on the server come in the page's inline blob ({data, extensions}),
@@ -288,6 +329,46 @@ test("a listing's own page keeps the seller's other listings, whatever they are"
   assert.equal(rule.transform(parseLine(line), { transport: 'json-parse', path: `/marketplace/item/${listings[0].id}/` }), false);
   await tick();
   assert.deepEqual(marked(), []);
+});
+
+test('a hidden card reused for another listing hidden for the same reason counts that one too', async () => {
+  const [line] = await fixtureLines('marketplace-search.jsonl');
+  const listings = searchEdges(parseLine(line)).map(listingOf).filter(Boolean);
+  const shipped = listings.filter(shipsOnsite).map((listing) => listing.id);
+  const last = shipped.at(-1);
+  const { doc, router } = marketplacePage(SEARCH_PAGE, listings.filter((listing) => listing.id !== last));
+  const { rule, filtered, diagnostics } = setup({ 'filterMarketplace.shipped': true }, { doc, router });
+  rule.transform(parseLine(line), { transport: 'json-parse', path: '/marketplace/search/' });
+  await tick();
+  assert.equal(filtered(), '2 ships to you', 'the third has no card yet');
+  doc.querySelector(`[${LISTING_MARK}] a`).setAttribute('href', `/marketplace/item/${last}/?ref=search`);
+  await tick();
+  assert.equal(filtered(), '3 ships to you');
+  assert.equal(new Set(diagnostics.decisions().map((d) => d.post)).size, 3, 'one decision each');
+});
+
+test('the card watcher tells about a card once for each listing it hides there', async () => {
+  const { doc, router } = marketplacePage(SEARCH_PAGE, ['1', '2', '3'].map((id) => ({ id, marketplace_listing_title: id })));
+  const heard = [];
+  const cards = watchListingCards({ doc, route: () => router.current(), active: () => true, reasonOf: (id) => (id === '2' ? null : 'shipped'), onHidden: (id, reason) => heard.push(`${id} ${reason}`) });
+  cards.check();
+  await tick();
+  assert.deepEqual(heard, ['1 shipped', '3 shipped']);
+  doc.querySelector('[data-id="1"] a').setAttribute('href', '/marketplace/item/4/');
+  cards.check();
+  await tick();
+  assert.deepEqual(heard, ['1 shipped', '3 shipped', '4 shipped']);
+  cards.stop();
+});
+
+test("a listing id longer than the saved list takes isn't kept, so the list still saves", () => {
+  const storage = createMemoryStorage();
+  const { router, go } = marketplacePage('https://www.facebook.com/marketplace/', []);
+  setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.opened': true }, { router, storage, subscribe: (fn) => router.subscribe(fn) });
+  go(itemPage('1'.repeat(33)));
+  assert.equal(storage.get(OPENED_KEY), undefined);
+  go(itemPage('2'.repeat(32)));
+  assert.deepEqual(Object.keys(storage.get(OPENED_KEY)), ['2'.repeat(32)]);
 });
 
 test('a listing page you open is kept while the option is on, the latest MAX_OPENED at most', () => {

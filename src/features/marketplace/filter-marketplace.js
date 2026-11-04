@@ -49,7 +49,8 @@ const DRAWN_KEPT = 500;
 // the shape).
 export const OPENED_KEY = 'filterMarketplace.opened';
 export const MAX_OPENED = 1000;
-const ITEM_PAGE = /^\/marketplace\/item\/(\d+)/;
+// As long an id as extension/isolated.js lets the opened list keep.
+const ITEM_PAGE = /^\/marketplace\/item\/(\d{1,32})(?!\d)/;
 
 // How Diagnostics names each reason, in the order they're checked.
 export const REASONS = { shipped: 'ships to you', opened: 'opened before', price: 'outside the price range', words: 'on the word list', people: 'seller on the people list' };
@@ -98,12 +99,40 @@ export function edgeListing(edge) {
   return null;
 }
 
-// A price box's number: null when it's empty, NaN when it isn't a price. Spaces, thousands
-// commas and a currency sign are fine.
-export function priceLimit(value) {
-  const clean = String(value ?? '').replace(/[\s,\p{Sc}]/gu, '');
+// The decimal mark people write in this locale ('.' or ',').
+export const decimalMark = (locale) => new Intl.NumberFormat(locale).formatToParts(1.5).find((part) => part.type === 'decimal')?.value ?? '.';
+
+// Digits split into groups by sep: 1 to 3 digits, then groups of 2 or 3 (Indian lakhs), the
+// last of 3.
+const grouped = (digits, sep) => {
+  const groups = digits.split(sep);
+  return /^\d{1,3}$/.test(groups[0]) && groups.slice(1).every((group) => /^\d{2,3}$/.test(group)) && groups.at(-1).length === 3;
+};
+
+// A price box's number: null when it's empty, NaN when it isn't a price. Spaces, a currency sign
+// and either way of writing thousands and decimals are fine ("1,200.50" or "1.200,50"). One mark
+// before exactly three digits ("1,000" or "1.000") reads the way decimal (the browser's locale's
+// decimal mark) says.
+export function priceLimit(value, decimal = decimalMark(globalThis.navigator?.language)) {
+  const clean = String(value ?? '').replace(/[\s'’\p{Sc}]/gu, '');
   if (!clean) return null;
-  return /^\d+(?:\.\d+)?$/.test(clean) ? Number(clean) : NaN;
+  if (!/^[\d.,]*\d[\d.,]*$/.test(clean)) return NaN;
+  const last = Math.max(clean.lastIndexOf('.'), clean.lastIndexOf(','));
+  if (last === -1) return Number(clean);
+  const mark = clean[last];
+  const whole = clean.slice(0, last);
+  const fraction = clean.slice(last + 1);
+  const other = mark === '.' ? ',' : '.';
+  const asNumber = (digits) => Number(`${digits}.${fraction}`);
+  if (whole.includes(other)) {
+    // Both marks: the last one is the decimal, and the other groups the thousands.
+    return /^\d+$/.test(fraction) && grouped(whole, other) ? asNumber(whole.replaceAll(other, '')) : NaN;
+  }
+  const groups = grouped(clean, mark);
+  const single = !whole.includes(mark) && /^\d+$/.test(fraction);
+  if (groups && single) return mark === decimal ? asNumber(whole) : Number(clean.replace(mark, ''));
+  if (groups) return Number(clean.replaceAll(mark, ''));
+  return single ? asNumber(whole) : NaN;
 }
 
 // The reason a listing goes, one of REASONS' keys, or null. filter holds shipped and opened
@@ -137,7 +166,9 @@ export function filterListings(doc, reasonOf, report, keep) {
       value.marketplace_listings = value.marketplace_listings.filter((item) => !isObject(item) || !take(fromListing(item)));
       return SKIP;
     }
-    if (!('node' in value)) return undefined;
+    // Every feed edge carries a cursor (344 of 344 live, 2026-11-03), and a lone listing fetched
+    // by node() sits as {node} with nothing around it to keep.
+    if (!('node' in value) || !('cursor' in value)) return undefined;
     const listing = edgeListing(value);
     if (!listing) return undefined;
     if (keep?.(value, listing)) return SKIP;
