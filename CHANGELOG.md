@@ -27,6 +27,7 @@
 * Moving or deleting activity from before accounts were kept apart waits for saves. Failed deletes stay available to retry, and Undo keeps the full original list through a partial failure.
 * An activity restore that the manager hasn't confirmed keeps its recovery action instead of reporting success from a cached copy.
 * Streamed video downloads enforce a combined 750 MB transfer limit, even when size hints are missing or too small. Cancel and transfer failures stop every part, and a failed save releases its temporary link.
+* A video that runs past that limit now says "Couldn't save it: it went past the transfer limit. Try a lower quality." The old notice read as two sentences glued together and ended with a double period. The stream errors read the same way.
 * Feed checks follow posts moved into or out of another post, so reused markup is checked again.
 * Download recognizes videos whose data contains only a stream manifest, and uses refreshed photo links when the picture size stays the same.
 * Tabbing to a reel in the feed now brings up its Download button, and Pop out when that's on. The reel's link is a big square with the video letterboxed inside it, so focus there never counted as being on the video.

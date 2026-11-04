@@ -1462,4 +1462,14 @@ test('a failed save says why in one notice and keeps the details for Diagnostics
   const joinable = { ...stream, duration: 10, audio: { url: 'https://video.example.invalid/7-sound.mp4', bandwidth: 64000 } };
   await shared.run({ feature: 'downloadPhotos', kind: 'video', id: '7', author: 'Pat', item: { kind: 'video', id: '7', files: [], dash: true, stream: joinable } }, doc.body);
   assert.deepEqual(asked, ['https://video.example.invalid/7.mp4', 'https://video.example.invalid/7-sound.mp4']);
+
+  // One that grows past the limit while it comes in says so in one plain sentence (real
+  // Tampermonkey 2026-11-03 showed "The video exceeds the transfer limit. Try a lower quality..").
+  toasts.length = 0;
+  api.request = ({ onprogress }) => {
+    onprogress?.({ loaded: 8e8 });
+    return { abort() {} };
+  };
+  await shared.run({ feature: 'downloadPhotos', kind: 'video', id: '7', author: 'Pat', item: { kind: 'video', id: '7', files: [], dash: true, stream: joinable } }, doc.body);
+  assert.deepEqual(toasts, [["Couldn't save it: it went past the transfer limit. Try a lower quality.", 'error']]);
 });

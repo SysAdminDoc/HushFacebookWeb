@@ -143,7 +143,7 @@ function fetchBlob(url, { request, win, timeout, type = 'blob', budget, part = 0
   const done = Promise.resolve(win.fetch(url, { credentials: 'omit', signal: controller.signal })).then(async (response) => {
     if (!response.ok) throw new Error(`the server answered ${response.status}`);
     if (budget) {
-      if (typeof response.body?.getReader !== 'function') throw new Error('This browser cannot read a bounded video stream');
+      if (typeof response.body?.getReader !== 'function') throw new Error("this browser can't read the video as a stream");
       const length = Number(response.headers?.get('content-length'));
       if (Number.isFinite(length) && length > budget.limit) throw budget.tooLarge();
       reader = response.body.getReader();
@@ -153,7 +153,7 @@ function fetchBlob(url, { request, win, timeout, type = 'blob', budget, part = 0
         for (;;) {
           const next = await reader.read();
           if (next.done) break;
-          if (!ArrayBuffer.isView(next.value)) throw new Error('The video stream returned invalid bytes');
+          if (!ArrayBuffer.isView(next.value)) throw new Error("the video stream sent something that isn't bytes");
           bytes += next.value.byteLength;
           budget.observe(part, bytes);
           chunks.push(next.value);
@@ -201,11 +201,12 @@ function fetchParts(parts, options) {
 function transferBudget(limit) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_JOIN_BYTES) throw new TypeError('Invalid video transfer limit');
   const seen = new Map();
-  const tooLarge = () => new Error('The video exceeds the transfer limit. Try a lower quality.');
+  // Shown as "Couldn't save it: {reason}.", like every other reason here.
+  const tooLarge = () => new Error('it went past the transfer limit. Try a lower quality');
   return {
     limit, tooLarge,
     observe(part, bytes) {
-      if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('The video transfer could not be measured');
+      if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("the transfer couldn't be measured");
       seen.set(part, Math.max(seen.get(part) ?? 0, bytes));
       if ([...seen.values()].reduce((total, value) => total + value, 0) > limit) throw tooLarge();
     },
