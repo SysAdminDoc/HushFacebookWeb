@@ -216,8 +216,9 @@
   "Hide memories": "Hide memories",
   "Hide pages and creators to follow": "Hide pages and creators to follow",
   "Hide people you may know": "Hide people you may know",
-  "Hide posts by these people, Pages or groups. One name per line, written the way Facebook shows it. A name only matches who posted, and names aren't unique, so it hides everyone who goes by it.": "Hide posts by these people, Pages or groups. One name per line, written the way Facebook shows it. A name only matches who posted, and names aren't unique, so it hides everyone who goes by it.",
+  "Hide posts by these people, Pages or groups. One name per line, written the way Facebook shows it, or choose Hide posts by in a post's three-dot menu. A name only matches who posted, and names aren't unique, so it hides everyone who goes by it.": "Hide posts by these people, Pages or groups. One name per line, written the way Facebook shows it, or choose Hide posts by in a post's three-dot menu. A name only matches who posted, and names aren't unique, so it hides everyone who goes by it.",
   "Hide posts by words": "Hide posts by words",
+  "Hide posts by {name}": "Hide posts by {name}",
   "Hide posts that link to these sites. One site per line, like news.example. Its subdomains count too.": "Hide posts that link to these sites. One site per line, like news.example. Its subdomains count too.",
   "Hide reactions to your posts and comments": "Hide reactions to your posts and comments",
   "Hide read receipts": "Hide read receipts",
@@ -250,6 +251,7 @@
   "Hides posts that mention the words, people, Pages or sites you list, on Home and in groups. Posts you open by their link always show.": "Hides posts that mention the words, people, Pages or sites you list, on Home and in groups. Posts you open by their link always show.",
   "Hides the red counts on the top bar and left column, and the count in front of the browser tab's title. The notifications are still there when you open them.": "Hides the red counts on the top bar and left column, and the count in front of the browser tab's title. The notifications are still there when you open them.",
   "Hides the rows of reels Facebook puts between posts on Home and in your groups feed. Reels your friends post stay.": "Hides the rows of reels Facebook puts between posts on Home and in your groups feed. Reels your friends post stay.",
+  "Hiding posts by {name}.": "Hiding posts by {name}.",
   "Hold a reel for 2x": "Hold a reel for 2x",
   "Hold back usage logs": "Hold back usage logs",
   "Home shows the newest posts from the friends, groups and Pages you follow instead of Facebook's ranked feed.": "Home shows the newest posts from the friends, groups and Pages you follow instead of Facebook's ranked feed.",
@@ -349,6 +351,7 @@
   "Paused": "Paused",
   "Paused in this tab": "Paused in this tab",
   "Pauses a video after it's fully out of view for a second on Home or a group feed. Videos you open separately keep playing. Scroll back and press play to continue.": "Pauses a video after it's fully out of view for a second on Home or a group feed. Videos you open separately keep playing. Scroll back and press play to continue.",
+  "People hidden from post menus": "People hidden from post menus",
   "People you chat with don't see that you've read their messages, and the chat stays unread in your other apps. When you reply they'll know anyway. End-to-end encrypted chats, which most one-to-one chats are now, aren't covered, because their receipts are encrypted before the script can see them.": "People you chat with don't see that you've read their messages, and the chat stays unread in your other apps. When you reply they'll know anyway. End-to-end encrypted chats, which most one-to-one chats are now, aren't covered, because their receipts are encrypted before the script can see them.",
   "People you chat with don't see the dots while you type. End-to-end encrypted chats aren't covered.": "People you chat with don't see the dots while you type. End-to-end encrypted chats aren't covered.",
   "Picked up where you left off, at {time}": "Picked up where you left off, at {time}",
@@ -611,6 +614,7 @@
   "Your browser or userscript manager doesn't offer what this one needs.": "Your browser or userscript manager doesn't offer what this one needs.",
   "Your groups feed": "Your groups feed",
   "Your latest choices are still shown here. Retry to save them without losing the draft.": "Your latest choices are still shown here. Retry to save them without losing the draft.",
+  "Your list of people to hide is full, so {name} wasn't added.": "Your list of people to hide is full, so {name} wasn't added.",
   "Your own CSS rules for Facebook, applied after everything else the script does. Handy when Facebook moves something before a switch catches up.": "Your own CSS rules for Facebook, applied after everything else the script does. Handy when Facebook moves something before a switch catches up.",
   "Your own color in place of Facebook's blue, for buttons, links, switches and highlights, in both light and dark mode.": "Your own color in place of Facebook's blue, for buttons, links, switches and highlights, in both light and dark mode.",
   "Your settings from before the change are back.": "Your settings from before the change are back.",
@@ -661,5 +665,7 @@
     "other": "{count} video spots"
   },
   "{list} and {last}": "{list} and {last}",
-  "{message}. Details are in Diagnostics.": "{message}. Details are in Diagnostics."
+  "{message}. Details are in Diagnostics.": "{message}. Details are in Diagnostics.",
+  "{name} is already on your list of people to hide.": "{name} is already on your list of people to hide.",
+  "{name} is on your list of people to always show, so their posts keep showing.": "{name} is on your list of people to always show, so their posts keep showing."
 }

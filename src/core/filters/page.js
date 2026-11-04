@@ -3,7 +3,8 @@
 // fields as story.js, read from the markup:
 //   text     the post text and a link preview's title and description (data-ad-rendering-role
 //            story_message, title, description, or data-ad-preview="message")
-//   authors  the links in the post's headings (the author, and a shared post's author)
+//   authors  the links in the post's headings (the author, and a shared post's author), and in a
+//            group post the member who posted (posterOf)
 //   alt      img alt text ("May be an image of ...")
 //   sites    outbound links, through l.facebook.com or straight
 //   kinds    photo (a picture linking to /photo), video (a video, or a reel or watch link),
@@ -18,6 +19,12 @@
 // style attribute sets background-color and background-image (a t39.10873 picture, or a plain
 // gradient). 5 of 41 posts with text had one, the same 5 the data marked, and no other post,
 // there or in 36 on Home, had an inline background anywhere in its text.
+//
+// Group posts, in organic-posts.jsonl.gz (2026-11-03, 73 of 100 posts, in the groups feed and on
+// Home): the heading link is the group (/groups/<id>/), and the member who posted is a link of its
+// own outside the headings (/groups/<id>/user/<id>/), after an avatar link with no words. Every
+// one of the 73 had it. story.js reads that member as the post's actor and the group as where it
+// went, so the page check reads them the same way.
 
 import { hostOf } from './story.js';
 import { normalizeText, visibleText } from '../dom/visible-text.js';
@@ -28,6 +35,12 @@ const COMMENTS = '[role="article"][aria-label]';
 const PHOTO = 'a[href*="/photo"] img, a[href*="/photos/"] img';
 const VIDEO = 'video, a[href*="/reel/"], a[href*="/watch/"], a[href*="/videos/"]';
 const HEADER = '[data-ad-rendering-role="profile_name"]';
+const HEADINGS = 'h2 a, h3 a, h4 a, [role="heading"] a';
+const MEMBER = 'a[href*="/groups/"][href*="/user/"]';
+const isGroup = (a) => {
+  const href = a.getAttribute('href') ?? '';
+  return href.includes('/groups/') && !href.includes('/user/');
+};
 // A past live video opens at /watch/live/?v=<id> (live 2026-10-11).
 const PAST_LIVE = 'a[href*="/watch/live/"]';
 const COLORED = '[style*="background"]';
@@ -41,10 +54,28 @@ const inComment = (element, post) => {
   return Boolean(comment && comment !== post && post.contains(comment));
 };
 
+const ownOf = (post) => (selector) => [...post.querySelectorAll(selector)].filter((element) => !inComment(element, post));
+const named = (links) => links.find((a) => normalizeText(a.textContent));
+
+// Who posted, by name, or null: the first named link in the post's first header (or its headings
+// when it has no header). When that's a group, the member who posted it instead, never the group,
+// and null when the member can't be found.
+export function posterOf(post) {
+  const own = ownOf(post);
+  const header = own(HEADER)[0];
+  const first = named(header ? [...header.querySelectorAll('a[href]')] : own(HEADINGS));
+  if (!first) return null;
+  if (!isGroup(first)) return normalizeText(first.textContent);
+  const member = named(own(MEMBER).filter((a) => !a.closest(TEXT)));
+  return member ? normalizeText(member.textContent) : null;
+}
+
 export function postFields(post) {
-  const own = (selector) => [...post.querySelectorAll(selector)].filter((element) => !inComment(element, post));
+  const own = ownOf(post);
   const text = own(TEXT).map((element) => visibleText(element)).filter(Boolean);
-  const authors = own('h2 a, h3 a, h4 a, [role="heading"] a').map((a) => normalizeText(a.textContent)).filter(Boolean);
+  const authors = own(HEADINGS).map((a) => normalizeText(a.textContent)).filter(Boolean);
+  const poster = posterOf(post);
+  if (poster && !authors.includes(poster)) authors.push(poster);
   const alt = own('img[alt]').map((img) => img.getAttribute('alt')).filter((value) => value && value.length > 3);
   const links = own('a[href]');
   const sites = [...new Set(links.map((a) => hostOf(a.href || a.getAttribute('href'))).filter(Boolean))];

@@ -30,17 +30,22 @@
 // every story from ten feed pages in 24 s of scrolling and content mode hid 41 of 42 units.
 
 import { walk, SKIP } from '../../core/json-walk.js';
+import { whenBodyReady } from '../../core/env.js';
 import { filterCache, firstMatch, matchingRules } from '../../core/filters/engine.js';
 import { compileNames, compileSites, matchingNames, matchingSites } from '../../core/filters/lists.js';
-import { postFields } from '../../core/filters/page.js';
+import { postFields, posterOf } from '../../core/filters/page.js';
 import { storyFields } from '../../core/filters/story.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
+import { createPostMenuRow, menuPost } from '../../core/dom/post-menu.js';
 import { inScope } from './ad-markers.js';
 import { looksLikeCss } from '../../core/css-text.js';
 import { t } from '../../core/i18n.js';
 import { later } from '../../core/net/payload.js';
 
 export const CSS_WARNING = "Those filter lines look like CSS. Hide posts by words matches words in posts, so put CSS in Custom CSS under Appearance instead.";
+const PEOPLE_KEY = 'hidePostsByWords.people';
+// A person with a line through them, drawn like Download's picture in the same menu.
+const HIDE_PERSON_ICON = 'M12 3a4 4 0 1 1 0 8a4 4 0 1 1 0-8zM4 21a8 8 0 0 1 16 0M3 3l18 18';
 const CSS_WARNED_KEY = 'hidePostsByWords.cssWarned';
 const SKIP_WARNED_KEY = 'hidePostsByWords.skipWarned';
 const SITES_WARNED_KEY = 'hidePostsByWords.sitesWarned';
@@ -277,7 +282,7 @@ export function previewReport({ data, page }) {
 
 const OPTIONS = [
   { key: 'words', type: 'text', label: 'One word, name or site per line. Start a line with re: to use a regular expression.', default: '', maxLength: 20000 },
-  { key: 'people', type: 'text', label: "Hide posts by these people, Pages or groups. One name per line, written the way Facebook shows it. A name only matches who posted, and names aren't unique, so it hides everyone who goes by it.", default: '', maxLength: 20000 },
+  { key: 'people', type: 'text', label: "Hide posts by these people, Pages or groups. One name per line, written the way Facebook shows it, or choose Hide posts by in a post's three-dot menu. A name only matches who posted, and names aren't unique, so it hides everyone who goes by it.", default: '', maxLength: 20000 },
   { key: 'sites', type: 'text', label: 'Hide posts that link to these sites. One site per line, like news.example. Its subdomains count too.', default: '', maxLength: 20000 },
   { key: 'showPeople', type: 'text', label: 'Always show posts by these people, Pages or groups, even when something here would hide them. One name per line.', default: '', maxLength: 20000 },
   { key: 'showSites', type: 'text', label: 'Always show posts that link to these sites, even when something here would hide them. One site per line.', default: '', maxLength: 20000 },
@@ -309,7 +314,7 @@ export default {
   default: false,
   options: OPTIONS,
 
-  setup({ net, router, posts, hider, log, toast, storage, settings, diagnostics, actions, enabled, option }) {
+  setup({ net, doc, router, posts, hider, log, toast, storage, settings, diagnostics, actions, enabled, option }) {
     const compile = filterCache();
     const warned = new Set();
     // Skipped pattern lines and CSS pasted here (which would only ever match posts that quote
@@ -552,6 +557,83 @@ export default {
       recheck?.();
       changed();
     });
+
+    // "Hide posts by <name>" in a post's three-dot menu adds who posted (posterOf: in a group, the
+    // member, never the group) to the people list. The change above then hides their posts on
+    // the page and the data rule hides the next ones. Nothing goes to Facebook: no hide, snooze or
+    // unfollow. A saved list only comes back from settings once the save lands, so the text
+    // being saved stands in for it until then, and two quick clicks both stay.
+    if (doc && settings?.set) {
+      let saving = null;
+      const people = () => saving ?? option('people') ?? '';
+      const nameKey = (name) => compileNames(name)[0]?.key;
+      const listed = (text, name) => compileNames(text).some((entry) => entry.key === nameKey(name));
+      let used = 0;
+      // Throws before saving anything when settings refuses the text (over its length limit).
+      const save = (text) => {
+        const saved = settings.set(PEOPLE_KEY, text);
+        saving = text;
+        const done = () => {
+          if (saving === text) saving = null;
+        };
+        Promise.resolve(saved).then(done, (error) => {
+          done();
+          log?.error("Couldn't save the list of people to hide", error);
+        });
+      };
+      const undo = (name, before, after) => {
+        const now = people();
+        if (now === after) {
+          save(before);
+          return;
+        }
+        // The list changed since, so only the line that was added goes.
+        const lines = now.split(/\r?\n/);
+        const index = lines.findLastIndex((line) => listed(line, name));
+        if (index < 0) return;
+        lines.splice(index, 1);
+        save(lines.join('\n'));
+      };
+      const addPerson = ({ name }) => {
+        const before = people();
+        if (listed(before, name)) {
+          toast?.(t('{name} is already on your list of people to hide.', { name }));
+          return;
+        }
+        if (listed(option('showPeople') ?? '', name)) {
+          toast?.(t('{name} is on your list of people to always show, so their posts keep showing.', { name }), { tone: 'error' });
+          return;
+        }
+        const after = `${before}${before && !before.endsWith('\n') ? '\n' : ''}${name}`;
+        try {
+          save(after);
+        } catch (error) {
+          log?.warn('The list of people to hide is full', error);
+          toast?.(t("Your list of people to hide is full, so {name} wasn't added.", { name }), { tone: 'error' });
+          return;
+        }
+        used++;
+        changed();
+        toast?.(t('Hiding posts by {name}.', { name }), { action: { label: 'Undo', run: () => undo(name, before, after) } });
+      };
+      const row = createPostMenuRow({
+        doc,
+        mark: 'data-hfw-menu-hide-person',
+        icon: HIDE_PERSON_ICON,
+        failed: (error) => log?.error("Couldn't add Hide posts by to the post menu", error),
+        enabled: () => enabled() && !previewing() && FILTERED.routes(route()),
+        pick() {
+          const post = menuPost(doc);
+          const name = post && posterOf(post);
+          return name && nameKey(name) ? { post, name } : null;
+        },
+        label: ({ name }) => t('Hide posts by {name}', { name }),
+        run: addPerson,
+      });
+      whenBodyReady(() => row.apply(), doc);
+      settings.subscribe(() => row.apply());
+      diagnostics?.add('People hidden from post menus', () => `Offered in ${row.added()} ${row.added() === 1 ? 'menu' : 'menus'}, added ${used}`);
+    }
     if (!posts || !hider) return;
 
     // The page check in preview: each post is counted once and keeps every match it showed on
