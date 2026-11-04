@@ -26,15 +26,15 @@
     "@eslint/js": "^10.0.1",
     "acorn": "8.19.0",
     "esbuild": "0.28.2",
-    "eslint": "^10.13.0",
-    "globals": "^17.13.0",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
     "happy-dom": "^21.0.4",
-    "playwright": "1.62.0"
+    "playwright": "1.64.1"
   },
   "allowScripts": {
     "esbuild@0.28.2": true
   },
   "dependencies": {
-    "re2js": "2.9.0"
+    "re2js": "2.9.1"
   }
 }
