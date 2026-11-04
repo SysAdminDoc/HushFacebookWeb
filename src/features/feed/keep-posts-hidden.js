@@ -24,6 +24,8 @@ export const HIDDEN_KEY = 'keepPostsHidden.list';
 export const MAX_HIDDEN = 3000;
 const REASON = 'Dismissed';
 const PRESSED = 'you pressed its X';
+// The note after an X: small, in the corner, and gone in a couple of seconds.
+const NOTE = { small: true, duration: 2500 };
 
 // Facebook's X, by its English label, and in other languages by its icon and a label that names
 // who posted (live 2026-11-04: <a role="link" href="#" aria-label="Hide post by ...">).
@@ -202,7 +204,8 @@ export default {
       if (!keys.length) {
         held.add(element);
         changed();
-        toast?.(t("Post hidden for now. There's nothing in it to know it by when the feed loads again."), {
+        toast?.(t('Post hidden until you reload'), {
+          ...NOTE,
           action: {
             label: 'Undo',
             run: () => {
@@ -220,7 +223,8 @@ export default {
         for (const key of keys) all[key] = at;
       });
       changed();
-      toast?.(t('Post hidden. It stays hidden when the feed loads again.'), {
+      toast?.(t('Post hidden'), {
+        ...NOTE,
         action: {
           label: 'Undo',
           // Other posts the same keys hid come back too. One still matching an older key stays.

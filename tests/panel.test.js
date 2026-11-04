@@ -1310,6 +1310,34 @@ test('a notice for something still running stays until it is dismissed, and its 
   timed.dismiss();
 });
 
+test('a small notice sits in the corner beside the launcher and goes at its own time', () => {
+  const { shadow, panel } = setup();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  cleanups.push(() => mock.timers.reset());
+  const ran = [];
+  panel.toast('Post hidden', { small: true, duration: 2500, action: { label: 'Undo', run: () => ran.push('undo') } });
+  const notice = shadow.querySelector('.toasts.corner > .toast.small');
+  assert.equal(notice.textContent, 'Post hiddenUndo');
+  assert.equal(shadow.querySelector('.toasts:not(.corner) > .toast'), null, 'not in the middle of the page');
+  mock.timers.tick(2499);
+  assert.ok(notice.isConnected);
+  mock.timers.tick(1);
+  assert.equal(notice.isConnected, false, 'gone in a couple of seconds, Undo or not');
+
+  panel.toast('Post hidden', { small: true, duration: 2500, action: { label: 'Undo', run: () => ran.push('undo') } });
+  shadow.querySelector('.toast.small button').click();
+  assert.deepEqual(ran, ['undo']);
+  assert.equal(shadow.querySelector('.toast.small'), null);
+
+  // Open settings, the corner moves into the dialog so it shows above it, and back on close.
+  panel.open('general');
+  panel.toast('Post hidden', { small: true, duration: 2500 });
+  assert.equal(Boolean(shadow.querySelector('dialog .toasts.corner > .toast.small')), true);
+  panel.close();
+  assert.equal(Boolean(shadow.querySelector('dialog .toasts.corner')), false);
+  assert.equal(Boolean(shadow.querySelector('.toasts.corner > .toast.small')), true);
+});
+
 test('a failed Undo keeps the earlier choices until a retry saves them', async () => {
   const { storage, data, control } = laterStorage({ 'ui.hiddenNote': true, 'ui.launcher': false });
   const { shadow, panel, settings } = setup({ storage });

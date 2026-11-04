@@ -114,7 +114,9 @@ test("the X hides the post, keeps it for the next load, and Facebook's handlers 
   assert.equal(note(doc, 2), null);
   assert.deepEqual(storage.get(HIDDEN_KEY), Object.fromEntries(keysOf(1).map((k) => [k, 5000])));
   assert.equal(toasts.length, 1);
-  assert.equal(toasts[0].message, 'Post hidden. It stays hidden when the feed loads again.');
+  assert.equal(toasts[0].message, 'Post hidden');
+  assert.equal(toasts[0].small, true, 'a small note in the corner, off the feed');
+  assert.equal(toasts[0].duration, 2500, 'gone in a couple of seconds');
   assert.equal(toasts[0].action.label, 'Undo');
   assert.equal(rows()['Hidden posts remembered'], '2');
   // The page check finds it again (the switch off and on), and it still isn't counted.
@@ -253,7 +255,7 @@ test('a link shared with a few words is remembered by who posted it, its words a
   const saved = Object.keys(storage.get(HIDDEN_KEY));
   assert.deepEqual(saved, [wordsKey(postOf(doc, 1), 'Pat Example')]);
   assert.match(saved[0], /^w:[0-9a-z]{2,14}$/, 'a key the extension keeps');
-  assert.equal(toasts[0].message, 'Post hidden. It stays hidden when the feed loads again.');
+  assert.equal(toasts[0].message, 'Post hidden');
   posts.stop();
 
   // The feed loads again. Only the same words and title from the same person match, and only on
@@ -277,7 +279,9 @@ test('a post with nothing to know it by is hidden until the page loads again', (
   assert.deepEqual(heard, []);
   assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
   assert.equal(storage.get(HIDDEN_KEY, null), null, 'who posted it alone is no key');
-  assert.equal(toasts[0].message, "Post hidden for now. There's nothing in it to know it by when the feed loads again.");
+  assert.equal(toasts[0].message, 'Post hidden until you reload');
+  assert.equal(toasts[0].small, true);
+  assert.equal(toasts[0].duration, 2500);
   // Undo on another post's toast shows that one and leaves this one hidden.
   press(win, xOf(doc, 2));
   toasts[1].action.run();

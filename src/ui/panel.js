@@ -128,6 +128,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   };
 
   const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
+  // Small notices, about something just done on the page, sit in the corner beside the launcher,
+  // off the feed.
+  const corner = h('div', { class: 'toasts corner', 'aria-live': 'polite' });
   const launcher = h('button', { class: 'launcher', type: 'button', onclick: () => open() }, icon(SLIDERS_ICON));
   const nav = h('nav');
   const main = h('main', { 'aria-labelledby': 'hfw-section-title' });
@@ -177,14 +180,14 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   dialog.addEventListener('close', () => {
     newDots.finish();
     announceSearch('');
-    root.append(toasts);
+    root.append(toasts, corner);
     if (opener?.isConnected && !opener.hidden && opener !== document.body && opener !== document.documentElement) opener.focus({ preventScroll: true });
     else if (!launcher.hidden) launcher.focus({ preventScroll: true });
     opener = null;
   });
   const fileInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onchange: importSettings });
   dialog.append(fileInput);
-  root.append(launcher, dialog, toasts);
+  root.append(launcher, dialog, toasts, corner);
   document.body.append(host);
 
   // The language chosen under General, for the panel and every toast after it. The parts drawn
@@ -232,12 +235,13 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // comes in the language chosen by then.
   // actions: buttons in order. One with keep: true leaves the notice up after its click. The
   // buttons share one box, so a narrow window wraps them together under the message.
-  function toast(message, { tone = 'info', action, actions = action ? [action] : [], duration } = {}) {
-    const el = h('div', { class: `toast ${tone}`, role: tone === 'error' ? 'alert' : null },
+  // small: a one-line notice in the bottom corner, for something just done on the page.
+  function toast(message, { tone = 'info', action, actions = action ? [action] : [], duration, small = false } = {}) {
+    const el = h('div', { class: `toast ${tone}${small ? ' small' : ''}`, role: tone === 'error' ? 'alert' : null },
       h('span', { text: typeof message === 'function' ? message() : message }),
       actions.length ? h('div', { class: 'actions' },
         ...actions.map((entry) => h('button', { type: 'button', text: t(entry.label), onclick: () => { if (!entry.keep) el.remove(); entry.run(); } }))) : null);
-    toasts.append(el);
+    (small ? corner : toasts).append(el);
     // A notice the pointer is over, or that holds focus, stays until both move off it, then
     // gets its full time again.
     let hovered = false;
@@ -1067,7 +1071,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       newDots.start();
     }
     render();
-    dialog.append(toasts);
+    dialog.append(toasts, corner);
     if (!dialog.open) dialog.showModal();
     closeButton.focus({ preventScroll: true });
   }

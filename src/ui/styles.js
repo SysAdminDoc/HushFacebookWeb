@@ -179,6 +179,11 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .toast .actions { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; margin-inline-start: auto; }
 .toast.error { border-color: var(--red); }
 .toast button { flex: none; min-height: 32px; border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 4px; }
+/* The corner notices sit beside the launcher, off the feed, one short line each. */
+.toasts.corner { left: 60px; bottom: 14px; transform: none; max-width: calc(100vw - 72px); gap: 6px; justify-items: start; }
+.toast.small { gap: 4px 10px; padding: 5px 8px 5px 12px; font-size: 13px; box-shadow: 0 4px 14px #0004; }
+.toast.small span { flex: 0 1 auto; }
+.toast.small button { min-height: 24px; padding: 2px 4px; }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surface1) transparent; }
 @media (max-width: 1100px) {
