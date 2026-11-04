@@ -239,10 +239,15 @@ test('price boxes read decimal commas too, and a lone mark before three digits i
 });
 
 test('price boxes take a currency written in letters on either end', () => {
-  const cases = { 'R$ 1.500': 1500, 'Rp 50.000': 50000, '50 zł': 50, '100 kr': 100, '100 kr.': 100, "CHF 1'000": 1000, RM50: 50, 'Rs. 500': 500, '1.500 Kč': 1500, '$50 USD': 50, '50,-': 50, '50,- kr': 50 };
+  const cases = {
+    'R$ 1.500': 1500, 'Rp 50.000': 50000, '50 zł': 50, '100 kr': 100, '100 kr.': 100, "CHF 1'000": 1000, RM50: 50, 'Rs. 500': 500, '1.500 Kč': 1500, '$50 USD': 50,
+    '50,-': 50, '50,- kr': 50, 'Fr. 50.–': 50, 'US$ 50': 50, 'S/ 80': 80, 'Ksh 1,500': 1500, '500円': 500, '200 euros': 200, '300 лв.': 300,
+  };
   for (const [typed, number] of Object.entries(cases)) assert.equal(priceLimit(typed), number, typed);
-  // A lone letter after the number could be shorthand (2k), so it stays not-a-price.
-  for (const bad of ['2k', 'R', 'kr', 'five', '5 x']) assert.ok(Number.isNaN(priceLimit(bad)), bad);
+  // Shorthand (2k) and words for a number stay not-a-price: read as a currency they'd leave a
+  // limit a thousand times too small, and hide nearly everything.
+  const words = ['500rb', '1,5jt', '2 mil', '5 lakh', '2 Tsd.', '3 тыс', '5万円', '5만원', '10万元', '2 mio', '5 grand', '3 crore'];
+  for (const bad of ['2k', 'R', 'kr', 'five', '5 x', ...words]) assert.ok(Number.isNaN(priceLimit(bad)), bad);
 });
 
 test('a listing fetched on its own, with no feed edge around it, stays whole', () => {

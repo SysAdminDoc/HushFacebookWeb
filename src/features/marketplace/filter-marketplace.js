@@ -106,16 +106,26 @@ const grouped = (digits, sep) => {
   return /^[1-9]\d{0,2}$/.test(groups[0]) && groups.slice(1).every((group) => /^\d{2,3}$/.test(group)) && groups.at(-1).length === 3;
 };
 
+// Currencies people write in letters, as codes or the way prices are marked locally, plus what's
+// left of US$, R$, C$ and the like once the sign goes. Only these: a word for a number ("500rb",
+// "2 mil", "5 lakh", "3 тыс", "5万円") would leave a limit a thousand times too small.
+const CODES = 'usd|cad|aud|nzd|eur|gbp|chf|pln|czk|huf|ron|bgn|rsd|bam|mkd|sek|nok|dkk|isk|try|uah|rub|kzt|gel|amd|azn|inr|pkr|bdt|lkr|npr|idr|myr|php|thb|vnd|sgd|hkd|twd|krw|jpy|cny|rmb|brl|mxn|ars|clp|cop|pen|uyu|zar|ngn|kes|ugx|tzs|ghs|egp|mad|aed|sar|qar|kwd|bhd|omr|jod|ils|tnd';
+const LOCAL = 'us|nz|hk|nt|mx|rp|rs|rm|kr|kč|kc|zł|zl|ft|lei|lv|лв|грн|руб|tl|dh|dhs|sr|qr|kd|bd|ro|jd|dt|din|km|ksh|ush|tsh|gh|tk|lek|sfr|fr';
+const NAMES = 'dollars?|euros?|pesos?|reais|real|rupees?|rand|lira|naira|cedis?|baht|dinars?|dirhams?|riyals?|zlotys?|złotych|forint|leva?|yen|yuan|won|ringgit|rupiah|shillings?|pounds?|francs?|kronor|krona|kroner|krone';
+const CURRENCY = `${CODES}|${LOCAL}|${NAMES}`;
+const CURRENCY_BEFORE = new RegExp(`^(?:${CURRENCY}|[rcas])[./]?`, 'iu');
+const CURRENCY_AFTER = new RegExp(`(?:${CURRENCY}|р|円|元|원)\\.?$`, 'iu');
+
 // A price box's number: null when it's empty, NaN when it isn't a price. Spaces, a currency's
-// sign or letters on either end ("R$ 1.500", "50 zł", "Rs. 500"), a whole-number "50,-" and
-// either way of writing thousands and decimals are fine ("1,200.50" or "1.200,50"). One mark
-// before exactly three digits ("1,000" or "1.000") groups thousands whatever the browser's
+// sign, code or local abbreviation on either end ("R$ 1.500", "50 zł", "Rs. 500"), a whole-number
+// "50,-" and either way of writing thousands and decimals are fine ("1,200.50" or "1.200,50"). One
+// mark before exactly three digits ("1,000" or "1.000") groups thousands whatever the browser's
 // language: nobody types a price to three decimal places, and plenty of people write 1.000 on an
-// English browser. A lone letter after the number could be shorthand ("2k"), so that isn't a price.
+// English browser. Any other letters ("2k", "500rb") aren't a price.
 export function priceLimit(value) {
   const spaced = String(value ?? '').replace(/[\s'’\p{Sc}]/gu, '');
   if (!spaced) return null;
-  const clean = spaced.replace(/^\p{L}+\.?|\p{L}{2,}\.?$/gu, '').replace(/[.,]-$/, '');
+  const clean = spaced.replace(CURRENCY_BEFORE, '').replace(CURRENCY_AFTER, '').replace(/[.,][-–]$/, '');
   if (!/^[\d.,]*\d[\d.,]*$/.test(clean)) return NaN;
   const last = Math.max(clean.lastIndexOf('.'), clean.lastIndexOf(','));
   if (last === -1) return Number(clean);
