@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Hide suggested posts has a new option, off to start: Also hide People you may know on the Friends page and profiles. It takes the suggestion grid off the Friends page, the row of cards on a profile and the list on the Suggestions page. Friend requests, Confirm and Delete, a profile's header and its tabs all stay. The script finds the grid by its See all link, not its heading, so it works in any language and in content mode. Once the grid is hidden, Facebook stops loading more cards behind it.
 * Keep your place in the feed now says it also covers going back from a post or its comments. Facebook refreshes Home when you close a post after a time limit it sets per account. That's half an hour by default but can be a few seconds, so Back from the comments jumped to the top of a fresh feed. The switch already held that limit and was checked live with it set to five seconds.
 * Copy report now says whether Keep your place in the feed is holding Facebook's refresh limits, and lists the limits Facebook set for your account. Those rows used to come out as "left out".
 * The "feed is still loading" notice has a Stop these warnings button, and General has a Warn when the feed seems stuck switch to bring it back. With it off, Diagnostics and Copy report still record the check.

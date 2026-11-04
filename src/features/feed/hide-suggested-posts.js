@@ -11,8 +11,11 @@
 // then. The data rows leave it, and ownGroupsRule passes its group to the page check, which
 // leaves a post whose heading links to that group. Feed posts carry no post id at rest, so
 // the group it links to is what the two layers share. The groups are never in Diagnostics.
+// The friendsPages option hides People you may know on the Friends page and profiles too, on
+// the page (pymk-boxes.js).
 
 import { adRule, FEEDS, groupInHref, ownGroupsRule } from './ad-markers.js';
+import { PYMK_CSS, watchPymk } from './pymk-boxes.js';
 import { CANDIDATE_SELECTOR } from '../../core/dom/posts.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { normalizeText, visibleText } from '../../core/dom/visible-text.js';
@@ -54,14 +57,28 @@ export default {
   title: 'Hide suggested posts',
   description: "Hides posts from Pages, people and groups you don't follow that Facebook mixes into Home and your groups feed, plus the People you may know and group suggestion rows on Home.",
   default: true,
+  options: [
+    { key: 'friendsPages', type: 'toggle', label: 'Also hide People you may know on the Friends page and profiles', default: false },
+  ],
+  css: (get) => (get('hideSuggestedPosts.friendsPages') ? PYMK_CSS : ''),
 
-  setup({ net, router, posts, hider, settings, diagnostics, enabled }) {
+  setup({ doc, net, router, posts, hider, settings, diagnostics, enabled, option }) {
     const data = new Map();
     const page = new Map();
     const ownGroups = new Set();
     const own = { data: 0, page: 0 };
     const changed = () => diagnostics?.changed();
     const route = () => router?.current();
+
+    if (doc && router) {
+      let blocks = 0;
+      const pymk = watchPymk({ doc, route, active: () => enabled() && option('friendsPages') === true, onBox: () => {
+        blocks++;
+        changed();
+      } });
+      settings?.subscribe(() => pymk.check());
+      diagnostics?.add('People you may know blocks hidden on Friends pages and profiles', () => (option('friendsPages') === true ? String(blocks) : 'Off'));
+    }
 
     if (net) {
       // A suggestion Facebook drew on the server stays in the data and is hidden on the page.

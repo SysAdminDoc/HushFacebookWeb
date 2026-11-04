@@ -361,6 +361,7 @@ const UI_TEXT = new Set([
   'all comments', 'newest', 'see translation', 'see original', 'write a comment…', 'write a comment...', 'author',
   'top contributor', 'admin', 'moderator', 'public', 'shared with public', 'friends', 'edited', 'view more comments',
   'view all comments', 'actions for this post', 'hide post', 'leave a comment', 'react', 'sponsored', 'ad',
+  'people you may know', 'see all', 'add friend', 'remove', 'mutual friend', 'mutual friends',
 ]);
 const VOID_TAGS = new Set(['img', 'br', 'hr', 'input', 'meta', 'link', 'source', 'wbr', 'area', 'col', 'embed', 'track']);
 const ID_ATTRS = new Set(['id', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', 'aria-activedescendant']);
