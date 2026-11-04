@@ -320,6 +320,16 @@ test("a comment's menu, the filter off, preview on and a page the filter doesn't
   go('https://www.facebook.com/groups/1/posts/2/');
   await open(doc, groupPost(doc));
   assert.deepEqual(ids(doc), ['embed', 'report-post'], 'a post opened by its link');
+
+  go('https://www.facebook.com/search/posts/?q=garden');
+  await open(doc, groupPost(doc));
+  await open(doc, groupPost(doc));
+  assert.deepEqual(ids(doc), ['embed', 'report-post'], 'search results, with the search option off');
+  await settings.set('hidePostsByWords.search', true);
+  await open(doc, groupPost(doc));
+  await open(doc, groupPost(doc));
+  assert.deepEqual(ids(doc), ['person', 'embed', 'report-post'], 'search results, with it on');
+  await settings.set('hidePostsByWords.search', false);
   go('https://www.facebook.com/');
 
   await settings.set('hidePostsByWords.preview', true);

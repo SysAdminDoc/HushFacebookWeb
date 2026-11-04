@@ -516,6 +516,68 @@ test('in page mode the data rule drops matching feed stories on Home and leaves 
   posts.stop();
 });
 
+// A search result as /search/posts/ gets it: the story sits beside the node, in rendering_strategy,
+// and a search ad's under view_model.story (the 2026-10-10 capture).
+const SEARCH_CTX = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'SearchCometResultsPaginatedResultsQuery' };
+const searchResult = (node, role = 'PUBLIC_POSTS', model = { click_model: { story: node } }) => ({
+  cursor: `r-${node?.id ?? role}`, node: { __typename: 'SearchRenderable', role }, rendering_strategy: { __typename: 'SearchRichPostRenderingStrategy', view_model: model },
+});
+const searchLine = (edges, extra = {}) => JSON.stringify({ data: { serpResponse: { results: { edges } } }, ...extra });
+const resultIds = (line) => JSON.parse(line).data.serpResponse.results.edges.map((edge) => edge.rendering_strategy?.view_model?.click_model?.story?.id ?? null).filter(Boolean);
+
+test('with the search option on, matching search results go from the data, and a person result stays', () => {
+  const rules = [];
+  const href = 'https://www.facebook.com/search/posts/?q=market';
+  const win = page('', href);
+  const { posts, set } = setupFeature(win, { words: 'bread', href, net: { transformResponses: (rule) => rules.push(rule) } });
+  const rule = rules.find((candidate) => candidate.id === 'hidePostsByWords');
+  const ad = searchResult(null, 'SEARCH_ADS', { story: { ...story(), id: 'ad' } });
+  const person = searchResult(null, 'ENTITY_USER', { profile: { __typename: 'User', name: 'Bread Baker' } });
+  const line = searchLine([searchResult(story()), searchResult({ ...story(), id: 's2', comet_sections: {} }), ad, person]);
+  assert.equal(transformDocumentLine(line, [rule], SEARCH_CTX), line, 'off, search is left alone');
+  set('search', true);
+  const shape = (out) => JSON.parse(out).data.serpResponse.results.edges.map((edge) => [edge.cursor, 'node' in edge, 'rendering_strategy' in edge]);
+  const expected = [['r-s1', false, false], ['r-s2', true, true], ['r-SEARCH_ADS', false, false], ['r-ENTITY_USER', true, true]];
+  assert.deepEqual(shape(transformDocumentLine(line, [rule], SEARCH_CTX)), expected, 'each edge keeps its cursor, so paging goes on');
+  // Search results in the page's own answer aren't drawn on the server, so they go there too.
+  assert.deepEqual(shape(transformDocumentLine(searchLine(JSON.parse(line).data.serpResponse.results.edges, { extensions: { is_final: false } }), [rule], INLINE_CTX)), expected);
+  posts.stop();
+});
+
+test('the captured search answer: a result goes by its story, and a filter that matches nothing changes nothing', async () => {
+  const [line] = await fixtureLines('SearchCometResultsPaginatedResultsQuery.jsonl');
+  const storyIn = (edge) => edge.rendering_strategy?.view_model?.click_model?.story ?? edge.rendering_strategy?.view_model?.story ?? null;
+  const edges = parseLine(line).data.serpResponse.results.edges;
+  const author = storyFields(storyIn(edges[1])).authors[0];
+  assert.ok(author, 'the capture names who posted where the reader looks');
+  const matching = edges.filter((edge) => storyFields(storyIn(edge)).authors.includes(author)).length;
+  const doc = parseLine(line);
+  const filter = { ...compileFilters(author), kinds: new Set() };
+  assert.deepEqual(pruneFiltered(doc, filter), Array(matching).fill(author));
+  assert.equal('node' in doc.data.serpResponse.results.edges[1], false);
+  assert.equal(doc.data.serpResponse.results.edges[1].cursor, edges[1].cursor);
+  const seen = [];
+  previewFiltered(parseLine(line), filter, (id, matches) => seen.push([id, matches.length > 0]));
+  assert.equal(seen.length, edges.length, 'preview looks at every result, the ad included');
+  assert.equal(seen.filter(([, matched]) => matched).length, matching);
+  const untouched = parseLine(line);
+  assert.deepEqual(pruneFiltered(untouched, { ...compileFilters('zzzz-not-there'), kinds: new Set() }), []);
+  assert.deepEqual(untouched, parseLine(line));
+});
+
+test('with the search option on, the page check hides matching search results too', () => {
+  const href = 'https://www.facebook.com/search/top/?q=market';
+  const win = page(post(1, { text: 'Fresh bread' }) + post(2, { text: 'Fresh fish' }), href);
+  const { doc, posts, set } = setupFeature(win, { words: 'bread', href });
+  const notes = () => [...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+  assert.deepEqual(notes(), [null, null], 'off, search is left alone');
+  set('search', true);
+  assert.deepEqual(notes(), ['Hidden: Filter: bread. Show', null]);
+  set('search', false);
+  assert.deepEqual(notes(), [null, null]);
+  posts.stop();
+});
+
 test('a story in an answer another rule fails on is not counted or reported as filtered', () => {
   const rules = [];
   const win = page('');
@@ -996,4 +1058,18 @@ test('another feed or a new list starts the fuse over, and an answer that fails 
   assert.equal(keptIds(transformDocumentLine(feedLine(...stories(1, 'tulip bulbs')), failing, FEED)).length, 1, 'the next answer trips it again');
   assert.equal(toasts.length, 3);
   later.posts.stop();
+});
+
+test('with the search option, each search starts the fuse over', () => {
+  let href = 'https://www.facebook.com/search/posts/?q=tulips';
+  const rules = [];
+  const toasts = [];
+  const { posts } = setupFeature(page('', href), { words: 'tulip', lists: { search: true }, href: () => href, net: { transformResponses: (rule) => rules.push(rule) }, toast: toasted(toasts) });
+  const results = (count) => searchLine(stories(count, 'tulip bulbs').map((node) => searchResult(node)));
+  assert.equal(resultIds(transformDocumentLine(results(6), rules, SEARCH_CTX)).length, 6, 'six of six tripped it, so this answer keeps them');
+  assert.equal(toasts.length, 1);
+  assert.equal(resultIds(transformDocumentLine(results(1), rules, SEARCH_CTX)).length, 1, 'it stays paused for this search');
+  href = 'https://www.facebook.com/search/posts/?q=roses';
+  assert.equal(resultIds(transformDocumentLine(results(2), rules, SEARCH_CTX)).length, 0, 'another search counts again from nothing');
+  posts.stop();
 });

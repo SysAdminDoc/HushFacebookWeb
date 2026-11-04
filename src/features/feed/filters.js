@@ -5,7 +5,8 @@
 // authors, alt text, linked sites, kind; see core/filters/story.js) and drops the matches
 // before Facebook draws them. The page check reads the same fields from the markup (see
 // core/filters/page.js) for posts that got drawn anyway, and in content mode. Both run on
-// Home, the groups feed and group pages, never on a post you opened by its link.
+// Home, the groups feed and group pages, and on search results with the search option, never
+// on a post you opened by its link.
 //
 // The word list matches all of a post's fields at once, as it always has. The people and site
 // lists (core/filters/lists.js) each match only their own field, and the two always-show lists
@@ -89,6 +90,14 @@ export const FILTERED = {
   routes: (route) => Boolean(route) && !route.permalink && (route.type === 'home' || route.type === 'groups'),
 };
 
+// Search results, with the search option. Live 2026-11-04 on /search/top/ and /search/posts/,
+// the posts were the only results drawn as div[aria-posinset], never a person or group row, so
+// the page check sees posts alone there too.
+export const SEARCH = {
+  queries: /^SearchCometResultsPaginatedResultsQuery$/,
+  routes: (route) => route?.type === 'search',
+};
+
 const valuesOf = (fields) => [...fields.text, ...fields.authors, ...fields.alt, ...fields.sites];
 
 // How preview names a line: 'line 3' in the word list, 'people line 2', 'sites line 1'.
@@ -127,28 +136,36 @@ const phrasesOf = ({ rules, people = [], sites = [] }) => new Map([
   ...sites.map((entry) => [lineId('sites', entry), entry.phrase]),
 ]);
 
-// A feed story edge: an object with a cursor and a story node.
-const isStory = (value) => !Array.isArray(value) && 'cursor' in value && Boolean(value.node) && typeof value.node === 'object'
-  && (value.node.__typename === 'Story' || Boolean(value.node.__isFeedUnit));
+// The story an edge with a cursor carries: a feed edge's node, or the story a search result
+// (a SearchRenderable node) keeps beside its node, in rendering_strategy (an ad's under
+// view_model.story). Null for anything else, a person or group result included.
+function storyOf(value) {
+  if (Array.isArray(value) || !('cursor' in value) || !value.node || typeof value.node !== 'object') return null;
+  if (value.node.__typename === 'Story' || value.node.__isFeedUnit) return value.node;
+  const model = value.rendering_strategy?.view_model;
+  const story = model?.click_model?.story ?? model?.story;
+  return story && typeof story === 'object' ? story : null;
+}
 
-// Calls visit(edge) for each feed story edge in doc.
+// Calls visit(edge, story) for each story edge in doc.
 function eachStory(doc, visit) {
   walk(doc, (value) => {
-    if (!isStory(value)) return undefined;
-    visit(value);
+    const story = storyOf(value);
+    if (!story) return undefined;
+    visit(value, story);
     return SKIP;
   });
 }
 
-// Drops every feed story in doc that the filter hides, apart from the ones keep(edge) says yes
-// to. Returns the reasons, one per story dropped. report(story, reason) hears each one before
-// it goes.
+// Drops every story in doc that the filter hides, apart from the ones keep(edge) says yes to.
+// Taking the node and rendering_strategy leaves the edge and its cursor, so paging goes on.
+// Returns the reasons, one per story dropped. report(story, reason) hears each one before it goes.
 export function pruneFiltered(doc, filter, report, keep) {
   const hits = [];
-  eachStory(doc, (edge) => {
-    const reason = filterVerdict(filter, storyFields(edge.node));
+  eachStory(doc, (edge, story) => {
+    const reason = filterVerdict(filter, storyFields(story));
     if (reason === null || keep?.(edge)) return;
-    report?.(edge.node, reason);
+    report?.(story, reason);
     delete edge.node;
     delete edge.rendering_strategy;
     hits.push(reason);
@@ -158,7 +175,7 @@ export function pruneFiltered(doc, filter, report, keep) {
 
 // The preview's look at the same stories, changing nothing. see(id, matches) hears each one.
 export function previewFiltered(doc, filter, see) {
-  eachStory(doc, (edge) => see(edge.node.post_id ?? edge.node.id ?? null, filterMatches(filter, storyFields(edge.node))));
+  eachStory(doc, (edge, story) => see(story.post_id ?? story.id ?? null, filterMatches(filter, storyFields(story))));
 }
 
 export const PREVIEW_LIMIT = 1000;
@@ -292,6 +309,7 @@ const OPTIONS = [
   { key: 'showPeople', type: 'text', label: 'Always show posts by these people, Pages or groups, even when something here would hide them. One name per line.', default: '', maxLength: 20000 },
   { key: 'showSites', type: 'text', label: 'Always show posts that link to these sites, even when something here would hide them. One site per line.', default: '', maxLength: 20000 },
   ...KINDS.map(({ key, label }) => ({ key, type: 'toggle', label: `Hide all ${label}`, default: false })),
+  { key: 'search', type: 'toggle', label: 'Hide them in search results too', default: false },
   { key: 'preview', type: 'toggle', label: 'Preview: count what each line would hide, and hide nothing', default: false },
 ];
 
@@ -315,7 +333,7 @@ export default {
   section: 'feed',
   android: 'Hide posts by words',
   title: 'Hide posts by words',
-  description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups. Posts you open by their link always show.',
+  description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups, and in search results if you choose. Posts you open by their link always show.',
   default: false,
   options: OPTIONS,
 
@@ -358,6 +376,9 @@ export default {
     const hits = new Map();
     const route = () => router?.current();
     const changed = () => diagnostics?.changed();
+    const searching = () => option('search') === true;
+    const filtersOn = (now) => FILTERED.routes(now) || (searching() && SEARCH.routes(now));
+    const answerInScope = (ctx) => inScope({ scope: FILTERED }, ctx, route) || (searching() && inScope({ scope: SEARCH }, ctx, route));
 
     const lists = {
       people: memo(compileNames),
@@ -416,14 +437,15 @@ export default {
       rules: filter.rules.filter((rule) => !fuse.paused.has(lineId('words', rule))),
       sites: filter.sites.filter((entry) => !fuse.paused.has(lineId('sites', entry))),
     } : filter);
-    // The fuse counts one feed at a time, and a different feed starts it over. Only Home and
-    // group feeds count as a page here: a feed answer can arrive while a post or photo is open on
-    // top of the feed, and that leaves the counts alone.
-    const pageOf = (now = route()) => (now ? `${now.type}:${now.path}:${now.feed}` : '');
+    // The fuse counts one feed at a time, and a different feed starts it over. Only Home, group
+    // feeds and search count as a page here: a feed answer can arrive while a post or photo is
+    // open on top of the feed, and that leaves the counts alone. Each search is a page of its own.
+    const queryOf = (now) => (now.type === 'search' && now.href ? new URL(now.href).searchParams.get('q') ?? '' : '');
+    const pageOf = (now = route()) => (now ? `${now.type}:${now.path}:${now.feed}:${queryOf(now)}` : '');
     let fusePage = null;
     const fuseHere = () => {
       const now = route();
-      if (!FILTERED.routes(now) || pageOf(now) === fusePage) return;
+      if (!filtersOn(now) || pageOf(now) === fusePage) return;
       fusePage = pageOf(now);
       fuse.clear();
     };
@@ -476,7 +498,6 @@ export default {
     };
 
     if (net) {
-      const scope = { scope: FILTERED };
       const markers = ['"__isFeedUnit"'];
       const match = (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql');
       net.transformResponses({
@@ -485,14 +506,17 @@ export default {
         markers,
         match,
         transform(doc, ctx, stage) {
-          if (previewing() || !inScope(scope, ctx, route)) return false;
+          if (previewing() || !answerInScope(ctx)) return false;
           const filter = current();
           if (!active(filter)) return false;
           // Without a page check there's nothing to hide them with, so they go like the rest.
           const places = posts && hider && ctx.transport === 'json-parse' ? drawnEdges(doc) : null;
           const seen = [];
           if (places?.size) {
-            for (const [edge, place] of places) if (isStory(edge)) seen.push([place, storyFields(edge.node)]);
+            for (const [edge, place] of places) {
+              const story = storyOf(edge);
+              if (story) seen.push([place, storyFields(story)]);
+            }
           }
           if (seen.length) {
             // The data can come after the post is drawn, and a post its markup hid may stay.
@@ -540,7 +564,7 @@ export default {
         match,
         observe: true,
         transform(doc, ctx) {
-          if (!previewing() || !inScope(scope, ctx, route)) return false;
+          if (!previewing() || !answerInScope(ctx)) return false;
           const filter = current();
           if (!active(filter)) return false;
           previewFiltered(doc, filter, (id, matches) => {
@@ -652,7 +676,7 @@ export default {
         mark: 'data-hfw-menu-hide-person',
         icon: HIDE_PERSON_ICON,
         failed: (error) => log?.error("Couldn't add Hide posts by to the post menu", error),
-        enabled: () => enabled() && !previewing() && FILTERED.routes(route()),
+        enabled: () => enabled() && !previewing() && filtersOn(route()),
         pick() {
           const post = menuPost(doc);
           const name = post && posterOf(post);
@@ -685,7 +709,7 @@ export default {
       posts,
       enabled,
       check(element) {
-        if (!FILTERED.routes(route())) return true;
+        if (!filtersOn(route())) return true;
         const filter = current();
         if (!active(filter)) return true;
         const fields = drawnFields(element) ?? postFields(element);
