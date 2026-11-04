@@ -30,9 +30,9 @@ const RELOAD_MARKER_KEY = 'hfw:settings-reload';
 const RELOAD_MARKER_MAX_AGE_MS = 90_000;
 // The pages around the feature pages (features/sections.js has those): Overview first, where
 // settings open, then General and Diagnostics under a line at the end.
-const OVERVIEW = { id: 'overview', title: 'Overview', description: 'Start here. Turn on a set of switches at once, or pick a page.' };
-const GENERAL = { id: 'general', title: 'General', description: 'Settings for HushFacebook Web itself.', divider: true };
-const DIAGNOSTICS = { id: 'diagnostics', title: 'Diagnostics', description: 'See how HushFacebook Web is running.' };
+const OVERVIEW = { id: 'overview', title: 'Overview' };
+const GENERAL = { id: 'general', title: 'General', divider: true };
+const DIAGNOSTICS = { id: 'diagnostics', title: 'Diagnostics' };
 // General's rows by group, in this order. The first has no heading: it's for rows that need you
 // now (a failed save, an Undo, a newer release), so they head the page.
 const GENERAL_GROUPS = [
@@ -428,6 +428,13 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     current = pageId;
     main.scrollTop = 0;
     render();
+    revealCurrentPage();
+  }
+
+  // Pages have no heading on screen, so the sideways page row of a narrow panel keeps the
+  // current page in view. The upright sidebar already shows it, so nothing moves there.
+  function revealCurrentPage() {
+    nav.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
 
   function clearSearch() {
@@ -884,14 +891,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     ];
   }
 
-  // status: a feature page's switches, as { on, total }.
-  function pageHeading(id, title, description, status = null) {
-    return h('div', { class: 'page-heading' },
-      h('span', { class: 'page-icon', 'aria-hidden': 'true' }, navigationIcon(id)),
-      h('div', { class: 'page-copy' },
-        h('h3', { id: 'hfw-section-title', text: title }),
-        h('p', { text: description })),
-      status ? h('span', { class: `setting-count${status.on ? ' some' : ''}`, text: t('{on} of {total} on', status) }) : null);
+  // The page's name labels the main region for screen readers. On screen the sidebar already
+  // says where you are, so the options start right under the top bar.
+  function pageTitle(title) {
+    return h('h3', { class: 'visually-hidden', id: 'hfw-section-title', text: title });
   }
 
   function navButton(page, searching) {
@@ -926,19 +929,19 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (searching) {
       const found = findFeatures([...features, ...overviewRows(), ...generalRows()], places, query);
       main.replaceChildren(
-        pageHeading('search', t('Search'), searchCount(found.length)),
+        pageTitle(t('Search')),
         ...(reloadPending ? [reloadCard()] : []),
+        // No results have their own message, so the count shows only over a list.
+        ...(found.length ? [h('p', { class: 'search-count', text: searchCount(found.length) })] : []),
         ...resultsView(found));
       announceSearch(searchCount(found.length));
     } else {
       announceSearch('');
       for (const group of groups) if (group.page === current) newDots.visit(group.id);
       const page = pages.find((entry) => entry.id === current);
-      const list = pageFeatures(current);
-      const status = list.length ? { on: list.filter((feature) => settingValue(feature.id) === true).length, total: list.length } : null;
       const views = { overview: overviewView, general: generalView, diagnostics: diagnosticsView };
       main.replaceChildren(
-        pageHeading(current, t(page.title), t(page.description), status),
+        pageTitle(t(page.title)),
         ...(reloadPending ? [reloadCard()] : []),
         ...(views[current] ?? (() => pageView(current)))());
     }
@@ -1180,6 +1183,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     render();
     dialog.append(toasts, corner);
     if (!dialog.open) dialog.showModal();
+    revealCurrentPage();
     if (pageId && pageId !== sectionId && !query) main.querySelector(`[data-group="${CSS.escape(sectionId)}"]`)?.scrollIntoView?.({ block: 'start' });
     closeButton.focus({ preventScroll: true });
   }

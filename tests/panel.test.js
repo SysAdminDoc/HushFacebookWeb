@@ -250,6 +250,21 @@ test('a page with several groups names each one, and an old section id opens its
   assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Video');
 });
 
+test('pages show no heading, and the open page stays in view in the page list', () => {
+  const { win, shadow, panel } = setup({ features: allFeatures });
+  const revealed = [];
+  win.HTMLElement.prototype.scrollIntoView = function () {
+    if (this.dataset.key?.startsWith('nav:')) revealed.push(this.dataset.key);
+  };
+  panel.open('video');
+  const title = shadow.querySelector('#hfw-section-title');
+  assert.equal(title.className, 'visually-hidden', 'the name only labels the page for screen readers');
+  assert.equal(title.nextElementSibling.dataset.group, SECTIONS.find((section) => section.page === 'video').id, 'the options come first');
+  assert.deepEqual(revealed, ['nav:video'], 'opening settings on a page brings its button into view');
+  shadow.querySelector('[data-key="nav:downloads"]').click();
+  assert.deepEqual(revealed, ['nav:video', 'nav:downloads'], 'and so does picking another page');
+});
+
 test('a Quick setup shows its Undo on Overview, and General has it too', async () => {
   const { shadow, panel } = setup({ features: allFeatures });
   panel.open('overview');
@@ -401,7 +416,7 @@ test('a reload-required change shows the top row and remembers its settings page
   toggle.checked = true;
   toggle.dispatchEvent(new toggle.ownerDocument.defaultView.Event('change'));
   const row = first.shadow.querySelector('[data-key="reload-facebook"]');
-  assert.equal(row.parentElement.children[1], row, 'the reload row follows the page heading');
+  assert.equal(row.parentElement.children[1], row, 'the reload row opens the page');
   assert.equal(row.querySelector('.title').textContent, 'Reload Facebook to apply this change');
   row.querySelector('button').click();
   assert.equal(reloads, 1);
@@ -865,7 +880,7 @@ test('the search count is spoken once it settles, from one live region, without 
   type('wob');
   mock.timers.tick(599);
   assert.equal(status.textContent, '', 'nothing while typing goes on');
-  assert.match(shadow.querySelector('.page-heading p').textContent, /^1 setting matches\.$/, 'the visible count keeps up');
+  assert.match(shadow.querySelector('.search-count').textContent, /^1 setting matches\.$/, 'the visible count keeps up');
   assert.deepEqual([...shadow.querySelectorAll('[role="status"]')].map((node) => node.dataset.key), ['save-state', 'search-status'], 'nothing inside the redrawn page is a live region');
   mock.timers.tick(1);
   assert.equal(status.textContent, '1 setting matches.');

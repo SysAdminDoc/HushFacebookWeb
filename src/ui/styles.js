@@ -106,16 +106,12 @@ nav hr { border: 0; border-top: 1px solid var(--border); margin: 12px 12px; }
   color: var(--accent); font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;
 }
 .result-section:hover { text-decoration: underline; }
-.results, .page-heading + .empty { margin-top: 20px; }
 main { min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 24px 32px 40px; scrollbar-gutter: stable; overflow-wrap: anywhere; }
-.page-heading { display: flex; align-items: center; gap: 16px; margin: 0 0 4px; }
-.page-icon { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 12px; color: var(--accent); background: var(--selected); border: 1px solid #29415c; }
-.page-icon .nav-icon { width: 26px; height: 26px; stroke-width: 1.6; }
-.page-copy { min-width: 0; flex: 1; }
-.page-heading h3 { margin: 0; font-size: 24px; line-height: 30px; font-weight: 650; letter-spacing: -0.4px; }
-.page-heading p { margin: 2px 0 0; color: var(--subtext); font-size: 14px; line-height: 21px; }
-.setting-count { flex: none; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface0); color: var(--subtext); font-size: 13px; font-weight: 600; white-space: nowrap; }
-.setting-count.some { color: var(--accent); border-color: #29415c; }
+/* The page title is for screen readers only, so whatever follows it starts at the top. */
+main > .visually-hidden:first-child + * { margin-top: 0; }
+main > .visually-hidden:first-child + .diagnostic-summary { padding-top: 0; }
+.search-count { margin: 0 0 10px; padding-inline: 4px; color: var(--subtext); font-size: 13px; line-height: 20px; }
+.reload-card + .search-count, .reload-card + .empty { margin-top: 20px; }
 .reload-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 20px 0 0; padding: 12px 16px; background: var(--selected); border: 1px solid var(--accent); border-radius: 12px; }
 .reload-card .text { min-width: 0; }
 .reload-card .button { flex: none; }
@@ -240,8 +236,6 @@ nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surfac
   .body { grid-template-columns: 216px minmax(0, 1fr); }
   nav button { gap: 10px; font-size: 14px; }
   main { padding: 20px 20px 32px; }
-  .page-heading { flex-wrap: wrap; }
-  .setting-count { margin-inline-start: 64px; }
   .tiles { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
 }
 @media (max-width: 640px) {
@@ -266,13 +260,6 @@ nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surfac
   nav button[aria-current="page"]::before { inset: auto 10px 0; width: auto; height: 2px; }
   nav hr { display: none; }
   main { padding: 16px 12px 24px; }
-  .page-heading { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px 12px; }
-  .page-icon { width: 40px; height: 40px; grid-row: 1 / span 2; align-self: start; border-radius: 10px; }
-  .page-icon .nav-icon { width: 22px; height: 22px; }
-  .page-copy { grid-column: 2; }
-  .setting-count { grid-column: 2; justify-self: start; margin: 0; padding: 2px 10px; font-size: 12px; }
-  .page-heading h3 { font-size: 20px; line-height: 26px; }
-  .page-heading p { font-size: 13px; line-height: 19px; }
   .reload-card { gap: 12px; flex-wrap: wrap; }
   .group { margin-top: 20px; }
   .settings-group { padding: 0 14px; }
