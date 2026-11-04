@@ -280,6 +280,16 @@ test('server-drawn search listings stay in the data and their cards are hidden o
   assert.deepEqual(marked(), [], 'neither the results nor the page go');
 });
 
+test("a listing's own page keeps the seller's other listings, whatever they are", async () => {
+  const [line] = await fixtureLines('marketplace-search.jsonl');
+  const listings = searchEdges(parseLine(line)).map(listingOf).filter(Boolean);
+  const { doc, router, marked } = marketplacePage(itemPage(listings[0].id), listings);
+  const { rule } = setup({ 'filterMarketplace.shipped': true }, { doc, router });
+  assert.equal(rule.transform(parseLine(line), { transport: 'json-parse', path: `/marketplace/item/${listings[0].id}/` }), false);
+  await tick();
+  assert.deepEqual(marked(), []);
+});
+
 test('a listing page you open is kept while the option is on, the latest MAX_OPENED at most', () => {
   const storage = createMemoryStorage();
   const { router, go } = marketplacePage('https://www.facebook.com/marketplace/', []);
