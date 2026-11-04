@@ -45,11 +45,18 @@ const row = (id, role, words, tabindex) => `<div role="${role}" tabindex="${tabi
   <div role="none"></div>
 </div>`;
 
-const MENU = (role = 'button') => `<div role="menu" aria-label="Feed story"><div><div><div aria-hidden="false"><div><div><div id="rows">
+const MENU = (role = 'button', lead = '') => `<div role="menu" aria-label="Feed story"><div><div><div aria-hidden="false"><div><div><div id="rows">
+  ${lead}
   ${row('embed', role, ['Embed'], 0)}
   <hr>
   ${row('report-post', role, ['Report post', "We won't let NASA know who reported this."], -1)}
 </div></div></div></div></div></div></div>`;
+// The kind of first row Meta's updated menu (Your algorithm, 2026-10-13) may bring: one row
+// holding an Interested and Not interested pair, each a button of its own.
+const PAIR = (role) => `<div role="${role}" tabindex="-1" id="interest"><div>
+  ${row('interested', 'button', ['Interested'], 0)}
+  ${row('not-interested', 'button', ['Not interested'], 0)}
+</div></div>`;
 
 function page(html = PAGE) {
   const win = testWindow('https://www.facebook.com/NASA');
@@ -59,7 +66,7 @@ function page(html = PAGE) {
 }
 
 // Facebook's three-dot buttons: a click opens the menu in the layers, a second closes it.
-function wireMenus(doc, role = 'button', { later = 0 } = {}) {
+function wireMenus(doc, role = 'button', { later = 0, lead = '' } = {}) {
   for (const button of doc.querySelectorAll('[aria-haspopup="menu"]')) {
     button.addEventListener('click', () => {
       const open = button.getAttribute('aria-expanded') === 'true';
@@ -68,7 +75,7 @@ function wireMenus(doc, role = 'button', { later = 0 } = {}) {
       if (open) return;
       button.setAttribute('aria-expanded', 'true');
       const draw = () => {
-        if (button.getAttribute('aria-expanded') === 'true') doc.getElementById('layers').innerHTML = MENU(role);
+        if (button.getAttribute('aria-expanded') === 'true') doc.getElementById('layers').innerHTML = MENU(role, lead);
       };
       if (later) doc.defaultView.setTimeout(draw, later);
       else draw();
@@ -149,6 +156,39 @@ for (const role of ['button', 'menuitem']) {
     assert.deepEqual(entry.state(), { added: 1, clicked: 1 });
   });
 }
+
+for (const role of ['button', 'menuitem']) {
+  test(`a first row holding an Interested and Not interested pair isn't copied: Download is shaped like the next plain row (${role} rows)`, async () => {
+    const win = page();
+    const doc = win.document;
+    wireMenus(doc, role, { lead: PAIR(role) });
+    const runs = [];
+    createMenuDownload({ doc, enabled: () => true, find: findPhoto(), run: (found) => runs.push(found.id), setTimer: (fn) => win.setTimeout(fn, 0) }).apply();
+    doc.getElementById('dots').click();
+    await tick();
+    assert.deepEqual(ids(doc), ['download', 'interest', 'embed', 'report-post'], "still on top, above Facebook's first row");
+    assert.equal(topRow(doc).querySelectorAll(ROWS).length, 0, 'one click target, the row itself');
+    assert.equal(topRow(doc).outerHTML, buildRow(doc.getElementById('embed'), doc).outerHTML, "a copy of Embed, the first plain row");
+    topRow(doc).click();
+    assert.deepEqual(runs, ['1234567']);
+  });
+}
+
+test('with no plain row in the menu, the first row is copied as before', async () => {
+  const win = page();
+  const doc = win.document;
+  wireMenus(doc);
+  createMenuDownload({ doc, enabled: () => true, find: findPhoto(), run: () => {}, setTimer: (fn) => win.setTimeout(fn, 0) }).apply();
+  doc.getElementById('dots').click();
+  await tick();
+  // A menu of words alone, with no pictures.
+  for (const svg of doc.querySelectorAll('[role="menu"] svg')) svg.remove();
+  const expected = buildRow(doc.getElementById('embed'), doc).outerHTML;
+  topRow(doc).remove();
+  await tick();
+  assert.deepEqual(ids(doc), ['download', 'embed', 'report-post']);
+  assert.equal(topRow(doc).outerHTML, expected);
+});
 
 test("a comment's menu, a post with nothing to save and a switch that's off get no row", async () => {
   const win = page();
@@ -288,7 +328,7 @@ test('a menu drawn a moment after its button opens still gets the row', async ()
   assert.equal(entry.state().added, 1, 'added once over all the tries');
 });
 
-test('a first row with no words gets no copy, and a save that fails is logged', async () => {
+test('a first row with no words hands over to the next row, a menu with no words gets no copy, and a save that fails is logged', async () => {
   const win = page();
   const doc = win.document;
   wireMenus(doc);
@@ -299,6 +339,12 @@ test('a first row with no words gets no copy, and a save that fails is logged', 
   doc.getElementById('dots').click();
   await tick();
   doc.getElementById('embed').querySelectorAll('span').forEach((span) => span.remove());
+  const fromReport = buildRow(doc.getElementById('report-post'), doc).outerHTML;
+  topRow(doc).remove();
+  await tick();
+  assert.deepEqual(ids(doc), ['download', 'embed', 'report-post']);
+  assert.equal(topRow(doc).outerHTML, fromReport, 'a copy of Report post, the first row with words');
+  doc.getElementById('report-post').querySelectorAll('span').forEach((span) => span.remove());
   topRow(doc).remove();
   await tick();
   assert.deepEqual([ids(doc), errors], [['embed', 'report-post'], []]);

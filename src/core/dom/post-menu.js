@@ -8,8 +8,8 @@
 // sometimes a second line under it. A comment's "Report this" button opens a menu the same way, so
 // only a post's own button counts.
 //
-// A row is a copy of Facebook's first row with its picture and words swapped, so it looks like
-// Facebook's own in light and dark mode, and a copy carries none of Facebook's click handling.
+// A row is a copy of Facebook's first plain row with its picture and words swapped, so it looks
+// like Facebook's own in light and dark mode, and a copy carries none of Facebook's click handling.
 // Each feature copies Facebook's row, never another Hush row, so two features' rows look alike.
 
 import { isComment } from './posts.js';
@@ -69,6 +69,16 @@ export function strokeIcon(doc, d, size) {
 
 const ownText = (el) => [...el.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim());
 
+// The row Hush rows copy: the first with one picture, its words and no button inside it. Meta's
+// Your algorithm rollout (2026-10-13) brings an updated three-dot menu whose Interested and Not
+// interested ask follow-up questions; a copy of a first row holding that pair would carry two click
+// targets. With no plain row the first row serves, as before.
+export function templateRow(rows) {
+  const plain = (row) => row.querySelectorAll('i, svg, img').length === 1 && !row.querySelector(ROWS)
+    && [...row.querySelectorAll('*')].some(ownText);
+  return rows.find(plain) ?? rows[0];
+}
+
 // A copy of one of the menu's rows that reads text with the icon's picture, or null when the row
 // has no words to replace.
 export function buildMenuRow(template, doc, { text, icon, mark }) {
@@ -127,9 +137,11 @@ export function createPostMenuRow({ doc, mark, enabled, pick, label, icon, run, 
       shown.row.remove();
     }
     shown = null;
-    const rows = [...menu.querySelectorAll(ROWS)].filter((el) => !el.closest(`[${OUR_ROW}]`));
+    // Facebook's rows, without a button inside one of them.
+    const rows = [...menu.querySelectorAll(ROWS)]
+      .filter((el) => !el.closest(`[${OUR_ROW}]`) && el.parentElement.closest(`[role="menu"], ${ROWS}`) === menu);
     const first = rows[0];
-    const row = first && buildMenuRow(first, doc, { text, icon, mark });
+    const row = first && buildMenuRow(templateRow(rows), doc, { text, icon, mark });
     if (!row) return;
     const go = (event) => {
       event.preventDefault();

@@ -43,7 +43,8 @@ const row = (id, words, tabindex) => `<div role="button" tabindex="${tabindex}" 
   <div role="none"></div>
 </div>`;
 
-const MENU = `<div role="menu" aria-label="Feed story"><div><div><div aria-hidden="false"><div><div><div id="rows">
+const MENU = (lead = '') => `<div role="menu" aria-label="Feed story"><div><div><div aria-hidden="false"><div><div><div id="rows">
+  ${lead}
   ${row('embed', ['Embed'], 0)}
   <hr>
   ${row('report-post', ['Report post', "We won't let them know who reported this."], -1)}
@@ -78,7 +79,7 @@ const homePost = (doc) => doc.querySelector('#home-wrap > [aria-posinset]');
 const dotsOf = (post) => [...post.querySelectorAll('[aria-haspopup="menu"]')].find((el) => !el.closest('#comment'));
 
 // Facebook's three-dot buttons: a click opens the menu in the layers, a second closes it.
-function wireMenus(doc) {
+function wireMenus(doc, lead) {
   for (const button of doc.querySelectorAll('[aria-haspopup="menu"]')) {
     button.addEventListener('click', () => {
       const open = button.getAttribute('aria-expanded') === 'true';
@@ -86,7 +87,7 @@ function wireMenus(doc) {
       doc.getElementById('layers').replaceChildren();
       if (open) return;
       button.setAttribute('aria-expanded', 'true');
-      doc.getElementById('layers').innerHTML = MENU;
+      doc.getElementById('layers').innerHTML = MENU(lead);
     });
   }
 }
@@ -99,9 +100,9 @@ const ids = (doc) => [...(doc.querySelector('[role="menu"]')?.querySelectorAll(R
 const personRow = (doc) => doc.querySelector(`[role="menu"] [${PERSON_MARK}]`);
 const noteOf = (post) => post.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null;
 
-async function feature({ href = 'https://www.facebook.com/', settings: saved = {} } = {}) {
+async function feature({ href = 'https://www.facebook.com/', settings: saved = {}, lead } = {}) {
   const { win, doc, requests } = page(href);
-  wireMenus(doc);
+  wireMenus(doc, lead);
   let address = href;
   const storage = createMemoryStorage({ settings: { hidePostsByWords: true, ...saved } });
   // refuse(true) makes saves fail later, the way a full or closed extension storage does.
@@ -424,4 +425,21 @@ test('with Download in post menus on too, Download stays on top and this row com
   personRow(doc).click();
   await settle();
   assert.deepEqual([people(), runs], ['Dune lagoon', []]);
+});
+
+test("a first row holding an Interested and Not interested pair isn't copied: the row is shaped like the next plain row", async () => {
+  // The kind of first row Meta's updated menu (Your algorithm, 2026-10-13) may bring.
+  const lead = `<div role="button" tabindex="-1" id="interest"><div>
+    ${row('interested', ['Interested'], 0)}
+    ${row('not-interested', ['Not interested'], 0)}
+  </div></div>`;
+  const { doc, people } = await feature({ lead });
+  await open(doc, homePost(doc));
+  assert.deepEqual(ids(doc), ['person', 'interest', 'embed', 'report-post'], "right above Facebook's first row");
+  assert.equal(personRow(doc).querySelectorAll(ROWS).length, 0, 'one click target, the row itself');
+  const shape = (el) => [...el.querySelectorAll('*')].map((child) => child.tagName).join();
+  assert.equal(shape(personRow(doc)), shape(doc.getElementById('embed')), 'a copy of Embed, the first plain row');
+  personRow(doc).click();
+  await settle();
+  assert.equal(people(), 'Dune lagoon');
 });
