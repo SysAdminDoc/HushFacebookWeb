@@ -32,14 +32,15 @@ export function listingCard(link, id) {
   return null;
 }
 
-// The card an ad's /ads/about/ link sits in: the largest box around it that holds no listing and
-// no page title. On the results that's a cell of the grid. On a listing's own page (live
-// 2026-11-03) it's the ad box under the listing's details, whose column holds the h1. Null when
-// neither bounds it before the main column.
+// The card an ad's /ads/about/ link sits in: the largest box around it that holds no listing, no
+// seller and no page title. On the results that's a cell of the grid. On a listing's own page
+// (live 2026-11-03, four listings) it's the ad box under the listing's details, whose column
+// holds the h1 and the seller's profile links. The seller stops it too, should a layout put the
+// details in a box of their own under the h1. Null when nothing bounds it before the main column.
 export function adCard(link) {
   let card = link;
   for (let parent = card.parentElement; parent && parent.getAttribute('role') !== 'main'; parent = parent.parentElement) {
-    if (parent.querySelector(`${LISTING_LINK}, h1`)) return card;
+    if (parent.querySelector(`${LISTING_LINK}, a[href*="/marketplace/profile/"], h1`)) return card;
     card = parent;
   }
   return null;
@@ -113,15 +114,17 @@ export function watchListingCards({ doc, route, active, reasonOf, onHidden }) {
   });
 }
 
-// Marks the card of every ad on Marketplace, a listing's own page included. onHidden(card).
+// Marks the card of every ad on Marketplace, a listing's own page included. onHidden(key), where
+// key is the ad's /ads/about/ link. It carries a token from the ad's data that differs for each
+// ad (live 2026-11-03), so the same ad drawn again gives the same key.
 export function watchAdCards({ doc, route, active, onHidden }) {
   return watchCards({
     doc,
     route,
     page: marketplacePage,
     active,
-    onHidden: onHidden && ((id, reason, card) => onHidden(card)),
+    onHidden,
     mark: AD_MARK,
-    cardsOf: () => [...doc.querySelectorAll(AD_LINKS)].map((link) => [adCard(link), null, 'sponsored']),
+    cardsOf: () => [...doc.querySelectorAll(AD_LINKS)].map((link) => [adCard(link), link.getAttribute('href'), 'sponsored']),
   });
 }

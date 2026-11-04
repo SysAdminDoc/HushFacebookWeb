@@ -99,23 +99,23 @@ export function edgeListing(edge) {
   return null;
 }
 
-// The decimal mark people write in this locale ('.' or ',').
-export const decimalMark = (locale) => new Intl.NumberFormat(locale).formatToParts(1.5).find((part) => part.type === 'decimal')?.value ?? '.';
-
-// Digits split into groups by sep: 1 to 3 digits, then groups of 2 or 3 (Indian lakhs), the
-// last of 3.
+// Digits split into groups by sep: 1 to 3 digits (not a lone 0), then groups of 2 or 3 (Indian
+// lakhs), the last of 3.
 const grouped = (digits, sep) => {
   const groups = digits.split(sep);
-  return /^\d{1,3}$/.test(groups[0]) && groups.slice(1).every((group) => /^\d{2,3}$/.test(group)) && groups.at(-1).length === 3;
+  return /^[1-9]\d{0,2}$/.test(groups[0]) && groups.slice(1).every((group) => /^\d{2,3}$/.test(group)) && groups.at(-1).length === 3;
 };
 
-// A price box's number: null when it's empty, NaN when it isn't a price. Spaces, a currency sign
-// and either way of writing thousands and decimals are fine ("1,200.50" or "1.200,50"). One mark
-// before exactly three digits ("1,000" or "1.000") reads the way decimal (the browser's locale's
-// decimal mark) says.
-export function priceLimit(value, decimal = decimalMark(globalThis.navigator?.language)) {
-  const clean = String(value ?? '').replace(/[\s'’\p{Sc}]/gu, '');
-  if (!clean) return null;
+// A price box's number: null when it's empty, NaN when it isn't a price. Spaces, a currency's
+// sign or letters on either end ("R$ 1.500", "50 zł", "Rs. 500"), a whole-number "50,-" and
+// either way of writing thousands and decimals are fine ("1,200.50" or "1.200,50"). One mark
+// before exactly three digits ("1,000" or "1.000") groups thousands whatever the browser's
+// language: nobody types a price to three decimal places, and plenty of people write 1.000 on an
+// English browser. A lone letter after the number could be shorthand ("2k"), so that isn't a price.
+export function priceLimit(value) {
+  const spaced = String(value ?? '').replace(/[\s'’\p{Sc}]/gu, '');
+  if (!spaced) return null;
+  const clean = spaced.replace(/^\p{L}+\.?|\p{L}{2,}\.?$/gu, '').replace(/[.,]-$/, '');
   if (!/^[\d.,]*\d[\d.,]*$/.test(clean)) return NaN;
   const last = Math.max(clean.lastIndexOf('.'), clean.lastIndexOf(','));
   if (last === -1) return Number(clean);
@@ -128,11 +128,8 @@ export function priceLimit(value, decimal = decimalMark(globalThis.navigator?.la
     // Both marks: the last one is the decimal, and the other groups the thousands.
     return /^\d+$/.test(fraction) && grouped(whole, other) ? asNumber(whole.replaceAll(other, '')) : NaN;
   }
-  const groups = grouped(clean, mark);
-  const single = !whole.includes(mark) && /^\d+$/.test(fraction);
-  if (groups && single) return mark === decimal ? asNumber(whole) : Number(clean.replace(mark, ''));
-  if (groups) return Number(clean.replaceAll(mark, ''));
-  return single ? asNumber(whole) : NaN;
+  if (grouped(clean, mark)) return Number(clean.replaceAll(mark, ''));
+  return !whole.includes(mark) && /^\d+$/.test(fraction) ? asNumber(whole) : NaN;
 }
 
 // The reason a listing goes, one of REASONS' keys, or null. filter holds shipped and opened

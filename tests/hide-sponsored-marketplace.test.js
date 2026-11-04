@@ -27,8 +27,9 @@ const tick = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
 const searchEdges = (doc) => doc.data.marketplace_search.feed_units.edges;
 
 const listingCell = (id) => `<div class="cell" data-cell="${id}"><div><a href="/marketplace/item/${id}/?ref=search"><div><img alt=""></div><span>A listing</span></a></div></div>`;
+// Live, each ad's /ads/about/ link carries a token of its own.
 const adCell = (n) => `<div class="cell" data-cell="ad${n}"><div><div><a href="https://l.facebook.com/l.php?u=https%3A%2F%2Fshop.example%2F"><video></video></a></div>
-  <div><span>Shop</span><a href="https://www.facebook.com/ads/about/?entry_product=ad_preferences"><svg></svg></a></div></div></div>`;
+  <div><span>Shop</span><a href="https://www.facebook.com/ads/about/?entry_product=ad_preferences&amp;__cft__[0]=AZad${n}"><svg></svg></a></div></div></div>`;
 
 // A results page drawn from the capture's edges, and the feature set up on it with the switch's
 // state in on. Settings listeners are in listeners.
@@ -118,6 +119,14 @@ test("a listing's own page loses the ad box under its details and keeps the deta
   await tick();
   assert.deepEqual(item.marked(), ['ad'], 'the ad box and nothing else');
   assert.equal(item.doc.querySelector('h1').closest(`[${AD_MARK}]`), null, "the listing's details stay");
+
+  // A layout that puts the price, the seller and the ad in a box of their own under the h1 keeps
+  // that box: the seller's link stops the climb.
+  item.doc.querySelector('.column').innerHTML = `<h1><span>A listing</span></h1><div data-cell="details"><div><span>$50</span></div>
+    <div><a href="/marketplace/profile/5/">Seller</a></div>
+    <span data-cell="ad"><div><a href="https://www.facebook.com/ads/about/?entry_product=ad_preferences&amp;__cft__[0]=AZitem"><svg></svg></a></div></span></div>`;
+  await tick();
+  assert.deepEqual(item.marked(), ['ad']);
 });
 
 test('an ad with no listing and no title around it is left alone', async () => {
@@ -158,6 +167,13 @@ test('moving from a listing page back to the results hides the ads Facebook draw
   for (const fn of page.routes) fn();
   await tick();
   assert.deepEqual(page.marked(), ['ad1', 'ad2']);
+  assert.equal(page.diagnostics.decisions().length, 2, 'the same two ads, drawn again, count once');
+
+  // A cell Facebook reuses for another ad counts that one.
+  page.doc.querySelector('[data-cell="ad1"]').outerHTML = adCell(3);
+  await tick();
+  assert.deepEqual(page.marked(), ['ad3', 'ad2']);
+  assert.equal(page.diagnostics.decisions().length, 3);
 
   // Off Marketplace, a box with an /ads/about/ link is another switch's business.
   page.win.happyDOM.setURL('https://www.facebook.com/groups/feed/');

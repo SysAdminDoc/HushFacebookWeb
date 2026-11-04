@@ -21,14 +21,16 @@ export default {
     let drawn = false;
     let cards = null;
     if (doc && router) {
-      const counted = new WeakSet();
+      // Each ad counts once, however often Facebook draws its card again (going back to the
+      // results draws a new one).
+      const counted = new Set();
       cards = watchAdCards({
         doc,
         route: () => router.current(),
         active: () => enabled() && drawn,
-        onHidden: (card) => {
-          if (counted.has(card)) return;
-          counted.add(card);
+        onHidden: (key) => {
+          if (counted.has(key)) return;
+          counted.add(key);
           diagnostics?.decide({ post: null, rule: 'Sponsored listing', signal: 'MarketplaceFeedAdStory', layer: 'page' });
         },
       });

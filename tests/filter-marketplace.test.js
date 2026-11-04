@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
-import feature, { decimalMark, edgeListing, MAX_OPENED, OPENED_KEY, priceLimit } from '../src/features/marketplace/filter-marketplace.js';
+import feature, { edgeListing, MAX_OPENED, OPENED_KEY, priceLimit } from '../src/features/marketplace/filter-marketplace.js';
 import { LISTING_CSS, LISTING_MARK, listingPage, watchListingCards } from '../src/features/marketplace/listing-cards.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { installNetworkHooks } from '../src/core/net/hooks.js';
@@ -191,7 +191,7 @@ test('the word list matches titles and sellers, the people list sellers only, an
 test('price boxes take spaces, commas and a currency sign, and a range typed backwards still works', () => {
   assert.equal(priceLimit(''), null);
   assert.equal(priceLimit('   '), null);
-  assert.equal(priceLimit(' 1,200 ', '.'), 1200);
+  assert.equal(priceLimit(' 1,200 '), 1200);
   assert.equal(priceLimit('$50'), 50);
   assert.equal(priceLimit('€12.50'), 12.5);
   assert.ok(Number.isNaN(priceLimit('cheap')));
@@ -211,7 +211,7 @@ test('price boxes take spaces, commas and a currency sign, and a range typed bac
   assert.deepEqual(left({ 'filterMarketplace.minPrice': '50', 'filterMarketplace.maxPrice': '50' }), ['b', 'd'], 'a price right on a limit stays');
 });
 
-test("price boxes read decimal commas too, and a lone mark before three digits goes by the browser's language", () => {
+test('price boxes read decimal commas too, and a lone mark before three digits is always thousands', () => {
   assert.equal(priceLimit('12,50'), 12.5);
   assert.equal(priceLimit('1 000,00 €'), 1000);
   assert.equal(priceLimit('1.234,56'), 1234.56);
@@ -220,24 +220,29 @@ test("price boxes read decimal commas too, and a lone mark before three digits g
   assert.equal(priceLimit('1,00,000'), 100000, 'lakhs');
   assert.equal(priceLimit("1'000"), 1000);
   assert.equal(priceLimit('.99'), 0.99);
-  assert.equal(priceLimit('1.000', ','), 1000);
-  assert.equal(priceLimit('1,000', ','), 1);
-  assert.equal(priceLimit('1.000', '.'), 1);
-  assert.equal(priceLimit('1,000', '.'), 1000);
-  assert.equal(priceLimit('1234,567', '.'), 1234.567, 'no thousands mark comes after four digits');
+  assert.equal(priceLimit('1234,567'), 1234.567, 'no thousands mark comes after four digits');
+  assert.equal(priceLimit('0.500'), 0.5, 'nor after a lone 0');
+  assert.equal(priceLimit('0,500'), 0.5);
   for (const bad of ['5.', '1,2,3', '1,2,345', '1,2345,678', '1.2,5', '1,234,5', '1,2.345', ',', '-5', '1e5']) assert.ok(Number.isNaN(priceLimit(bad)), bad);
-  assert.equal(decimalMark('de-DE'), ',');
-  assert.equal(decimalMark('en-US'), '.');
+  // Nobody types a price to three decimal places, and plenty of people write 1.000 on an English
+  // browser, so the browser's language doesn't come into it.
   const own = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const language = (tag) => Object.defineProperty(globalThis, 'navigator', { value: { language: tag }, configurable: true });
   try {
-    language('de-DE');
-    assert.deepEqual([priceLimit('1.000'), priceLimit('1,000')], [1000, 1]);
-    language('en-US');
-    assert.deepEqual([priceLimit('1.000'), priceLimit('1,000')], [1, 1000]);
+    for (const tag of ['de-DE', 'en-GB', 'en-US']) {
+      language(tag);
+      assert.deepEqual([priceLimit('1.000'), priceLimit('1,000'), priceLimit('€ 2.500'), priceLimit('15.000')], [1000, 1000, 2500, 15000], tag);
+    }
   } finally {
     Object.defineProperty(globalThis, 'navigator', own);
   }
+});
+
+test('price boxes take a currency written in letters on either end', () => {
+  const cases = { 'R$ 1.500': 1500, 'Rp 50.000': 50000, '50 zł': 50, '100 kr': 100, '100 kr.': 100, "CHF 1'000": 1000, RM50: 50, 'Rs. 500': 500, '1.500 Kč': 1500, '$50 USD': 50, '50,-': 50, '50,- kr': 50 };
+  for (const [typed, number] of Object.entries(cases)) assert.equal(priceLimit(typed), number, typed);
+  // A lone letter after the number could be shorthand (2k), so it stays not-a-price.
+  for (const bad of ['2k', 'R', 'kr', 'five', '5 x']) assert.ok(Number.isNaN(priceLimit(bad)), bad);
 });
 
 test('a listing fetched on its own, with no feed edge around it, stays whole', () => {
