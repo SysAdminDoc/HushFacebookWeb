@@ -252,6 +252,7 @@
   "Hides the red counts on the top bar and left column, and the count in front of the browser tab's title. The notifications are still there when you open them.": "Hides the red counts on the top bar and left column, and the count in front of the browser tab's title. The notifications are still there when you open them.",
   "Hides the rows of reels Facebook puts between posts on Home and in your groups feed. Reels your friends post stay.": "Hides the rows of reels Facebook puts between posts on Home and in your groups feed. Reels your friends post stay.",
   "Hiding posts by {name}.": "Hiding posts by {name}.",
+  "Hiding posts by {name}. This post stays, since your always-show lists cover it.": "Hiding posts by {name}. This post stays, since your always-show lists cover it.",
   "Hold a reel for 2x": "Hold a reel for 2x",
   "Hold back usage logs": "Hold back usage logs",
   "Home shows the newest posts from the friends, groups and Pages you follow instead of Facebook's ranked feed.": "Home shows the newest posts from the friends, groups and Pages you follow instead of Facebook's ranked feed.",

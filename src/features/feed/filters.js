@@ -561,25 +561,17 @@ export default {
     // "Hide posts by <name>" in a post's three-dot menu adds who posted (posterOf: in a group, the
     // member, never the group) to the people list. The change above then hides their posts on
     // the page and the data rule hides the next ones. Nothing goes to Facebook: no hide, snooze or
-    // unfollow. A saved list only comes back from settings once the save lands, so the text
-    // being saved stands in for it until then, and two quick clicks both stay.
+    // unfollow. The list is read the way the panel shows it, with a change still being saved in
+    // place of the stored one, so two quick clicks both stay. A save that failed keeps its text
+    // there too, ready for the panel's Retry, so Undo still finds the name it added.
     if (doc && settings?.set) {
-      let saving = null;
-      const people = () => saving ?? option('people') ?? '';
+      const people = () => settings.display?.(PEOPLE_KEY) ?? option('people') ?? '';
       const nameKey = (name) => compileNames(name)[0]?.key;
       const listed = (text, name) => compileNames(text).some((entry) => entry.key === nameKey(name));
       let used = 0;
       // Throws before saving anything when settings refuses the text (over its length limit).
       const save = (text) => {
-        const saved = settings.set(PEOPLE_KEY, text);
-        saving = text;
-        const done = () => {
-          if (saving === text) saving = null;
-        };
-        Promise.resolve(saved).then(done, (error) => {
-          done();
-          log?.error("Couldn't save the list of people to hide", error);
-        });
+        Promise.resolve(settings.set(PEOPLE_KEY, text)).catch((error) => log?.error("Couldn't save the list of people to hide", error));
       };
       const undo = (name, before, after) => {
         const now = people();
@@ -594,7 +586,7 @@ export default {
         lines.splice(index, 1);
         save(lines.join('\n'));
       };
-      const addPerson = ({ name }) => {
+      const addPerson = ({ post, name }) => {
         const before = people();
         if (listed(before, name)) {
           toast?.(t('{name} is already on your list of people to hide.', { name }));
@@ -614,7 +606,13 @@ export default {
         }
         used++;
         changed();
-        toast?.(t('Hiding posts by {name}.', { name }), { action: { label: 'Undo', run: () => undo(name, before, after) } });
+        // The always-show lists win over the people list, and they also match the group a post is
+        // in, the Page it shares and the sites it links to, so this post can stay while others go.
+        const stays = post?.isConnected && shown(current(), postFields(post));
+        const message = stays
+          ? t('Hiding posts by {name}. This post stays, since your always-show lists cover it.', { name })
+          : t('Hiding posts by {name}.', { name });
+        toast?.(message, { action: { label: 'Undo', run: () => undo(name, before, after) } });
       };
       const row = createPostMenuRow({
         doc,

@@ -101,7 +101,12 @@ async function feature({ href = 'https://www.facebook.com/', settings: saved = {
   const { win, doc, requests } = page(href);
   wireMenus(doc);
   let address = href;
-  const settings = createSettings({ storage: createMemoryStorage({ settings: { hidePostsByWords: true, ...saved } }), features: [hidePostsByWords], migrations: [] });
+  const storage = createMemoryStorage({ settings: { hidePostsByWords: true, ...saved } });
+  // refuse(true) makes saves fail later, the way a full or closed extension storage does.
+  let refusing = false;
+  const mutate = storage.mutate;
+  storage.mutate = (key, mutation) => (refusing ? Promise.reject(new Error('Storage refused the save')) : mutate(key, mutation));
+  const settings = createSettings({ storage, features: [hidePostsByWords], migrations: [] });
   const posts = createPostTracker({ doc });
   const hider = createHider({ doc, posts });
   const diagnostics = createDiagnostics();
@@ -125,7 +130,7 @@ async function feature({ href = 'https://www.facebook.com/', settings: saved = {
   await settle();
   const people = () => settings.get('hidePostsByWords.people');
   const go = (to) => { address = to; };
-  return { win, doc, requests, settings, posts, diagnostics, toasts, errors, people, go };
+  return { win, doc, requests, settings, posts, diagnostics, toasts, errors, people, go, refuse: (on) => { refusing = on; } };
 }
 
 async function open(doc, post) {
@@ -293,6 +298,37 @@ test('someone on the always-show list and a list at its length limit are left as
   await settle();
   assert.equal(people(), full);
   assert.deepEqual([toasts.at(-1).message, toasts.at(-1).options.tone], [`Your list of people to hide is full, so ${MEMBER} wasn't added.`, 'error']);
+});
+
+test("after a save that failed, the panel holds the name for Retry, Undo still takes it out, and the next save leaves it out", async () => {
+  const { doc, toasts, people, settings, errors, refuse } = await feature();
+  refuse(true);
+  await open(doc, groupPost(doc));
+  personRow(doc).click();
+  await settle();
+  assert.equal(people(), '', 'nothing stored');
+  assert.equal(settings.display('hidePostsByWords.people'), MEMBER, 'shown in the panel, waiting for Retry');
+  assert.equal(settings.saveStatus().state, 'error');
+  assert.deepEqual(errors.map(([message]) => message), ["Couldn't save the list of people to hide"]);
+
+  toasts.at(-1).options.action.run();
+  await settle();
+  assert.equal(settings.display('hidePostsByWords.people'), '', 'Undo takes back the text Retry would send');
+  refuse(false);
+  await settings.set('hidePostsByWords.sites', 'example.com');
+  await settle();
+  assert.deepEqual([people(), noteOf(groupPost(doc))], ['', null], 'the next save of another setting brings nothing back');
+});
+
+test('when the always-show lists cover the post through its group, the name is added and the notice says this post stays', async () => {
+  const { doc, toasts, people } = await feature({ settings: { 'hidePostsByWords.showPeople': GROUP } });
+  await open(doc, groupPost(doc));
+  personRow(doc).click();
+  await settle();
+  assert.equal(people(), MEMBER);
+  assert.equal(noteOf(groupPost(doc)), null);
+  assert.deepEqual([toasts.at(-1).message, toasts.at(-1).options.action.label],
+    [`Hiding posts by ${MEMBER}. This post stays, since your always-show lists cover it.`, 'Undo']);
 });
 
 test('with Download in post menus on too, Download stays on top and this row comes next', async () => {
