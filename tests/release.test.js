@@ -8,15 +8,15 @@ import { zip } from '../scripts/zip.mjs';
 const head = { version: '1.2.3', commit: 'a'.repeat(40) };
 const run = (...stages) => stages.reduce((state, stage) => record(state, stage, head), null);
 
-test('release preflight accepts patched Node 24 and refuses older or different major lines', async () => {
-  for (const version of ['24.22.1', 'v24.22.1', '24.22.2', '24.23.0']) assert.equal(nodeVersionProblem(version), null);
-  for (const version of ['22.23.4', '24.19.0', '24.22.0', '25.0.0', '26.12.1', '24.22.1-rc.1', 'unknown']) {
-    assert.match(nodeVersionProblem(version), /Node 24\.22\.1 or a newer Node 24\.x is required/);
+test('release preflight accepts patched Node 24 and 26 and refuses older patches and other major lines', async () => {
+  for (const version of ['24.22.1', 'v24.22.1', '24.22.2', '24.23.0', '26.12.1', 'v26.13.0', '26.20.0']) assert.equal(nodeVersionProblem(version), null);
+  for (const version of ['22.23.4', '24.19.0', '24.22.0', '25.0.0', '25.9.3', '26.0.0', '26.12.0', '27.0.0', '24.22.1-rc.1', 'unknown']) {
+    assert.match(nodeVersionProblem(version), /^Node 24\.22\.1 or a newer 24\.x, or Node 26\.12\.1 or a newer 26\.x is required\. Found /);
   }
   assert.equal((await readFile(new URL('../.nvmrc', import.meta.url), 'utf8')).trim(), NODE_BASELINE);
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
-  assert.equal(pkg.engines.node, `>=${NODE_BASELINE} <25`);
+  assert.equal(pkg.engines.node, `>=${NODE_BASELINE} <25 || >=26.12.1 <27`);
   assert.equal(lock.packages[''].engines.node, pkg.engines.node);
 });
 

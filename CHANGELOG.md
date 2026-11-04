@@ -34,7 +34,7 @@
 * A reel saved from the Reels row in your feed no longer starts its file name with "Reels". That's the row's heading, not who posted it.
 * The XHR regression check waits for completion rather than racing a short timer.
 * The extension storage checks wait for a failed read's retries to run out instead of a fixed 225 ms, which a busy test run could miss.
-* Building requires Node 24.22.1 or a newer Node 24.x build. Release preflight explains how to update an older runtime.
+* Building requires Node 24.22.1 or a newer 24.x, or Node 26.12.1 or a newer 26.x. Both LTS lines give the same files byte for byte. Release preflight explains how to update an older runtime.
 * The watched list keeps older entries during a slow startup and merges additions from other tabs. Clear keeps older pending entries out, and failed saves can be retried in Playback.
 * Trim the share menu follows targets that load their names and links late, and clears old choices when a dialog is reused. Copy link stays available, and unrelated social-link lists stay untouched.
 * Trim the share menu works on every load again. On some loads Facebook gives the row of targets a label, and the menu used to skip a labeled row, so nothing was trimmed. Checked live on six posts in a row.

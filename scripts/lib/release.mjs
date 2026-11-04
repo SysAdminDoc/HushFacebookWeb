@@ -14,11 +14,16 @@ export const EXTRA_STAGES = { live: 'build' };
 export const PUBLISH_NEEDS = ['live'];
 
 export const NODE_BASELINE = '24.22.1';
-// The October 2026 security release is the minimum, and this project builds on Node 24 LTS.
+// This project builds on the Node 24 and Node 26 LTS lines, each from its October 2026
+// security release up. Odd lines like 25 never become LTS and are refused. NODE_BASELINE is
+// the oldest and is what .nvmrc pins.
+export const NODE_MINIMUMS = [NODE_BASELINE, '26.12.1'];
 export function nodeVersionProblem(version = process.versions.node) {
   const parts = String(version).match(/^v?(\d+)\.(\d+)\.(\d+)$/)?.slice(1).map(Number);
-  if (parts?.every(Number.isSafeInteger) && parts[0] === 24 && (parts[1] > 22 || (parts[1] === 22 && parts[2] >= 1))) return null;
-  return `Node ${NODE_BASELINE} or a newer Node 24.x is required. Found ${version}. Install the patched Node 24 LTS build and rerun preflight.`;
+  const floor = parts && NODE_MINIMUMS.map((minimum) => minimum.split('.').map(Number)).find(([major]) => major === parts[0]);
+  if (floor && parts.every(Number.isSafeInteger) && (parts[1] > floor[1] || (parts[1] === floor[1] && parts[2] >= floor[2]))) return null;
+  const lines = NODE_MINIMUMS.map((minimum) => `Node ${minimum} or a newer ${minimum.split('.')[0]}.x`).join(', or ');
+  return `${lines} is required. Found ${version}. Install a patched Node LTS build and rerun preflight.`;
 }
 
 // The live stage's walk, as scenario labels of .claude/live-review/inject.py: Home, groups,
