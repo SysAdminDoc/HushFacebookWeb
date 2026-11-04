@@ -72,11 +72,13 @@ export default {
 
     if (doc && router) {
       let blocks = 0;
-      const pymk = watchPymk({ doc, route, active: () => enabled() && option('friendsPages') === true, onBox: () => {
+      const pymk = watchPymk({ doc, route, active: () => enabled() && option('friendsPages') === true, onHidden: () => {
         blocks++;
         changed();
       } });
       settings?.subscribe(() => pymk.check());
+      // In content mode the route can catch up after Facebook has drawn the page.
+      router.subscribe?.(() => pymk.check());
       diagnostics?.add('People you may know blocks hidden on Friends pages and profiles', () => (option('friendsPages') === true ? String(blocks) : 'Off'));
     }
 

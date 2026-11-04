@@ -11,10 +11,14 @@
 // page's own "Suggestions" heading, with no See all link.
 //
 // The block is found from the See all link, so it doesn't depend on the language: the smallest
-// block around it that holds two other links (a card), grown while the blocks beside it hold no
-// link, button or heading, so the loading placeholders go too. A hidden placeholder never comes
-// into view, so Facebook doesn't keep fetching cards behind the hidden grid. A Friend requests
-// section, the profile's header and its tabs all hold links or buttons, so they stay.
+// block around it that holds two other links (a card), grown while the blocks after it
+// hold no link, button or heading, so the loading placeholders go too. A hidden placeholder never
+// comes into view, so Facebook doesn't keep fetching cards behind the hidden grid. A Friend
+// requests section, the profile's header and its tabs all hold links or buttons, so they stay,
+// and growing stops at anything drawn before the block, a section still loading included. While
+// the cards themselves are still loading, the search for two links can climb into a profile's
+// header or tabs: a block with something to click ahead of its heading, a field or tabs is no
+// block.
 
 import { whenRootReady } from '../../core/env.js';
 
@@ -25,7 +29,10 @@ const PAGES = ['friends', 'profile'];
 export const PYMK_CSS = `${PAGES.map((page) => `html[data-hfw-route="${page}"] [${PYMK_MARK}]`).join(',\n')} { display: none !important; }`;
 
 const HEADING = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
-const BUSY = `a[href], button, [role="button"], [role="tab"], input, textarea, ${HEADING}`;
+const CLICKABLE = 'a[href], button, [role="button"], [role="tab"], input, textarea';
+const BUSY = `${CLICKABLE}, ${HEADING}`;
+// A profile's header search and its tabs.
+const NEVER = '[role="tablist"], [role="tab"], input, textarea';
 // A block never grows into or past these.
 const EDGE = 'body, [role="main"], [role="navigation"], [role="banner"], [role="complementary"], [role="dialog"], [role="article"], [aria-posinset]';
 // A See all link in these is the page's own menu or a post, not the block.
@@ -47,6 +54,9 @@ const busy = (element) => element.matches(BUSY) || Boolean(element.querySelector
 // Headings that aren't inside another heading.
 const headingsIn = (block) => [...block.querySelectorAll(HEADING)].filter((h) => !h.parentElement?.closest(HEADING));
 
+// Whether `later` comes after `element` in the page, not inside it.
+const follows = (element, later) => (element.compareDocumentPosition(later) & 4) !== 0 && !element.contains(later);
+
 function linksBesides(block, link, enough) {
   let n = 0;
   for (const a of block.querySelectorAll('a[href]')) {
@@ -55,13 +65,26 @@ function linksBesides(block, link, enough) {
   return false;
 }
 
-// Up from `box` while every other block beside it is empty or only placeholders.
+// Drawn, or being drawn: anything with something inside it or a role of its own.
+const drawn = (element) => element.childElementCount > 0 || element.hasAttribute('role') || element.textContent.trim() !== '';
+
+// Up from `box` while nothing is drawn before it and the blocks after it are only placeholders.
 function grow(box) {
   for (let parent = box.parentElement; parent && !parent.matches(EDGE); parent = parent.parentElement) {
-    if ([...parent.children].some((child) => child !== box && busy(child))) break;
+    const children = [...parent.children];
+    const at = children.indexOf(box);
+    if (children.slice(0, at).some(drawn) || children.slice(at + 1).some(busy)) break;
     box = parent;
   }
   return box;
+}
+
+// Something to click ahead of the block's heading (or its See all link, with no heading).
+function clickableBefore(block, mark) {
+  for (const element of block.querySelectorAll(CLICKABLE)) {
+    if (element !== mark && follows(element, mark)) return true;
+  }
+  return false;
 }
 
 // The block around a See all link, or null when it isn't laid out the way it was seen live.
@@ -69,7 +92,9 @@ function seeAllBox(link) {
   if (link.closest(ELSEWHERE)) return null;
   for (let block = link.parentElement; block && !block.matches(EDGE); block = block.parentElement) {
     if (!linksBesides(block, link, 2)) continue;
-    return headingsIn(block).length <= 1 ? grow(block) : null;
+    const headings = headingsIn(block);
+    if (headings.length > 1 || block.querySelector(NEVER) || clickableBefore(block, headings[0] ?? link)) return null;
+    return grow(block);
   }
   return null;
 }
@@ -107,15 +132,20 @@ export function pymkBoxes(doc, path = '') {
 }
 
 // Marks each block once per frame of changes, only on the Friends pages and profiles. route()
-// is the router's current route, active() says the option is on.
-export function watchPymk({ doc, route, active, onBox }) {
-  const told = new WeakSet();
+// is the router's current route, active() says the option is on. onHidden runs once per page
+// visited that has a block, however often the block shrinks or is drawn again.
+export function watchPymk({ doc, route, active, onHidden }) {
   const onPage = () => PAGES.includes(route()?.type);
   let queued = false;
+  let counted = null;
   const check = () => {
     queued = false;
-    if (!active() || !onPage()) return;
-    const boxes = pymkBoxes(doc, route().path);
+    const current = route();
+    if (!active() || !PAGES.includes(current?.type)) {
+      counted = null;
+      return;
+    }
+    const boxes = pymkBoxes(doc, current.path);
     // React reuses blocks when it draws the page again, and a section that arrives later (Friend
     // requests) can sit beside the block, which then shrinks.
     for (const marked of doc.querySelectorAll(`[${PYMK_MARK}]`)) {
@@ -123,9 +153,10 @@ export function watchPymk({ doc, route, active, onBox }) {
     }
     for (const box of boxes) {
       if (!box.hasAttribute(PYMK_MARK)) box.setAttribute(PYMK_MARK, '');
-      if (told.has(box)) continue;
-      told.add(box);
-      onBox?.(box);
+    }
+    if (boxes.length && counted !== current.href) {
+      counted = current.href;
+      onHidden?.();
     }
   };
   const view = doc.defaultView;

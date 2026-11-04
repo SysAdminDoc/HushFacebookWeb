@@ -119,6 +119,106 @@ test('a Friend requests section beside the grid stays, and the block shrinks awa
   watch.stop();
 });
 
+// The grid's own section on a page: the smallest block around See all with two other links.
+function gridSection(doc) {
+  const see = [...doc.querySelectorAll('a[href]')].find((a) => seeAllLink(a) && !a.closest('[role="navigation"]'));
+  let section = see.parentElement;
+  while (section.querySelectorAll('a[href]').length < 3) section = section.parentElement;
+  return section;
+}
+
+test("while a profile's cards are still loading, nothing of its header or tabs goes, and the grid goes once they arrive", async () => {
+  const win = page('profile');
+  const doc = win.document;
+  const section = gridSection(doc);
+  const heading = doc.querySelector('h2');
+  const header = heading.parentElement;
+  // Cards still loading have no links and no Add friend buttons.
+  const cardLinks = [...section.querySelectorAll('a[href], [role="button"]')].filter((a) => !header.contains(a));
+  const holders = cardLinks.map((a) => {
+    const holder = doc.createElement('div');
+    a.replaceWith(holder);
+    return holder;
+  });
+  const before = [...doc.querySelectorAll('a[href], [role="button"]')].filter((el) => el.compareDocumentPosition(heading) & 4);
+  assert.ok(before.length > 0, "the profile's header has links and buttons ahead of the grid");
+  const outside = (box) => before.some((el) => box.contains(el)) || box.querySelector('input, [role="tablist"]');
+  assert.ok(!pymkBoxes(doc, '/profile.php').some(outside), 'no block takes the header or the tabs');
+
+  const watch = watchPymk({ doc, route: () => parseRoute(win.location.href), active: () => true });
+  await tick();
+  assert.ok(![...doc.querySelectorAll(`[${PYMK_MARK}]`)].some(outside), 'nothing of the header is marked while loading');
+  holders.forEach((holder, i) => holder.replaceWith(cardLinks[i]));
+  await tick();
+  const marked = doc.querySelector(`[${PYMK_MARK}]`);
+  assert.ok(marked?.contains(heading) && !outside(marked), 'the grid goes once its cards are in');
+  watch.stop();
+});
+
+test("a grid still loading right above a profile's tabs leaves the tabs", () => {
+  const html = `<div role="main"><div><div><div><h2>People you may know</h2><a href="/friends/suggestions/">See all</a></div>
+    <div role="list"><div role="listitem"></div><div role="listitem"></div></div></div>
+    <div role="tablist"><a role="tab" href="/profile.php?id=1&amp;sk=about">About</a><a role="tab" href="/profile.php?id=1&amp;sk=friends">Friends</a>
+    <a role="tab" href="/profile.php?id=1&amp;sk=photos">Photos</a></div></div></div>`;
+  const doc = page('profile', html).document;
+  assert.ok(!pymkBoxes(doc, '/profile.php').some((box) => box.querySelector('[role="tablist"]')), 'the tabs stay');
+});
+
+test('a section still loading ahead of the grid stays, so it can load', () => {
+  for (const placeholder of [
+    '<div class="ahead"><div role="status" aria-label="Loading..." data-visualcompletion="loading-state"></div></div>',
+    '<div class="ahead" role="status" aria-label="Loading..."></div>',
+  ]) {
+    const doc = page('friends').document;
+    const section = gridSection(doc);
+    let grid = section;
+    while (!grid.querySelector('[data-visualcompletion="loading-state"]')) grid = grid.parentElement;
+    grid.insertAdjacentHTML('beforebegin', placeholder);
+    const ahead = doc.querySelector('.ahead');
+    const box = one(doc, 'friends');
+    assert.ok(!box.contains(ahead), 'the placeholder ahead stays');
+    assert.ok(box.contains(section) && box.contains(grid.querySelector('[data-visualcompletion="loading-state"]')), "the grid and its own placeholders still go");
+  }
+});
+
+test('the block is marked when the route catches up after Facebook drew the page, and each page visited counts once', async () => {
+  const win = page('friends', `${MENU}<div id="slot"></div>`);
+  const doc = win.document;
+  let current = parseRoute('https://www.facebook.com/');
+  const routeListeners = [];
+  const router = { current: () => current, subscribe: (fn) => routeListeners.push(fn) };
+  const values = { hideSuggestedPosts: true, 'hideSuggestedPosts.friendsPages': true };
+  const rows = new Map();
+  const diagnostics = { add: (label, read) => rows.set(label, read), changed: () => {} };
+  const settings = { get: (key) => values[key], enabled: (id) => values[id] === true, subscribe: () => {} };
+  hideSuggestedPosts.setup({ doc, router, settings, diagnostics, enabled: () => true, option: (key) => values[`hideSuggestedPosts.${key}`] });
+  const count = () => [...rows].find(([label]) => /People you may know/.test(label))?.[1]();
+
+  doc.getElementById('slot').innerHTML = captured.friends;
+  await tick();
+  assert.ok(!doc.querySelector(`[${PYMK_MARK}]`), 'nothing while the route still reads Home');
+  current = parseRoute('https://www.facebook.com/friends');
+  for (const fn of routeListeners) fn();
+  assert.ok(doc.querySelector(`[${PYMK_MARK}]`), 'marked when the route catches up');
+  assert.equal(count(), '1');
+
+  // A section arriving ahead of the grid shrinks the block, and React drawing it again: same page.
+  let grid = gridSection(doc);
+  while (!grid.querySelector('[data-visualcompletion="loading-state"]')) grid = grid.parentElement;
+  grid.insertAdjacentHTML('beforebegin', '<div><h2>Friend requests</h2><a href="/friends/requests/">See all</a></div>');
+  await tick();
+  doc.getElementById('slot').innerHTML = captured.friends;
+  await tick();
+  assert.ok(doc.querySelector(`[${PYMK_MARK}]`), 'the new block is marked');
+  assert.equal(count(), '1', 'one page visited, one count');
+
+  current = parseRoute('https://www.facebook.com/');
+  for (const fn of routeListeners) fn();
+  current = parseRoute('https://www.facebook.com/friends');
+  for (const fn of routeListeners) fn();
+  assert.equal(count(), '2', 'coming back to the page counts again');
+});
+
 test("a See all link in a post, Home's own row or anywhere off the Friends pages and profiles marks nothing", async () => {
   const post = `<div role="main"><div role="article"><div><h2>People you may know</h2><a href="/friends/suggestions/">See all</a></div>
     <div><a href="/profile.php?id=3">A</a><a href="/profile.php?id=4">B</a></div></div></div>`;

@@ -303,6 +303,12 @@ test('the checker reads a word at a time and keeps what the scrub leaves', () =>
   assert.deepEqual(findRealText('<span>&lt;Amy&gt;</span>'), ['text <****'], 'escaped text is read as text');
 });
 
+test("Facebook's phrases pass whole, and their short words don't pass alone", () => {
+  assert.deepEqual(findRealText('<h2>People you may know</h2><a>See all</a><div>Add friend</div><span>Mutual friends</span>'), []);
+  assert.deepEqual(findRealText('<span>May</span>'), ['text M**'], 'a lone given name is caught');
+  assert.equal(findRealText('<span>People you may know May</span>').length, 1, 'a name after a phrase is caught');
+});
+
 test('short names in captured data are replaced wherever a name or text goes', () => {
   const out = scrubValue({ actors: [{ name: 'Amy', short_name: 'Amy', first_name: 'Al' }], message: { text: 'Amy' }, title: { text: 'Al' } });
   assert.ok(!/Amy|"Al"/.test(JSON.stringify(out)), JSON.stringify(out));

@@ -427,17 +427,26 @@ export function scrubDomTree(node) {
 // Words that scrubbed page markup may still hold: placeholder words and Facebook's own. Text
 // pieces next to each other run together in the markup ("Maple river…", "Like·Share"), so
 // it's checked a word at a time, and a word may be several of these run together.
-// Only words of four letters or more run together, so "ad" and "a" can't spell "Ada".
-const KNOWN_WORDS = new Set([...VOCAB, ...[...UI_TEXT].flatMap((text) => text.split(' '))].map((word) => word.replace(/\P{L}/gu, '')).filter(Boolean));
+// Only words of four letters or more run together, so "ad" and "a" can't spell "Ada". A phrase's
+// shorter words only pass inside the whole phrase, so "may" from "People you may know" doesn't
+// let a lone "May" through.
+const PHRASES = [...UI_TEXT].filter((text) => text.includes(' '));
+const bareWord = (word) => word.replace(/\P{L}/gu, '');
+const KNOWN_WORDS = new Set([
+  ...VOCAB.map(bareWord),
+  ...[...UI_TEXT].filter((text) => !text.includes(' ')).map(bareWord),
+  ...PHRASES.flatMap((text) => text.split(' ').map(bareWord)).filter((word) => word.length >= 4),
+].filter(Boolean));
 const KNOWN_RUN = new RegExp(`^(?:${[...KNOWN_WORDS].filter((word) => word.length >= 4).join('|')})+$`, 'i');
+const PHRASE = new RegExp(`(?<!\\S)(?:${PHRASES.map((text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?!\\S)`, 'gi');
 const unescape = (value) => value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
 function scrubbedWord(word) {
   // A label's scrambled letters, each with an invisible mark after it, and "2h" or "1.2K".
   if (letters(word) <= 1 || /^(?:\p{L}[\p{M}\p{Cf}]+)+$/u.test(word) || /^x{1,3}$/.test(word)) return true;
-  const bare = word.replace(/\P{L}/gu, '');
+  const bare = bareWord(word);
   return KNOWN_WORDS.has(bare.toLowerCase()) || KNOWN_RUN.test(bare);
 }
-const scrubbedText = (value) => value.trim().split(/\s+/).every(scrubbedWord);
+const scrubbedText = (value) => value.replace(PHRASE, ' ').trim().split(/\s+/).filter(Boolean).every(scrubbedWord);
 
 // The text runs and prose attributes in page markup that are none of those: a person's words
 // or name the scrub missed. Each comes back masked, so the report doesn't repeat it.
