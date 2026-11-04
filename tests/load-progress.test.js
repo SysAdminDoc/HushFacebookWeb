@@ -62,30 +62,45 @@ function setup({ on = true } = {}) {
   };
 }
 
-// A page of feed edges, the ones a rule emptied keeping only their cursor.
-const page = (kept, emptied) => ({
+// A page of feed edges, the ones a rule emptied keeping only their cursor and deduplication_key,
+// each a post not sent before unless its keys are given.
+let serial = 0;
+const page = (kept, emptied, keys = Array.from({ length: emptied }, () => String(++serial))) => ({
   data: { viewer: { news_feed: { edges: [
-    ...Array.from({ length: kept }, (_, i) => ({ cursor: `k${i}`, node: { __typename: 'Story', __isFeedUnit: 'Story' } })),
-    ...Array.from({ length: emptied }, (_, i) => ({ cursor: `e${i}`, category: 'ORGANIC' })),
+    ...Array.from({ length: kept }, (_, i) => ({ cursor: `k${i}`, deduplication_key: `k${++serial}`, node: { __typename: 'Story', __isFeedUnit: 'Story' } })),
+    ...keys.map((key, i) => ({ cursor: `e${i}`, category: 'ORGANIC', deduplication_key: key })),
   ] } } },
 });
 
-test('counts the edges a rule emptied, not the ones kept or the comments inside a story', () => {
-  assert.equal(emptiedEdges(page(3, 2)), 2);
+test('lists the edges a rule emptied by key, not the ones kept or the comments inside a story', () => {
+  assert.deepEqual(emptiedEdges(page(3, 2, ['-7875591307351691376', '42'])), ['-7875591307351691376', '42']);
   const story = { cursor: 'a', node: { __typename: 'Story', feedback: { comments: { edges: [{ cursor: 'c1' }, { cursor: 'c2', node: null }] } } } };
-  assert.equal(emptiedEdges({ data: { viewer: { news_feed: { edges: [story] } } } }), 0);
-  // A streamed edge comes as a document of its own.
-  assert.equal(emptiedEdges({ label: 'x', path: ['viewer', 'news_feed', 'edges', 4], data: { cursor: 'd' } }), 1);
-  assert.equal(emptiedEdges({ data: { viewer: { news_feed: { page_info: { end_cursor: 'z', has_next_page: true } } } } }), 0);
+  assert.deepEqual(emptiedEdges({ data: { viewer: { news_feed: { edges: [story] } } } }), []);
+  // A streamed edge comes as a document of its own, and one without a key is listed as null.
+  assert.deepEqual(emptiedEdges({ label: 'x', path: ['viewer', 'news_feed', 'edges', 4], data: { cursor: 'd' } }), [null]);
+  assert.deepEqual(emptiedEdges({ data: { viewer: { news_feed: { page_info: { end_cursor: 'z', has_next_page: true } } } } }), []);
 });
 
 test("finds the feed's first loading card, not one inside a post", () => {
   const { doc } = setup();
+  // A post Facebook is drawing again after its own X: the same card, and no links left.
+  doc.querySelector('.feed').insertAdjacentHTML('afterbegin', `<div aria-posinset="2">${CARD('redrawn')}</div>`);
   assert.equal(feedCard(doc)?.id, 'first');
   doc.getElementById('first').parentElement.remove();
   assert.equal(feedCard(doc)?.id, 'second');
   doc.getElementById('second').parentElement.remove();
   assert.ok(feedCard(doc) === null, "a post's own loader isn't the feed's");
+});
+
+test('a post Facebook sends again counts once', async () => {
+  const { answer, note, settle } = setup();
+  answer(page(1, 2, ['ad', 'friend']));
+  answer(page(2, 2, ['ad', 'group']));
+  // A later answer with only posts already counted.
+  answer(page(0, 2, ['friend', 'group']));
+  answer(page(0, 2, [null, null]));
+  await settle();
+  assert.equal(note(), 'Hid 5 posts so far. Getting more from Facebook', 'three posts with keys and two without');
 });
 
 test('the first card says how many posts were hidden, from the data and on the page', async () => {

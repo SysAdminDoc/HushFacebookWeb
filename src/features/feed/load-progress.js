@@ -11,9 +11,15 @@
 // feed answer with a cursor and no node is one of ours: stock Home sent 26 edges in 7 answers,
 // every one with a node (live 2026-11-04). The page rules hide drawn posts through the hider.
 //
+// Each post counts once. Facebook sends a post it thinks you haven't seen again, and one that's
+// never drawn never goes on the recentVPVs list each feed request carries, so the same ad came
+// back in the very next answer (live 2026-11-04: 10 edges emptied in one visit were 7 posts).
+// The edge's deduplication_key, which recentVPVs names posts by as vsid, stays when its node goes.
+//
 // Nothing is inserted into Facebook's markup. The card only gets an attribute, the same card
-// shape on Home and in a group (role=status inside a role=article with no links, live
-// 2026-11-04), and the attribute comes off again when there's nothing to say.
+// shape on Home and in a group (role=status inside a role=article with no links and no
+// aria-posinset, live 2026-11-04), and the attribute comes off again when there's nothing to
+// say. A post Facebook is redrawing (after its own X) holds the same card, inside the post.
 
 import { SKIP, walk } from '../../core/json-walk.js';
 import { plural } from '../../core/i18n.js';
@@ -22,23 +28,24 @@ import { FEED_PAGES, feedKind, loadingSign, shown } from '../../core/load-watchd
 export const NOTE = 'data-hfw-loading';
 const CARDS = '[role="main"] [role="status"][data-visualcompletion="loading-state"]';
 
-// Feed edges in one answer that a rule emptied. An edge is the first object down any branch with
-// a string cursor, so the comments inside a story aren't looked at.
+// Feed edges in one answer that a rule emptied, by their deduplication_key (null for one without).
+// An edge is the first object down any branch with a string cursor, so the comments inside a
+// story aren't looked at.
 export function emptiedEdges(doc) {
-  let emptied = 0;
+  const emptied = [];
   walk(doc, (value) => {
     if (Array.isArray(value) || typeof value.cursor !== 'string') return undefined;
-    if (!value.node || typeof value.node !== 'object') emptied++;
+    if (!value.node || typeof value.node !== 'object') emptied.push(typeof value.deduplication_key === 'string' ? value.deduplication_key : null);
     return SKIP;
   });
   return emptied;
 }
 
-// The first of Facebook's loading cards at the end of the feed, or null. A card inside a post
-// that has links is that post's own (a video loading), not the feed's.
+// The first of Facebook's loading cards at the end of the feed, or null. A card inside a post is
+// that post's own (a video loading, or the post redrawn after its X), not the feed's.
 export function feedCard(doc) {
   for (const card of doc.querySelectorAll(CARDS)) {
-    if (shown(card) && loadingSign(card)) return card;
+    if (shown(card) && !card.closest('[aria-posinset]') && loadingSign(card)) return card;
   }
   return null;
 }
@@ -68,9 +75,10 @@ export default {
     const live = () => enabled() && onFeed();
     // Counted for the feed that's open. The hider's count runs from the page load, so it's read
     // against where it stood when this feed opened.
-    let emptied = 0;
+    let emptied = new Set();
+    let unnamed = 0;
     let base = hider?.hiddenPosts() ?? 0;
-    const hidden = () => emptied + (hider?.hiddenPosts() ?? 0) - base;
+    const hidden = () => emptied.size + unnamed + (hider?.hiddenPosts() ?? 0) - base;
     let marked = null;
 
     function update() {
@@ -102,15 +110,19 @@ export default {
       observe: true,
       transform(data) {
         if (!onFeed()) return;
-        const count = emptiedEdges(data);
-        if (!count) return;
-        emptied += count;
+        const keys = emptiedEdges(data);
+        if (!keys.length) return;
+        for (const key of keys) {
+          if (key === null) unnamed++;
+          else emptied.add(key);
+        }
         schedule();
       },
     });
     hider?.subscribe(schedule);
     router.subscribe(() => {
-      emptied = 0;
+      emptied = new Set();
+      unnamed = 0;
       base = hider?.hiddenPosts() ?? 0;
       schedule();
     });
