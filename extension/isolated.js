@@ -129,12 +129,12 @@ const openedRecord = (value) => (
   && Object.keys(value).length <= 1000
   && Object.entries(value).every(([id, at]) => /^\d{1,32}$/.test(id) && finite(at, 0))
 );
-// Keep posts you hide hidden keeps 3000 photo, video and text keys
+// Keep posts you hide hidden keeps 3000 photo, video, text and poster-and-words keys
 // (src/features/feed/keep-posts-hidden.js MAX_HIDDEN, keys from src/core/seen-keys.js).
 const hiddenRecord = (value) => (
   isRecord(value)
   && Object.keys(value).length <= 3000
-  && Object.entries(value).every(([key, at]) => /^(?:m:\d{6,32}|t:[0-9a-z]{2,14})$/.test(key) && finite(at, 0))
+  && Object.entries(value).every(([key, at]) => /^(?:m:\d{6,32}|[tw]:[0-9a-z]{2,14})$/.test(key) && finite(at, 0))
 );
 // The background's release check (extension/background.js lists the fields). A record saved
 // before checkedAt existed has `at` instead of the times after it.

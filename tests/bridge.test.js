@@ -2726,7 +2726,7 @@ test("a page reads and writes its own account's activity and the shared lists fr
     [activityKeyFor('keepVolume.state', account), { volume: 0.5, muted: false }],
     [activityKeyFor('seenPostsCleared', account), 50],
     [activityKeyFor(OPENED_KEY, account), { 1234567890: 5, 2234567890: 6 }],
-    [activityKeyFor(HIDDEN_KEY, account), { 'm:1234567890': 5, [textKey('Sunset over the jetty tonight, the water was so calm')]: 5 }],
+    [activityKeyFor(HIDDEN_KEY, account), { 'm:1234567890': 5, [textKey('Sunset over the jetty tonight, the water was so calm')]: 5, 'w:1x9k2a0b7z3c': 5 }],
   ]) {
     assert.equal((await forged.send('storage:set', { key, value })).ok, true, key);
     assert.deepEqual(chrome.data[key], value);
@@ -2738,10 +2738,11 @@ test("a page reads and writes its own account's activity and the shared lists fr
     await refused(forged.send('storage:set', { key: openedKey, value }), /not allowed/, JSON.stringify(value).slice(0, 40));
   }
   await refused(forged.send('storage:set', { key: activityKeyFor(OPENED_KEY, other), value: { 1234567890: 5 } }), /not allowed/, "another account's opened listings");
-  // Posts hidden with their X are photo, video and text keys and times, MAX_HIDDEN at most.
+  // Posts hidden with their X are photo, video, text and poster-and-words keys and times,
+  // MAX_HIDDEN at most.
   const hiddenKey = activityKeyFor(HIDDEN_KEY, account);
   const tooManyHidden = Object.fromEntries(Array.from({ length: MAX_HIDDEN + 1 }, (_, i) => [`m:${1000000 + i}`, i]));
-  for (const value of [{ 'javascript:alert(1)': 5 }, { 'm:12345': 5 }, { 't:ABC': 5 }, { 'm:1234567890': -1 }, { 'm:1234567890': '5' }, [5], tooManyHidden]) {
+  for (const value of [{ 'javascript:alert(1)': 5 }, { 'm:12345': 5 }, { 't:ABC': 5 }, { 'w:ABC': 5 }, { 'x:abc': 5 }, { 'm:1234567890': -1 }, { 'm:1234567890': '5' }, [5], tooManyHidden]) {
     await refused(forged.send('storage:set', { key: hiddenKey, value }), /not allowed/, JSON.stringify(value).slice(0, 40));
   }
   await refused(forged.send('storage:set', { key: activityKeyFor(HIDDEN_KEY, other), value: { 'm:1234567890': 5 } }), /not allowed/, "another account's hidden posts");

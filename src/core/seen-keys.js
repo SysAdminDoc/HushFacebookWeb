@@ -9,6 +9,9 @@
 //             letters) gives no key, since "Happy birthday!" would match too much.
 // Keys come from the page (when a post is seen) and from the data (to drop a seen post before
 // it's drawn), and both sides read them the same way.
+//   w:<hash>  Keep posts you hide hidden only, for a post with neither (a link shared with a few
+//             words on top): who posted it, its words and the title of what it links to, from
+//             the page alone. Too loose to say a post was seen, but its X was pressed.
 
 import { ownLinks } from './dom/posts.js';
 import { normalizeText, visibleText } from './dom/visible-text.js';
@@ -57,8 +60,17 @@ export function mediaIdOf(href) {
   return null;
 }
 
+// The post's own first match, not a comment's. Comments are nested role=article elements labeled
+// "Comment by ...".
+const firstOwn = (post, selector) => [...post.querySelectorAll(selector)].find((element) => {
+  const comment = element.closest(COMMENTS);
+  return !comment || comment === post || !post.contains(comment);
+});
+// "See more" isn't part of the text.
+const wordsIn = (holder) => (holder ? visibleText(holder, (element) => !element.closest('[role="button"]')) : '');
+
 // Keys for a post drawn on the page. Links in the post text and the headings point at other
-// things, and "See more" isn't part of the text.
+// things.
 export function pageKeys(post) {
   const keys = new Set();
   for (const a of ownLinks(post)) {
@@ -66,18 +78,17 @@ export function pageKeys(post) {
     const id = mediaIdOf(a.getAttribute('href'));
     if (id) keys.add(`m:${id}`);
   }
-  // Comments are nested role=article elements labeled "Comment by ...".
-  const first = (selector) => [...post.querySelectorAll(selector)].find((element) => {
-    const comment = element.closest(COMMENTS);
-    return !comment || comment === post || !post.contains(comment);
-  });
-  const holder = first(MESSAGE) ?? first(TITLE);
-  if (holder) {
-    const text = visibleText(holder, (element) => !element.closest('[role="button"]'));
-    const key = textKey(text);
-    if (key) keys.add(key);
-  }
+  const key = textKey(wordsIn(firstOwn(post, MESSAGE) ?? firstOwn(post, TITLE)));
+  if (key) keys.add(key);
   return [...keys];
+}
+
+// The w: key, or null for a post without a word of its own or in its link's title.
+export function wordsKey(post, poster) {
+  const words = squash(`${wordsIn(firstOwn(post, MESSAGE))} ${wordsIn(firstOwn(post, TITLE))}`);
+  if (!words) return null;
+  const letters = squash(poster ?? '') + words;
+  return `w:${fnv(letters, 2166136261)}${fnv(letters, 3735928559)}`;
 }
 
 const textOf = (holder) => (typeof holder?.text === 'string' && holder.text ? holder.text : null);

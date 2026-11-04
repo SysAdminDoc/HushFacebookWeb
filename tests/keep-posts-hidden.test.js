@@ -12,7 +12,7 @@ import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
 import { parseRoute } from '../src/core/route.js';
-import { textKey } from '../src/core/seen-keys.js';
+import { textKey, wordsKey } from '../src/core/seen-keys.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import keepPostsHidden, { HIDDEN_KEY, MAX_HIDDEN, isHideControl } from '../src/features/feed/keep-posts-hidden.js';
 
@@ -26,10 +26,10 @@ const X_PATH = 'M15.543 3.043a1 1 0 1 1 1.414 1.414L11.414 10l5.543 5.542a1 1 0 
 const cross = (label) => `<a aria-label="${label}" href="#" role="link" tabindex="0" class="x"><svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="${X_PATH}"></path></svg><div role="none" data-visualcompletion="ignore" style="inset: 0px;"></div></a>`;
 
 const words = (n) => `Post number ${n} with enough words to count`;
-const post = (n, { text = words(n), label = 'Hide post by Pat Example', photo = true, extra = '' } = {}) => `
+const post = (n, { text = words(n), label = 'Hide post by Pat Example', photo = true, extra = '', name = 'Pat Example' } = {}) => `
   <div><div aria-posinset="${n}">
     <div>
-      <div data-ad-rendering-role="profile_name"><h4><a href="/pat.example">Pat Example</a></h4></div>
+      <div data-ad-rendering-role="profile_name"><h4><a href="/${name.toLowerCase().replace(' ', '.')}">${name}</a></h4></div>
       <div role="button" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for this post" class="dots"></div>
       ${label === null ? '' : cross(label)}
     </div>
@@ -38,6 +38,9 @@ const post = (n, { text = words(n), label = 'Hide post by Pat Example', photo = 
     ${extra}
   </div></div>`;
 const keysOf = (n) => [`m:5555555${n}`, textKey(words(n))];
+// A link shared with a few words on top, as the second X on Home was drawn live on 2026-11-04:
+// an outside link with its title, and no photo or video of Facebook's.
+const share = (title) => `<a href="https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com%2Fstory&h=AT0"><img src="preview.jpg" alt=""><div data-ad-rendering-role="title"><span>${title}</span></div></a>`;
 
 // Facebook's handlers sit on its root, below the window and the document.
 function page(html, href = 'https://www.facebook.com/') {
@@ -239,9 +242,67 @@ test('a post you hid is only hidden on Home and in the groups feed', () => {
   }
 });
 
-test("a post it can't recognize, the switch off, and pages other than Home and the groups feed leave the X to Facebook", () => {
+test('a link shared with a few words is remembered by who posted it, its words and its title', () => {
+  const storage = sharedStorage();
+  const short = { photo: false, text: 'Nice one' };
+  const { win, heard } = page(post(1, { ...short, extra: share('Ten places to eat downtown') }));
+  const { doc, posts, toasts } = setup(win, { storage, clock: { now: 40 } });
+  assert.equal(press(win, xOf(doc, 1)), false);
+  assert.deepEqual(heard, []);
+  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  const saved = Object.keys(storage.get(HIDDEN_KEY));
+  assert.deepEqual(saved, [wordsKey(postOf(doc, 1), 'Pat Example')]);
+  assert.match(saved[0], /^w:[0-9a-z]{2,14}$/, 'a key the extension keeps');
+  assert.equal(toasts[0].message, 'Post hidden. It stays hidden when the feed loads again.');
+  posts.stop();
+
+  // The feed loads again. Only the same words and title from the same person match, and only on
+  // a post with nothing else to know it by.
+  const again = page(post(2, { ...short, extra: share('Five places to eat uptown') })
+    + post(3, { ...short, name: 'Sam Other', label: 'Hide post by Sam Other', extra: share('Ten places to eat downtown') })
+    + post(4, { text: 'Nice one', extra: share('Ten places to eat downtown') })
+    + post(1, { ...short, extra: share('Ten places to eat downtown') }));
+  const next = setup(again.win, { storage });
+  assert.equal(note(next.doc, 1), 'Hidden: Dismissed. Show');
+  for (const n of [2, 3, 4]) assert.equal(note(next.doc, n), null, `post ${n}`);
+  next.posts.stop();
+});
+
+test('a post with nothing to know it by is hidden until the page loads again', () => {
+  const storage = sharedStorage();
+  const bare = () => post(1, { photo: false, text: '' });
+  const { win, heard } = page(bare() + post(2));
+  const { doc, posts, toasts, button } = setup(win, { storage });
+  assert.equal(press(win, xOf(doc, 1)), false);
+  assert.deepEqual(heard, []);
+  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  assert.equal(storage.get(HIDDEN_KEY, null), null, 'who posted it alone is no key');
+  assert.equal(toasts[0].message, "Post hidden for now. There's nothing in it to know it by when the feed loads again.");
+  // Undo on another post's toast shows that one and leaves this one hidden.
+  press(win, xOf(doc, 2));
+  toasts[1].action.run();
+  assert.equal(note(doc, 2), null);
+  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  // Its own Undo shows it, and the X hides it again.
+  toasts[0].action.run();
+  assert.equal(note(doc, 1), null);
+  assert.equal(press(win, xOf(doc, 1)), false);
+  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  // Forget posts you hid lets it back for good.
+  button('Forget posts you hid').run();
+  storage.remote(HIDDEN_KEY, { [keysOf(2)[0]]: 10 });
+  assert.equal(note(doc, 1), null);
+  assert.equal(note(doc, 2), 'Hidden: Dismissed. Show');
+  posts.stop();
+
+  const again = page(bare());
+  const next = setup(again.win, { storage });
+  assert.equal(note(next.doc, 1), null);
+  next.posts.stop();
+});
+
+test('the switch off and pages other than Home and the groups feed leave the X to Facebook', () => {
   const cases = [
-    ['no photo and too few words', post(1, { photo: false, text: 'Nice one' }), {}],
     ['switch off', post(1), { on: { value: false } }],
     ['a profile', post(1), { href: 'https://www.facebook.com/pat.example' }],
     ['a post opened by its link', post(1), { href: 'https://www.facebook.com/pat.example/posts/pfbid0P1' }],
@@ -407,20 +468,22 @@ test("each account keeps its own list, and the page signing in as someone else l
   const base = createMemoryStorage({ [activityKeyFor(HIDDEN_KEY, A)]: { [keysOf(1)[0]]: 10 }, [activityKeyFor(HIDDEN_KEY, '615000000000036')]: { [keysOf(2)[0]]: 10 } });
   const signedIn = { account: A };
   const activity = createActivityStorage({ storage: base, account: A, currentAccount: () => signedIn.account, log: { warn() {}, error() {}, info() {} } });
-  const { win, heard } = page(post(1) + post(2) + post(3));
-  const { doc, posts, toasts } = setup(win, { storage: activity.storage });
+  const { win, heard } = page(post(1) + post(2) + post(3) + post(4, { photo: false, text: '' }));
+  const { doc, posts, toasts, flip } = setup(win, { storage: activity.storage });
   assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
   assert.equal(note(doc, 2), null, "the other account's list isn't read");
   press(win, xOf(doc, 3));
+  press(win, xOf(doc, 4));
   assert.deepEqual(Object.keys(base.get(activityKeyFor(HIDDEN_KEY, A))).sort(), [keysOf(1)[0], ...keysOf(3)].sort());
   signedIn.account = '615000000000036';
   // The next press notices. Nothing can be saved for this page now, so the X is Facebook's.
   assert.equal(press(win, xOf(doc, 2)), true);
   assert.deepEqual(heard.filter((type) => !type.endsWith('(capture)')), ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']);
-  assert.equal(note(doc, 1), null);
-  assert.equal(note(doc, 2), null);
-  assert.equal(note(doc, 3), null);
-  assert.equal(toasts.length, 1, 'no promise that it stays hidden');
+  // The switch off and on again doesn't bring back the one hidden for the visit.
+  flip(false);
+  flip(true);
+  for (const n of [1, 2, 3, 4]) assert.equal(note(doc, n), null, `post ${n}`);
+  assert.equal(toasts.length, 2, 'no promise that it stays hidden');
   assert.deepEqual(base.get(activityKeyFor(HIDDEN_KEY, '615000000000036')), { [keysOf(2)[0]]: 10 });
   posts.stop();
 });

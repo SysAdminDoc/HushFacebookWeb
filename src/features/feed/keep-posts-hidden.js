@@ -6,12 +6,13 @@
 // page otherwise.
 //
 // Nothing goes to Facebook: the press stops before any of its handlers hear it, as Hide posts by
-// <name> sends nothing either. A post that can't be recognized (no photo, video or 24 letters of
-// text) is left to Facebook's own X.
+// <name> sends nothing either. A post with no photo, video or 24 letters of text (live
+// 2026-11-04: a link shared with a few words on top) is remembered by who posted it, its words
+// and its link's title instead, and one with none of that is hidden for this visit only.
 
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { posterOf } from '../../core/filters/page.js';
-import { pageKeys } from '../../core/seen-keys.js';
+import { pageKeys, wordsKey } from '../../core/seen-keys.js';
 import { later } from '../../core/net/payload.js';
 import { t } from '../../core/i18n.js';
 import { drawnEdges, inScope } from './ad-markers.js';
@@ -22,6 +23,7 @@ export const HIDDEN_KEY = 'keepPostsHidden.list';
 // Keys, not posts: a post with a photo and words is two. The oldest go first.
 export const MAX_HIDDEN = 3000;
 const REASON = 'Dismissed';
+const PRESSED = 'you pressed its X';
 
 // Facebook's X, by its English label, and in other languages by its icon and a label that names
 // who posted (live 2026-11-04: <a role="link" href="#" aria-label="Hide post by ...">).
@@ -36,7 +38,17 @@ const ACTIVATE = new Set(['Enter', ' ']);
 const KEEPABLE = /^(?:m:\d{6,32}|t:[0-9a-z]{2,14})$/;
 
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const matchedBy = (key) => (key.startsWith('m:') ? 'same photo or video' : 'same text');
+const MATCHED_BY = { m: 'same photo or video', t: 'same text', w: 'same poster and words' };
+const matchedBy = (key) => MATCHED_BY[key[0]];
+
+// What a post is remembered by: its photo or video and its first words (core/seen-keys.js), or
+// for a post with none of those, who posted it with its words and its link's title.
+function keysOf(post) {
+  const keys = pageKeys(post).filter((key) => KEEPABLE.test(key));
+  if (keys.length) return keys;
+  const words = wordsKey(post, posterOf(post));
+  return words ? [words] : [];
+}
 
 const labelOf = (control) => control.getAttribute('aria-label') ?? '';
 const crossed = (control) => (control.querySelector('path')?.getAttribute('d') ?? '').startsWith(X_ICON);
@@ -104,6 +116,9 @@ export default {
     let hidden = 0;
     // Posts hidden with their X during this visit, so a held key or a second press does nothing.
     const dismissed = new WeakSet();
+    // The ones with nothing to remember them by, kept hidden while they're on the page.
+    const held = new Set();
+    const watching = () => hiding() || (enabled() && held.size > 0);
     // The page signed in as someone else. The list can't be read or saved for them.
     let gone = false;
 
@@ -135,11 +150,15 @@ export default {
 
     const watcher = watchPostChecks({
       posts,
-      enabled: hiding,
+      enabled: watching,
       check(element) {
         if (!FILTERED.routes(route())) return true;
+        if (held.has(element)) {
+          hider.hide(element, REASON, undefined, PRESSED);
+          return true;
+        }
         // Not one you hid, or not filled in yet: look again on the next retry.
-        const key = pageKeys(element).find(isKept);
+        const key = keysOf(element).find(isKept);
         if (key === undefined) return false;
         if (hider.hide(element, REASON, undefined, matchedBy(key)) && !dismissed.has(element)) {
           hidden++;
@@ -148,7 +167,13 @@ export default {
         return true;
       },
     });
-    posts.on('post/remove', ({ element }) => dismissed.delete(element));
+    const recheck = () => {
+      if (watching()) watcher.recheckAll();
+    };
+    posts.on('post/remove', ({ element }) => {
+      dismissed.delete(element);
+      held.delete(element);
+    });
 
     // The post whose X the event is on, with what it's remembered by, or null to leave the
     // event to Facebook.
@@ -158,11 +183,9 @@ export default {
       const post = posts.current().find(({ element }) => element.contains(control));
       // A post you chose to show from its note stays shown, so Facebook's X has it.
       if (!post || hider.isRevealed(post.element) || !isHideControl(control, post.element)) return null;
-      const keys = pageKeys(post.element).filter((key) => KEEPABLE.test(key));
-      if (!keys.length) return null;
       // Reading the list is what notices another account (core/activity.js), which sets gone.
       read();
-      return gone ? null : { element: post.element, keys };
+      return gone ? null : { element: post.element, keys: keysOf(post.element) };
     };
 
     const dismiss = (event, { element, keys }) => {
@@ -172,10 +195,25 @@ export default {
         return;
       }
       // Nowhere on the post to put the note, so Facebook's X has it.
-      if (!hider.hide(element, REASON, undefined, 'you pressed its X')) return;
+      if (!hider.hide(element, REASON, undefined, PRESSED)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       dismissed.add(element);
+      if (!keys.length) {
+        held.add(element);
+        changed();
+        toast?.(t("Post hidden for now. There's nothing in it to know it by when the feed loads again."), {
+          action: {
+            label: 'Undo',
+            run: () => {
+              held.delete(element);
+              hider.show(element, REASON);
+              changed();
+            },
+          },
+        });
+        return;
+      }
       const added = keys.filter((key) => !known.has(key));
       const at = now();
       save((all) => {
@@ -192,7 +230,7 @@ export default {
               for (const key of added) delete all[key];
             });
             hider.showAll(REASON);
-            if (hiding()) watcher.recheckAll();
+            recheck();
             changed();
           },
         },
@@ -228,6 +266,7 @@ export default {
       save((all) => {
         for (const key of Object.keys(all)) delete all[key];
       });
+      held.clear();
       hider.showAll(REASON);
       changed();
       toast?.(t('Forgot every post you hid'));
@@ -245,7 +284,7 @@ export default {
       if (!loaded) return;
       refresh();
       hider.showAll(REASON);
-      if (hiding()) watcher.recheckAll();
+      recheck();
       changed();
     });
     if (!loaded) {
@@ -254,7 +293,7 @@ export default {
         loaded = true;
         if (pending.length) save((all) => pending.forEach((change) => change(all)));
         else refresh();
-        if (hiding()) watcher.recheckAll();
+        recheck();
         changed();
       });
     }
@@ -262,6 +301,7 @@ export default {
     storage?.onAccountChange?.(() => {
       gone = true;
       waiting.splice(0);
+      held.clear();
       refresh();
       hider.showAll(REASON);
     });
