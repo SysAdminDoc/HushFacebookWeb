@@ -19,21 +19,37 @@ export const OPENER = '[aria-haspopup="menu"][aria-expanded="true"]';
 // On every row Hush adds, next to the feature's own mark.
 export const OUR_ROW = 'data-hfw-menu-row';
 const ROWS = '[role="menuitem"], [role="button"]';
+const MESSAGE = '[data-ad-rendering-role="story_message"], [data-ad-preview="message"]';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 // After the three-dot button opens its menu, Facebook may draw it a moment later.
 const RETRIES_MS = [0, 50, 150, 400, 1000];
+// Node.DOCUMENT_POSITION_FOLLOWING.
+const FOLLOWING = 4;
+// The menu button that said last that its menu opened, per page.
+const latest = new WeakMap();
+
+// The buttons whose menu is open: the one that opened last alone while it still says so, else all
+// of them in page order. Facebook keeps one menu open at a time, but a stale aria-expanded="true"
+// left on another post would otherwise name that post, or get its button clicked to close the menu.
+export function openers(doc) {
+  const open = [...doc.querySelectorAll(OPENER)];
+  const last = latest.get(doc);
+  return last && open.includes(last) ? [last] : open;
+}
 
 // The post whose own three-dot button has its menu open, or null. That button is the first one in
 // the post that opens a menu: all 100 posts in organic-posts.jsonl.gz (Home, groups and search,
 // 2026-11-03) have it in the header, after the author and before the post text. Comment order and
 // the comment box's emoji, GIF and sticker buttons come after it, and a comment's own buttons
-// belong to the comment.
+// belong to the comment. A first menu button below the post text isn't the three-dot one.
 export function menuPost(doc) {
-  for (const button of doc.querySelectorAll(OPENER)) {
+  for (const button of openers(doc)) {
     const post = button.closest(POST);
     if (!post || isComment(post)) continue;
-    const first = [...post.querySelectorAll('[aria-haspopup="menu"]')].find((el) => el.closest(POST) === post);
-    if (first === button) return post;
+    const own = (selector) => [...post.querySelectorAll(selector)].find((el) => el.closest(POST) === post);
+    if (own('[aria-haspopup="menu"]') !== button) continue;
+    const words = own(MESSAGE);
+    if (!words || button.compareDocumentPosition(words) & FOLLOWING) return post;
   }
   return null;
 }
@@ -77,7 +93,7 @@ export function buildMenuRow(template, doc, { text, icon, mark }) {
 // Closes the menu the way a second click on its three-dot button does, or with Escape when that
 // button can't be found.
 export function closeMenu(doc, menu) {
-  const opener = doc.querySelector(OPENER);
+  const [opener] = openers(doc);
   if (opener) {
     opener.click();
     return;
@@ -176,6 +192,7 @@ export function createPostMenuRow({ doc, mark, enabled, pick, label, icon, run, 
   function start() {
     if (opener || !doc.body) return;
     opener = new Observer((records) => {
+      for (const { target } of records) if (target.matches?.(OPENER)) latest.set(doc, target);
       if (!enabled()) return;
       const opened = records.some((record) => record.target.matches?.(OPENER) && record.target.closest(POST));
       if (opened) for (const wait of RETRIES_MS) setTimer(sync, wait);

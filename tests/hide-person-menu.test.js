@@ -29,6 +29,8 @@ const HOME_POST = fixture[39].html;
 const MEMBER = 'Stone falcon';
 const GROUP = 'Cobalt falcon summit';
 const PERSON_MARK = 'data-hfw-menu-hide-person';
+// A post's own text.
+const WORDS = '[data-ad-rendering-role="story_message"], [data-ad-preview="message"]';
 
 const windows = [];
 afterEach(async () => {
@@ -187,6 +189,63 @@ test("the open menu belongs to a post only through its own first menu button, ne
   doc.getElementById('sort').setAttribute('aria-expanded', 'false');
   dotsOf(groupPost(doc)).setAttribute('aria-expanded', 'true');
   assert.equal(menuPost(doc) === groupPost(doc), true);
+  dotsOf(groupPost(doc)).setAttribute('aria-expanded', 'false');
+  // A post whose first menu button sits below its text has no three-dot button of its own there.
+  const post = homePost(doc);
+  dotsOf(post).remove();
+  post.querySelector('#comment').insertAdjacentHTML('beforebegin', '<div role="button" aria-haspopup="menu" aria-expanded="true" id="late"></div>');
+  assert.equal(menuPost(doc) === null, true, 'a first menu button under the post text');
+});
+
+test("every captured post's first menu button sits after its header and before its text, so each opens as that post's menu", async () => {
+  const misses = [];
+  for (const [index, { html }] of fixture.entries()) {
+    const ok = await read(html, (post) => {
+      const header = post.querySelector('[data-ad-rendering-role="profile_name"]');
+      const dots = [...post.querySelectorAll('[aria-haspopup="menu"]')].find((el) => el.closest('[aria-posinset], [role="article"]') === post);
+      const words = post.querySelector(WORDS);
+      dots.setAttribute('aria-expanded', 'true');
+      const after = Boolean(header.compareDocumentPosition(dots) & 4);
+      // Some posts are only a link preview, with no text of their own.
+      const before = !words || Boolean(dots.compareDocumentPosition(words) & 4);
+      return after && before && menuPost(post.ownerDocument) === post;
+    });
+    if (!ok) misses.push(index);
+  }
+  assert.deepEqual(misses, []);
+});
+
+test('a group post with no member link of its own names nobody and gets no row, rather than a shared post or a name in its text', async () => {
+  const anonymous = async (doc) => {
+    const post = groupPost(doc);
+    for (const link of post.querySelectorAll('a[href*="/groups/"][href*="/user/"]')) link.remove();
+    // A shared post under the text: its own header (a group) and its member.
+    post.querySelector(WORDS).insertAdjacentHTML('afterend',
+      '<div><div data-ad-rendering-role="profile_name"><h4><a href="/groups/9/">Other group</a></h4></div><a href="/groups/9/user/5/">Shared poster</a></div>');
+    post.querySelector(WORDS).insertAdjacentHTML('beforeend', '<a href="/groups/9/user/6/">Named in text</a>');
+    return post;
+  };
+  const { doc } = page();
+  assert.equal(posterOf(await anonymous(doc)), null);
+  const shown = await feature();
+  await anonymous(shown.doc);
+  await open(shown.doc, groupPost(shown.doc));
+  assert.deepEqual(ids(shown.doc), ['embed', 'report-post']);
+});
+
+test('a stale open button on another post never names that post, and the row closes the menu through the one that opened last', async () => {
+  const { doc, people } = await feature();
+  await open(doc, groupPost(doc));
+  // Facebook leaves the group post's button saying open and opens the Home post's menu.
+  const clicks = [];
+  for (const post of [groupPost(doc), homePost(doc)]) dotsOf(post).addEventListener('click', () => clicks.push(post === groupPost(doc) ? 'group' : 'home'));
+  dotsOf(homePost(doc)).setAttribute('aria-expanded', 'true');
+  await settle();
+  assert.equal(dotsOf(groupPost(doc)).getAttribute('aria-expanded'), 'true');
+  assert.equal(personRow(doc).textContent.replace(/\s+/g, ' ').trim(), 'Hide posts by Dune lagoon');
+  personRow(doc).click();
+  await settle();
+  assert.deepEqual([people(), clicks], ['Dune lagoon', ['home']]);
 });
 
 test("one click adds the group post's member to the people list and hides the post, Undo takes it back, and nothing reaches Facebook", async () => {

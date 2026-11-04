@@ -23,8 +23,10 @@
 // Group posts, in organic-posts.jsonl.gz (2026-11-03, 73 of 100 posts, in the groups feed and on
 // Home): the heading link is the group (/groups/<id>/), and the member who posted is a link of its
 // own outside the headings (/groups/<id>/user/<id>/), after an avatar link with no words. Every
-// one of the 73 had it. story.js reads that member as the post's actor and the group as where it
-// went, so the page check reads them the same way.
+// one of the 73 had it, above the post text and above a shared post's header. story.js reads that
+// member as the post's actor and the group as where it went, so the page check reads them the
+// same way. A member link further down is someone else's (a shared post's poster, or a name in
+// the text), so a post with none above (posted anonymously or as the group) names nobody.
 
 import { hostOf } from './story.js';
 import { normalizeText, visibleText } from '../dom/visible-text.js';
@@ -66,7 +68,9 @@ export function posterOf(post) {
   const first = named(header ? [...header.querySelectorAll('a[href]')] : own(HEADINGS));
   if (!first) return null;
   if (!isGroup(first)) return normalizeText(first.textContent);
-  const member = named(own(MEMBER).filter((a) => !a.closest(TEXT)));
+  // Node.DOCUMENT_POSITION_FOLLOWING: the link comes before the text and the second header.
+  const stops = [own(TEXT)[0], own(HEADER)[1]].filter(Boolean);
+  const member = named(own(MEMBER).filter((a) => stops.every((stop) => a.compareDocumentPosition(stop) & 4)));
   return member ? normalizeText(member.textContent) : null;
 }
 

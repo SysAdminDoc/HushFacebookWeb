@@ -6,7 +6,7 @@
 // covers gets no row, like Android's.
 
 import { whenBodyReady } from '../../core/env.js';
-import { OPENER, POST, buildMenuRow, createPostMenuRow } from '../../core/dom/post-menu.js';
+import { POST, buildMenuRow, createPostMenuRow, openers } from '../../core/dom/post-menu.js';
 import { isComment } from '../../core/dom/posts.js';
 import { t } from '../../core/i18n.js';
 import { DOWNLOAD_ICON } from './button.js';
@@ -26,10 +26,11 @@ export function mediaOf(post, find) {
 
 // The post whose own three-dot button has its menu open, when it has something to save, or null.
 // The post's button sits in its header above the photo or video. Its other buttons that open a
-// menu, comment order and the comment box's emoji, GIF and sticker buttons, come after it.
+// menu, comment order and the comment box's emoji, GIF and sticker buttons, come after it. The
+// button that opened last wins over a stale open one (openers).
 export function openPost(doc, find) {
   const following = (doc.defaultView?.Node ?? globalThis.Node).DOCUMENT_POSITION_FOLLOWING;
-  for (const button of doc.querySelectorAll(OPENER)) {
+  for (const button of openers(doc)) {
     const post = button.closest(POST);
     if (!post || isComment(post)) continue;
     const pick = mediaOf(post, find);

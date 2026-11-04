@@ -213,6 +213,42 @@ test('a redrawn menu gets the row back, and a menu reused for another post saves
   assert.equal(entry.state().added, 3);
 });
 
+test('a later look that finds nothing to save takes Download out of the open menu', async () => {
+  const win = page();
+  const doc = win.document;
+  wireMenus(doc);
+  const runs = [];
+  const entry = createMenuDownload({ doc, enabled: () => true, find: findPhoto(), run: (found) => runs.push(found.id), missing: () => runs.push('missing'), setTimer: (fn) => win.setTimeout(fn, 0) });
+  entry.apply();
+  doc.getElementById('dots').click();
+  await tick();
+  assert.deepEqual(ids(doc), ['download', 'embed', 'report-post']);
+  // The photos go while the menu is open, and a later try after the button opened looks again.
+  for (const id of ['photo', 'second']) doc.getElementById(id).closest('a').remove();
+  entry.sync();
+  assert.deepEqual(ids(doc), ['embed', 'report-post'], 'no row left to say there is nothing to save');
+  assert.deepEqual([runs, entry.state()], [[], { added: 1, clicked: 0 }]);
+});
+
+test('a stale open button on another post never names that post, and the row closes the menu through the one that opened last', async () => {
+  const win = page(PAGE.replace('<div>Just words.</div>', photo('other', '5555555')));
+  const doc = win.document;
+  wireMenus(doc);
+  const runs = [];
+  const entry = createMenuDownload({ doc, enabled: () => true, find: findPhoto(), run: (found) => runs.push(found.id), setTimer: (fn) => win.setTimeout(fn, 0) });
+  entry.apply();
+  doc.getElementById('dots').click();
+  await tick();
+  const clicks = [];
+  for (const id of ['dots', 'text-dots']) doc.getElementById(id).addEventListener('click', () => clicks.push(id));
+  // Facebook leaves the first post's button saying open and opens the second post's menu.
+  doc.getElementById('text-dots').setAttribute('aria-expanded', 'true');
+  await tick();
+  assert.equal(doc.getElementById('dots').getAttribute('aria-expanded'), 'true');
+  topRow(doc).click();
+  assert.deepEqual([runs, clicks], [['5555555'], ['text-dots']]);
+});
+
 test('a post gone by the time of the click says there is nothing to save, and Enter works like a click', async () => {
   const win = page();
   const doc = win.document;
