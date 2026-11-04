@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.0.16 (2026-11-04, unreleased)
+## v0.0.17 (2026-11-04, unreleased)
 
 * The note left where a post was hidden has a Show hidden button at its end now. Press it and every post hidden on the page comes back for the rest of the visit, posts you pressed the X on included. Anything that loads after that still gets hidden as usual. Tab reaches it right after the note, and Enter or Space presses it. You'll see it with Leave a note where a post was hidden turned on (it starts off). Posts that are taken out of Facebook's data before they're drawn, like most ads, never get a note, so a reload with their switch off is still the way to see those.
 * New Feed switch, on to start: Show progress while posts load. With a lot of posts hidden, Home or a group could sit on Facebook's gray loading boxes after a refresh and look stuck. It wasn't. Facebook sends five posts at a time, about seven seconds apart, and when every one of them gets hidden the screen never changes. Now a line above those boxes counts the posts hidden so far, with a slow shimmer while more come in. Facebook often sends a hidden post again in a later batch, and each one only counts once. On the test account with most kinds of post filtered out, it read "Hid 7 posts so far" five seconds after a refresh and kept climbing until posts worth showing turned up.
