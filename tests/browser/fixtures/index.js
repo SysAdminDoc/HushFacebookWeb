@@ -5,3 +5,4 @@ export { preparePanel, panelState, focusPanelControl, finishPanel } from './pane
 export { boundedDownload } from './download.js';
 export { activeDots } from './active-dots.js';
 export { widerFeed } from './wider-feed.js';
+export { hiddenNote } from './hidden-note.js';

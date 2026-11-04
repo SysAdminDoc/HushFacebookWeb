@@ -21,6 +21,13 @@
 // the post brings back, or stays on the wrapper, given a box, when there's none. Those
 // attributes go again with the note (or the focus), so a paused script or a note switched off
 // leaves Facebook's element as it was.
+//
+// The note line has a second button at its end, Show hidden, which shows every post hidden on
+// the page the way its own note would. It's Facebook's first element inside the mark, hidden
+// with the rest of the post anyway: the rules clear its look, hide what's in it and draw the
+// label in its ::before. Being an element of its own, a click on it has its own target, and it
+// becomes a button the same way the mark does, after it in Tab order. A first element that
+// can't draw a ::before (REPLACED) leaves the note with no second button.
 
 import { isComment, postIdOf } from './posts.js';
 
@@ -35,6 +42,14 @@ const REPLACED = new Set(['IMG', 'VIDEO', 'IFRAME', 'CANVAS', 'INPUT', 'TEXTAREA
 // What makes the mark a button while its note shows. The page's own values come back after.
 const BUTTON = ['role', 'tabindex', 'aria-label'];
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+export const SHOW_ALL = 'Show hidden';
+// The note's Show hidden button: the mark's first element, unless it's one ::before can't draw on
+// or a mark of its own.
+const ALL = `[${MARK}] > :first-child:not(${[...REPLACED].map((tag) => tag.toLowerCase()).join(', ')}, [${MARK}])`;
+const allOf = (marker) => {
+  const child = marker.firstElementChild;
+  return child && !REPLACED.has(child.tagName) && !child.hasAttribute(MARK) ? child : null;
+};
 
 export function hideCss({ notes }) {
   if (!notes) return `${HOLDER} { display: none !important; }`;
@@ -44,10 +59,17 @@ export function hideCss({ notes }) {
     // Loose text right inside the mark has no element to hide, so it shrinks to nothing.
     `[${MARK}] { font-size: 0 !important; }`,
     // Facebook's mark is a display:contents wrapper, which can't take focus.
-    `[${MARK}] { display: block !important; border-radius: 6px; }`,
-    `[${MARK}]::before { content: attr(${NOTE}); display: block; padding: 12px 16px; border: 1px solid #343745; border-radius: 6px; background: #171923; font: 600 13px/1.4 system-ui, sans-serif; color: #c4b0ff; cursor: pointer; }`,
-    `[${MARK}]:hover::before { text-decoration: underline; }`,
+    `[${MARK}] { display: flex !important; gap: 8px; border-radius: 6px; }`,
+    `[${MARK}]::before { content: attr(${NOTE}); display: block; flex: 1 1 auto; padding: 12px 16px; border: 1px solid #343745; border-radius: 6px; background: #171923; font: 600 13px/1.4 system-ui, sans-serif; color: #c4b0ff; cursor: pointer; }`,
+    `[${MARK}]:hover:not(:has(> :hover))::before { text-decoration: underline; }`,
     `[${MARK}]:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px; }`,
+    // Facebook's own element, so its classes' look goes first.
+    `${ALL} { all: unset !important; display: block !important; flex: none !important; border-radius: 6px !important; cursor: pointer !important; font-size: 0 !important; }`,
+    `${ALL} > * { display: none !important; }`,
+    `${ALL}::before { all: unset !important; content: "${SHOW_ALL}" !important; display: block !important; padding: 12px 16px !important; border: 1px solid #343745 !important; border-radius: 6px !important; background: #262a3b !important; font: 600 13px/1.4 system-ui, sans-serif !important; color: #c4b0ff !important; white-space: nowrap !important; }`,
+    `${ALL}::after { content: none !important; }`,
+    `${ALL}:hover::before { text-decoration: underline !important; }`,
+    `${ALL}:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px; }`,
     `[${HELD}] { display: block !important; }`,
   ].join('\n');
 }
@@ -72,8 +94,10 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   const marks = new WeakSet();
   // mark -> Map(reason -> its note text), in the order the reasons came.
   const labels = new WeakMap();
-  // mark -> the page's own values of BUTTON, while the mark is a button.
+  // element -> the page's own values of BUTTON, while a mark or its Show hidden is a button.
   const prior = new WeakMap();
+  // mark -> the element made its Show hidden button.
+  const allButtons = new WeakMap();
   const listeners = new Set();
   let watching = false;
   // The mark Space went down on. A button acts when Space comes up, on the same one.
@@ -92,18 +116,38 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     }
   }
 
+  function makeButton(element, label) {
+    if (!prior.has(element)) prior.set(element, BUTTON.map((name) => element.getAttribute(name)));
+    element.setAttribute('role', 'button');
+    element.setAttribute('tabindex', '0');
+    element.setAttribute('aria-label', label);
+  }
+
+  function restore(element) {
+    const values = prior.get(element);
+    if (!values) return;
+    prior.delete(element);
+    BUTTON.forEach((name, i) => (values[i] === null ? element.removeAttribute(name) : element.setAttribute(name, values[i])));
+  }
+
   function asButton(marker) {
-    if (!prior.has(marker)) prior.set(marker, BUTTON.map((name) => marker.getAttribute(name)));
-    marker.setAttribute('role', 'button');
-    marker.setAttribute('tabindex', '0');
-    marker.setAttribute('aria-label', marker.getAttribute(NOTE));
+    makeButton(marker, marker.getAttribute(NOTE));
+    // Facebook may have swapped the first element since, and the old one goes back as it was.
+    const all = allOf(marker);
+    const before = allButtons.get(marker);
+    if (before && before !== all) restore(before);
+    if (all) {
+      makeButton(all, SHOW_ALL);
+      allButtons.set(marker, all);
+    } else allButtons.delete(marker);
   }
 
   function notButton(marker) {
-    const values = prior.get(marker);
-    if (!values) return;
-    prior.delete(marker);
-    BUTTON.forEach((name, i) => (values[i] === null ? marker.removeAttribute(name) : marker.setAttribute(name, values[i])));
+    restore(marker);
+    const all = allButtons.get(marker);
+    if (!all) return;
+    allButtons.delete(marker);
+    restore(all);
   }
 
   function clear(element) {
@@ -169,12 +213,17 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   }
 
   const isNote = (target) => Boolean(target?.hasAttribute?.(MARK) && marks.has(target) && notesShown() && target.parentElement);
+  // The mark a Show hidden press belongs to, or null.
+  const showAllOf = (target) => {
+    const marker = target?.parentElement;
+    return marker && isNote(marker) && allOf(marker) === target ? marker : null;
+  };
 
-  // Shows the post for the rest of the visit. Focus on the note goes to the first control the
-  // post brings back, or stays on the mark when there's none, so it never drops to the page.
-  function reveal(marker) {
+  // Shows the post for the rest of the visit. Focus on the note (or its Show hidden) goes to the
+  // first control the post brings back, or stays on the mark when there's none, so it never
+  // drops to the page.
+  function reveal(marker, focused = doc.activeElement === marker) {
     const post = marker.parentElement;
-    const focused = doc.activeElement === marker;
     revealed.add(post);
     clear(post);
     if (!focused) return;
@@ -199,32 +248,49 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     else release();
   }
 
+  // Shows every post this hider has hidden on the page, for the rest of the visit. Posts that
+  // load later are still hidden. Focus on the Show hidden pressed goes into its own post.
+  function revealAll(button) {
+    const owner = button.parentElement;
+    const focused = doc.activeElement === button;
+    for (const marker of doc.querySelectorAll(`[${MARK}]`)) {
+      if (marks.has(marker) && marker.parentElement) reveal(marker, marker === owner && focused);
+    }
+  }
+
+  function press(target) {
+    if (isNote(target)) reveal(target);
+    else revealAll(target);
+  }
+
+  const isButton = (target) => isNote(target) || showAllOf(target) !== null;
+
   function stop(event) {
     event.preventDefault();
     event.stopImmediatePropagation();
   }
 
   function onClick(event) {
-    if (!isNote(event.target)) return;
+    if (!isButton(event.target)) return;
     stop(event);
-    reveal(event.target);
+    press(event.target);
   }
 
   // Enter acts as it goes down and Space as it comes up, like the browser's own buttons.
   function onKeyDown(event) {
-    if ((event.key !== 'Enter' && event.key !== ' ') || event.altKey || event.ctrlKey || event.metaKey || !isNote(event.target)) return;
+    if ((event.key !== 'Enter' && event.key !== ' ') || event.altKey || event.ctrlKey || event.metaKey || !isButton(event.target)) return;
     stop(event);
-    if (event.key === 'Enter') reveal(event.target);
+    if (event.key === 'Enter') press(event.target);
     else pressed = event.target;
   }
 
   function onKeyUp(event) {
     if (event.key !== ' ' || pressed === null) return;
-    const marker = pressed;
+    const target = pressed;
     pressed = null;
-    if (event.target !== marker || !isNote(marker)) return;
+    if (event.target !== target || !isButton(target)) return;
     stop(event);
-    reveal(marker);
+    press(target);
   }
   doc.addEventListener('click', onClick, true);
   doc.addEventListener('keydown', onKeyDown, true);

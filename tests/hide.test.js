@@ -418,7 +418,7 @@ test('the note is a button keyboards and screen readers reach, and Enter shows t
   assert.deepEqual(buttonParts(marker), ['button', '0', 'Hidden: Filter: cats. Show']);
   assert.deepEqual(attributesOf(first), before.post, 'the post itself is never written on');
   assert.deepEqual(attributesOf(first.parentElement), before.feedChild, "nor the feed's child");
-  assert.match(hideCss({ notes: true }), new RegExp(`\\[${MARK}\\] \\{ display: block !important;`), "Facebook's display:contents mark gets a box that can take focus");
+  assert.match(hideCss({ notes: true }), new RegExp(`\\[${MARK}\\] \\{ display: flex !important;`), "Facebook's display:contents mark gets a box that can take focus");
   assert.match(hideCss({ notes: true }), new RegExp(`\\[${MARK}\\]:focus-visible \\{ outline:`));
 
   const facebook = [];
@@ -564,4 +564,114 @@ test('a recycled post loses the note\'s button and its reveal', () => {
   assert.deepEqual(buttonParts(marker), ['button', '0', 'Hidden: Sponsored. Show']);
   posts.removed(element);
   assert.deepEqual(buttonParts(marker), [null, null, null]);
+});
+
+// The rule that draws Show hidden on the mark's first element.
+const showAllSelector = () => selectorsOf(hideCss({ notes: true })).find((selector) => selector.includes(':first-child:not('));
+const press = (win, target) => {
+  const event = new win.MouseEvent('click', { bubbles: true, cancelable: true });
+  target.dispatchEvent(event);
+  return event;
+};
+
+test('the note\'s Show hidden is a button of its own while the note shows, and goes back with it', () => {
+  const win = page(feed(
+    post(1),
+    '<div class="wrap"><div aria-posinset="2"><div class="inner"><div class="head" role="heading" aria-label="Page"><a href="/b">B</a></div><a href="/b/posts/2">1h</a></div></div></div>',
+    '<div class="wrap"><div aria-posinset="3"><div class="inner"><img src="x.png" alt=""><a href="/c/posts/3">1h</a></div></div></div>',
+  ));
+  const [a, b, c] = win.document.querySelectorAll('[aria-posinset]');
+  const posts = fakePosts();
+  let shown = true;
+  const hider = createHider({ doc: win.document, posts, notesShown: () => shown });
+  for (const element of [a, b, c]) hider.hide(element, 'Sponsored');
+  const [allA, allB, image] = [a, b, c].map((element) => element.firstElementChild.firstElementChild);
+  assert.deepEqual(buttonParts(allA), ['button', '0', 'Show hidden']);
+  assert.deepEqual(buttonParts(allB), ['button', '0', 'Show hidden']);
+  assert.deepEqual(buttonParts(image), [null, null, null], 'an image can\'t draw the label, so its note has none');
+  const drawn = [...win.document.querySelectorAll(showAllSelector())];
+  assert.equal(drawn.length, 2);
+  assert.ok(drawn[0] === allA && drawn[1] === allB, 'the rule draws it on the same elements');
+  assert.match(hideCss({ notes: true }), /::before \{ all: unset !important; content: "Show hidden" !important;/);
+  assert.ok(!hideCss({ notes: false }).includes('Show hidden'));
+
+  shown = false;
+  hider.refresh();
+  assert.deepEqual(buttonParts(allA), [null, null, null]);
+  assert.deepEqual(buttonParts(allB), ['heading', null, 'Page'], 'the page\'s own values come back');
+  let reached = 0;
+  allA.addEventListener('click', () => reached++);
+  assert.equal(press(win, allA).defaultPrevented, false, 'a paused script leaves the click to Facebook');
+  assert.equal(reached, 1);
+  assert.equal(hider.isHidden(a), true);
+
+  shown = true;
+  hider.refresh();
+  assert.deepEqual(buttonParts(allB), ['button', '0', 'Show hidden']);
+  // Facebook puts a new element in front.
+  const fresh = win.document.createElement('div');
+  b.firstElementChild.prepend(fresh);
+  hider.refresh();
+  assert.deepEqual(buttonParts(allB), ['heading', null, 'Page'], 'the old one is put back as it was');
+  assert.deepEqual(buttonParts(fresh), ['button', '0', 'Show hidden']);
+
+  hider.show(a);
+  assert.deepEqual(buttonParts(allA), [null, null, null]);
+  posts.removed(b);
+  assert.deepEqual(buttonParts(fresh), [null, null, null], 'a recycled post gives it back too');
+
+  // Someone else's element carrying the mark.
+  win.document.body.insertAdjacentHTML('beforeend', `<div class="foreign" ${MARK}="x"><div class="kid">not ours</div></div>`);
+  hider.refresh();
+  assert.deepEqual(buttonParts(win.document.querySelector('.kid')), [null, null, null]);
+  assert.equal(press(win, win.document.querySelector('.kid')).defaultPrevented, false);
+});
+
+test('a click on Show hidden shows every hidden post, leaves focus where it was, and later posts still hide', () => {
+  const win = page(feed(post(1), post(2), post(3), post(4)));
+  const [a, b, c, d] = win.document.querySelectorAll('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  hider.hide(a, 'Sponsored');
+  hider.hide(b, 'Filter', 'cats');
+  hider.hide(c, 'Suggested');
+  win.document.body.insertAdjacentHTML('beforeend', `<div class="foreign" ${MARK}="x"><div>not ours</div></div>`);
+  const elsewhere = d.querySelector('h4 a');
+  elsewhere.focus();
+  const facebook = [];
+  const allB = b.firstElementChild.firstElementChild;
+  allB.addEventListener('click', () => facebook.push('target'));
+  win.document.addEventListener('click', () => facebook.push('document'));
+
+  assert.equal(press(win, allB).defaultPrevented, true);
+  assert.deepEqual(facebook, [], 'Facebook never hears it');
+  assert.deepEqual([a, b, c].map((element) => hider.isHidden(element)), [false, false, false]);
+  assert.deepEqual([a, b, c].map((element) => hider.isRevealed(element)), [true, true, true]);
+  assert.equal(win.document.querySelector('.foreign').getAttribute(MARK), 'x', 'only the script\'s own marks are taken off');
+  assert.ok(win.document.activeElement === elsewhere);
+  assert.deepEqual(buttonParts(allB), [null, null, null]);
+  assert.deepEqual(hider.counts(), { Sponsored: 1, Filter: 1, Suggested: 1 }, 'what was hidden still counts');
+
+  assert.equal(hider.hide(b, 'Filter', 'cats'), false, 'a shown post stays shown');
+  assert.equal(hider.hide(d, 'Sponsored'), true, 'a post that comes along later is still hidden');
+  assert.equal(press(win, elsewhere).defaultPrevented, false, 'the link inside is the page\'s again');
+});
+
+test('Enter or Space on Show hidden shows them all and moves focus into its own post', () => {
+  for (const name of ['Enter', ' ']) {
+    const win = page(feed(post(1), post(2)));
+    const [a, b] = win.document.querySelectorAll('[aria-posinset]');
+    const hider = createHider({ doc: win.document });
+    hider.hide(a, 'Sponsored');
+    hider.hide(b, 'Sponsored');
+    const allB = b.firstElementChild.firstElementChild;
+    allB.focus();
+    assert.equal(key(win, allB, 'keydown', name, { ctrlKey: true }).defaultPrevented, false, `Ctrl+${name} stays the page's`);
+    assert.equal(key(win, allB, 'keydown', name).defaultPrevented, true);
+    if (name === ' ') {
+      assert.equal(hider.isHidden(a), true, 'Space waits for the key to come up');
+      assert.equal(key(win, allB, 'keyup', name).defaultPrevented, true);
+    }
+    assert.deepEqual([hider.isHidden(a), hider.isHidden(b)], [false, false], name);
+    assert.ok(win.document.activeElement === b.querySelector('h4 a'), `${name}: focus goes to the first control in its post`);
+  }
 });

@@ -650,7 +650,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: t('Leave a note where a post was hidden') }),
-            h('div', { class: 'desc', id: 'hfw-ui.hiddenNote-desc', text: t('A short line that says why a post was hidden. Click it to see the post.') })),
+            h('div', { class: 'desc', id: 'hfw-ui.hiddenNote-desc', text: t('A short line that says why a post was hidden. Click it to see the post, or Show hidden at its end to see every post hidden on the page.') })),
           toggle('ui.hiddenNote', 'Leave a note where a post was hidden', { describedBy: 'hfw-ui.hiddenNote-desc' })));
   }
 
@@ -822,7 +822,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         options: [{ label: environment.activity.perAccount ? 'Add to this account' : 'Use while signed out', focusKey: 'legacy:add' }, { label: 'Delete them', focusKey: 'legacy:delete' }], focusKey: 'legacy:add', render: () => legacyActivityCard(legacy),
       }] : []),
       { id: 'ui.launcher', section: 'general', group: 'facebook', title: 'Show the settings button', description: "The gear in Facebook's top bar, next to Messenger and Notifications. {opener} always opens settings too.", vars: { opener: t(ALWAYS_OPENS) }, render: launcherCard },
-      { id: 'ui.hiddenNote', section: 'general', group: 'facebook', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post.', render: hiddenNoteCard },
+      { id: 'ui.hiddenNote', section: 'general', group: 'facebook', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post, or Show hidden at its end to see every post hidden on the page.', render: hiddenNoteCard },
       { id: 'ui.loadWarning', section: 'general', group: 'facebook', title: 'Warn when the feed seems stuck', description: LOAD_WARNING_NOTE, keywords: ['loading', 'popup'], render: loadWarningCard },
       { id: 'ui.language', section: 'general', group: 'yours', title: 'Language', description: LANGUAGE_NOTE, options: LANGUAGES.map((entry) => ({ label: entry.label })), keywords: ['translation', 'locale', 'right to left'], focusKey: 'ui.language', render: languageCard },
       { id: 'backup-restore', section: 'general', group: 'yours', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.',
