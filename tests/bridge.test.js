@@ -2902,7 +2902,7 @@ test('a private bridge delegates activity to isolated memory without exposing it
   assert.equal(activity.legacy(), null);
 });
 
-test('a game frame sees and changes only the game ads switch', async () => {
+test('a game frame sees only the game ads switch, and cannot change it', async () => {
   const chrome = fakeChrome({ 'instantGamesAds.enabled': false, 'keepSpeed.rate': 1.5, settings: { beta: true } });
   const win = page(undefined, 'https://game123.apps.fbsbx.com/index.html');
   await startIsolated(win, chrome);
@@ -2912,8 +2912,16 @@ test('a game frame sees and changes only the game ads switch', async () => {
   assert.deepEqual(loaded.result, { 'instantGamesAds.enabled': false });
   assert.deepEqual(chrome.sent, [], 'a game frame has no settings record for the worker to recover');
   assert.deepEqual(chrome.asked, [], 'and the toolbar button never waits on one');
-  assert.equal((await forged.send('storage:set', { key: 'instantGamesAds.enabled', value: true })).ok, true);
-  assert.equal(chrome.data['instantGamesAds.enabled'], true);
+  // The game is someone else's page, and the switch decides whether its ads are blocked. Only
+  // the Facebook tab (mirrorGameSetting) sets it.
+  for (const [type, payload] of [
+    ['storage:set', { key: 'instantGamesAds.enabled', value: true }],
+    ['storage:set', { key: 'instantGamesAds.enabled', value: null }],
+    ['storage:remove', { key: 'instantGamesAds.enabled' }],
+  ]) {
+    await refused(forged.send(type, payload), /not allowed/, `${type} ${JSON.stringify(payload)}`);
+  }
+  assert.equal(chrome.data['instantGamesAds.enabled'], false);
   await refused(forged.send('storage:set', { key: 'keepSpeed.rate', value: 2 }), /not allowed/);
   await refused(forged.send('storage:mutate', { key: 'settings', mutation: { set: { beta: false } } }), /not allowed/);
   await refused(forged.send('download', { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', key: '0f8e2a52-6a51-4c39-9d3b-0e9c3b0d6a11' }), /not allowed/);
