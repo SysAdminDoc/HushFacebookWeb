@@ -25,6 +25,11 @@ const GRACE_MS = 4000;
 const POLL_MS = 1500;
 const CLICKABLE = 'a[href], button, input, select, textarea, [role=button], [role=link], [role=tab], [role=combobox], [role=textbox], [role=search]';
 
+const drawnRow = (row) => {
+  const box = row.getBoundingClientRect();
+  return box.width > 0 && box.height > 0;
+};
+
 // The round buttons' row in Facebook's top bar, or null.
 export function accountRow(doc) {
   const width = doc.defaultView.innerWidth;
@@ -79,7 +84,12 @@ export function trackLauncherSpot({ button, host, doc, router, graceMs = GRACE_M
 
   function place() {
     if (button.hidden) return;
-    if (!row?.isConnected) follow(accountRow(doc));
+    // A row gone from the page, or left in it with nothing drawn, is looked for again. An empty
+    // one stays followed while there's no other, so its coming back is seen at once.
+    if (!row?.isConnected || !drawnRow(row)) {
+      const found = accountRow(doc);
+      if (found || !row?.isConnected) follow(found);
+    }
     const spot = row && barSpot(row, doc, host);
     if (spot) set('bar', `${spot.left}px`, `${spot.top}px`);
     else set(now() - started < graceMs ? 'wait' : 'corner');
@@ -87,8 +97,9 @@ export function trackLauncherSpot({ button, host, doc, router, graceMs = GRACE_M
 
   const later = () => win.setTimeout(place, 0);
   const grace = win.setTimeout(place, graceMs);
+  // A row Facebook swapped out, or a gear in the corner whose spot may have cleared since.
   const poll = win.setInterval(() => {
-    if (!button.hidden && !row?.isConnected) place();
+    if (!button.hidden && (!row?.isConnected || button.dataset.place !== 'bar')) place();
   }, pollMs);
   win.addEventListener('resize', place, { passive: true });
   const unsubscribe = router?.subscribe?.(later);

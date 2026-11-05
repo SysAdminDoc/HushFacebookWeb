@@ -145,6 +145,40 @@ test('a spot taken by a tab sends the gear to the corner once the grace time is 
   assert.deepEqual(placed(button), ['bar', '252px', '8px'], 'a resize that clears it brings the gear back');
 });
 
+test('a spot that clears later brings the gear back from the corner on its own', async () => {
+  const { doc, host, button, draw } = page({ width: 500 });
+  const { tabs } = bar(doc, { rowLeft: 300, rowWidth: 184, width: 500 });
+  draw(tabs.querySelector('a'));
+  const spot = trackLauncherSpot({ button, host, doc, graceMs: 40, pollMs: 10 });
+  cleanups.push(() => spot.stop());
+  await sleep(120);
+  assert.deepEqual(placed(button), ['corner', '', '']);
+  draw(host);
+  await sleep(60);
+  assert.deepEqual(placed(button), ['bar', '252px', '8px'], 'no resize needed');
+});
+
+test('a row left empty in the page gives way to the one Facebook draws instead', async () => {
+  const { doc, host, button } = page();
+  const { row, banner } = bar(doc);
+  const spot = trackLauncherSpot({ button, host, doc, graceMs: 0, pollMs: 10 });
+  cleanups.push(() => spot.stop());
+  assert.equal(button.dataset.place, 'bar');
+  boxed(row, 0, 0, 0, 0);
+  const fresh = boxed(row.cloneNode(true), 1400, 0, 184, 56);
+  banner.append(fresh);
+  FakeResizeObserver.last.fire();
+  await sleep(60);
+  assert.deepEqual(placed(button), ['bar', '1352px', '8px']);
+  assert.equal(FakeResizeObserver.last.watched.has(fresh), true, 'the drawn row is the one watched');
+
+  // With no other row, the empty one is still watched, so its coming back is seen at once.
+  boxed(fresh, 0, 0, 0, 0);
+  FakeResizeObserver.last.fire();
+  assert.equal(button.dataset.place, 'corner');
+  assert.equal(FakeResizeObserver.last.watched.has(fresh), true);
+});
+
 test('a row Facebook swaps out is found again', async () => {
   const { doc, host, button } = page();
   const { row } = bar(doc);
