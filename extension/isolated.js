@@ -200,7 +200,7 @@ function storageAccessFor(doc) {
     return {
       kind: 'game',
       values: new Map([[GAME_KEY, (value) => typeof value === 'boolean']]),
-      writable: new Set([GAME_KEY]),
+      writable: new Set(),
       settingsKey: null,
       receiptKey: null,
     };
