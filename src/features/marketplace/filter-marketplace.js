@@ -15,10 +15,11 @@
 // store's own site (SHIPPING_OFFSITE), so it counts as shipped too. "Just listed" is drawn by the
 // page from the listing's age.
 //
-// Search results that Facebook drew on the server (the inline answer's own edges) can't leave
-// the data: React hydrates them from it and throws #418 when one is missing, as on the groups
-// feed. They stay, and listing-cards.js hides their cards on the page. Today's picks isn't drawn
-// on the server and leaves the data with no error.
+// Listings that Facebook drew on the server (the inline answer's own edges) can't leave the
+// data: React hydrates them from it and throws #418 when one is missing, as on the groups feed.
+// They stay, and listing-cards.js hides their cards on the page. That's search results (live
+// 2026-11-03) and, since 2026-11-05, Today's picks too: it sits in the home's inline answer, and
+// taking its one Ships to you listing out threw #418 with only this switch on.
 //
 // The word list matches a listing's title and seller, the people list only its seller, and a
 // seller on the always-show people list keeps their listings from both, as in Hide posts by
@@ -160,7 +161,7 @@ export function reasonFor(listing, filter) {
 // Takes every listing in doc that reasonOf(listing) names a reason for: the edge loses its node,
 // and a Today's picks listing leaves the list. Returns the reasons, one per listing taken.
 // report(listing, reason) hears each one before it goes. An edge keep(edge, listing) says yes
-// to stays whole, whatever its reason.
+// to stays whole, whatever its reason, and so does every listing of the Today's picks it holds.
 export function filterListings(doc, reasonOf, report, keep) {
   const taken = [];
   const take = (listing) => {
@@ -170,9 +171,22 @@ export function filterListings(doc, reasonOf, report, keep) {
     taken.push(reason);
     return true;
   };
+  const isPicks = (value) => isObject(value) && value.__typename === PICKS && Array.isArray(value.marketplace_listings);
+  const pick = (unit, edge) => {
+    const left = unit.marketplace_listings.filter((item) => {
+      if (!isObject(item)) return true;
+      const listing = fromListing(item);
+      return Boolean(edge && keep?.(edge, listing)) || !take(listing);
+    });
+    if (left.length !== unit.marketplace_listings.length) unit.marketplace_listings = left;
+  };
   walk(doc, (value) => {
-    if (value.__typename === PICKS && Array.isArray(value.marketplace_listings)) {
-      value.marketplace_listings = value.marketplace_listings.filter((item) => !isObject(item) || !take(fromListing(item)));
+    if (isPicks(value)) {
+      pick(value, null);
+      return SKIP;
+    }
+    if (isPicks(value.node)) {
+      pick(value.node, value);
       return SKIP;
     }
     // Every feed edge carries a cursor (344 of 344 live, 2026-11-03), and a lone listing fetched

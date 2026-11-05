@@ -88,7 +88,9 @@ test('the search answer loses exactly its Ships to you listings, and its ads and
   assert.deepEqual(diagnostics.decisions().map((d) => [d.signal, d.layer]), Array(3).fill(['shipped', 'data']));
 });
 
-test("Today's picks loses its Ships to you listing in the page's own data, and the rest keep their order", async () => {
+// Live 2026-11-05, Today's picks comes in the home's inline answer ({data, extensions}) and is
+// drawn on the server: taking its Ships to you listing out of the data threw React #418.
+test("Today's picks keeps every listing in the page's own data, and its Ships to you card is hidden on the page", async () => {
   const [line] = await fixtureLines('marketplace-picks.jsonl');
   const picks = (doc) => {
     let found = null;
@@ -100,14 +102,26 @@ test("Today's picks loses its Ships to you listing in the page's own data, and t
   };
   const before = picks(parseLine(line));
   assert.equal(before.length, 20);
-  const kept = before.filter((listing) => !shipsOnsite(listing)).map((listing) => listing.id);
-  assert.equal(kept.length, 19, 'the capture has one');
+  const shipped = before.filter(shipsOnsite).map((listing) => listing.id);
+  assert.equal(shipped.length, 1, 'the capture has one');
+  const { doc, router, marked } = marketplacePage('https://www.facebook.com/marketplace/', before);
+  doc.documentElement.dataset.hfwRoute = 'marketplace';
   const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/marketplace/' } };
   const net = installNetworkHooks({ win, log: quiet });
-  const { rule, filtered } = setup({ 'filterMarketplace.shipped': true });
+  const { rule, filtered, diagnostics } = setup({ 'filterMarketplace.shipped': true }, { doc, router });
   net.transformResponses(rule);
-  assert.deepEqual(picks(win.JSON.parse(line)).map((listing) => listing.id), kept);
+  assert.deepEqual(win.JSON.parse(line), parseLine(line), 'nothing leaves the data');
+  await tick();
+  assert.deepEqual(marked(), shipped, 'its card goes instead');
   assert.equal(filtered(), '1 ships to you');
+  assert.deepEqual(diagnostics.decisions().map((d) => [d.signal, d.layer]), [['shipped', 'page']]);
+
+  // The same unit fetched over GraphQL isn't drawn on the server, so its listing leaves the data.
+  const fetched = parseLine(line);
+  const again = setup({ 'filterMarketplace.shipped': true });
+  assert.equal(again.rule.transform(fetched, SEARCH), true);
+  assert.deepEqual(picks(fetched).map((listing) => listing.id), before.filter((listing) => !shipsOnsite(listing)).map((listing) => listing.id), 'the rest keep their order');
+  assert.equal(again.filtered(), '1 ships to you');
 });
 
 test("the streamed home feed's prices are in cents, and a price range takes out what's outside it", async () => {
