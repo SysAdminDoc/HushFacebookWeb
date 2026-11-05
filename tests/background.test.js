@@ -490,6 +490,43 @@ test('a worker Chrome stopped and started again still tells the page, and the sa
   assert.equal(third.calls.downloads.length, 0, 'it took up the download already going');
 });
 
+test("a download whose id the worker never wrote down still ends right when the page doesn't ask again", async () => {
+  const session = {};
+  const items = new Map();
+  const url = 'https://scontent.xx.fbcdn.net/v/b.jpg';
+  const at = Date.now();
+  const going = (id, by = 'hfw') => items.set(id, { id, url, state: 'in_progress', byExtensionId: by, startTime: new Date(at + id).toISOString() });
+  const current = worker({ tabs: { 1: true, 2: true }, session, items });
+  // Stopped between asking Chrome and writing down the id, for a private window's save.
+  going(20);
+  session['hushfacebookWeb.downloads'] = { [KEY]: { tab: 1, document: 'document-1', url, at, secret: true } };
+  // Another extension's download of the same file isn't it.
+  going(21, 'someone-else');
+  current.end(21, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.erased, []);
+  current.end(20, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.erased, [[20, 'complete']], 'off the list');
+  assert.deepEqual(current.calls.told.map(([tab, message]) => [tab, message.key, message.state]), [[1, KEY, 'complete']], 'and the page hears it');
+  assert.deepEqual(recordsOf(session), {});
+
+  // The same, with the private window closed before it ended.
+  going(22);
+  session['hushfacebookWeb.downloads'] = { [OTHER_KEY]: { tab: 2, document: 'document-2', url, at, secret: true } };
+  current.listeners.removed.forEach((fn) => fn(2));
+  await settle();
+  await settle();
+  current.end(22, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.erased.at(-1), [22, 'complete']);
+  assert.equal(current.calls.told.length, 1, 'a closed page hears nothing');
+  assert.deepEqual(recordsOf(session), {});
+});
+
 test('only the page that started a download can cancel it, and cancelling calls the browser', async () => {
   const current = worker({ tabs: { 1: true, 2: true } });
   await answerOf(current, photoDownload());

@@ -1167,6 +1167,18 @@ async function startedFor(record, records) {
   return items.find((item) => item.byExtensionId === chrome.runtime.id && !taken.has(item.id))?.id;
 }
 
+// The key of the record a download belongs to. When none has its id, the same match from the
+// download's side: a record with no id yet for its url, made before this extension started it.
+// That's one whose page didn't ask again to take it up, closed or moved on.
+async function recordFor(id, records) {
+  const key = Object.keys(records).find((name) => records[name].id === id);
+  if (key || !Object.values(records).some((record) => record.id === undefined)) return key;
+  const [item] = await chrome.downloads.search({ id });
+  if (item?.byExtensionId !== chrome.runtime.id) return undefined;
+  return Object.keys(records).find((name) => records[name].id === undefined
+    && records[name].url === item.url && Date.parse(item.startTime) > records[name].at - 1000);
+}
+
 const ownedBy = (record, sender) => record.tab === sender.tab.id && record.document === (sender.documentId ?? null);
 
 // A save from a private window. Firefox files a download in the normal session unless it's told
@@ -1239,7 +1251,7 @@ chrome.downloads.onChanged.addListener((delta) => {
   const state = delta?.state?.current;
   if (state !== 'complete' && state !== 'interrupted') return;
   changeDownloads(async (records) => {
-    const key = Object.keys(records).find((name) => records[name].id === delta.id);
+    const key = await recordFor(delta.id, records);
     if (!key) return;
     const record = records[key];
     const { tab, document } = record;
@@ -1333,8 +1345,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
       const record = records[key];
       if (record.tab !== tabId) continue;
       // A private window's download still going stays, with no page to tell, so it comes off
-      // the list when it ends.
-      if (record.secret && !GECKO && Number.isInteger(record.id)) records[key] = { ...record, tab: null, document: null };
+      // the list when it ends. So does one whose id was never written down (recordFor).
+      if (record.secret && !GECKO) records[key] = { ...record, tab: null, document: null };
       else delete records[key];
     }
   }).catch(() => {});
