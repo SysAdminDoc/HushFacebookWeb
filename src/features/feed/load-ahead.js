@@ -65,11 +65,21 @@ export function widenFeedEnd(win, reach, onWiden = () => {}) {
 function watchFeedEnd({ Target, observer, callback, options, own, reach, onWiden }) {
   const native = Target.prototype;
   const moved = new Set();
+  // Feed ends left on Facebook's own observer.
+  const stayed = new Set();
   let wide = null;
   const define = (name, value) => Object.defineProperty(observer, name, { configurable: true, writable: true, value });
   define('observe', function observe(target) {
-    const px = isFeedEnd(target) ? reach() : 0;
-    if (!(px > own)) return native.observe.call(observer, target);
+    // Watching a target again changes nothing for an IntersectionObserver, so a feed end stays
+    // with the observer that has it until it's let go, even if the switch changed since.
+    if (moved.has(target)) return wide.observe(target);
+    if (stayed.has(target)) return native.observe.call(observer, target);
+    const end = isFeedEnd(target);
+    const px = end ? reach() : 0;
+    if (!(px > own)) {
+      if (end) stayed.add(target);
+      return native.observe.call(observer, target);
+    }
     if (!wide) {
       wide = new Target((entries) => callback.call(observer, entries, observer), { ...options, rootMargin: `0px 0px ${Math.round(px)}px 0px` });
       onWiden();
@@ -79,10 +89,12 @@ function watchFeedEnd({ Target, observer, callback, options, own, reach, onWiden
   });
   define('unobserve', function unobserve(target) {
     if (moved.delete(target)) return wide.unobserve(target);
+    stayed.delete(target);
     return native.unobserve.call(observer, target);
   });
   define('disconnect', function disconnect() {
     moved.clear();
+    stayed.clear();
     wide?.disconnect();
     return native.disconnect.call(observer);
   });

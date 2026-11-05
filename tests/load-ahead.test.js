@@ -171,6 +171,30 @@ test('unobserve, disconnect and takeRecords reach the wider observer too', () =>
   assert.equal(wide.dropped.length, 1, 'after a disconnect the feed end belongs to neither');
 });
 
+test('a feed end watched again stays with the observer that has it, however the switch changed', () => {
+  const doc = page().document;
+  const { Observer, made } = observerClass();
+  let reach = 25000;
+  const win = { IntersectionObserver: Observer };
+  widenFeedEnd(win, () => reach);
+  const own = new win.IntersectionObserver(() => {}, { rootMargin: '0px 0px 2570px 0px' });
+  own.observe(feedEnd(doc));
+  const [facebook, wide] = made;
+  reach = 0;
+  own.observe(feedEnd(doc));
+  assert.equal(facebook.watched.length, 0, "switched off since, and still not on Facebook's as well");
+  own.unobserve(feedEnd(doc));
+  assert.ok(wide.dropped.length === 1 && facebook.dropped.length === 0, 'let go from the one that has it');
+
+  const later = new win.IntersectionObserver(() => {}, { rootMargin: '0px 0px 2570px 0px' });
+  later.observe(feedEnd(doc));
+  reach = 25000;
+  later.observe(feedEnd(doc));
+  assert.equal(made.length, 3, 'switched on since, and no wider observer to watch it twice');
+  later.unobserve(feedEnd(doc));
+  assert.equal(made[2].dropped.length, 1);
+});
+
 test('the stand-in builds the same observers', () => {
   const { Observer } = observerClass();
   const win = { IntersectionObserver: Observer };
