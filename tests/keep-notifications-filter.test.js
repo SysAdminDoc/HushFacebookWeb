@@ -42,9 +42,9 @@ function wire(doc, { stuck = false } = {}) {
   return asked;
 }
 
-function keeper(win, { storage = createMemoryStorage(), on = () => true, onPage = () => true } = {}) {
+function keeper(win, { storage = createMemoryStorage(), on = () => true, onPage = () => true, now } = {}) {
   const timers = [];
-  const kept = createFilterKeeper({ doc: win.document, storage, enabled: on, onPage, trusted: () => true, setTimer: (fn) => timers.push(fn) });
+  const kept = createFilterKeeper({ doc: win.document, storage, enabled: on, onPage, trusted: () => true, setTimer: (fn) => timers.push(fn), now });
   return { kept, storage, flush: () => { for (const fn of timers.splice(0)) fn(); }, pending: () => timers.length };
 }
 
@@ -127,6 +127,49 @@ test('the bell opened with Enter gets the same look, other keys do not', () => {
   bell.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   flush();
   assert.deepEqual(asked, [1]);
+});
+
+test('a bell list that fills in after the looks still gets your pick, for a few seconds after the click', async () => {
+  const storage = createMemoryStorage({ [PICK_KEY]: 'unread' });
+  const win = page(BELL(0).replace(ROW(1) + ROW(2), ''), '/');
+  const doc = win.document;
+  doc.querySelector('[role="dialog"]').style.display = '';
+  const asked = wire(doc);
+  let clock = 1000;
+  const { kept, flush, pending } = keeper(win, { storage, onPage: () => false, now: () => clock });
+  kept.start();
+  doc.querySelector('.bell').click();
+  flush();
+  assert.equal(asked.length, 0, 'no notifications drawn yet, so it is not known as the filter');
+  clock += 1500;
+  doc.querySelector('[role="list"]').insertAdjacentHTML('beforeend', ROW(1));
+  await tick();
+  assert.ok(pending() > 0, 'the late rows bring a look');
+  flush();
+  assert.deepEqual(asked, [1]);
+
+  // Long after the click, the page's own changes bring no look.
+  clock += 5000;
+  const [all, unread] = doc.querySelectorAll('[role="toolbar"] [role="button"]');
+  all.setAttribute('aria-pressed', 'true');
+  unread.setAttribute('aria-pressed', 'false');
+  doc.querySelector('[role="list"]').insertAdjacentHTML('beforeend', ROW(2));
+  await tick();
+  assert.equal(pending(), 0);
+});
+
+test('Space or Enter typed in a text box is not a look', () => {
+  const storage = createMemoryStorage({ [PICK_KEY]: 'unread' });
+  const win = page(`${BELL(0)}<div contenteditable="true" class="box"><span>Hi</span></div><input class="search"><textarea></textarea>`, '/');
+  const doc = win.document;
+  const { kept, pending } = keeper(win, { storage, onPage: () => false });
+  kept.start();
+  for (const field of [doc.querySelector('.box span'), doc.querySelector('.search'), doc.querySelector('textarea')]) {
+    for (const key of [' ', 'Enter']) field.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true }));
+  }
+  assert.equal(pending(), 0);
+  doc.querySelector('.bell').dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  assert.ok(pending() > 0, 'Enter on the bell still looks');
 });
 
 test("the page's own clicks are not your pick", () => {

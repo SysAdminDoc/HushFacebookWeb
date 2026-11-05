@@ -24,16 +24,22 @@ const LINKS = 'a[href*="notif_t="]';
 const DELAY = 120;
 // After a click, key or page change that may have shown a list, which draws over the next second.
 const LOOKS = [100, 400, 1000];
+// And a list that fills in later than that, on a slow connection say, is looked at as it changes
+// for this long after.
+const WATCH_MS = 4000;
 // Per list, until you do something again, so the script can't go back and forth with Facebook.
 const MAX_PRESSES = 3;
+// Space and Enter typed in these are words, not a press that could open the bell.
+const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 const buttonsOf = (bar) => [...bar.querySelectorAll(BUTTONS)];
 const drawn = (element) => element.checkVisibility?.({ visibilityProperty: true, opacityProperty: true }) ?? true;
 
-export function createFilterKeeper({ doc, storage, enabled, onPage = () => false, trusted = (event) => event.isTrusted, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
+export function createFilterKeeper({ doc, storage, enabled, onPage = () => false, trusted = (event) => event.isTrusted, setTimer = (fn, ms) => setTimeout(fn, ms), now = () => Date.now() }) {
   const known = new WeakSet();
   let presses = new WeakMap(); // toolbar -> times the script pressed in it since your last input
   let timer = null;
+  let watchUntil = 0;
 
   const kept = () => {
     const pick = storage.get(PICK_KEY, null);
@@ -72,6 +78,7 @@ export function createFilterKeeper({ doc, storage, enabled, onPage = () => false
   function lookSoon() {
     if (!enabled() || !kept()) return;
     presses = new WeakMap();
+    watchUntil = now() + WATCH_MS;
     for (const ms of LOOKS) setTimer(apply, ms);
   }
 
@@ -80,7 +87,7 @@ export function createFilterKeeper({ doc, storage, enabled, onPage = () => false
   // may have opened the bell's list, so it gets looked at as it draws.
   function onInput(event) {
     if (!enabled() || !trusted(event)) return;
-    if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+    if (event.type === 'keydown' && ((event.key !== 'Enter' && event.key !== ' ') || event.target?.closest?.(TYPING))) return;
     const button = event.target?.closest?.(BUTTONS);
     const bar = button?.closest('[role="toolbar"]');
     if (bar && isFilter(bar)) {
@@ -95,10 +102,11 @@ export function createFilterKeeper({ doc, storage, enabled, onPage = () => false
     start() {
       doc.addEventListener('click', onInput, true);
       doc.addEventListener('keydown', onInput, true);
-      // The Notifications page draws its list on its own, with no click to wait for.
+      // The Notifications page draws its list on its own, with no click to wait for, and the
+      // bell's list gets the same for a few seconds after a click.
       const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
       new Observer(() => {
-        if (enabled() && onPage() && kept()) schedule();
+        if (enabled() && (onPage() || now() < watchUntil) && kept()) schedule();
       }).observe(doc.body, { childList: true, subtree: true });
       apply();
     },
