@@ -7,6 +7,8 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { accountRow, barSpot, trackLauncherSpot } from '../src/ui/launcher-place.js';
+import { panelCss, uiTokens } from '../src/ui/styles.js';
+import { contrast } from '../src/features/appearance/accent.js';
 
 const nodeSetTimeout = globalThis.setTimeout;
 const sleep = (ms) => new Promise((resolve) => nodeSetTimeout(resolve, ms));
@@ -190,6 +192,21 @@ test('a row Facebook swaps out is found again', async () => {
   assert.deepEqual(placed(button), ['bar', '1352px', '8px']);
   assert.equal(FakeResizeObserver.last.watched.has(fresh), true, 'the new row is the one watched');
   assert.equal(FakeResizeObserver.last.watched.has(row), false);
+});
+
+test("the gear's focus ring shows on Facebook's light top bar as well as its dark one", () => {
+  const token = (name) => new RegExp(`--${name}: (#[0-9a-f]{6})`).exec(uiTokens)[1];
+  const rule = /\.launcher:focus-visible \{([^}]*)\}/.exec(panelCss)?.[1] ?? '';
+  const offset = Number(/outline-offset: (\d+)px/.exec(rule)?.[1]);
+  const halo = /box-shadow: 0 0 0 (\d+)px var\(--(\w+)\)/.exec(rule);
+  assert.ok(halo, `a dark halo under the ring: ${rule}`);
+  assert.ok(Number(halo[1]) >= offset, 'the halo fills the gap between the gear and its ring');
+  const [ring, under] = [token('accent'), token(halo[2])];
+  assert.ok(contrast(ring, under) >= 3);
+  // Facebook's top bar, light and dark.
+  for (const bar of ['#ffffff', '#242526']) assert.ok(Math.max(contrast(ring, bar), contrast(under, bar)) >= 3, bar);
+  const corner = /\.launcher\[data-place="corner"\]:focus-visible \{([^}]*)\}/.exec(panelCss)?.[1] ?? '';
+  assert.match(corner, /box-shadow: 0 0 0 \d+px var\(--\w+\), 0 2px 12px #0006/, 'the gear in the corner keeps its shadow too');
 });
 
 test('a page change places the gear again, and a hidden gear is left alone', async () => {

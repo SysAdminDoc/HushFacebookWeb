@@ -10,6 +10,7 @@ import { createPostTracker } from '../src/core/dom/posts.js';
 import { createSettings } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import { renderFeatureCss } from '../src/core/style.js';
+import { contrast } from '../src/features/appearance/accent.js';
 
 const windows = [];
 afterEach(async () => {
@@ -409,6 +410,25 @@ const key = (win, target, type, name, init = {}) => {
   return event;
 };
 const buttonParts = (element) => ['role', 'tabindex', 'aria-label'].map((name) => element.getAttribute(name));
+
+// Behind a post: Facebook's white and grey light pages, and its dark ones.
+const PAGES_BEHIND = ['#ffffff', '#f0f2f5', '#18191a', '#242526'];
+
+test('the focus ring on a note and on Show hidden shows on a light page as well as a dark one', () => {
+  const rules = [...hideCss({ notes: true }).matchAll(/:focus-visible \{([^}]*)\}/g)].map(([, body]) => body);
+  assert.equal(rules.length, 2);
+  for (const body of rules) {
+    const ring = /outline: 2px solid (#[0-9a-f]{6})/.exec(body)?.[1];
+    const offset = Number(/outline-offset: (\d+)px/.exec(body)?.[1]);
+    const halo = /box-shadow: 0 0 0 (\d+)px (#[0-9a-f]{6})/.exec(body);
+    assert.ok(ring && halo, `a ring and a dark halo: ${body}`);
+    assert.ok(Number(halo[1]) >= offset + 2, 'the halo fills the gap and runs under the ring, so no page shows between');
+    assert.ok(contrast(ring, halo[2]) >= 3, 'the ring reads on its halo');
+    for (const behind of PAGES_BEHIND) {
+      assert.ok(Math.max(contrast(ring, behind), contrast(halo[2], behind)) >= 3, `one of them reads on ${behind}`);
+    }
+  }
+});
 
 test('the note is a button keyboards and screen readers reach, and Enter shows the post', () => {
   const win = page(feed(post(1), post(2)));

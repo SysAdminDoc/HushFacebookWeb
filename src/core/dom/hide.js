@@ -62,14 +62,16 @@ export function hideCss({ notes }) {
     `[${MARK}] { display: flex !important; gap: 8px; border-radius: 6px; }`,
     `[${MARK}]::before { content: attr(${NOTE}); display: block; flex: 1 1 auto; padding: 12px 16px; border: 1px solid #343745; border-radius: 6px; background: #171923; font: 600 13px/1.4 system-ui, sans-serif; color: #c4b0ff; cursor: pointer; }`,
     `[${MARK}]:hover:not(:has(> :hover))::before { text-decoration: underline; }`,
-    `[${MARK}]:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px; }`,
+    // The ring sits on Facebook's page, and on a light one the lavender alone barely shows, so a
+    // dark halo fills the gap and runs under it.
+    `[${MARK}]:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px; box-shadow: 0 0 0 4px #171923 !important; }`,
     // Facebook's own element, so its classes' look goes first.
     `${ALL} { all: unset !important; display: block !important; flex: none !important; border-radius: 6px !important; cursor: pointer !important; font-size: 0 !important; }`,
     `${ALL} > * { display: none !important; }`,
     `${ALL}::before { all: unset !important; content: "${SHOW_ALL}" !important; display: block !important; padding: 12px 16px !important; border: 1px solid #343745 !important; border-radius: 6px !important; background: #262a3b !important; font: 600 13px/1.4 system-ui, sans-serif !important; color: #c4b0ff !important; white-space: nowrap !important; }`,
     `${ALL}::after { content: none !important; }`,
     `${ALL}:hover::before { text-decoration: underline !important; }`,
-    `${ALL}:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px; }`,
+    `${ALL}:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px; box-shadow: 0 0 0 4px #171923 !important; }`,
     `[${HELD}] { display: block !important; }`,
   ].join('\n');
 }

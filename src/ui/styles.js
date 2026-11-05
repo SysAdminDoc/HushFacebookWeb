@@ -42,6 +42,9 @@ svg { flex: none; }
    buttons. */
 .launcher[data-place="corner"] { left: 12px; bottom: 12px; background-color: var(--secondary-button-background-floating, var(--base)); box-shadow: 0 2px 12px #0006; }
 .launcher[hidden] { display: none; }
+/* The ring sits on Facebook's bar, white in its light mode, so a dark halo fills the gap. */
+.launcher:focus-visible { outline-offset: 2px; box-shadow: 0 0 0 2px var(--crust); }
+.launcher[data-place="corner"]:focus-visible { box-shadow: 0 0 0 2px var(--crust), 0 2px 12px #0006; }
 .dialog {
   width: min(1180px, calc(100vw - 48px)); height: min(900px, calc(100dvh - 64px));
   max-width: none; max-height: none; padding: 0; margin: auto; overflow: hidden;
