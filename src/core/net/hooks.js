@@ -18,20 +18,36 @@ const STARTUP_MAX_BYTES = 256 * 1024;
 const FORM_MAX_BYTES = 64 * 1024;
 const FORM_WAIT_MS = 250;
 
+// Never throws: a request the page made goes on to the browser, which answers anything odd
+// in it the way it always does. What can't be read here is left empty for the rules.
+const textOf = (value) => {
+  try {
+    return String(value);
+  } catch {
+    return '';
+  }
+};
+
 export function describeRequest({ url, method = 'GET', body, headers, transport, base }) {
   let parsed;
   try {
-    parsed = new URL(String(url), base);
+    parsed = new URL(textOf(url), base);
   } catch {
     parsed = null;
   }
+  let friendlyName;
+  try {
+    friendlyName = textOf(friendlyNameOf(body, headers));
+  } catch {
+    friendlyName = '';
+  }
   return {
     transport,
-    method: String(method).toUpperCase(),
-    url: parsed?.href ?? String(url),
+    method: textOf(method).toUpperCase(),
+    url: parsed?.href ?? textOf(url),
     host: parsed?.hostname ?? '',
     path: parsed?.pathname ?? '',
-    friendlyName: friendlyNameOf(body, headers),
+    friendlyName,
     body,
   };
 }

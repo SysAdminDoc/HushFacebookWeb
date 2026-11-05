@@ -193,10 +193,11 @@ export function friendlyNameOf(body, headers) {
   return '';
 }
 
+// The browser reads header names as text, so [[1, 'x']] is a header too.
 function headerValue(headers, name) {
   if (!headers) return '';
   if (typeof headers.get === 'function') return headers.get(name) ?? '';
-  if (Array.isArray(headers)) return headers.find(([key]) => key.toLowerCase() === name)?.[1] ?? '';
+  if (Array.isArray(headers)) return headers.find((pair) => String(pair?.[0]).toLowerCase() === name)?.[1] ?? '';
   for (const [key, value] of Object.entries(headers)) if (key.toLowerCase() === name) return value;
   return '';
 }

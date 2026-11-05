@@ -134,6 +134,29 @@ test('a broken rule is logged once and Facebook still gets its data', async () =
   assert.equal(log.errors.length, 1);
 });
 
+test("a fetch whose method or headers the hooks can't read goes to the browser as it came", async () => {
+  const { win, calls } = fakeWindow();
+  const net = installNetworkHooks({ win, log: quietLog() });
+  net.blockRequests({ id: 'seen', enabled: () => true, match: (ctx) => ctx.friendlyName === 'storiesUpdateSeenStateMutation' });
+  const odd = [
+    // Header names the browser reads as text, the way new Headers([[1, 'x']]) takes them.
+    { method: 'POST', headers: [[1, 'x'], ['X-FB-Friendly-Name', 'Other']], body: graphqlBody('Other') },
+    { method: 'POST', headers: { get() { throw new Error('no'); } }, body: graphqlBody('Other') },
+    { method: { toString() { throw new Error('no'); } } },
+  ];
+  for (const init of odd) {
+    const answer = win.fetch('/api/graphql/', init);
+    assert.equal(typeof answer?.then, 'function', 'fetch always answers with a promise');
+    await answer;
+  }
+  assert.equal(calls.length, odd.length, 'each one reached the browser');
+
+  // A name still read from the headers is still judged.
+  const blocked = await win.fetch('/api/graphql/', { method: 'POST', headers: [[1, 'x'], ['X-FB-Friendly-Name', 'storiesUpdateSeenStateMutation']] });
+  assert.equal(await blocked.text(), '{}');
+  assert.equal(calls.length, odd.length);
+});
+
 const seenRule = (calls) => ({
   id: 'seen', enabled: () => true, fakeResponse: () => '{"held":true}',
   match: (ctx) => { calls?.push(ctx); return ctx.path === '/api/graphql/' && ctx.friendlyName === 'storiesUpdateSeenStateMutation'; },
