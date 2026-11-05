@@ -2,8 +2,10 @@
 // redirect when Facebook opens on the plain Home URL, and Home links rewritten on click,
 // since Facebook's router would otherwise draw the ranked feed in place.
 //
-// Confidence: ?sk=h_chr and the filter= values were documented working in 2025-02. They
-// need a check on today's Facebook.
+// Confidence: checked live 2026-11-04 on the signed-in test account. Facebook's own Feeds tabs
+// link to these same five ?filter=<value>&sk=h_chr addresses, and each value landed on its own
+// selected tab from a plain Home load and from a click on the Home link, with no loop warning
+// (.mockups/following-feed/drive.mjs).
 
 import { claimHomeRedirect, isPlainHome, onceLoaded, sameTabLink } from './start.js';
 
