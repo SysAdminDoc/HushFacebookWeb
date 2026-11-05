@@ -56,6 +56,60 @@ test('the router follows history changes and stamps <html>', () => {
   assert.equal(router.current().path, '/groups/1/posts/2/');
 });
 
+// A content-mode window: the page's history calls can't be wrapped from here.
+function contentWindow({ navigation } = {}) {
+  const location = { href: fb('/') };
+  const timers = [];
+  const win = {
+    location,
+    document: { documentElement: { dataset: {} } },
+    history: { pushState() { throw new Error('content mode never wraps history'); }, replaceState() {} },
+    addEventListener() {},
+    setInterval: (fn, ms) => timers.push({ fn, ms }),
+    navigation,
+  };
+  return { win, timers, go: (path) => { location.href = fb(path); } };
+}
+
+test('content mode follows the page through the Navigation API where it has one, with no timer', () => {
+  const listeners = {};
+  const navigation = { addEventListener: (type, fn) => (listeners[type] ??= []).push(fn) };
+  const { win, timers, go } = contentWindow({ navigation });
+  const router = createRouter({ win, pageAccess: 'content' });
+  const seen = [];
+  router.subscribe((route) => seen.push(route.type));
+  const fire = (type) => (listeners[type] ?? []).forEach((fn) => fn({ type }));
+
+  assert.deepEqual(timers, [], 'no polling');
+  go('/marketplace/');
+  fire('currententrychange');
+  fire('navigatesuccess');
+  go('/groups/1/posts/2/');
+  fire('currententrychange');
+  // A replace to the same address changes nothing.
+  fire('currententrychange');
+  assert.deepEqual(seen, ['marketplace', 'groups']);
+  assert.equal(win.document.documentElement.dataset.hfwRoute, 'groups');
+  // A navigation only navigatesuccess reports still counts.
+  go('/watch/?v=1');
+  fire('navigatesuccess');
+  assert.deepEqual(seen, ['marketplace', 'groups', 'watch']);
+});
+
+test('content mode polls the address in a browser without the Navigation API', () => {
+  const { win, timers, go } = contentWindow();
+  const router = createRouter({ win, pageAccess: 'content', pollMs: 500 });
+  const seen = [];
+  router.subscribe((route) => seen.push(route.type));
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].ms, 500);
+  timers[0].fn();
+  go('/marketplace/');
+  timers[0].fn();
+  timers[0].fn();
+  assert.deepEqual(seen, ['marketplace']);
+});
+
 test('the first route stamp waits for <html> when the router starts before it exists', () => {
   const { doc, addRoot } = rootlessDocument();
   const win = {

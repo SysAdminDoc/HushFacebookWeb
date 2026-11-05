@@ -47,7 +47,11 @@ export function parseRoute(href) {
 }
 
 // In page mode history.pushState/replaceState are wrapped. A content script can't see the
-// page's history calls, so it compares location.href on a timer instead.
+// page's history calls, but where the browser has the Navigation API it hears them as events:
+// live 2026-11-04, a content script in Chrome 120, Chromium 156 and Firefox 156 got the same
+// currententrychange and navigatesuccess the page did for pushState, replaceState, Back and a
+// hash change (.mockups/navigation-api). Without it (Firefox 128 to 146) content mode compares
+// location.href on a timer instead.
 export function createRouter({ win, pageAccess, log, pollMs = 500 }) {
   const listeners = new Set();
   let current = parseRoute(win.location.href);
@@ -82,6 +86,10 @@ export function createRouter({ win, pageAccess, log, pollMs = 500 }) {
       };
     }
     win.addEventListener('popstate', check);
+  } else if (typeof win.navigation?.addEventListener === 'function') {
+    // currententrychange comes as the entry changes, when the wrapped pushState above checks.
+    // navigatesuccess follows once the navigation settles, and finds nothing new by then.
+    for (const type of ['currententrychange', 'navigatesuccess']) win.navigation.addEventListener(type, check);
   } else {
     win.setInterval(check, pollMs);
   }
