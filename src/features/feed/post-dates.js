@@ -17,13 +17,20 @@ import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { ownLinks } from '../../core/dom/posts.js';
 import { pageKeys, storyKeys } from '../../core/seen-keys.js';
 
+// On the header row: the story's time in seconds, and the date as it reads. On the row's item
+// the date follows: DATE_SPOT.
 export const DATE_MARK = 'data-hfw-post-date';
+export const DATE_TEXT = 'data-hfw-post-date-text';
+export const DATE_SPOT = 'data-hfw-post-date-spot';
 export const MARKERS = ['"comet_sections"'];
 const MAX_REMEMBERED = 4000;
 const MESSAGE = '[data-ad-rendering-role="story_message"], [data-ad-preview="message"]';
 const HEADINGS = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 
-export const POST_DATES_CSS = `[${DATE_MARK}] { margin-inline-start: 0.25em; white-space: nowrap; }`;
+export const POST_DATES_CSS = [
+  `[${DATE_MARK}]::after { content: attr(${DATE_TEXT}); order: 1; margin-inline-start: 0.25em; white-space: nowrap; }`,
+  `[${DATE_MARK}] > [${DATE_SPOT}] ~ * { order: 2; }`,
+].join('\n');
 
 // Facebook writes a post's time as "6 days ago" only while it's under a week old, and as
 // "October 1 at 5:47 PM" from then on (BaseRelativeTimestampUtils counts whole days below 7,
@@ -101,6 +108,15 @@ export function timeLinkOf(post) {
 // inside that box wrapped under the time, and the dot and icon landed on top of it. So the date
 // goes right after the box, as an item of its own in the row. A header without such a row keeps
 // it right after the link.
+//
+// The date is no node of its own. Feeds and the groups feed come with their first posts drawn on
+// the server, as markup React takes over (hydrates) a moment later, and a span put into it first
+// made React throw #418 and draw the post again: 4 of 4 loads with dates on, 0 of 14 with them
+// off or no script (live 2026-11-05). Facebook's React keeps no mark on the nodes it has taken
+// over (no "__reactFiber$" key on any of 400 divs), so there's nothing to wait for. Hydration
+// compares nodes and text, not attributes, so the row gets the date as attributes and CSS draws
+// it: the row's ::after is a flex item of the row, and order puts it after the time's box and
+// before the dot and icon. In a header with no row it follows the link.
 const ROW_LEVELS = 5;
 
 export function dateSpot(link) {
@@ -125,30 +141,34 @@ export function formatTime(seconds, lang) {
   }
 }
 
+// Takes the date off a row, leaving Facebook's own nodes as they were.
+export function clearDate(row) {
+  row.removeAttribute(DATE_MARK);
+  row.removeAttribute(DATE_TEXT);
+  for (const item of row.children) item.removeAttribute(DATE_SPOT);
+}
+
 // The date next to a post's time, put there or brought up to date. True once it's shown, or
 // once it's clear Facebook shows the date itself.
 export function showDate(doc, post, seconds, lang = doc.documentElement?.lang, now = Date.now() / 1000) {
   const link = timeLinkOf(post);
   const spot = link ? dateSpot(link) : null;
+  const row = spot?.parentElement ?? null;
   const relative = seconds !== null && shownAsRelative(seconds, now);
   for (const old of post.querySelectorAll(`[${DATE_MARK}]`)) {
-    if (old.previousElementSibling !== spot || !relative) old.remove();
+    if (old !== row || !relative) clearDate(old);
   }
   if (seconds !== null && !relative) return true;
-  if (!spot || seconds === null) return false;
+  if (!row || seconds === null) return false;
   const value = String(seconds);
-  const next = spot.nextElementSibling;
-  if (next?.hasAttribute(DATE_MARK)) {
-    if (next.getAttribute(DATE_MARK) !== value) {
-      next.setAttribute(DATE_MARK, value);
-      next.textContent = `· ${formatTime(seconds, lang)}`;
-    }
-    return true;
+  if (row.getAttribute(DATE_MARK) !== value) {
+    row.setAttribute(DATE_MARK, value);
+    row.setAttribute(DATE_TEXT, `· ${formatTime(seconds, lang)}`);
   }
-  const span = doc.createElement('span');
-  span.setAttribute(DATE_MARK, value);
-  span.textContent = `· ${formatTime(seconds, lang)}`;
-  spot.after(span);
+  if (!spot.hasAttribute(DATE_SPOT)) {
+    for (const item of row.children) item.removeAttribute(DATE_SPOT);
+    spot.setAttribute(DATE_SPOT, '');
+  }
   return true;
 }
 
@@ -200,7 +220,7 @@ export default {
         if (enabled() === on) return;
         on = enabled();
         if (on) watcher.recheckAll();
-        else for (const mark of doc.querySelectorAll(`[${DATE_MARK}]`)) mark.remove();
+        else for (const row of doc.querySelectorAll(`[${DATE_MARK}]`)) clearDate(row);
       });
     }
     diagnostics?.add('Post dates shown', () => String(shown));

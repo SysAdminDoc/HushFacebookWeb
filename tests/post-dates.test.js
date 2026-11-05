@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
-import keepPostDates, { DATE_MARK, MARKERS, RELATIVE_FOR, createTimeBook, formatTime, indexTimes, showDate, shownAsRelative, timeLinkOf } from '../src/features/feed/post-dates.js';
+import keepPostDates, { DATE_MARK, DATE_SPOT, DATE_TEXT, MARKERS, POST_DATES_CSS, RELATIVE_FOR, createTimeBook, formatTime, indexTimes, showDate, shownAsRelative, timeLinkOf } from '../src/features/feed/post-dates.js';
 import { storyKeys } from '../src/core/seen-keys.js';
 import { rulesFor } from '../src/core/net/payload.js';
 
@@ -170,41 +170,70 @@ test('the time link is the header link that opens in a new tab, before and after
   assert.equal(timeLinkOf(bare.document.querySelector('[aria-posinset]')), null);
 });
 
-test('the date goes right after the time link once, and follows a change of story', () => {
+const marked = (element) => [...element.querySelectorAll(`[${DATE_MARK}], [${DATE_TEXT}], [${DATE_SPOT}]`)];
+
+test('the date follows the time link once, and follows a change of story', () => {
   const win = page(post());
   const doc = win.document;
   const element = doc.querySelector('[aria-posinset]');
   assert.equal(showDate(doc, element, 1760221440, 'en-US', SOON_AFTER(1760221440)), true);
   assert.equal(showDate(doc, element, 1760221440, 'en-US', SOON_AFTER(1760221440)), true);
-  const marks = element.querySelectorAll(`[${DATE_MARK}]`);
-  assert.equal(marks.length, 1);
-  assert.equal(marks[0].previousElementSibling, timeLinkOf(element));
-  assert.match(marks[0].textContent, /^· Oct 1[12], 2025, /);
-  showDate(doc, element, 1700000000, 'en-US', SOON_AFTER(1700000000));
-  assert.match(element.querySelector(`[${DATE_MARK}]`).textContent, /Nov 1[45], 2023/);
-  // Facebook drew the header again somewhere else: the old date goes.
   const link = timeLinkOf(element);
-  link.parentElement.append(doc.createElement('i'));
-  link.parentElement.append(link);
+  const rows = element.querySelectorAll(`[${DATE_MARK}]`);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0], link.parentElement, "the link's own box carries it");
+  assert.ok(link.hasAttribute(DATE_SPOT));
+  assert.match(rows[0].getAttribute(DATE_TEXT), /^· Oct 1[12], 2025, /);
+  showDate(doc, element, 1700000000, 'en-US', SOON_AFTER(1700000000));
+  assert.match(rows[0].getAttribute(DATE_TEXT), /Nov 1[45], 2023/);
+  // Facebook drew the header again somewhere else: the old date goes.
+  const moved = doc.createElement('span');
+  element.querySelector('h3').after(moved);
+  moved.append(link);
   assert.equal(showDate(doc, element, 1700000000, 'en-US', SOON_AFTER(1700000000)), true);
-  assert.equal(element.querySelectorAll(`[${DATE_MARK}]`).length, 1);
+  assert.deepEqual(marked(element), [moved, link]);
+  assert.equal(moved.getAttribute(DATE_MARK), '1700000000');
   assert.equal(showDate(doc, element, null, 'en-US'), false, 'no time known yet');
 });
 
-test("in Facebook's header row the date is an item of its own after the time's box, so nothing lands on it", () => {
+test("in Facebook's header row the date comes right after the time's box, before the dot and icon", () => {
   const win = page(post({ row: true }));
   const doc = win.document;
   const element = doc.querySelector('[aria-posinset]');
   const box = timeLinkOf(element).parentElement.parentElement.parentElement;
+  const row = box.parentElement;
   assert.equal(showDate(doc, element, 1760221440, 'en-US', SOON_AFTER(1760221440)), true);
-  const mark = element.querySelector(`[${DATE_MARK}]`);
-  assert.ok(mark.previousElementSibling === box, "right after the time's box");
-  assert.equal(mark.parentElement.style.display, 'flex', 'an item of the row');
-  assert.equal(mark.nextElementSibling.textContent.trim(), '·', "Facebook's dot and icon come after it");
-  assert.ok(!box.querySelector(`[${DATE_MARK}]`), "nothing inside the time's box");
+  assert.deepEqual(marked(element), [row, box], 'the row and the item the date follows, nothing inside the box');
+  assert.equal(row.style.display, 'flex');
   assert.equal(showDate(doc, element, 1700000000, 'en-US', SOON_AFTER(1700000000)), true);
-  assert.equal(element.querySelectorAll(`[${DATE_MARK}]`).length, 1);
-  assert.match(element.querySelector(`[${DATE_MARK}]`).textContent, /Nov 1[45], 2023/);
+  assert.deepEqual(marked(element), [row, box]);
+  assert.match(row.getAttribute(DATE_TEXT), /Nov 1[45], 2023/);
+  // The row's ::after carries the date, and order seats it between the box and what follows.
+  // Where it lands on screen is checked in Chromium and Firefox (tests/browser, post-dates).
+  assert.match(POST_DATES_CSS, new RegExp(`\\[${DATE_MARK}\\]::after \\{ content: attr\\(${DATE_TEXT}\\); order: 1;`));
+  assert.match(POST_DATES_CSS, new RegExp(`\\[${DATE_MARK}\\] > \\[${DATE_SPOT}\\] ~ \\* \\{ order: 2; \\}`));
+});
+
+// Feeds and the groups feed come with their first posts drawn on the server, and React takes that
+// markup over a moment later. A span put in before then made React throw #418 and draw the post
+// again: 4 of 4 loads with dates on, 0 of 14 with them off or no script (live 2026-11-05).
+test("showing, changing and taking off a date never adds or removes a node in Facebook's markup", () => {
+  for (const row of [false, true]) {
+    const win = page(post({ row }));
+    const doc = win.document;
+    const element = doc.querySelector('[aria-posinset]');
+    const nodes = () => [...element.querySelectorAll('*')];
+    const before = nodes();
+    const text = element.textContent;
+    showDate(doc, element, 1760221440, 'en-US', SOON_AFTER(1760221440));
+    showDate(doc, element, 1700000000, 'en-US', SOON_AFTER(1700000000));
+    assert.equal(marked(element).length, 2);
+    assert.ok(nodes().length === before.length && nodes().every((node, i) => node === before[i]), `row: ${row}, same nodes`);
+    assert.equal(element.textContent, text, 'the text React compares is the same');
+    showDate(doc, element, 1700000000, 'en-US', 1700000000 + RELATIVE_FOR);
+    assert.deepEqual(marked(element), [], 'a week on, Facebook shows the date and the script takes its own off');
+    assert.ok(nodes().length === before.length && nodes().every((node, i) => node === before[i]));
+  }
 });
 
 // Facebook writes "6 days ago" up to a week, then the date itself ("September 29 at 5:13 PM"),
@@ -269,9 +298,11 @@ test('the feature reads the data without changing it and dates the posts it can 
   assert.equal(dated.querySelector(`[${DATE_MARK}]`).getAttribute(DATE_MARK), '219816548');
   assert.equal(unknown.querySelector(`[${DATE_MARK}]`), null);
   assert.deepEqual(rows.map(([label, read]) => [label, read()]), [['Post dates shown', '1']]);
+  const nodes = doc.querySelectorAll('*').length;
   on = false;
   subscribers.forEach((fn) => fn());
-  assert.equal(doc.querySelector(`[${DATE_MARK}]`), null, 'switched off, the dates go');
+  assert.deepEqual(marked(doc.body), [], 'switched off, the dates go');
+  assert.equal(doc.querySelectorAll('*').length, nodes, "and Facebook's rows they were on stay");
   on = true;
   subscribers.forEach((fn) => fn());
   assert.equal(dated.querySelectorAll(`[${DATE_MARK}]`).length, 1, 'and come back');

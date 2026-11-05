@@ -4,6 +4,7 @@
 
 This is the first release since 0.0.6, so it carries every change from 0.0.7 through 0.0.19.
 
+* With Show full post dates on, Facebook threw out the first few posts on Feeds and the groups feed and drew them again, logging a page error (React #418) each time. Those posts arrive already drawn, and adding the date changed them before Facebook's page had taken them over. The date is now drawn next to the time without adding anything to the post, so they load once and the date still sits between the time and the audience icon.
 * In the extension, a photo or video you save from a private window no longer stays in the normal window's downloads list. Chrome and Brave take it off the list once it finishes and leave the file where it was saved. Firefox keeps it with the private window.
 * In the extension, an Instant Game could switch off the blocking of its own ads, since the game's page was allowed to change that setting. Now only your Facebook tab changes it.
 * In the extension, the part that saves files took any facebook.com address and almost any file ending. A script on the page that faked a save request could have used Facebook's link redirect to fetch a file from another site and save it as an .exe without asking. It now saves only photos and videos from Facebook's media servers.
