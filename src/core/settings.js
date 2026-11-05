@@ -74,8 +74,9 @@ export const MIGRATIONS = [
   },
 ];
 
+// Only text is a version: a backup's {"toString": null} can't even be turned into text.
 export function olderThan(version, before) {
-  const parts = (text) => /^(\d+)\.(\d+)\.(\d+)/.exec(String(text ?? ''))?.slice(1).map(Number);
+  const parts = (text) => (typeof text === 'string' ? /^(\d+)\.(\d+)\.(\d+)/.exec(text)?.slice(1).map(Number) : undefined);
   const a = parts(version);
   const b = parts(before);
   if (!a || !b) return false;
@@ -142,7 +143,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   const invalidBackupMessage = (keys, from) => {
     const which = keys.length === 1 ? `a value this version can't use for ${settingName(keys[0])}` : `values this version can't use for ${settingName(keys[0])} and ${keys.length - 1} more`;
     // Only the version number itself is shown, never whatever else the file put after it.
-    const newer = olderThan(version, from) ? /^\d+\.\d+\.\d+/.exec(String(from))[0] : null;
+    const newer = olderThan(version, from) ? /^\d+\.\d+\.\d+/.exec(from)[0] : null;
     const update = newer ? `. It's from version ${newer}, so update HushFacebook Web and restore it again` : '';
     return `That backup has ${which}, so nothing changed${update}`;
   };

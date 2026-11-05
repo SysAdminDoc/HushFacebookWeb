@@ -1172,6 +1172,20 @@ test('olderThan compares release numbers and refuses anything else', () => {
   assert.equal(olderThan(undefined, '0.0.2'), false);
 });
 
+test('a backup whose version is not text restores like one with no version', () => {
+  const settings = createSettings({ storage: createMemoryStorage(), features: adSwitches });
+  // JSON can't make a function, so this object has no way to turn into text at all.
+  for (const version of ['{"toString":null}', '{"toString":null,"valueOf":null}', '[1]', '0.0']) {
+    const result = settings.importJson(`{"app":"HushFacebook Web","schema":1,"version":${version},"settings":{"hideSponsoredPosts":false}}`);
+    assert.deepEqual(result.applied, ['hideSponsoredPosts'], version);
+    assert.equal(settings.get('hideSponsoredSearch'), true, `${version}: no migration without a release number`);
+  }
+  assert.throws(
+    () => settings.importJson('{"app":"HushFacebook Web","schema":1,"version":{"toString":null},"settings":{"hideSponsoredPosts":"no"}}'),
+    { name: 'TypeError', message: /^That backup has a value this version can't use for Feed ads/ },
+  );
+});
+
 test('a malformed stored migration receipt is treated as empty', () => {
   for (const receipt of ['junk', [7]]) {
     const storage = createMemoryStorage({ settings: { hideSponsoredPosts: false }, 'settings.migrated': receipt });
