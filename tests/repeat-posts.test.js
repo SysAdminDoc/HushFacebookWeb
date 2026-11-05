@@ -159,6 +159,20 @@ test('the count starts over when the switch goes off and on', () => {
   posts.stop();
 });
 
+test('a repeat Facebook takes out and puts back counts once', async () => {
+  const win = page(post(1) + post(2));
+  const { doc, posts, rows } = setup(win);
+  assert.equal(rows()['Repeats hidden on this page'], '1');
+  const wrapper = element(doc, 2).parentElement;
+  wrapper.remove();
+  await wait(20);
+  doc.querySelector('.feed').append(wrapper);
+  await wait(350);
+  assert.equal(note(doc, 2), 'Hidden: Repeat. Show');
+  assert.equal(rows()['Repeats hidden on this page'], '1');
+  posts.stop();
+});
+
 test('Show hidden brings repeats back, and the switch shows them off and hides them on', () => {
   const win = page(post(1) + post(2) + post(3, { text: 'Another post to repeat, long enough for a key' }) + post(4, { text: 'Another post to repeat, long enough for a key' }));
   const { doc, posts, hider, flip } = setup(win);
