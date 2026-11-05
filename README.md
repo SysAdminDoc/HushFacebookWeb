@@ -1,4 +1,4 @@
-![HushFacebook Web. A quieter Facebook feed.](assets/readme-hero.jpg)
+![HushFacebook Web, a quieter Facebook feed. The same Home feed twice, first with an ad at the top, then with Calm theme on and the ad and a suggested post folded into short notes.](assets/readme-hero.jpg)
 
 <p>
   <img src="https://img.shields.io/badge/version-0.0.17-8ABFFF" alt="Version 0.0.17">
@@ -52,6 +52,8 @@ A loaded-unpacked extension can't update itself, so once a day it asks GitHub fo
 Unzipping over the same folder keeps everything it remembers, down to your video speed. The browser ties an unpacked extension's storage to its folder, though. Load it from another folder, or remove it and load it again, and it starts from scratch. So before you move or remove it, click **Back up settings** in General and then restore that file in the new copy. Moving from the userscript works the same way. Back up in the userscript's settings, turn the userscript off in your manager, and restore the file in the extension. A backup holds your choices only. Seen posts, saved video spots, speed and volume stay behind.
 
 ## Settings
+
+<img src="assets/screenshots/top-bar-gear.png" width="320" alt="The gear HushFacebook Web adds to the right end of Facebook's top bar, left of the menu, Messenger and Notifications buttons">
 
 Press and hold the Facebook logo at the top left to open settings. You can also click the gear in Facebook's top bar, next to Messenger and Notifications, or use the HushFacebook Web row in the menu under your profile picture. Your userscript manager's menu has a settings entry too, and in the extension the toolbar button opens them from any tab.
 
