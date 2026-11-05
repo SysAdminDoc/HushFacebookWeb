@@ -85,6 +85,18 @@ test('a later copy by the same poster is hidden and the first stays, while someo
   posts.stop();
 });
 
+test('someone else posting the words first doesn\'t hide them from the poster\'s own repeats', () => {
+  const win = page(post(1, { name: 'Sam Writer' }) + post(2) + post(3) + post(4, { name: 'Lee Other', text: 'Sharing a photo, long enough to count as words', photo: '55443322' }) + post(5, { text: 'Pat shares the same photo with words of his own', photo: '55443322' }) + post(6, { text: 'And again, the same photo with other words here', photo: '55443322' }));
+  const { doc, posts } = setup(win);
+  assert.equal(note(doc, 1), null);
+  assert.equal(note(doc, 2), null, 'Pat\'s first copy');
+  assert.equal(note(doc, 3), 'Hidden: Repeat. Show', 'Pat\'s second copy');
+  assert.equal(note(doc, 4), null);
+  assert.equal(note(doc, 5), null, 'Pat\'s first share of a photo Lee shared first');
+  assert.equal(note(doc, 6), 'Hidden: Repeat. Show');
+  posts.stop();
+});
+
 test('a "See more" cut of the same words matches, and so does the same photo with other words', () => {
   const win = page(post(1, { cut: true }) + post(2) + post(3, { text: 'First copy of the photo with words of its own', photo: '99887766' }) + post(4, { text: 'Second copy of the photo, worded differently this time', photo: '99887766' }));
   const { doc, posts, diagnostics } = setup(win);
@@ -120,6 +132,30 @@ test('a copy higher up that fills in later becomes the first, and the lower one 
   await wait(350);
   assert.equal(note(doc, 1), null);
   assert.equal(note(doc, 2), 'Hidden: Repeat. Show');
+  posts.stop();
+});
+
+test('the copy that turns out first takes over the other copy\'s photo', async () => {
+  const win = page(post(1, { name: null }) + post(2, { photo: '99887766' }));
+  const { doc, posts } = setup(win);
+  element(doc, 1).querySelector('.inner').insertAdjacentHTML('afterbegin', '<h4><a href="/pat.example">Pat Example</a></h4>');
+  await wait(350);
+  assert.equal(note(doc, 2), 'Hidden: Repeat. Show');
+  // Post 1 matched post 2 by its words, and post 2's photo is the same post's photo.
+  doc.querySelector('.feed').insertAdjacentHTML('beforeend', post(3, { text: 'New words this time around, same photo as before', photo: '99887766' }));
+  await wait(50);
+  assert.equal(note(doc, 3), 'Hidden: Repeat. Show');
+  posts.stop();
+});
+
+test('the count starts over when the switch goes off and on', () => {
+  const win = page(post(1) + post(2));
+  const { posts, flip, rows } = setup(win);
+  assert.equal(rows()['Repeats hidden on this page'], '1');
+  flip(false);
+  assert.equal(rows()['Repeats hidden on this page'], '0');
+  flip(true);
+  assert.equal(rows()['Repeats hidden on this page'], '1');
   posts.stop();
 });
 

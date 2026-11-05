@@ -32,11 +32,13 @@ export default {
     if (!posts || !hider) return;
     const route = () => router?.current();
     const changed = () => diagnostics?.changed();
-    // key -> the first post on the page with that key, and who posted it.
+    // Poster and key -> the first post on the page with that key from that poster. Keyed by
+    // poster too, so someone else posting the words or photo first doesn't hide them from
+    // the poster's own repeats.
     let first = new Map();
     let hidden = 0;
     const forget = (element) => {
-      for (const [key, entry] of first) if (entry.element === element) first.delete(key);
+      for (const [id, owner] of first) if (owner === element) first.delete(id);
     };
     posts.on('post/remove', ({ element }) => forget(element));
 
@@ -56,20 +58,22 @@ export default {
         const keys = pageKeys(element);
         const poster = nameKey(posterOf(element) ?? '');
         if (!keys.length || !poster) return false;
-        for (const key of keys) {
-          const earlier = first.get(key);
-          if (!earlier || earlier.element === element || !earlier.element.isConnected || earlier.poster !== poster) continue;
-          // A copy higher on the page that filled in later is the first one after all.
-          if (earlier.element.compareDocumentPosition(element) & PRECEDING) {
-            forget(earlier.element);
-            for (const own of keys) first.set(own, { element, poster });
-            hide(earlier.element, key);
+        const ids = keys.map((key) => [`${poster}\n${key}`, key]);
+        for (const [id, key] of ids) {
+          const earlier = first.get(id);
+          if (!earlier || earlier === element || !earlier.isConnected) continue;
+          // A copy higher on the page that filled in later is the first one after all, and
+          // takes over every key the other copy held (its photo, say, when the words matched).
+          if (earlier.compareDocumentPosition(element) & PRECEDING) {
+            for (const [other, owner] of first) if (owner === earlier) first.set(other, element);
+            for (const [own] of ids) first.set(own, element);
+            hide(earlier, key);
             return true;
           }
           hide(element, key);
           return true;
         }
-        for (const key of keys) if (!first.has(key)) first.set(key, { element, poster });
+        for (const [id] of ids) if (!first.get(id)?.isConnected) first.set(id, element);
         return true;
       },
     });
@@ -81,6 +85,7 @@ export default {
       if (enabled() === on) return;
       on = enabled();
       first = new Map();
+      hidden = 0;
       hider.showAll(REASON);
       if (on) watcher.recheckAll();
     });
