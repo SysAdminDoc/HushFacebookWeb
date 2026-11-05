@@ -185,6 +185,16 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     else if (marker.parentElement) clear(marker.parentElement);
   }
 
+  // Where hide() would put the post's mark, or null when it leaves the post alone: the person
+  // chose to see it, or it's open in a dialog (every feature leaves those, though its comments
+  // still go by their rules), or there's no element in it to take the mark.
+  function markFor(element) {
+    if (revealed.has(element)) return null;
+    if (inDialog(element) && !isComment(element)) return null;
+    const marker = markOf(element) ?? element.firstElementChild;
+    return marker && !REPLACED.has(marker.tagName) ? marker : null;
+  }
+
   // Counts a post the first time it's hidden. Returns whether it was new. A comment's links name
   // the post it's on, so a comment counts by its element alone.
   function count(element, reason) {
@@ -303,11 +313,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // Returns false when the post can't be marked, the person chose to see it or opened it in a
     // dialog.
     hide(element, reason, detail, signal) {
-      if (revealed.has(element)) return false;
-      // Every feature leaves a post opened in a dialog alone. Its comments still go by their rules.
-      if (inDialog(element) && !isComment(element)) return false;
-      const marker = markOf(element) ?? element.firstElementChild;
-      if (!marker || REPLACED.has(marker.tagName)) return false;
+      const marker = markFor(element);
+      if (!marker) return false;
       watchRecycling();
       const reasons = marker.hasAttribute(MARK) ? reasonsOf(marker) : new Map();
       const fresh = !reasons.has(reason);
@@ -347,6 +354,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
         else notButton(marker);
       }
     },
+    // Whether hide() would take the post, for a feature that must decide before it asks.
+    canHide: (element) => markFor(element) !== null,
     isHidden: (element) => markOf(element) !== null,
     // Whether the person chose to see the post from its note, so hide() leaves it alone.
     isRevealed: (element) => revealed.has(element),

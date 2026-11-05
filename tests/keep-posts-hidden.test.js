@@ -143,6 +143,16 @@ test("the X hides the post, keeps it for the next load, and Facebook's handlers 
   next.posts.stop();
 });
 
+test('a post open in a dialog over Home leaves the whole press on its X to Facebook', () => {
+  const { win, heard } = page(`${post(2)}<div role="dialog">${post(1)}</div>`);
+  const { doc, storage, toasts } = setup(win);
+  assert.equal(press(win, xOf(doc, 1).querySelector('path')), true);
+  assert.deepEqual(heard.filter((type) => !type.endsWith('(capture)')), ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'], 'pointer and mouse presses too, not only the click');
+  assert.equal(note(doc, 1), null);
+  assert.equal(storage.get(HIDDEN_KEY), undefined);
+  assert.equal(toasts.length, 0);
+});
+
 // What Facebook draws in a post after hearing its X (live 2026-11-04), inside the post's own
 // wrapper, which keeps the mark.
 const NFX_CARD = '<div><span>Why aren\'t you interested?</span><div role="button" aria-label="Doesn\'t match my interests"></div><div role="button" aria-label="Unhide post"></div></div>';

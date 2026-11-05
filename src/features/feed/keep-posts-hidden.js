@@ -196,8 +196,9 @@ export default {
       const control = event.target?.closest?.(CONTROL);
       if (!control || !maybeX(control) || gone || !enabled() || !FILTERED.routes(route())) return null;
       const post = posts.current().find(({ element }) => element.contains(control));
-      // A post you chose to show from its note stays shown, so Facebook's X has it.
-      if (!post || hider.isRevealed(post.element) || !isHideControl(control, post.element)) return null;
+      // A post you chose to show from its note stays shown, so Facebook's X has it, and so does
+      // one hide() would leave (open in a dialog, say), with every part of the press.
+      if (!post || !hider.canHide(post.element) || !isHideControl(control, post.element)) return null;
       // Reading the list is what notices another account (core/activity.js), which sets gone.
       read();
       return gone ? null : { element: post.element, keys: keysOf(post.element) };
