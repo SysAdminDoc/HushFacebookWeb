@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.0.18 (2026-11-04, unreleased)
+## v0.0.19 (2026-11-04, unreleased)
 
 * In the extension, a photo or video you save from a private window no longer stays in the normal window's downloads list. Chrome and Brave take it off the list once it finishes and leave the file where it was saved. Firefox keeps it with the private window.
 * In the extension, an Instant Game could switch off the blocking of its own ads, since the game's page was allowed to change that setting. Now only your Facebook tab changes it.
