@@ -17,7 +17,7 @@
 
 HushFacebook Web removes ads and suggested posts from Facebook in a desktop browser. It also adds downloads, privacy switches and playback controls. Run it as a userscript or a Chrome extension. Both use the same code and follow the features in [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app.
 
-It's still early. The working version is 0.0.19, and the [changelog](CHANGELOG.md) lists what's changed since 0.0.6. The published build is still 0.0.6 at [Releases](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest). [Feature parity](docs/feature-parity.md) explains how each Android patch carries over to the web.
+It's still early. The current release is 0.0.19 at [Releases](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest), and the [changelog](CHANGELOG.md) lists what changed in each version. [Feature parity](docs/feature-parity.md) explains how each Android patch carries over to the web.
 
 ## Install
 

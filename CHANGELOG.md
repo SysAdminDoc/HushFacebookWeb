@@ -1,6 +1,8 @@
 # Changelog
 
-## v0.0.19 (2026-11-04, unreleased)
+## v0.0.19 (2026-11-05)
+
+This is the first release since 0.0.6, so it carries every change from 0.0.7 through 0.0.19.
 
 * In the extension, a photo or video you save from a private window no longer stays in the normal window's downloads list. Chrome and Brave take it off the list once it finishes and leave the file where it was saved. Firefox keeps it with the private window.
 * In the extension, an Instant Game could switch off the blocking of its own ads, since the game's page was allowed to change that setting. Now only your Facebook tab changes it.
@@ -38,48 +40,48 @@
 * The "feed is still loading" notice has a Stop these warnings button, and General has a Warn when the feed seems stuck switch to bring it back. With it off, Diagnostics and Copy report still record the check.
 * Ads in the first screen of the feed are removed from the data again instead of being hidden after they're drawn. Facebook checks whether its data reader has been tampered with, and the ad rules were tripping that check. When it trips, Facebook reads the first page with a reader of its own that Hush can't reach.
 * Feed data that another blocker edits while it streams in (uBlock Origin's Facebook quick fixes do this) is read one whole line at a time, so a line it rewrites halfway through can't end up spliced into the next one.
-* Playback has a Pause feed videos after they leave view switch, off by default. It pauses after a second fully out of view on Home and group feeds. Scrolling back doesn't start playback.
-* Userscript managers retry rejected saves when moving or restoring activity from before accounts were kept apart. Newer changes from another tab stay saved, and successful Undo removes its earlier error notice.
-* Conflicting activity imports keep both copies and offer an explicit retry. Concurrent legacy deletions can each be undone without reviving a deletion that was already undone.
-* Seen posts merge across tabs and survive a fresh tab. Clears keep delayed older additions out, including observations in the same millisecond.
-* A failed seen-history save stays available through Retry saving seen posts. Managers without the needed storage APIs show the feature as unavailable.
-* Credits name the included FB Feed Filter adaptations, and the dependency notice lists RE2JS 2.9.1. Browser support wording distinguishes startup checks from full live testing.
-* Local browser regression checks run in Chromium and Firefox without Facebook credentials or outbound page requests.
+* Playback has a new switch, Pause feed videos after they leave view, off by default. On Home and group feeds, a video pauses once it's been fully out of view for a second, and scrolling back to it doesn't start it again.
+* When you move or restore activity from before accounts were kept apart, a save the userscript manager turns down gets tried again. Newer changes from another tab stay saved, and an Undo that goes through clears the error notice from before.
+* If two activity imports clash, both copies are kept and you get a Retry. When two deletions of activity from before accounts were kept apart run at once, each can be undone, and undoing one doesn't bring back a deletion you'd already undone.
+* Seen posts from different tabs merge, and a fresh tab starts with them. After a clear, older additions that arrive late stay out, even ones from the same millisecond.
+* If saving seen posts fails, Retry saving seen posts tries again. A userscript manager without the storage features this needs shows the feature as unavailable.
+* The credits name the parts adapted from FB Feed Filter, and the dependency notice lists RE2JS 2.9.1. The browser support notes now tell startup checks apart from full live testing.
+* The local browser checks run in Chromium and Firefox with no Facebook sign-in and no requests leaving the page.
 * Each browser check gets a minute of its own instead of 90 seconds for the whole run, so a busy machine no longer fails them. One that hangs names its browser and check, and every pass shows how long it took.
 * Unit tests run two files at a time.
-* Settings backups include valid choices waiting to save. Failed backup handoffs release their temporary file link.
-* Quiet, Privacy, Back to defaults and a full settings restore offer persistent Undo in General. Bulk actions wait for saved choices before taking their recovery snapshot.
-* Every failed restore or settings action shows fresh feedback, even after an earlier error notice has expired.
+* A settings backup now includes valid choices that were still waiting to save. If handing over the backup file fails, its temporary file link is released.
+* Quiet, Privacy, Back to defaults and a full settings restore leave an Undo in General that stays put. These bulk changes wait for your saved choices before taking the snapshot Undo goes back to.
+* A failed restore or settings action always shows a new notice, even when an earlier error notice has already gone.
 * Error notices no longer show two periods in a row when the message already ends with one.
-* General's Ko-fi row shows its title alone and remains searchable by donate or kofi.
-* The translation template includes fixed validation errors passed through feedback helpers.
+* General's Ko-fi row shows just its title, and searching for donate or kofi still finds it.
+* The translation template now has the validation errors with fixed wording that come up in notices.
 * Private windows keep activity in the tab. Managers that can't report the window context do the same. Saved settings still apply, and the extension keeps the actual private-mode flag out of the page bridge. A setting you change in a private window may not outlast it, though. Tampermonkey keeps those changes only until the private window closes, even with its incognito storage set to Permanent, so General's note in a private window says so now. Checked in Chrome 151 with Tampermonkey 5.5.1, where seen posts, video spots, the watched list, speed and volume all stayed in the private tab and your normal history came through untouched.
-* Storage access stops when a page changes Facebook accounts, including direct requests and updates from other tabs.
-* Forget every spot waits for the browser to confirm deletion. Failed clears restore the displayed list and remain available through Retry.
-* Moving or deleting activity from before accounts were kept apart waits for saves. Failed deletes stay available to retry, and Undo keeps the full original list through a partial failure.
-* An activity restore that the manager hasn't confirmed keeps its recovery action instead of reporting success from a cached copy.
-* Streamed video downloads enforce a combined 750 MB transfer limit, even when size hints are missing or too small. Cancel and transfer failures stop every part, and a failed save releases its temporary link.
+* When a page switches Facebook accounts, storage access stops, for its own requests and for updates from other tabs.
+* Forget every spot waits for the browser to confirm the delete. If the clear fails, the list comes back on screen and Retry can try it again.
+* Moving or deleting activity from before accounts were kept apart waits for its saves now. A delete that fails can be retried, and if only part of it fails, Undo still has the whole original list.
+* An activity restore keeps its recovery button until the userscript manager confirms it. It used to report success from a cached copy.
+* Streamed video downloads stop at 750 MB for all their parts together, even when the size hints are missing or too small. Cancel or a failed transfer stops every part, and a save that fails releases its temporary link.
 * A video that runs past that limit now says "Couldn't save it: it went past the transfer limit. Try a lower quality." The old notice read as two sentences glued together and ended with a double period. The stream errors read the same way.
-* Feed checks follow posts moved into or out of another post, so reused markup is checked again.
-* Download recognizes videos whose data contains only a stream manifest, and uses refreshed photo links when the picture size stays the same.
+* The feed checks follow a post moved into or out of another post, so markup Facebook reuses gets checked again.
+* Download now finds videos whose data holds only a stream manifest. When a photo's size stays the same, it uses the photo's refreshed link.
 * Tabbing to a reel in the feed now brings up its Download button, and Pop out when that's on. The reel's link is a big square with the video letterboxed inside it, so focus there never counted as being on the video.
 * In the photo viewer, Download now comes up from the keyboard too. The photo itself never takes focus there, so Tab onto Previous photo, Next photo, Zoom or Fullscreen brings it up, and the next Tab lands on it.
 * A photo saved from the photo viewer is named after whoever posted it, like one saved from the feed. It used to be just "photo" and the number.
 * A reel saved from the Reels row in your feed no longer starts its file name with "Reels". That's the row's heading, not who posted it.
-* The XHR regression check waits for completion rather than racing a short timer.
+* The XHR regression check waits for the request to finish. It used to race a short timer.
 * The extension storage checks wait for a failed read's retries to run out instead of a fixed 225 ms, which a busy test run could miss.
 * Linting pins minimatch 11.0.4 under ESLint, which still asks for 10.x, to pick up the fix for a pattern that could stall it. Only the development tools use it, never the script.
 * Building requires Node 24.22.1 or a newer 24.x, or Node 26.12.1 or a newer 26.x. Both LTS lines give the same files byte for byte. Release preflight explains how to update an older runtime.
-* The watched list keeps older entries during a slow startup and merges additions from other tabs. Clear keeps older pending entries out, and failed saves can be retried in Playback.
-* Trim the share menu follows targets that load their names and links late, and clears old choices when a dialog is reused. Copy link stays available, and unrelated social-link lists stay untouched.
+* The watched list holds on to older entries through a slow startup and merges in what other tabs add. After Clear, older entries still waiting to save stay out, and a failed save can be retried from Playback.
+* Trim the share menu now keeps up with targets whose names and links load late, and clears old choices when Facebook reuses the dialog. Copy link stays, and other lists of social links are left alone.
 * Trim the share menu works on every load again. On some loads Facebook gives the row of targets a label, and the menu used to skip a labeled row, so nothing was trimmed. Checked live on six posts in a row.
-* Feed loading warnings ignore invisible markers and loaders inside readable posts. They require the same blocking loader across two checks and restart when feed pagination or posts advance. A short feed stays quiet while loading more posts, even before its post links appear on hover.
+* The feed loading warning ignores invisible markers and loaders inside posts you can read. It only shows when the same loader blocks the feed on two checks in a row, and it starts over when the feed fetches its next page or new posts come in. A short feed stays quiet while it loads more posts, even before its post links show up on hover.
 * Hide the video comment box works when you're signed in. Facebook lays out a video's own page differently for a signed-in account, so the box stayed. It now goes away together with your picture beside it, and the boxes under feed posts and on a photo's page stay.
 * Screenshot mode covers more of a signed-in Home. Your chat list blurs each person's name, picture and last message, and notifications blur the sentence that names people while the time stays readable. Your first name in "What's on your mind" blurs too, along with names in the story viewer's list and the Pages and places a reel's caption tags.
 * Opening your groups feed no longer makes Facebook throw away the page and draw it again when the first post is a suggestion. Facebook sends that first post already drawn, and taking it out of the data left React with a post it couldn't match. A suggestion, ad, promotion or AI-labeled post in that spot now stays in the data and is hidden on the page, and it comes back if you switch that feature off. When Home loads its feed again (the Home button, or coming back after a while) or a group sorts its posts another way, the new post in that spot is only hidden if it's the one the data was about, checked by who posted it. A friend's post that lands where a People you may know row was stays, and so does an anonymous post where another member of that group had posted. Search results don't come drawn, so an AI-labeled result still goes from the data before Facebook draws it. Checked live over 33 loads of the groups feed, Home and Marketplace with no redraws.
 * Hide Meta upsells also takes Chat with AIs out of Facebook's menu. It links to Meta's AI Studio, which sits on a Facebook address, so the switch let it through while Meta AI, Threads and the other apps went.
 * New Playback switch, Hide suggested videos under a video, off by default. When a video opens on its own page, the list of other videos Facebook lines up under it goes away. When yours ends, the page no longer scrolls down and starts the next one. The video, its post and its comments stay.
-* Settings and page cleanup still start if another tool prevents the network hooks from loading. Partial hooks are removed, Diagnostics says which protection is off, and XHR wrappers with inherited response getters work.
+* Settings and page cleanup still start when another tool keeps the network hooks from loading. Hooks that only half loaded are taken back out, and Diagnostics says which protection is off. XHR wrappers with inherited response getters work now too.
 * Hide all colored background posts works in content mode too, when your userscript manager runs the script as a content script. It spots the colored box the post's text sits on, so it doesn't depend on the language. Checked live on a signed-in groups feed, where it hid all 8 colored posts and none of the 80 others.
 * Accent color reads better in dark mode. Links stay readable on a row you're hovering and in menus, which are a little lighter than the cards they were tuned for. Switched-on toggles get white or black text, whichever stands out on your color, instead of the light-mode link shade. A held button now goes darker under white text or lighter under black, so its label stays readable while you press it. Measured on a signed-in Home in Facebook's own dark theme, Force dark mode and AMOLED, and with the light theme.
 * New Privacy switch, Block ad telemetry, off by default. Facebook's site reports every ad you scroll past (which ad, which request it came in and where it sat in your feed) and each spot where it put one in your feed. With this on those reports don't leave your browser. The rest of what Facebook logs is left to Hold back usage logs. Checked live on a signed-in Home over three loads each way. With the switch on, every ad report the page made stayed home, while the feed kept loading, videos played and the server answered every message as usual. With Hide sponsored posts on there are no ads to report in the first place.
@@ -87,6 +89,8 @@
 * Hide posts by words puts Hide posts by (their name) in a post's three-dot menu on Home and the groups feed. One click adds whoever posted it to your list of people to hide and their posts go away, with Undo on the notice. In a group that's the member who posted, not the group. A name that's already on the list isn't added twice, and nothing goes to Facebook (no hide, snooze or unfollow). When the post's group or a site it links to is on your always-show lists, the notice says that post stays. Undo still works after a save that failed. The row only shows while the filter is on, and never in a comment's menu. It sits under Download when Download in post menus is on too.
 * Download in post menus and Hide posts by (their name) go by the three-dot button you opened last. If Facebook ever leaves another post's button marked open, the row still saves from or names the post whose menu you're looking at. A group post with no member link of its own (posted anonymously, say) gets no Hide posts by row, where it could have named the poster of a post shared inside it.
 * Your list of people to hide now catches group posts that are checked on the page, like in content mode or the first posts Facebook sends already drawn. A group post's heading on the page is the group, and the member who posted it has a link of their own, so only the group's name was being checked. A name with an emoji in it matches on the page now too. Facebook draws the emoji as a small picture, and the name used to be read without it.
+
+This release changes something for reports #1, #2, #9, #10, #11 and #12.
 
 ## v0.0.6 (2026-10-22)
 
