@@ -38,20 +38,25 @@ function observerClass() {
       this.options = options;
       this.watched = [];
       this.dropped = [];
+      // What it watches now, the way a native one keeps it: once per target, whatever the calls.
+      this.live = new Set();
       this.cut = false;
       made.push(this);
     }
 
     observe(target) {
       this.watched.push(target);
+      this.live.add(target);
     }
 
     unobserve(target) {
       this.dropped.push(target);
+      this.live.delete(target);
     }
 
     disconnect() {
       this.cut = true;
+      this.live.clear();
     }
 
     takeRecords() {
@@ -171,28 +176,37 @@ test('unobserve, disconnect and takeRecords reach the wider observer too', () =>
   assert.equal(wide.dropped.length, 1, 'after a disconnect the feed end belongs to neither');
 });
 
-test('a feed end watched again stays with the observer that has it, however the switch changed', () => {
+test('a feed end watched again moves to the observer the switch now calls for, and only ever has one', () => {
   const doc = page().document;
+  const end = feedEnd(doc);
   const { Observer, made } = observerClass();
   let reach = 25000;
   const win = { IntersectionObserver: Observer };
   widenFeedEnd(win, () => reach);
+  // The places in made of the observers watching the feed end: 0 and 2 are Facebook's, 1 and 3
+  // the wider ones made for them.
+  const watching = () => made.flatMap((observer, place) => (observer.live.has(end) ? [place] : []));
   const own = new win.IntersectionObserver(() => {}, { rootMargin: '0px 0px 2570px 0px' });
-  own.observe(feedEnd(doc));
-  const [facebook, wide] = made;
+  own.observe(end);
+  assert.deepEqual(watching(), [1]);
   reach = 0;
-  own.observe(feedEnd(doc));
-  assert.equal(facebook.watched.length, 0, "switched off since, and still not on Facebook's as well");
-  own.unobserve(feedEnd(doc));
-  assert.ok(wide.dropped.length === 1 && facebook.dropped.length === 0, 'let go from the one that has it');
+  own.observe(end);
+  assert.deepEqual(watching(), [0], "switched off since, so it's back on Facebook's alone");
+  own.observe(end);
+  assert.deepEqual(watching(), [0]);
+  own.unobserve(end);
+  assert.deepEqual(watching(), [], 'let go');
 
+  // Watched first while the switch was off (settings still loading, or before Home), then on.
   const later = new win.IntersectionObserver(() => {}, { rootMargin: '0px 0px 2570px 0px' });
-  later.observe(feedEnd(doc));
+  later.observe(end);
+  assert.deepEqual(watching(), [2]);
   reach = 25000;
-  later.observe(feedEnd(doc));
-  assert.equal(made.length, 3, 'switched on since, and no wider observer to watch it twice');
-  later.unobserve(feedEnd(doc));
-  assert.equal(made[2].dropped.length, 1);
+  later.observe(end);
+  assert.equal(made.length, 4, 'switched on since, so it gets a wider observer');
+  assert.deepEqual(watching(), [3], "and Facebook's lets it go");
+  later.unobserve(end);
+  assert.deepEqual(watching(), []);
 });
 
 test('the stand-in builds the same observers', () => {
