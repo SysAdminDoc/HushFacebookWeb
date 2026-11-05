@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.0.17 (2026-11-04, unreleased)
+## v0.0.18 (2026-11-04, unreleased)
 
 * When the userscript can't reach the page (Violentmonkey set to inject into content, for one), it used to check Facebook's address twice a second to notice you'd moved to another page, so features caught up as much as half a second late and the timer ran in every Facebook tab. It now hears each page change from the browser as it happens. That works in Chrome 102 and later and Firefox 147 and later. Older Firefox keeps the twice-a-second check.
 * New Feed switch, off to start: Hide repeats of a post already on the page. People post the same thing to several groups, so Home and your groups feed can show it three or four times in one visit, and Hide seen posts only catches it from your next visit. With this on, the first copy stays and a later one by the same person, with the same opening words or the same photo or video, gets the usual note with Show. A "See more" cut still counts as the same words. Someone else posting identical words isn't a repeat, so theirs stays. Nothing is saved, it all starts over when the page reloads, and Show hidden brings the repeats back along with everything else.
