@@ -30,6 +30,7 @@ import hidePostBox from './feed/hide-post-box.js';
 import hidePostsByWords from './feed/filters.js';
 import hideSeenPosts from './feed/hide-seen-posts.js';
 import keepPostsHidden from './feed/keep-posts-hidden.js';
+import hideRepeatPosts from './feed/hide-repeat-posts.js';
 import hideAiPosts from './feed/hide-ai-posts.js';
 import keepPostDates from './feed/post-dates.js';
 import keepFeedPlace from './feed/keep-feed-place.js';
@@ -109,7 +110,7 @@ import customCss from './appearance/custom-css.js';
 import blockInstantGamesAds from './games/block-ads.js';
 
 export const features = [
-  hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostBox, hidePostsByWords, hideSeenPosts, keepPostsHidden, hideAiPosts, keepPostDates, keepFeedPlace, loadAhead, showLoadProgress, hideFollowButtons, hideCounts, expandLongPosts,
+  hideSponsoredPosts, hideSuggestedPosts, hideReelsInFeed, hideStoriesTray, hidePostBox, hidePostsByWords, hideSeenPosts, keepPostsHidden, hideRepeatPosts, hideAiPosts, keepPostDates, keepFeedPlace, loadAhead, showLoadProgress, hideFollowButtons, hideCounts, expandLongPosts,
   hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, filterMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, keepNotificationsFilter, holdBackLogs, blockAdTelemetry,
   commentOrder, showAllReplies, hideCommentStickers, hideVideoCommentBox, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, downloadMenu, tapToPlay, pauseOffscreenVideos, limitHdr, resumeVideos,
   keepSpeed, keepVolume, holdForSpeed, pictureInPicture, frameStep, keepControls, videoQuality, rememberWatched, hideVideoSuggestions,
