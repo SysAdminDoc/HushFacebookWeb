@@ -27,6 +27,7 @@ import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createWatchList, entriesOf, WATCHED_KEY } from '../src/features/playback/remember-watched.js';
 import { MAX_OPENED, OPENED_KEY } from '../src/features/marketplace/filter-marketplace.js';
 import { HIDDEN_KEY, MAX_HIDDEN } from '../src/features/feed/keep-posts-hidden.js';
+import { PICK_KEY } from '../src/features/notifications/keep-filter.js';
 import { textKey } from '../src/core/seen-keys.js';
 import { buildSchema, claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
@@ -2701,6 +2702,22 @@ test('a page that says hello first can only reach its own account and the shared
   await chrome.storage.local.set({ 'keepSpeed.rate': 3 });
   await settle();
   assert.deepEqual(forged.pushes.map((push) => push.data), [{ 'keepSpeed.rate': 3 }]);
+});
+
+test('the Notifications filter you pick is saved and loads again, All or Unread only', async () => {
+  const chrome = fakeChrome({ [PICK_KEY]: 'unread' });
+  const win = page('615000000000037');
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+  assert.equal((await forged.send('storage:load', {})).result[PICK_KEY], 'unread', 'a reload keeps the pick');
+  assert.equal((await forged.send('storage:set', { key: PICK_KEY, value: 'all' })).ok, true);
+  assert.equal(chrome.data[PICK_KEY], 'all');
+  // null isn't here: a set of null is the bridge's way to delete any key.
+  for (const value of ['read', '', 1, ['all'], { pick: 'all' }]) {
+    await refused(forged.send('storage:set', { key: PICK_KEY, value }), /not allowed/, JSON.stringify(value));
+  }
+  assert.equal((await forged.send('storage:remove', { key: PICK_KEY })).ok, true, 'Reset forgets it');
+  assert.equal(Object.hasOwn(chrome.data, PICK_KEY), false);
 });
 
 test("a page reads and writes its own account's activity and the shared lists from before, never another account's", async () => {

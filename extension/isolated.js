@@ -167,6 +167,8 @@ const FACEBOOK_VALUES = new Map([
   ['rememberWatched.list', watchedList],
   ['filterMarketplace.opened', openedRecord],
   ['keepPostsHidden.list', hiddenRecord],
+  // The Notifications filter you pick (src/features/notifications/keep-filter.js).
+  ['keepNotificationsFilter.pick', (value) => value === 'all' || value === 'unread'],
   [GAME_KEY, (value) => typeof value === 'boolean'],
   ['hidePostsByWords.cssWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
   ['hidePostsByWords.skipWarned', (value) => boundedString(value, 64) && /^\d+:[0-9a-f]+$/.test(value)],
