@@ -36,6 +36,13 @@ export async function hiddenNote() {
   check(target === button, 'A click on Show hidden does not land on it');
   button.focus();
   check(document.activeElement === button, 'Show hidden does not take focus');
+  // The ring sits 2px out on its 4px dark halo, so the dark edge is inside the ring on both.
+  for (const [element, name] of [[mark, 'the note'], [button, 'Show hidden']]) {
+    element.focus();
+    check(element.matches(':focus-visible'), `Focus on ${name} draws no ring`);
+    const ring = getComputedStyle(element);
+    check(ring.outlineOffset === '2px' && ring.outlineWidth === '2px', `The ring on ${name} is ${ring.outlineWidth} wide at ${ring.outlineOffset} out`);
+  }
   button.blur();
 
   const click = new MouseEvent('click', { bubbles: true, cancelable: true, clientX: center.x, clientY: center.y });

@@ -71,7 +71,8 @@ export function hideCss({ notes }) {
     `${ALL}::before { all: unset !important; content: "${SHOW_ALL}" !important; display: block !important; padding: 12px 16px !important; border: 1px solid #343745 !important; border-radius: 6px !important; background: #262a3b !important; font: 600 13px/1.4 system-ui, sans-serif !important; color: #c4b0ff !important; white-space: nowrap !important; }`,
     `${ALL}::after { content: none !important; }`,
     `${ALL}:hover::before { text-decoration: underline !important; }`,
-    `${ALL}:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px; box-shadow: 0 0 0 4px #171923 !important; }`,
+    // Important, or the all: unset above puts the ring back on the edge, outside its halo.
+    `${ALL}:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px !important; box-shadow: 0 0 0 4px #171923 !important; }`,
     `[${HELD}] { display: block !important; }`,
   ].join('\n');
 }
