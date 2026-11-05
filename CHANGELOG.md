@@ -1,8 +1,8 @@
 # Changelog
 
-## v0.0.20 (2026-11-05)
+## v0.0.21 (2026-11-05)
 
-This is the first release since 0.0.6, so it carries every change from 0.0.7 through 0.0.20.
+This is the first release since 0.0.6, so it carries every change from 0.0.7 through 0.0.21.
 
 * With Show full post dates on, Facebook threw out the first few posts on Feeds and the groups feed and drew them again, logging a page error (React #418) each time. Those posts arrive already drawn, and adding the date changed them before Facebook's page had taken them over. The date is now drawn next to the time without adding anything to the post, so they load once and the date still sits between the time and the audience icon.
 * In the extension, a photo or video you save from a private window no longer stays in the normal window's downloads list. Chrome and Brave take it off the list once it finishes and leave the file where it was saved. Firefox keeps it with the private window.
