@@ -130,6 +130,27 @@ test("the feed's own comments are left alone, and a post's own page is done once
   assert.equal(await driver(doc, { order: 'relevant', page: 'x' }).drive.scan(), null, "Facebook's own order needs nothing");
 });
 
+// The scan runs every 300 ms while Home scrolls, and Home has hundreds of buttons.
+test("on the feed, a scan reads only the buttons in a post opened over it, and none with no post open", async () => {
+  const win = page(`<div role="feed">${'<div role="button">Like</div>'.repeat(40)}</div>`);
+  const doc = win.document;
+  let read = 0;
+  for (const button of doc.querySelectorAll('[role="button"]')) {
+    Object.defineProperty(button, 'textContent', { get: () => { read++; return 'Like'; } });
+  }
+  assert.equal(await driver(doc).drive.scan(), null);
+  assert.equal(read, 0, 'no post open, so nothing on the page is in reach');
+  doc.body.insertAdjacentHTML('beforeend', '<div role="dialog"><div role="button">Most relevant</div></div>');
+  const picked = orderMenu(doc, doc.querySelector('[role="dialog"] [role="button"]'), ENGLISH);
+  assert.equal(await driver(doc).drive.scan(), true);
+  assert.deepEqual(picked, [1]);
+  assert.equal(read, 0, "the feed's buttons behind the post are out of reach too");
+  // A post's own page still reads them all, since its comments are on the page itself.
+  doc.querySelector('[role="dialog"]').remove();
+  assert.equal(await driver(doc, { page: 'https://www.facebook.com/Page/posts/pfbid0abc' }).drive.scan(), null);
+  assert.equal(read, 40);
+});
+
 test("a post opened from its link over Home is done in its dialog, and the feed's copy behind it is left alone", async () => {
   const win = page('<div role="feed"><div role="button">Most relevant</div></div><div role="dialog"><div role="button">Most relevant</div></div>');
   const doc = win.document;

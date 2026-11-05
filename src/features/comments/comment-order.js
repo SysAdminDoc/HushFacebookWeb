@@ -100,7 +100,11 @@ export function createOrderDriver({ doc, win = globalThis, titles, wanted, pageK
     const order = wanted();
     if (!order || order === DEFAULT_ORDER) return null;
     const current = titles.title(DEFAULT_ORDER);
-    for (const button of doc.querySelectorAll('[role="button"]')) {
+    // Only a post's own page puts the page's buttons in reach (sectionOf). Anywhere else, only
+    // a dialog's are, so a feed with no post open has nothing to read.
+    const wholePage = pageKey() && !dialogOpen(doc);
+    if (!wholePage && !doc.querySelector('[role="dialog"]')) return null;
+    for (const button of doc.querySelectorAll(wholePage ? '[role="button"]' : '[role="dialog"] [role="button"]')) {
       if (normalizeText(button.textContent) !== current) continue;
       const section = sectionOf(button);
       if (section) return drive(button, section, order);
