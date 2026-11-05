@@ -149,15 +149,16 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     oninput: (event) => { query = event.target.value; main.scrollTop = 0; render(); },
   });
   const searchField = h('div', { class: 'search-field' }, navigationIcon('search'), search);
-  const pauseState = h('span', { class: 'power-state' });
+  const pauseState = h('span', { class: 'power-state', id: 'hfw-power-state' });
   const saveState = h('span', { class: 'save-state', role: 'status', dataset: { key: 'save-state', state: preferenceSave.state } });
   // One live region for the life of the panel. The visible count is redrawn on every key, so
   // only this one speaks, and only once the count has held still for a moment.
   const searchStatus = h('p', { class: 'visually-hidden', role: 'status', dataset: { key: 'search-status' } });
   let searchStatusTimer = null;
-  // Checked means running, so the switch agrees with the "On" beside it.
+  // Checked means running, so the switch agrees with the "On" beside it. Its name is the script
+  // alone, since a screen reader says on or off after it, and the word beside it says why.
   const power = h('input', {
-    class: 'switch', type: 'checkbox', role: 'switch', dataset: { key: 'power' },
+    class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'HushFacebook Web', 'aria-describedby': 'hfw-power-state', dataset: { key: 'power' },
     // A pause for this tab ends with a reload, since the page started without the script's hooks.
     onchange: (event) => (settings.tabPaused && event.target.checked ? environment.resumeTab?.() : apply('paused', !event.target.checked)),
   });
@@ -213,7 +214,6 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     nav.setAttribute('aria-label', t('Settings pages'));
     search.placeholder = t('Find a setting');
     search.setAttribute('aria-label', t('Find a setting'));
-    power.setAttribute('aria-label', t('HushFacebook Web on'));
     closeButton.setAttribute('aria-label', t('Close settings'));
     subtitle.textContent = t('Settings');
   }

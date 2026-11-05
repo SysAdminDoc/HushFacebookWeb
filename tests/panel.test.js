@@ -1923,6 +1923,16 @@ test('In a tab paused after a stuck feed, the power switch turns it back on with
   assert.equal(Object.hasOwn(settings.snapshot(), 'paused'), false, 'nothing about the tab is saved');
 });
 
+test('the power switch is named for what it runs, and the word beside it is read with it', () => {
+  const { shadow, panel } = setup({ tabPaused: true });
+  panel.open();
+  const power = shadow.querySelector('[data-key="power"]');
+  // Not "HushFacebook Web on", which a screen reader followed with "off" while paused.
+  assert.equal(power.getAttribute('aria-label'), 'HushFacebook Web');
+  const state = shadow.getElementById(power.getAttribute('aria-describedby') ?? '');
+  assert.equal(state?.textContent, 'Paused in this tab', 'why it is off is read too');
+});
+
 // Settings an update added (src/ui/new-dots.js). One storage holds both settings and the seen
 // list, as boot.js gives the panel.
 const DOT_FEED = { id: 'dotFeed', section: 'feed', title: 'Dot feed', description: 'A feed switch.', default: false, options: [{ key: 'words', type: 'text', default: '', label: 'Words' }], setup() {} };
