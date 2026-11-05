@@ -441,19 +441,27 @@ function patchFetch(win, { blockingRule, startupRule, startupGate, fakeAnswer, a
     const receiver = this;
     const args = arguments;
     const isRequest = isRequestInput(win, input);
-    const ctx = describeRequest({
-      transport: 'fetch',
-      url: isRequest ? input.url : input,
-      method: init?.method ?? (isRequest ? input.method : 'GET'),
-      body: init?.body,
-      headers: init?.headers ?? (isRequest ? input.headers : undefined),
-      base: win.location.href,
-    });
+    let ctx;
+    let formType;
+    try {
+      ctx = describeRequest({
+        transport: 'fetch',
+        url: isRequest ? input.url : input,
+        method: init?.method ?? (isRequest ? input.method : 'GET'),
+        body: init?.body,
+        headers: init?.headers ?? (isRequest ? input.headers : undefined),
+        base: win.location.href,
+      });
+      formType = isRequest && !ctx.friendlyName ? requestFormType(win, input, init) : '';
+    } catch {
+      // An init whose fields throw when read. The browser reads them too and answers with a
+      // rejected promise, so it gets the call as it came.
+      return original.apply(receiver, args);
+    }
     const route = (form) => routeFetch(win, {
       input, init, isRequest, form, startupRule, startupGate,
       original, receiver, args, ctx, blockingRule, fakeAnswer, active, responseRules, lineStream, log,
     });
-    const formType = isRequest && !ctx.friendlyName ? requestFormType(win, input, init) : '';
     if (!formType) return route(null);
     return new win.Promise((resolve, reject) => {
       readRequestForm(win, input, formType, init?.signal ?? input.signal).then((form) => {

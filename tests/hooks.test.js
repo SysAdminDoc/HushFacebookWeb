@@ -138,14 +138,19 @@ test("a fetch whose method or headers the hooks can't read goes to the browser a
   const { win, calls } = fakeWindow();
   const net = installNetworkHooks({ win, log: quietLog() });
   net.blockRequests({ id: 'seen', enabled: () => true, match: (ctx) => ctx.friendlyName === 'storiesUpdateSeenStateMutation' });
+  // A Request carrying its form, so the hooks look at init to see whether its body needs reading.
+  const request = () => new Request('https://www.facebook.com/api/graphql/', { method: 'POST', body: new URLSearchParams(graphqlBody('Other')) });
   const odd = [
     // Header names the browser reads as text, the way new Headers([[1, 'x']]) takes them.
-    { method: 'POST', headers: [[1, 'x'], ['X-FB-Friendly-Name', 'Other']], body: graphqlBody('Other') },
-    { method: 'POST', headers: { get() { throw new Error('no'); } }, body: graphqlBody('Other') },
-    { method: { toString() { throw new Error('no'); } } },
+    ['/api/graphql/', { method: 'POST', headers: [[1, 'x'], ['X-FB-Friendly-Name', 'Other']], body: graphqlBody('Other') }],
+    ['/api/graphql/', { method: 'POST', headers: { get() { throw new Error('no'); } }, body: graphqlBody('Other') }],
+    ['/api/graphql/', { method: { toString() { throw new Error('no'); } } }],
+    ['/api/graphql/', { get method() { throw new Error('no'); } }],
+    [request(), { method: { toString() { throw new Error('no'); } } }],
+    [request(), { get headers() { throw new Error('no'); } }],
   ];
-  for (const init of odd) {
-    const answer = win.fetch('/api/graphql/', init);
+  for (const [input, init] of odd) {
+    const answer = win.fetch(input, init);
     assert.equal(typeof answer?.then, 'function', 'fetch always answers with a promise');
     await answer;
   }
