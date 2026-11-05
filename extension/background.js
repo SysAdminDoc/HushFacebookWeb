@@ -1166,14 +1166,27 @@ async function startedFor(record, records) {
 
 const ownedBy = (record, sender) => record.tab === sender.tab.id && record.document === (sender.documentId ?? null);
 
+// A save from a private window. Firefox files a download in the normal session unless it's told
+// otherwise. Chrome has no such option: it files the download under the profile this worker runs
+// in, which is the normal one (spanning mode, DownloadsDownloadFunction in Chromium's
+// downloads_api.cc). So there the download comes off the browser's list once it ends, and the
+// file stays where it was saved. Erasing one still going would cancel it.
+const GECKO = chrome.runtime.getURL?.('')?.startsWith('moz-extension:') === true;
+const unlist = (record, id) => {
+  if (record?.secret && !GECKO && Number.isInteger(id)) chrome.downloads.erase({ id }).catch(() => {});
+};
+
 // Starts a download and answers once the browser has it: { id, state, error }. A page that sends
 // a key hears later how it ended ('download-state'), and the same key again gets the download
 // already started for it, not a second one. Only 'complete' means saved.
 async function save({ url, name, key }, sender) {
   if (!savable(url)) throw new Error('that address is not a Facebook file');
   if (!validFilename(name)) throw new Error('that file name is not safe');
+  const secret = sender?.tab?.incognito === true;
   // The page cannot prove a remote file's size. chrome.downloads owns and reports the transfer.
-  const start = () => chrome.downloads.download({ url, filename: name, saveAs: false, conflictAction: 'uniquify' });
+  const start = () => chrome.downloads.download({
+    url, filename: name, saveAs: false, conflictAction: 'uniquify', ...(secret && GECKO ? { incognito: true } : {}),
+  });
   if (!key || !sender?.tab) return downloadState(await start());
   return changeDownloads(async (records, persist) => {
     let record = records[key];
@@ -1181,7 +1194,7 @@ async function save({ url, name, key }, sender) {
     if (record?.id === undefined) {
       const earlier = record ? await startedFor(record, records) : undefined;
       if (!record) {
-        record = { tab: sender.tab.id, document: sender.documentId ?? null, url, at: Date.now() };
+        record = { tab: sender.tab.id, document: sender.documentId ?? null, url, at: Date.now(), ...(secret ? { secret: true } : {}) };
         records[key] = record;
         await persist();
       }
@@ -1195,7 +1208,10 @@ async function save({ url, name, key }, sender) {
     }
     // It can end before this records the id, and then onChanged finds no record to tell.
     const answer = await downloadState(record.id);
-    if (answer.state !== 'in_progress') delete records[key];
+    if (answer.state !== 'in_progress') {
+      delete records[key];
+      unlist(record, record.id);
+    }
     return answer;
   });
 }
@@ -1209,6 +1225,7 @@ function cancelSave({ key }, sender) {
     const id = record.id ?? await startedFor(record, records);
     if (id === undefined) return { cancelled: false };
     await chrome.downloads.cancel(id).catch(() => {});
+    unlist(record, id);
     return { cancelled: true };
   });
 }
@@ -1221,8 +1238,12 @@ chrome.downloads.onChanged.addListener((delta) => {
   changeDownloads(async (records) => {
     const key = Object.keys(records).find((name) => records[name].id === delta.id);
     if (!key) return;
-    const { tab, document } = records[key];
+    const record = records[key];
+    const { tab, document } = record;
     delete records[key];
+    unlist(record, delta.id);
+    // A private window closed while it saved: only the list was left to tidy.
+    if (tab === null) return;
     const message = { type: 'download-state', key, state };
     if (state === 'interrupted') message.error = String(delta.error?.current || 'the download stopped');
     // A page that's gone or moved on hears nothing, and the browser keeps the file all the same.
@@ -1305,7 +1326,14 @@ async function sweepOpens(now = Date.now()) {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   changeDownloads(async (records) => {
-    for (const key of Object.keys(records)) if (records[key].tab === tabId) delete records[key];
+    for (const key of Object.keys(records)) {
+      const record = records[key];
+      if (record.tab !== tabId) continue;
+      // A private window's download still going stays, with no page to tell, so it comes off
+      // the list when it ends.
+      if (record.secret && !GECKO && Number.isInteger(record.id)) records[key] = { ...record, tab: null, document: null };
+      else delete records[key];
+    }
   }).catch(() => {});
   changeOpens(async (records) => {
     delete records[tabId];

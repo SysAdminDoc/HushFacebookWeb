@@ -24,16 +24,16 @@ const deferred = () => {
 // release: what GitHub answers. A release object, an Error (offline), { status, headers } (an
 // error status), { body } (that text as the answer), { stallBody } (the body's reader), or a
 // function of the fetch options that gives one of those. alarmSet false stands for the update alarm Chrome dropped.
-function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null, readError = null, badgeError = null, alarmSet = true, items = new Map(), finishes = 'in_progress' } = {}) {
+function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null, readError = null, badgeError = null, alarmSet = true, items = new Map(), finishes = 'in_progress', scheme = 'chrome-extension' } = {}) {
   const data = structuredClone(saved);
   // badge: the button everywhere; tabButton: [tabId, badge or title] for one tab.
-  const calls = { fetch: 0, badge: [], tabButton: [], alarms: [], created: [], activated: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [] };
+  const calls = { fetch: 0, badge: [], tabButton: [], alarms: [], created: [], activated: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [], erased: [] };
   const listeners = { updated: [], downloadChanged: [], messages: [], storageChanged: [], removed: [], alarm: [] };
   const tellStorage = (changes) => queueMicrotask(() => (
     listeners.storageChanged.forEach((listener) => listener(changes, 'local'))
   ));
   const chrome = {
-    runtime: { id: 'hfw', getManifest: () => ({ version }), onMessage: { addListener: (fn) => listeners.messages.push(fn) } },
+    runtime: { id: 'hfw', getManifest: () => ({ version }), getURL: (path) => `${scheme}://hfw/${path}`, onMessage: { addListener: (fn) => listeners.messages.push(fn) } },
     storage: { local: {
       get: async (keys) => {
         if (readError) throw readError;
@@ -98,13 +98,19 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
         return id;
       },
       search: async ({ id, url, startedAfter }) => [...items.values()]
-        .filter((item) => (id === undefined || item.id === id) && (url === undefined || item.url === url)
+        .filter((item) => !item.erased && (id === undefined || item.id === id) && (url === undefined || item.url === url)
           && (startedAfter === undefined || item.startTime > startedAfter))
         .map((item) => ({ ...item })),
       cancel: async (id) => {
         calls.cancelled.push(id);
         if (items.get(id)?.state !== 'in_progress') throw new Error('Download must be in progress');
         end(id, 'interrupted', 'USER_CANCELED');
+      },
+      // Takes a download off the browser's list. Like Chrome, an unfinished one would be cancelled.
+      erase: async ({ id }) => {
+        calls.erased.push([id, items.get(id)?.state]);
+        if (items.has(id)) items.get(id).erased = true;
+        return [id];
       },
       onChanged: { addListener: (fn) => listeners.downloadChanged.push(fn), removeListener() {} },
     },
@@ -510,6 +516,62 @@ test('a closed page leaves its download to the browser and its record goes', asy
   await settle();
   assert.deepEqual(current.calls.told, []);
   assert.deepEqual(current.calls.cancelled, [], 'the file still saves');
+});
+
+// A tab in a private window, as the browser describes the sender.
+const privateFrame = (id = 1) => {
+  const sender = topFrame(id);
+  return { ...sender, tab: { ...sender.tab, incognito: true } };
+};
+
+test("in Chrome a private window's download comes off the browser's list once it ends, and the file stays", async () => {
+  const current = worker({ tabs: { 1: true, 2: true, 3: true } });
+  await answerOf(current, photoDownload(), privateFrame(1));
+  assert.equal(Object.hasOwn(current.calls.downloads[0], 'incognito'), false, 'Chrome has no such option and would refuse it');
+  assert.deepEqual(current.calls.erased, [], 'still going, and erasing would cancel it');
+  current.end(7, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.erased, [[7, 'complete']]);
+  assert.equal(current.calls.told.length, 1, 'the page still hears it saved');
+
+  // Ended before its id was written down, cancelled, or still going when the window closed.
+  const quick = worker({ tabs: { 1: true }, finishes: 'complete' });
+  await answerOf(quick, photoDownload(), privateFrame(1));
+  assert.deepEqual(quick.calls.erased, [[7, 'complete']]);
+  await answerOf(current, photoDownload(OTHER_KEY), privateFrame(2));
+  await answerOf(current, { type: 'download:cancel', key: OTHER_KEY }, privateFrame(2));
+  await settle();
+  assert.deepEqual(current.calls.erased.at(-1), [8, 'interrupted']);
+  await answerOf(current, photoDownload(KEY), privateFrame(3));
+  current.listeners.removed.forEach((fn) => fn(3));
+  await settle();
+  await settle();
+  current.end(9, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.erased.at(-1), [9, 'complete']);
+  assert.equal(current.calls.told.length, 1, 'a closed page hears nothing');
+  assert.deepEqual(recordsOf(current.session), {});
+
+  // A normal window's download stays on the list.
+  const normal = worker({ tabs: { 1: true } });
+  await answerOf(normal, photoDownload());
+  normal.end(7, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(normal.calls.erased, []);
+});
+
+test("in Firefox a private window's download is filed with that window", async () => {
+  const current = worker({ tabs: { 1: true }, scheme: 'moz-extension' });
+  await answerOf(current, photoDownload(), privateFrame(1));
+  await answerOf(current, photoDownload(OTHER_KEY));
+  assert.deepEqual(current.calls.downloads.map((options) => options.incognito), [true, undefined]);
+  current.end(7, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.erased, [], 'Firefox keeps it out of the normal list itself');
 });
 
 test('downloads refuse a file name with a control character or a path in it', async () => {
