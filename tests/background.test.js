@@ -490,13 +490,14 @@ test('a worker Chrome stopped and started again still tells the page, and the sa
   assert.equal(third.calls.downloads.length, 0, 'it took up the download already going');
 });
 
-test("a download whose id the worker never wrote down still ends right when the page doesn't ask again", async () => {
+test('a download whose id the worker never wrote down ends right whether its page asks again or not', async () => {
   const session = {};
   const items = new Map();
   const url = 'https://scontent.xx.fbcdn.net/v/b.jpg';
   const at = Date.now();
   const going = (id, by = 'hfw') => items.set(id, { id, url, state: 'in_progress', byExtensionId: by, startTime: new Date(at + id).toISOString() });
-  const current = worker({ tabs: { 1: true, 2: true }, session, items });
+  const current = worker({ tabs: { 1: true, 2: true, 3: true }, session, items });
+  const told = () => current.calls.told.map(([tab, message]) => [tab, message.key, message.state]);
   // Stopped between asking Chrome and writing down the id, for a private window's save.
   going(20);
   session['hushfacebookWeb.downloads'] = { [KEY]: { tab: 1, document: 'document-1', url, at, secret: true } };
@@ -510,20 +511,37 @@ test("a download whose id the worker never wrote down still ends right when the 
   await settle();
   await settle();
   assert.deepEqual(current.calls.erased, [[20, 'complete']], 'off the list');
-  assert.deepEqual(current.calls.told.map(([tab, message]) => [tab, message.key, message.state]), [[1, KEY, 'complete']], 'and the page hears it');
+  assert.deepEqual(told(), [[1, KEY, 'complete']], 'and the page hears it');
+  // The page's own ask again, reaching the worker after the end did, gets that end and no
+  // second file.
+  assert.deepEqual(await answerOf(current, photoDownload(KEY, url)), { ok: true, result: { id: 20, state: 'complete' } });
+  assert.equal(current.calls.downloads.length, 0, 'one file for one save');
   assert.deepEqual(recordsOf(session), {});
 
-  // The same, with the private window closed before it ended.
+  // A page that doesn't ask again: its end is let go when the tab closes.
   going(22);
   session['hushfacebookWeb.downloads'] = { [OTHER_KEY]: { tab: 2, document: 'document-2', url, at, secret: true } };
+  current.end(22, 'interrupted', 'NETWORK_FAILED');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.erased.at(-1), [22, 'interrupted']);
+  assert.deepEqual(told().at(-1), [2, OTHER_KEY, 'interrupted']);
   current.listeners.removed.forEach((fn) => fn(2));
   await settle();
   await settle();
-  current.end(22, 'complete');
+  assert.deepEqual(recordsOf(session), {});
+
+  // The private window closed before it ended.
+  going(23);
+  session['hushfacebookWeb.downloads'] = { [KEY]: { tab: 3, document: 'document-3', url, at, secret: true } };
+  current.listeners.removed.forEach((fn) => fn(3));
   await settle();
   await settle();
-  assert.deepEqual(current.calls.erased.at(-1), [22, 'complete']);
-  assert.equal(current.calls.told.length, 1, 'a closed page hears nothing');
+  current.end(23, 'complete');
+  await settle();
+  await settle();
+  assert.deepEqual(current.calls.erased.at(-1), [23, 'complete']);
+  assert.equal(current.calls.told.length, 2, 'a closed page hears nothing');
   assert.deepEqual(recordsOf(session), {});
 });
 

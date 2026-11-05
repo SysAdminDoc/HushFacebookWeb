@@ -1206,6 +1206,10 @@ async function save({ url, name, key }, sender) {
   return changeDownloads(async (records, persist) => {
     let record = records[key];
     if (record && (!ownedBy(record, sender) || record.url !== url)) throw new Error('that download belongs to another page');
+    if (record?.ended) {
+      delete records[key];
+      return { id: record.id, ...record.ended };
+    }
     if (record?.id === undefined) {
       const earlier = record ? await startedFor(record, records) : undefined;
       if (!record) {
@@ -1255,12 +1259,16 @@ chrome.downloads.onChanged.addListener((delta) => {
     if (!key) return;
     const record = records[key];
     const { tab, document } = record;
-    delete records[key];
+    const error = state === 'interrupted' ? String(delta.error?.current || 'the download stopped') : undefined;
+    // One whose id was never written down is a save whose worker stopped mid-answer, so its page
+    // may still be asking again. That ask gets this end rather than starting a second file.
+    if (record.id === undefined && tab !== null) records[key] = { ...record, id: delta.id, ended: error ? { state, error } : { state } };
+    else delete records[key];
     unlist(record, delta.id);
     // A private window closed while it saved: only the list was left to tidy.
     if (tab === null) return;
     const message = { type: 'download-state', key, state };
-    if (state === 'interrupted') message.error = String(delta.error?.current || 'the download stopped');
+    if (error) message.error = error;
     // A page that's gone or moved on hears nothing, and the browser keeps the file all the same.
     chrome.tabs.sendMessage(tab, message, document ? { documentId: document } : { frameId: 0 }).catch(() => {});
   }).catch(() => {});
@@ -1346,7 +1354,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
       if (record.tab !== tabId) continue;
       // A private window's download still going stays, with no page to tell, so it comes off
       // the list when it ends. So does one whose id was never written down (recordFor).
-      if (record.secret && !GECKO) records[key] = { ...record, tab: null, document: null };
+      if (record.secret && !GECKO && !record.ended) records[key] = { ...record, tab: null, document: null };
       else delete records[key];
     }
   }).catch(() => {});
