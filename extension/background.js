@@ -4,8 +4,11 @@
 /* global HfwWatched, HfwSeen */
 
 const FACEBOOK = ['www.facebook.com', 'web.facebook.com'];
-// Where the script's downloads come from: Facebook's media servers.
-const SAVABLE = /(^|\.)(fbcdn\.net|facebook\.com)$/;
+// Where the script's downloads come from: Facebook's media servers, never facebook.com, whose
+// l.facebook.com sends you on to any site. And the endings extensionOf in src/core/download.js
+// gives a photo or video's name.
+const SAVABLE = /(^|\.)fbcdn\.net$/;
+const MEDIA_ENDING = /\.(?:mp4|m4v|webm|jpg|png|gif|webp|heic)$/i;
 // The downloads pages are waiting to hear about, by the key each page made up (the pattern is
 // src/core/bridge.js BRIDGE_DOWNLOAD_KEY). Session storage keeps them while Chrome stops and
 // starts this worker, so the page that asked still hears how its download ended.
@@ -1109,7 +1112,7 @@ const hasControl = (name) => [...name].some((char) => {
 
 function validFilename(name) {
   if (typeof name !== 'string' || !name || name !== name.normalize('NFC') || utf8Bytes(name, 512) > 512) return false;
-  if (name.startsWith('.') || name.startsWith('~') || /[. ]$/.test(name) || !/\.[A-Za-z0-9]{1,10}$/.test(name)) return false;
+  if (name.startsWith('.') || name.startsWith('~') || /[. ]$/.test(name) || !MEDIA_ENDING.test(name)) return false;
   if (hasControl(name) || /[\\/:*?"<>|\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb\u{e0000}-\u{e007f}]/u.test(name)) return false;
   return !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name);
 }

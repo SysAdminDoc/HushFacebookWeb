@@ -584,6 +584,24 @@ test('downloads refuse a file name with a control character or a path in it', as
   assert.equal(calls.downloads.length, 0);
 });
 
+test('downloads save only the media Facebook serves, from its media servers', async () => {
+  const { context, calls } = worker();
+  const url = 'https://scontent.xx.fbcdn.net/v/a.jpg';
+  // The endings src/core/download.js extensionOf gives a name, and nothing else.
+  for (const name of ['Pat.exe', 'Pat.html', 'Pat.svg', 'Pat.lnk', 'Pat.jpeg', 'Pat.mp4.bat']) {
+    await assert.rejects(context.save({ url, name }), /not safe/, name);
+  }
+  // facebook.com serves pages, and l.facebook.com sends you to any site.
+  for (const page of ['https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com%2Fa.jpg', 'https://www.facebook.com/photo/download/?fbid=1']) {
+    await assert.rejects(context.save({ url: page, name: 'Pat.jpg' }), /not a Facebook file/, page);
+  }
+  assert.equal(calls.downloads.length, 0);
+  for (const ending of ['mp4', 'm4v', 'webm', 'jpg', 'png', 'gif', 'webp', 'heic', 'JPG']) {
+    await context.save({ url: 'https://video.xx.fbcdn.net/v/a', name: `Pat video.${ending}` });
+  }
+  assert.equal(calls.downloads.length, 9);
+});
+
 test('settings mutations from two tabs merge at the worker and same-field requests use accepted order', async () => {
   const { context, data } = worker({ saved: { settings: { existing: true } } });
   const [first, second] = await Promise.all([
