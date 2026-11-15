@@ -2109,6 +2109,38 @@ test('an extension reloaded under the tab gets one Reload notice, a Reload card 
   assert.equal(reloads, 2);
 });
 
+test('after a reload, later save failures stay under its notice past the error gap, and other failures keep their own', async () => {
+  mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  cleanups.push(() => mock.timers.reset());
+  let current = { state: 'ready', error: null };
+  const listeners = new Set();
+  const storage = {
+    status: () => current,
+    onStatus(listener) {
+      listeners.add(listener);
+      listener(this.status());
+    },
+    async retry() { return false; },
+  };
+  const { shadow, log } = setup({ environment: { storage, reload() {} } });
+  const gone = Object.assign(new Error('Extension context invalidated.'), { code: EXTENSION_RELOADED });
+  current = { state: 'error', error: gone };
+  log.error('The extension was reloaded or updated, so this page has to be reloaded to save anything', gone);
+  for (const listener of listeners) listener(storage.status());
+  // Well past the gap that keeps ordinary error notices apart, so only the reload check holds this back.
+  mock.timers.tick(60_000);
+  log.error("A setting couldn't be saved in the extension", gone);
+  await tick();
+  assert.equal(shadow.querySelectorAll('.toast').length, 1, 'a later save failure adds nothing');
+  const refused = Object.assign(new Error('Write permission denied.'), { name: 'NotAllowedError' });
+  log.error("Couldn't copy the report", refused);
+  await tick();
+  const notices = [...shadow.querySelectorAll('.toast')];
+  assert.equal(notices.length, 2, 'a failure the reload did not cause still gets its own notice');
+  assert.match(notices[0].textContent, /HushFacebook Web was updated/);
+  assert.match(notices[1].textContent, /Couldn't copy the report\. Details are in Diagnostics\./);
+});
+
 test('A notice can carry several buttons, and one marked keep leaves it up', async () => {
   const { shadow, panel } = setup();
   const ran = [];

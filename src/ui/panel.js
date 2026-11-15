@@ -6,7 +6,7 @@
 // descriptions, labels and choices, action and Diagnostics row labels, and the label of a
 // toast's button. A toast's message comes already in the language shown.
 
-import { extensionReloaded } from '../core/bridge.js';
+import { EXTENSION_RELOADED, extensionReloaded } from '../core/bridge.js';
 import { decisionLine } from '../core/diagnostics.js';
 import { saveThroughLink } from '../core/download.js';
 import { language, LANGUAGES, plural, setLanguage, t } from '../core/i18n.js';
@@ -1331,8 +1331,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       ],
     });
   };
-  const announceError = (entry, force = false, translated = null) => {
-    if (extensionReloaded(environment.storage)) {
+  // After a reload, a failure the reload caused (or one logged before the panel could see why)
+  // goes under the reload notice. Anything else, like a copy the clipboard refused, keeps its own.
+  const announceError = (entry, force = false, translated = null, detail) => {
+    if (extensionReloaded(environment.storage) && (detail === undefined || detail?.code === EXTENSION_RELOADED)) {
       announceReload(force);
       return;
     }
@@ -1352,7 +1354,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       : error?.code === 'ACTIVITY_REGISTER_CONFLICT'
         ? t('Two tabs saved different activity. Try the action again to use this copy')
       : t(message, vars);
-    announceError({ message }, true, translated);
+    announceError({ message }, true, translated, error ?? null);
     return lastErrorNotice;
   }
   let renderQueued = false;
@@ -1400,8 +1402,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       if (dialog.open && current === 'diagnostics') render();
     });
   };
-  log.subscribe((entry) => {
-    if (entry.level === 'error') announceError(entry);
+  log.subscribe((entry, detail) => {
+    if (entry.level === 'error') announceError(entry, false, null, detail ?? null);
     refreshDiagnostics();
   });
   hider?.subscribe(refreshDiagnostics);

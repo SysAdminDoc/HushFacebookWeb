@@ -18,7 +18,8 @@ export function createLog({ capacity = 400, sink = globalThis.console, now = () 
     entries.push(entry);
     if (entries.length > capacity) entries.shift();
     if (level !== 'debug') sink?.[level]?.(`[HushFacebook Web] ${entry.message}`, ...(detail === undefined ? [] : [detail]));
-    for (const listener of listeners) listener(entry);
+    // Listeners also get the detail itself, which can say more than the entry keeps (an error's code).
+    for (const listener of listeners) listener(entry, detail);
     return entry;
   }
 

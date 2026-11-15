@@ -189,7 +189,8 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
       toast(() => t('Feed load warnings are off. Warn when the feed seems stuck in General turns them back on.'));
     } catch (error) {
       log.error("Couldn't turn off feed load warnings", error);
-      toast(() => t("Couldn't turn off these warnings. Try the switch in General."), { tone: 'error' });
+      // After an extension update the switch in General can't save either, and the reload notice says what will.
+      if (!extensionReloaded(storage)) toast(() => t("Couldn't turn off these warnings. Try the switch in General."), { tone: 'error' });
     }
   };
   if (tabPaused) {

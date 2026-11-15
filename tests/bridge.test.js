@@ -899,6 +899,27 @@ test("a bridge that throws right away doesn't leave the write counted as on its 
   assert.equal(storage.get(key), 3, 'the write that never left is not kept over the saved value');
 });
 
+test('a save still on its way when the extension goes away fails as the reload once the tab knows', async () => {
+  let stall;
+  const logged = [];
+  const storage = createBridgeStorage({
+    on() {},
+    request(type) {
+      if (type === 'storage:load') return Promise.resolve({});
+      if (!stall) return new Promise((resolve, reject) => { stall = reject; });
+      return Promise.reject(Object.assign(new Error('Extension context invalidated.'), { code: EXTENSION_RELOADED }));
+    },
+  }, { log: { error: (message, error) => logged.push([message, error?.code]) } });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  const onItsWay = storage.setConfirmed('keepSpeed.rate', 2);
+  storage.set('keepVolume.level', 0.5);
+  await settle();
+  assert.equal(storage.status().error?.code, EXTENSION_RELOADED, 'the second save found the extension gone');
+  stall(new Error('the extension did not answer'));
+  await assert.rejects(onItsWay, (error) => error.code === EXTENSION_RELOADED);
+  assert.ok(logged.every(([, code]) => code === EXTENSION_RELOADED), 'every failure logged after it reads as the reload');
+});
+
 test("a write made while the first load was failing survives Retry's load and is sent", async () => {
   const key = 'keepSpeed.rate';
   const saved = { [key]: 1 };

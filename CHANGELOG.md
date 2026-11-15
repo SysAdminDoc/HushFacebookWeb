@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-* After the extension is updated or reloaded, a Facebook tab that was already open now says so the first time it can't save something, with a Reload button. Before, it kept hiding posts but quietly dropped every change you made in it. The settings panel shows the same notice in place of Retry.
+* After the extension is updated or reloaded, a Facebook tab that was already open now says so the first time it can't save something, with a Reload button. Before, it kept hiding posts but quietly dropped every change you made in it. The settings panel shows the same notice in place of Retry. A save that was already on its way when the update landed ends up under that notice too, while problems the update didn't cause, like a copy the clipboard refused, still show their own message.
 * Saving a video whose picture and sound come as separate files could write a file that won't play when one of them had a second movie header, or listed samples outside its fragments. Those saves now stop with "the video and its sound didn't fit together" instead of handing you a broken file.
 * In the userscript, a damaged settings record for your account showed your shared settings but threw them away at the first change, keeping only that one switch. It could also run an old one-time settings change again over choices you'd made since. A damaged record now counts as missing, so your shared settings are copied in and kept.
 * An account upgrading from v0.0.2 that lost a race with another tab while copying its old settings could retry from the shared settings instead of its own. That includes two accounts that share an old record opening at the same moment: the one that got there first keeps it now, and the other starts from the shared settings.

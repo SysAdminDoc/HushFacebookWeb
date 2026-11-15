@@ -253,6 +253,9 @@ export function createBridgeStorage(bridge, { log } = {}) {
     }
     return answer.catch((error) => {
       noteReloaded(error);
+      // A request still on its way when the extension went away only times out, so once the tab
+      // knows, that failure is the reload too and shows as such.
+      if (reloaded && error !== null && typeof error === 'object' && error.code === undefined) error.code = EXTENSION_RELOADED;
       throw error;
     });
   };
