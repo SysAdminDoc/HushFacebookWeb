@@ -71,7 +71,9 @@ function timescaleOf(bytes, box) {
 function parse(bytes) {
   const top = boxesIn(bytes, 0, bytes.length);
   const ftyp = top.find((b) => b.type === 'ftyp');
-  const moov = top.find((b) => b.type === 'moov');
+  // A second moov would describe tracks the merge leaves out, so only one is taken.
+  const moovs = top.filter((b) => b.type === 'moov');
+  const moov = moovs.length === 1 ? moovs[0] : null;
   const traks = moov ? children(bytes, moov).filter((b) => b.type === 'trak') : [];
   const mvhd = child(bytes, moov, 'mvhd');
   const mvex = child(bytes, moov, 'mvex');
@@ -147,11 +149,23 @@ function rescale(file, scale) {
   }
 }
 
+// Samples the moov finds by file position (a chunk offset table that counts any) sit outside the
+// fragments, which are all the merge carries over, and the positions would move with the bigger
+// moov anyway, so such a track is refused rather than saved pointing at nothing. DASH copies
+// count none.
+function onlyInFragments(file) {
+  const stbl = path(file.bytes, file.trak, 'mdia', 'minf', 'stbl');
+  const tables = stbl ? children(file.bytes, stbl).filter((b) => b.type === 'stco' || b.type === 'co64') : [];
+  if (tables.some((b) => view(file.bytes).getUint32(within(b, fields(b), 4)) !== 0)) throw fault();
+}
+
 // Pieces of one MP4 holding both tracks. With no sound, the picture file is already one.
 export function mergeTracks(pictureBytes, soundBytes) {
   const picture = parse(pictureBytes);
   if (!soundBytes) return [pictureBytes];
   const sound = parse(soundBytes);
+  onlyInFragments(picture);
+  onlyInFragments(sound);
   const soundId = picture.trackId + 1;
   const sv = view(sound.bytes);
 

@@ -42,14 +42,17 @@ const MATRIX = join([u32(0x10000), zeros(12), u32(0x10000), zeros(12), u32(0x400
 
 // One track's file. fragments: [[time in the track's time scale, mdat text], ...].
 // absolute: each tfhd carries a base offset into the whole file (ffmpeg's default) instead of
-// counting from its moof. version: tkhd and elst; headerVersion: mvhd and mdhd. The rest make
-// broken files: elstCount past the entries there, shortTfhd (flag 1 with no room for the
-// offset), noTfhd, and openMdat (the last mdat's size 0, "to the end of the file", which is
-// allowed).
+// counting from its moof. version: tkhd and elst; headerVersion: mvhd and mdhd. chunks:
+// { stco, co64 } entry counts for a sample table with those chunk offset boxes (DASH leaves both
+// empty). largeMoov and largeMoof write those boxes with 64-bit sizes. The rest make broken
+// files: elstCount past the entries there, shortTfhd (flag 1 with no room for the offset),
+// noTfhd, moovs past 1, and openMdat (the last mdat's size 0, "to the end of the file", which
+// is allowed).
 export function trackFile({
   id = 1, movieScale = 1000, mediaScale = 15360, length = 8000, edit = null, version = 0, headerVersion = 0,
   fragments = [[0, 'A']], absolute = false, sidx = true, largeMdat = false, traks = 1, mvex = true, tfdt = true,
   tfdtVersion = 1, elstCount = 1, shortTfhd = false, noTfhd = false, openMdat = false,
+  chunks = null, largeMoov = false, largeMoof = false, moovs = 1,
 } = {}) {
   const wide = version === 1;
   const time = wide ? u64 : u32;
@@ -57,18 +60,22 @@ export function trackFile({
   const tkhd = full('tkhd', version, 3, time(0), time(0), u32(id), u32(0), time(length), zeros(8), u16(0), u16(0), u16(0), u16(0), MATRIX, u32(0), u32(0));
   const edts = edit === null ? [] : [box('edts', full('elst', version, 0, u32(elstCount), time(edit), time(0), u16(1), u16(0)))];
   const mdhd = full('mdhd', headerVersion, 0, headerTime(0), headerTime(0), u32(mediaScale), headerTime(0), u16(0x55c4), u16(0));
-  const trak = box('trak', tkhd, ...edts, box('mdia', mdhd));
+  const offsets = (type, count, size) => full(type, 0, 0, u32(count), ...Array.from({ length: count }, (_, n) => number(size, 4096 * (n + 1))));
+  const stbl = chunks
+    ? [box('minf', box('stbl', ...(chunks.stco === undefined ? [] : [offsets('stco', chunks.stco, 4)]), ...(chunks.co64 === undefined ? [] : [offsets('co64', chunks.co64, 8)])))]
+    : [];
+  const trak = box('trak', tkhd, ...edts, box('mdia', mdhd, ...stbl));
   const mvhd = full('mvhd', headerVersion, 0, headerTime(0), headerTime(0), u32(movieScale), headerTime(length), u32(0x10000), u16(0x100), zeros(10), MATRIX, zeros(24), u32(id + 1));
   const trex = full('trex', 0, 0, u32(id), u32(1), u32(0), u32(0), u32(0));
-  const moov = box('moov', mvhd, ...Array.from({ length: traks }, () => trak), ...(mvex ? [box('mvex', trex)] : []));
-  const parts = [box('ftyp', ascii('iso6'), u32(0), ascii('iso6dash')), moov];
+  const moov = (largeMoov ? largeBox : box)('moov', mvhd, ...Array.from({ length: traks }, () => trak), ...(mvex ? [box('mvex', trex)] : []));
+  const parts = [box('ftyp', ascii('iso6'), u32(0), ascii('iso6dash')), ...Array(moovs).fill(moov)];
   if (sidx) parts.push(full('sidx', 1, 0, u32(id), u32(mediaScale), u64(0), u64(0), u16(0), u16(0)));
   let position = parts.reduce((sum, part) => sum + part.length, 0);
   fragments.forEach(([start, text], index) => {
     const tfhd = shortTfhd ? full('tfhd', 0, 1, u32(id)) : absolute ? full('tfhd', 0, 1, u32(id), u64(position)) : full('tfhd', 0, 0x20000, u32(id));
     const tfdtBox = full('tfdt', tfdtVersion, 0, (tfdtVersion === 1 ? u64 : u32)(start));
     const traf = box('traf', ...(noTfhd ? [] : [tfhd]), ...(tfdt ? [tfdtBox] : []), full('trun', 0, 1, u32(1), u32(0)));
-    const moof = box('moof', full('mfhd', 0, 0, u32(index + 1)), traf);
+    const moof = (largeMoof ? largeBox : box)('moof', full('mfhd', 0, 0, u32(index + 1)), traf);
     const mdat = (largeMdat ? largeBox : box)('mdat', ascii(text));
     if (openMdat && index === fragments.length - 1) mdat.set(u32(0), 0);
     parts.push(moof, mdat);

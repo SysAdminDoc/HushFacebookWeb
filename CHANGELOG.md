@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* Saving a video whose picture and sound come as separate files could write a file that won't play when one of them had a second movie header, or listed samples outside its fragments. Those saves now stop with "the video and its sound didn't fit together" instead of handing you a broken file.
+
 ## v0.0.47 (2026-11-15, unreleased)
 
 * With Keep posts you hide hidden on, every post it hid said "Dismissed", so a post hidden for matching one you'd hidden looked like one you'd pressed the X on yourself. Those posts now say what matched, like "Same photo or video as a post you hid" or "Starts the same as a post you hid". The post whose X you pressed still says Dismissed.

@@ -67,6 +67,33 @@ test('a base offset into the whole file moves with its fragment, 64-bit sizes in
   for (const [offset, start] of out.offsets) assert.equal(offset, start);
 });
 
+test('a moov and moofs written with 64-bit sizes read the same, and their base offsets still land on their moof', () => {
+  const picture = trackFile({ fragments: [[0, 'P0'], [30720, 'P2']], absolute: true, largeMoov: true, largeMoof: true });
+  const sound = trackFile({ mediaScale: 44100, fragments: [[0, 'S0'], [88200, 'S2']], absolute: true, largeMoof: true, largeMdat: true });
+  const out = read(join(mergeTracks(picture, sound)));
+  assert.deepEqual(out.order, ['P0', 'S0', 'P2', 'S2']);
+  assert.deepEqual(out.trackIds, [1, 2]);
+  assert.deepEqual(out.sequence, [1, 2, 3, 4]);
+  assert.equal(out.offsets.length, 4);
+  for (const [offset, start] of out.offsets) assert.equal(offset, start);
+});
+
+test('empty chunk offset tables merge, and a track whose samples sit outside its fragments is refused', () => {
+  // DASH copies describe no samples in the moov, so stco and co64 count none.
+  const empty = { stco: 0, co64: 0 };
+  const out = read(join(mergeTracks(trackFile({ chunks: empty, fragments: [[0, 'P']] }), trackFile({ chunks: empty, mediaScale: 44100, fragments: [[0, 'S']] }))));
+  assert.deepEqual(out.order, ['P', 'S']);
+  assert.deepEqual(out.trackIds, [1, 2]);
+  // Those samples would be left behind with the rest of the file, and their offsets move with
+  // the bigger moov, so the saved video would point at nothing.
+  for (const [what, chunks] of Object.entries({ stco: { stco: 2 }, co64: { co64: 1 }, 'an empty stco beside a co64 with entries': { stco: 0, co64: 3 } })) {
+    assert.throws(() => mergeTracks(trackFile({ chunks }), trackFile()), /not one fragmented track/, `${what}, as the picture`);
+    assert.throws(() => mergeTracks(trackFile(), trackFile({ chunks })), /not one fragmented track/, `${what}, as the sound`);
+  }
+  const alone = trackFile({ chunks: { stco: 2 } });
+  assert.equal(mergeTracks(alone, null)[0], alone, 'with no sound nothing is joined, so the file is saved as it came');
+});
+
 test("the sound's length and edit list move to the picture's movie time scale", () => {
   for (const version of [0, 1]) {
     const picture = trackFile({ movieScale: 1000, fragments: [[0, 'P']] });
@@ -125,6 +152,7 @@ test("files that don't look like one DASH track each are refused", () => {
   const good = () => trackFile({ fragments: [[0, 'S']] });
   const broken = {
     'two tracks': trackFile({ traks: 2 }),
+    'two moov boxes': trackFile({ moovs: 2 }),
     'no mvex': trackFile({ mvex: false }),
     'no tfdt': trackFile({ tfdt: false }),
     'no fragments': trackFile({ fragments: [] }),
