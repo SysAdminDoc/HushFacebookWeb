@@ -137,8 +137,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const newDot = () => h('span', { class: 'new-dot' }, h('span', { class: 'visually-hidden', text: t('New') }));
   const drafts = new Map();
   const openHelp = new Set(); // Rows whose More was clicked open, kept across redraws.
-  // Rows a search opened and Less closed again, with that search, so a redraw keeps them closed.
-  const closedHelp = new Map();
+  // Rows a search opened and Less closed again. A redraw keeps them closed until the search
+  // words change, so a new search (the same words typed again included) opens them again.
+  const closedHelp = new Set();
   const fieldErrors = new Map();
   const pending = new Set();
   const actionNotices = new Map();
@@ -224,7 +225,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // One element for the life of the panel, so typing keeps its place across redraws.
   const search = h('input', {
     class: 'search', type: 'search', autocomplete: 'off', spellcheck: 'false', dataset: { key: 'search' },
-    oninput: (event) => { query = event.target.value; main.scrollTop = 0; render(); },
+    oninput: (event) => { setQuery(event.target.value); main.scrollTop = 0; render(); },
   });
   const searchField = h('div', { class: 'search-field' }, navigationIcon('search'), search);
   const pauseState = h('span', { class: 'power-state', id: 'hfw-power-state' });
@@ -478,7 +479,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (!rest) return h('div', { class: 'desc', id, text });
     const [plainFirst, plainRest] = firstSentence(english(description, vars), 'en');
     const found = query.trim() !== '' && matchesHiddenHelp(query, [rest, plainRest], [t(title), english(title), first, plainFirst]);
-    const open = openHelp.has(key) || (found && closedHelp.get(key) !== query);
+    const open = openHelp.has(key) || (found && !closedHelp.has(key));
     const restId = `hfw-${key}-more`;
     const more = h('span', { id: restId, hidden: !open, text: ` ${rest}` });
     // Named by its own word and then its row's title, since a screen reader's list of buttons
@@ -496,7 +497,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         closedHelp.delete(key);
       } else {
         openHelp.delete(key);
-        if (query.trim()) closedHelp.set(key, query);
+        if (query.trim()) closedHelp.add(key);
       }
     };
     return [
@@ -569,8 +570,15 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function clearSearch() {
-    query = '';
+    setQuery('');
     search.value = '';
+  }
+
+  // Spaces and capitals don't make a new search.
+  function setQuery(value) {
+    const words = (text) => text.trim().replace(/\s+/g, ' ').toLowerCase();
+    if (words(value) !== words(query)) closedHelp.clear();
+    query = value;
   }
 
   // A search result's link: opens its page with that row's control focused, or the row's button
@@ -1409,7 +1417,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       if (pageId !== current || query) main.scrollTop = 0;
       current = pageId;
       if (typeof searchQuery === 'string' && searchQuery.trim()) {
-        query = searchQuery;
+        setQuery(searchQuery);
         search.value = searchQuery;
       } else {
         clearSearch();

@@ -1077,6 +1077,12 @@ test('a search for words behind More finds the row with that part open, and its 
   panel.refresh();
   assert.equal(more().getAttribute('aria-expanded'), 'false', 'Less holds through a redraw while that search is up');
   assert.equal(shadow.getElementById(more().getAttribute('aria-controls')).hidden, true);
+  find('Zebra ');
+  assert.equal(more().getAttribute('aria-expanded'), 'false', 'a space or a capital is the same search');
+  find('');
+  find('zebra');
+  assert.equal(more().getAttribute('aria-expanded'), 'true', 'the same words in a new search open it again');
+  more().click();
   find('long posts');
   assert.equal(more().getAttribute('aria-expanded'), 'false', 'words the row already shows leave it closed');
   find('long zebra');
