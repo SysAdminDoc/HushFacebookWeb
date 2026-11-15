@@ -122,6 +122,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // Undo puts them back, the person dismisses it, or a later change here or in another tab
   // supersedes the reset. after is the committed reset record it undoes.
   let resetUndo = null;
+  // The notice offering Undo for resetUndo, if it's still up.
+  let undoNotice = null;
   const accountMatches = () => environment.accountMatches?.() ?? true;
   const recordValue = (record, key) => (Object.hasOwn(record, key) ? record[key] : settings.schema.get(key).default);
   const sameAs = (read, record) => [...settings.schema.keys()].every((key) => JSON.stringify(read(key)) === JSON.stringify(recordValue(record, key)));
@@ -600,7 +602,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         }
         const undo = rememberUndo(previous, { kind: 'quick', focusKey: key });
         if (dialog.open) render();
-        toast(plural(changed, 'Changed {count} setting', 'Changed {count} settings'), undo ? { action: { label: 'Undo', run: startUndo } } : {});
+        const message = changed
+          ? plural(changed, 'Changed {count} setting.', 'Changed {count} settings.')
+          : t(id === 'defaults' ? 'Nothing to change. Your settings were already at their defaults.' : 'Nothing to change. Those settings were already on.');
+        if (undo) offerUndo(message);
+        else toast(message);
       };
       const failed = (error) => actionError("Couldn't apply the Quick setup. Try again", error);
       try {
@@ -1061,9 +1067,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       drafts.clear();
       fieldErrors.clear();
       const undo = previous && rememberUndo(previous, { kind: 'restore', focusKey: 'restore' });
-      toast(skipped.length
+      const message = skipped.length
         ? plural(applied.length, "Restored {count} setting, and skipped {skipped} this version can't use.", "Restored {count} settings, and skipped {skipped} this version can't use.", { skipped: skipped.length })
-        : plural(applied.length, 'Restored {count} setting.', 'Restored {count} settings.'), undo ? { action: { label: 'Undo', run: startUndo } } : {});
+        : plural(applied.length, 'Restored {count} setting.', 'Restored {count} settings.');
+      if (undo) offerUndo(message);
+      else toast(message);
     } catch (error) {
       actionError(error instanceof TypeError ? error.message : "Couldn't restore settings. Choose a valid backup and try again", error);
     } finally {
@@ -1080,6 +1088,19 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return true;
   }
 
+  // Each notice's Undo acts only on the change it announced, and a newer change takes the
+  // older notice down, so an Undo left on screen can't put back the wrong change.
+  function offerUndo(message) {
+    undoNotice?.dismiss();
+    const record = resetUndo;
+    undoNotice = toast(message, { action: { label: 'Undo', run: () => startUndo(record) } });
+  }
+
+  function dropUndoNotice() {
+    undoNotice?.dismiss();
+    undoNotice = null;
+  }
+
   function resetSettings() {
     const succeeded = (previous) => {
       drafts.clear();
@@ -1087,9 +1108,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       // Resetting settings that were already at their defaults keeps any earlier Undo.
       rememberUndo(previous, { kind: 'reset', focusKey: 'reset' });
       render();
-      if (resetUndo) {
-        toast(t('Settings are back to their defaults. Undo stays in General until you change a setting or leave this page.'), { action: { label: 'Undo', run: startUndo } });
-      } else toast(t('Settings are back to their defaults.'));
+      if (resetUndo) offerUndo(t('Settings are back to their defaults. Undo stays in General until you change a setting or leave this page.'));
+      else toast(t('Settings are back to their defaults.'));
     };
     const saved = settings.reset();
     return saved && typeof saved.then === 'function' ? saved.then(succeeded) : succeeded(saved);
@@ -1108,7 +1128,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return Promise.resolve().then(() => settings.restore(undo.previous)).then(
       () => {
         undo.restoring = false;
-        if (resetUndo === undo) resetUndo = null;
+        if (resetUndo === undo) {
+          resetUndo = null;
+          dropUndoNotice();
+        }
         toast(t(undo.kind === 'reset' ? 'Your settings from before the reset are back.' : 'Your settings from before the change are back.'));
         if (dialog.open) {
           render();
@@ -1122,9 +1145,14 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     );
   }
 
-  // The notice's Undo, sharing the General row's busy state so the two can't both run.
-  function startUndo() {
+  // The notice's Undo, sharing the General row's busy state so the two can't both run. expected
+  // is the change that notice announced. Once a newer one replaced it, there's nothing to undo.
+  function startUndo(expected) {
     if (bulkChangePending() || pending.has('reset:undo')) return;
+    if (expected && currentUndo() !== expected) {
+      toast(t("Undo isn't available any more. A setting changed, or another Facebook account signed in."));
+      return;
+    }
     pending.add('reset:undo');
     if (dialog.open) render();
     Promise.resolve(undoReset()).finally(() => {
@@ -1136,6 +1164,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function dismissUndo() {
     const focusKey = currentUndo()?.focusKey ?? 'reset';
     resetUndo = null;
+    dropUndoNotice();
     render();
     root.querySelector(`[data-key="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
     toast(t('Undo dismissed.'));

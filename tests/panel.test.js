@@ -284,11 +284,11 @@ test('Quick setups report their changed count and Back to defaults raises Reload
   const clickSetup = (id) => first.shadow.querySelector(`[data-key="quick:${id}"]`).click();
   const expectedQuiet = quiet.keys.filter((key) => first.settings.get(key) !== true).length;
   clickSetup('quiet');
-  assert.equal(first.shadow.querySelector('.toast:last-child span').textContent, `Changed ${expectedQuiet} settings`);
+  assert.equal(first.shadow.querySelector('.toast:last-child span').textContent, `Changed ${expectedQuiet} settings.`);
   assert.ok(quiet.keys.every((key) => first.settings.get(key) === true));
   const expectedPrivacy = privacy.keys.filter((key) => first.settings.get(key) !== true).length;
   clickSetup('privacy');
-  assert.equal(first.shadow.querySelector('.toast:last-child span').textContent, `Changed ${expectedPrivacy} settings`);
+  assert.equal(first.shadow.querySelector('.toast:last-child span').textContent, `Changed ${expectedPrivacy} settings.`);
   assert.ok(privacy.keys.every((key) => first.settings.get(key) === true));
 
   const storage = createMemoryStorage({ settings: { blockInstantGamesAds: true } });
@@ -297,6 +297,60 @@ test('Quick setups report their changed count and Back to defaults raises Reload
   second.shadow.querySelector('[data-key="quick:defaults"]').click();
   assert.equal(second.settings.get('blockInstantGamesAds'), false);
   assert.ok(second.shadow.querySelector('[data-key="reload-facebook"]'), 'resetting a reload-gated page-load choice raises Reload');
+});
+
+test("a newer Quick setup takes the older notice's Undo away, so it can't undo the wrong change", async () => {
+  const { shadow, panel, settings } = setup({ features: allFeatures });
+  panel.open('overview');
+  const undoButtons = () => [...shadow.querySelectorAll('.toast button')].filter((candidate) => candidate.textContent === 'Undo');
+  shadow.querySelector('[data-key="quick:privacy"]').click();
+  await tick();
+  const afterPrivacy = settings.snapshot();
+  const [older] = undoButtons();
+  assert.ok(older);
+  shadow.querySelector('[data-key="quick:quiet"]').click();
+  await tick();
+  const afterQuiet = settings.snapshot();
+  assert.notDeepEqual(afterQuiet, afterPrivacy);
+  assert.ok(!older.isConnected, 'the older notice goes when the newer change replaces its Undo');
+  assert.equal(undoButtons().length, 1);
+  older.click();
+  await tick();
+  assert.deepEqual(settings.snapshot(), afterQuiet, 'an Undo kept from the older notice changes nothing');
+  assert.match(shadow.querySelector('.toast:last-child span').textContent, /^Undo isn't available any more/);
+  undoButtons()[0].click();
+  await tick();
+  assert.deepEqual(settings.snapshot(), afterPrivacy, 'the newer notice undoes only its own change');
+  assert.equal(undoButtons().length, 0);
+});
+
+test('undoing from General takes the matching notice away too', async () => {
+  const { shadow, panel, settings } = setup({ features: allFeatures });
+  panel.open('overview');
+  const before = settings.snapshot();
+  shadow.querySelector('[data-key="quick:privacy"]').click();
+  await tick();
+  panel.open('general');
+  shadow.querySelector('[data-key="reset:undo"]').click();
+  await tick();
+  assert.deepEqual(settings.snapshot(), before);
+  assert.ok(![...shadow.querySelectorAll('.toast button')].some((candidate) => candidate.textContent === 'Undo'));
+});
+
+test('a Quick setup with nothing left to change says so instead of counting zero', () => {
+  const { shadow, panel } = setup({ features: allFeatures });
+  panel.open('overview');
+  const last = () => shadow.querySelector('.toast:last-child');
+  const clickSetup = (id) => shadow.querySelector(`[data-key="quick:${id}"]`).click();
+  clickSetup('privacy');
+  clickSetup('privacy');
+  assert.equal(last().querySelector('span').textContent, 'Nothing to change. Those settings were already on.');
+  assert.ok(!last().querySelector('button'));
+  clickSetup('defaults');
+  assert.match(last().querySelector('span').textContent, /^Changed \d+ settings\.$/);
+  clickSetup('defaults');
+  assert.equal(last().querySelector('span').textContent, 'Nothing to change. Your settings were already at their defaults.');
+  assert.ok(!last().querySelector('button'));
 });
 
 test('Back to defaults clears invalid drafts even when saved settings already use their defaults', () => {
@@ -353,7 +407,7 @@ test('Quick setups wait for extension storage and preserve unrelated saved choic
   assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').disabled, false);
   panel.open('overview');
   assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), null);
-  assert.match(shadow.querySelector('.toast:last-child span').textContent, /^Changed \d+ settings$/);
+  assert.match(shadow.querySelector('.toast:last-child span').textContent, /^Changed \d+ settings\.$/);
   assert.equal(shadow.querySelector('.toast:last-child button').textContent, 'Undo');
 });
 

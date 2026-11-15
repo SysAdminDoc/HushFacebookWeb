@@ -76,9 +76,9 @@
   "Cancelled {name}": "Cancelled {name}",
   "Cards and tips held back": "Cards and tips held back",
   "Catppuccin": "Catppuccin",
-  "Changed {count} settings": {
-    "one": "Changed {count} setting",
-    "other": "Changed {count} settings"
+  "Changed {count} settings.": {
+    "one": "Changed {count} setting.",
+    "other": "Changed {count} settings."
   },
   "Changes apply as you go.": "Changes apply as you go.",
   "Changes couldn't be saved": "Changes couldn't be saved",
@@ -373,6 +373,8 @@
   "Nothing changed yet": "Nothing changed yet",
   "Nothing hidden yet.": "Nothing hidden yet.",
   "Nothing logged yet.": "Nothing logged yet.",
+  "Nothing to change. Those settings were already on.": "Nothing to change. Those settings were already on.",
+  "Nothing to change. Your settings were already at their defaults.": "Nothing to change. Your settings were already at their defaults.",
   "Nothing watched yet.": "Nothing watched yet.",
   "Notification kinds seen": "Notification kinds seen",
   "Notifications": "Notifications",

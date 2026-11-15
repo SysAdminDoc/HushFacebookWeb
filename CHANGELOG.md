@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.45 (2026-11-15, unreleased)
+
+* After two Quick setups in a row, Undo on the first one's notice undid the second one instead. A newer change now takes the older notice away, and each Undo only puts back the change it announced. Restoring a backup and Reset to defaults work the same way.
+* A Quick setup with nothing left to change used to say "Changed 0 settings". It now says those settings were already on, or for Back to defaults that your settings were already at their defaults.
+
 ## v0.0.44 (2026-11-15, unreleased)
 
 * Updated the development tools: Playwright 1.65.1, ESLint 10.15.0 and minimatch 11.0.8. Nothing in the script or the extension changes.
