@@ -606,6 +606,17 @@ const toMain = (message) => {
   document.dispatchEvent(new CustomEvent(channel.toMain, { detail }));
 };
 
+// Reloading or updating the extension leaves this script running in tabs that were already open,
+// cut off from the extension: chrome.runtime.id goes away and every chrome call fails. Chrome
+// doesn't put the new copy in those tabs, so only a reload of the page saves anything again.
+const extensionGone = () => {
+  try {
+    return !globalThis.chrome?.runtime?.id;
+  } catch {
+    return true;
+  }
+};
+
 async function workerStorageRequest(type, payload) {
   const answer = await chrome.runtime.sendMessage({
     type,
@@ -732,7 +743,7 @@ async function onRequest(event) {
     if (type.startsWith('storage:') && !matchesCapturedAccount()) throw new Error('that storage request is not allowed');
     toMain({ id, ok: true, result: result ?? null });
   } catch (error) {
-    toMain({ id, ok: false, error: String(error?.message ?? error) });
+    toMain({ id, ok: false, error: String(error?.message ?? error), ...(extensionGone() ? { gone: true } : {}) });
   } finally {
     activeRequests.delete(id);
   }

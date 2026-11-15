@@ -13,6 +13,8 @@ import {
   BRIDGE_MAX_MESSAGE_BYTES,
   BRIDGE_MAX_PENDING,
   BRIDGE_MAX_REQUESTS_PER_WINDOW,
+  EXTENSION_RELOADED,
+  extensionReloaded,
   HELLO_ISOLATED,
   HELLO_MAIN,
   STORAGE_REVISION_EPOCH_KEY,
@@ -120,6 +122,8 @@ function fakeChrome(saved = {}, {
       onChanged: { addListener: (listener) => changed.push(listener) },
     },
     runtime: {
+      // A live extension has an id. Chrome takes it away from a script the extension was reloaded under.
+      id: 'hushfacebook-web-test',
       async sendMessage(message) {
         if (message.type === 'settings:pending') {
           asked.push(message);
@@ -421,6 +425,44 @@ test('requests the isolated half has no answer for, or never answers, reject', a
   const silent = page();
   const alone = connectBridge({ doc: silent.document, win: silent, secret: randomUUID() });
   await assert.rejects(alone.request('storage:load', null, { timeout: 20 }), /did not answer/);
+});
+
+test('a tab the extension was reloaded under says so once, and its storage stays failed until the page reloads', async () => {
+  const win = page();
+  const chrome = fakeChrome({ 'keepSpeed.rate': 1.5 });
+  await startIsolated(win, chrome);
+  const bridge = connectBridge({ doc: win.document, win, secret: randomUUID() });
+  const errors = [];
+  const storage = createBridgeStorage(bridge, { log: { error: (...args) => errors.push(args) } });
+  const told = () => errors.filter(([message]) => /reloaded or updated/.test(message)).length;
+  await untilState(storage, 'ready');
+  await assert.rejects(bridge.request('nonsense'), (error) => error.code === undefined, 'a live extension fails the ordinary way');
+
+  // What Chrome leaves an open tab after a reload of the extension: no id, and every call throws.
+  let calls = 0;
+  const invalidated = () => {
+    calls++;
+    throw new Error('Extension context invalidated.');
+  };
+  delete chrome.runtime.id;
+  chrome.runtime.sendMessage = invalidated;
+  Object.assign(chrome.storage.local, { get: invalidated, set: invalidated, remove: invalidated });
+
+  storage.set('keepSpeed.rate', 2);
+  await settle();
+  assert.equal(told(), 1);
+  assert.equal(storage.status().state, 'error');
+  assert.equal(storage.status().error.code, EXTENSION_RELOADED);
+  assert.equal(extensionReloaded(storage), true);
+  storage.set('keepSpeed.rate', 3);
+  await assert.rejects(storage.mutate('seen', { replace: {} }), (error) => error.code === EXTENSION_RELOADED);
+  await settle();
+  assert.equal(told(), 1, 'told once, however many saves fail');
+  const sentBefore = calls;
+  assert.equal(await storage.retry(), false);
+  assert.equal(calls, sentBefore, 'Retry sends nothing, so there is no loop');
+  assert.equal(extensionReloaded(storage), true);
+  assert.equal(chrome.data['keepSpeed.rate'], 1.5);
 });
 
 test('storage reads defaults until the saved copy arrives, then tells listeners and whenReady', async () => {

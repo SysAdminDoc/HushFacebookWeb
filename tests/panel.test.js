@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { afterEach, mock, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { createActions } from '../src/core/actions.js';
+import { EXTENSION_RELOADED } from '../src/core/bridge.js';
 import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider } from '../src/core/dom/hide.js';
@@ -2069,6 +2070,43 @@ test('General keeps a failed extension storage load visible and offers retry', a
   await tick();
   assert.equal(shadow.querySelector('[data-key="storage-recovery"]'), null);
   assert.match(shadow.querySelector('.toast').textContent, /saved settings loaded/i);
+});
+
+test('an extension reloaded under the tab gets one Reload notice, a Reload card and a header line saying so', async () => {
+  let current = { state: 'ready', error: null };
+  const listeners = new Set();
+  const storage = {
+    status: () => current,
+    onStatus(listener) {
+      listeners.add(listener);
+      listener(this.status());
+    },
+    async retry() { return false; },
+  };
+  let reloads = 0;
+  const { shadow, panel, log } = setup({ environment: { storage, reload: () => reloads++ } });
+  const gone = Object.assign(new Error('Extension context invalidated.'), { code: EXTENSION_RELOADED });
+  // In the order the bridge storage does it: its own log line, the status, then each failed save.
+  current = { state: 'error', error: gone };
+  log.error('The extension was reloaded or updated, so this page has to be reloaded to save anything', gone);
+  for (const listener of listeners) listener(storage.status());
+  log.error("A setting couldn't be saved in the extension", gone);
+  log.error("A setting couldn't be saved in the extension", gone);
+  await tick();
+  const notices = [...shadow.querySelectorAll('.toast')];
+  assert.equal(notices.length, 1, 'one notice stands for every failed save');
+  assert.match(notices[0].textContent, /HushFacebook Web was updated\. Reload this page to keep saving your changes\./);
+  assert.deepEqual([...notices[0].querySelectorAll('button')].map((button) => button.textContent), ['Reload', 'Dismiss']);
+  notices[0].querySelector('button').click();
+  assert.equal(reloads, 1);
+
+  panel.open('general');
+  const card = shadow.querySelector('[data-key="storage-recovery"]');
+  assert.match(card.textContent, /HushFacebook Web was updated/);
+  assert.equal(card.querySelector('[data-key="storage:retry"]'), null, 'no Retry, which could only fail again');
+  assert.equal(shadow.querySelector('[data-key="save-state"]').textContent, 'Extension updated. Reload the page to save.');
+  card.querySelector('[data-key="storage:reload"]').click();
+  assert.equal(reloads, 2);
 });
 
 test('A notice can carry several buttons, and one marked keep leaves it up', async () => {

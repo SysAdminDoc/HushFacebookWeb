@@ -6,6 +6,7 @@
 // descriptions, labels and choices, action and Diagnostics row labels, and the label of a
 // toast's button. A toast's message comes already in the language shown.
 
+import { extensionReloaded } from '../core/bridge.js';
 import { decisionLine } from '../core/diagnostics.js';
 import { saveThroughLink } from '../core/download.js';
 import { language, LANGUAGES, plural, setLanguage, t } from '../core/i18n.js';
@@ -762,6 +763,13 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function storageRecoveryCard(state) {
+    if (extensionReloaded(environment.storage)) {
+      return h('div', { class: 'card', dataset: { key: 'storage-recovery' } },
+        h('div', { class: 'title', text: t('HushFacebook Web was updated') }),
+        h('div', { class: 'desc', text: t("This page still runs the copy from before the update, which can't save anything. Reload the page to pick up the new one. Changes made here since the update weren't saved.") }),
+        h('div', { class: 'actions' },
+          h('button', { class: 'button primary', type: 'button', text: t('Reload page'), dataset: { key: 'storage:reload' }, onclick: reloadFacebook })));
+    }
     const loading = state === 'loading';
     return h('div', { class: 'card', dataset: { key: 'storage-recovery' } },
       h('div', { class: 'title', text: t(loading ? 'Loading saved settings' : "Saved settings aren't available") }),
@@ -839,6 +847,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function generalRows() {
     const update = environment.update?.();
     const storageState = environment.storage?.status?.().state;
+    const reloaded = extensionReloaded(environment.storage);
     // Once the account changed, here or in another tab, nothing goes to any account until a reload.
     const legacy = environment.activity?.check() ? environment.activity.legacy() : null;
     const activityContext = environment.activity?.context?.();
@@ -847,12 +856,17 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     // Titles, descriptions and labels in English, as in a feature (see updateRow). group is one
     // of GENERAL_GROUPS.
     return [
-      ...(storageState && storageState !== 'ready' ? [{
+      ...(reloaded ? [{
+        id: 'storage-recovery', section: 'general', group: 'attention', title: 'HushFacebook Web was updated',
+        description: 'Reload the page so it can save your changes again.', options: [{ label: 'Reload page' }], focusKey: 'storage:reload',
+        render: () => storageRecoveryCard(environment.storage.status().state),
+      }] : storageState && storageState !== 'ready' ? [{
         id: 'storage-recovery', section: 'general', group: 'attention', title: storageState === 'loading' ? 'Loading saved settings' : "Saved settings aren't available",
         description: 'Retry extension storage without treating defaults as loaded choices.', options: [{ label: 'Retry' }], focusKey: 'storage:retry',
         render: () => storageRecoveryCard(environment.storage.status().state),
       }] : []),
-      ...(preferenceSave.state === 'error' ? [{
+      // Retrying a save can't work while the page runs the old copy. The card above says to reload.
+      ...(preferenceSave.state === 'error' && !reloaded ? [{
         id: 'save-recovery', section: 'general', group: 'attention', title: "Changes couldn't be saved",
         description: 'Retry unsaved choices without losing the draft.', options: [{ label: 'Retry' }], focusKey: 'settings:retry',
         render: saveRecoveryCard,
@@ -1038,6 +1052,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   function refreshSaveState() {
+    if (extensionReloaded(environment.storage)) {
+      saveState.dataset.state = 'error';
+      saveState.textContent = t('Extension updated. Reload the page to save.');
+      return;
+    }
     saveState.dataset.state = preferenceSave.state;
     saveState.textContent = t(preferenceSave.state === 'saving'
       ? 'Saving changes...'
@@ -1295,7 +1314,28 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   let lastErrorToast = 0;
   let lastErrorNotice = null;
+  // Once the extension is gone from this tab every save fails the same way, so one notice with a
+  // Reload button stands for all of them. It stays until used or dismissed, and comes back only
+  // when something you did needed it.
+  let reloadNotice = null;
+  const announceReload = (force = false) => {
+    if (reloadNotice && !force) return;
+    reloadNotice?.dismiss();
+    lastErrorNotice?.dismiss();
+    reloadNotice = toast(t('HushFacebook Web was updated. Reload this page to keep saving your changes.'), {
+      tone: 'error',
+      duration: Infinity,
+      actions: [
+        { label: 'Reload', run: () => (dialog.open ? reloadFacebook() : reloadPage()) },
+        { label: 'Dismiss', run: () => {} },
+      ],
+    });
+  };
   const announceError = (entry, force = false, translated = null) => {
+    if (extensionReloaded(environment.storage)) {
+      announceReload(force);
+      return;
+    }
     if (!force && Date.now() - lastErrorToast < ERROR_TOAST_GAP_MS) return;
     if (force) lastErrorNotice?.dismiss();
     lastErrorToast = Date.now();
@@ -1367,6 +1407,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   hider?.subscribe(refreshDiagnostics);
   diagnostics?.subscribe(refreshDiagnostics);
   environment.storage?.onStatus?.(() => {
+    if (extensionReloaded(environment.storage)) {
+      announceReload();
+      refreshSaveState();
+    }
     if (dialog.open) render();
   });
   const earlier = log.entries().findLast((entry) => entry.level === 'error');

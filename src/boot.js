@@ -3,6 +3,7 @@
 
 import { managerInfo, registerMenuCommand, version, whenBodyReady } from './core/env.js';
 import { createActions } from './core/actions.js';
+import { extensionReloaded } from './core/bridge.js';
 import { ACCOUNT_CHANGED, createActivityStorage } from './core/activity.js';
 import { availableUpdate, extensionHost, UPDATE_KEY, UPDATE_TOLD_KEY, updateStatus } from './core/extension.js';
 import { createDiagnostics, hideListener } from './core/diagnostics.js';
@@ -91,7 +92,9 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     ? 'Unavailable. Network filtering and privacy protection are off. See the log.'
     : net ? 'Running' : 'Unavailable in content mode'), shareable);
   if (storage.status) {
-    diagnostics.add('Saved settings', () => ({ loading: 'Loading', ready: 'Loaded', error: 'Unavailable. Open General to retry.' })[storage.status().state] ?? 'Unavailable', shareable);
+    diagnostics.add('Saved settings', () => (extensionReloaded(storage)
+      ? 'The extension was updated. Reload the page to save again.'
+      : ({ loading: 'Loading', ready: 'Loaded', error: 'Unavailable. Open General to retry.' })[storage.status().state] ?? 'Unavailable'), shareable);
     // A tab paused for itself installed no hooks, so there's nothing to confirm.
     diagnostics.add('Startup privacy protection', () => (tabPaused ? 'Paused in this tab' : !net ? 'Unavailable. Network hooks did not start.' : ({
       loading: 'Waiting for saved choices',

@@ -36,6 +36,10 @@ export const storageRevisionEpoch = (value) => (
 export const channelNames = (secret) => ({ toIsolated: `hushfacebook-web:${secret}:in`, toMain: `hushfacebook-web:${secret}:out` });
 
 const TIMEOUT = 15000;
+// A request's error code once the extension was reloaded or updated under an open tab.
+export const EXTENSION_RELOADED = 'EXTENSION_RELOADED';
+// True once a storage (createBridgeStorage's) found the extension gone from this tab.
+export const extensionReloaded = (storage) => storage?.status?.().error?.code === EXTENSION_RELOADED;
 export const BRIDGE_MAX_PENDING = 64;
 export const BRIDGE_MAX_MESSAGE_BYTES = 1536 * 1024;
 export const BRIDGE_MAX_VALUE_BYTES = 1024 * 1024;
@@ -104,8 +108,14 @@ export function connectBridge({
       if (!waiting) return;
       pending.delete(message.id);
       clearTimeout(waiting.timer);
-      if (message.ok) waiting.resolve(message.result);
-      else waiting.reject(new Error(message.error || 'the extension could not do it'));
+      if (message.ok) {
+        waiting.resolve(message.result);
+        return;
+      }
+      const error = new Error(message.error || 'the extension could not do it');
+      // The extension was reloaded or updated under this tab, which only a page reload fixes.
+      if (message.gone === true) error.code = EXTENSION_RELOADED;
+      waiting.reject(error);
       return;
     }
     for (const listener of pushes.get(message?.push) ?? []) {
@@ -194,6 +204,9 @@ export function createBridgeStorage(bridge, { log } = {}) {
   let loadPending = false;
   let storageFailureRevision = 0;
   let writeRetry = null;
+  // Set once the extension was reloaded or updated under this tab. Nothing saves again until the
+  // page reloads, so the status stays on that error whatever else happens.
+  let reloaded = null;
   const copy = (value) => (value === undefined ? undefined : structuredClone(value));
   const same = (a, b) => stringify(a) === stringify(b);
   const tell = (key, value, source = 'remote') => {
@@ -205,7 +218,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       }
     }
   };
-  const status = () => ({ state, error: lastError });
+  const status = () => (reloaded ? { state: 'error', error: reloaded } : { state, error: lastError });
   const tellStatus = (listener) => {
     try {
       listener(status());
@@ -218,6 +231,18 @@ export function createBridgeStorage(bridge, { log } = {}) {
     lastError = error;
     for (const listener of statusListeners) tellStatus(listener);
   };
+  // The first request that finds the extension gone says so, once, before its own failure is
+  // logged, so whoever shows errors can show the reload notice instead.
+  const noteReloaded = (error) => {
+    if (reloaded || error?.code !== EXTENSION_RELOADED) return;
+    reloaded = error;
+    log?.error('The extension was reloaded or updated, so this page has to be reloaded to save anything', error);
+    setStatus('error', error);
+  };
+  const request = (type, payload) => bridge.request(type, payload).catch((error) => {
+    noteReloaded(error);
+    throw error;
+  });
   const finish = () => {
     loaded = true;
     finishing = true;
@@ -249,7 +274,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
     const keepsLocal = (key) => written.has(key) && (unansweredAtStart.has(key) || (lastWrite.get(key) ?? 0) > startedWrites);
     loadPending = true;
     setStatus('loading');
-    loadPromise = bridge.request('storage:load').then((saved) => {
+    loadPromise = request('storage:load').then((saved) => {
       if (storageFailureRevision !== startedFailureRevision) return false;
       const stored = { ...(saved ?? {}) };
       const savedRevisions = stored[STORAGE_REVISIONS_KEY];
@@ -439,7 +464,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       if (left > 0) unanswered.set(key, left);
       else unanswered.delete(key);
     };
-    return bridge.request(type, payload).finally(answered);
+    return request(type, payload).finally(answered);
   };
   const sendConfirmed = async (operation) => {
     const { key, version } = operation;
@@ -487,6 +512,8 @@ export function createBridgeStorage(bridge, { log } = {}) {
     else void save(type, payload, confirmed);
   };
   const retry = () => {
+    // Retrying can't help once the extension is gone from this tab. Only a page reload does.
+    if (reloaded) return Promise.resolve(false);
     if (writeRetry) return writeRetry;
     const failed = [...confirmedWrites.values()].filter((operation) => operation.failed);
     if (!failed.length) return load();
@@ -530,7 +557,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
     const order = ++nextMutation;
     const version = keyVersions.get(key) ?? 0;
     latestMutation.set(key, order);
-    return bridge.request(type, payload).then((answer) => {
+    return request(type, payload).then((answer) => {
       const envelope = Boolean(
         answer
         && typeof answer === 'object'
