@@ -554,6 +554,96 @@ test('a failed clear never rolls a newer local or remote activity change back', 
   }
 });
 
+test("Retry doesn't send a failed write again over another tab's newer value", async () => {
+  const key = 'resumeVideos.positions';
+  const previous = { 1234567890: { t: 60, d: 500, at: 1 } };
+  const newer = { 1234567890: { t: 90, d: 500, at: 2 } };
+  for (const [write, when] of [['remove', 'after'], ['setConfirmed', 'after'], ['remove', 'during']]) {
+    const saved = { [key]: previous };
+    const sent = [];
+    const answer = deferred();
+    let reject = true;
+    let push;
+    const storage = createBridgeStorage({
+      on(name, listener) { if (name === 'storage') push = listener; },
+      async request(type, payload) {
+        if (type === 'storage:load') return structuredClone(saved);
+        sent.push(type);
+        if (when === 'during' && sent.length === 1) await answer.promise;
+        if (reject) throw new Error('storage unavailable');
+        if (type === 'storage:remove') delete saved[payload.key];
+        else saved[payload.key] = payload.value;
+      },
+    }, { log: { error() {} } });
+    await new Promise((resolve) => storage.whenReady(resolve));
+    const writing = write === 'remove' ? storage.remove(key) : storage.setConfirmed(key, { 1234567890: { t: 5, d: 500, at: 0 } });
+    const rejected = assert.rejects(writing, /storage unavailable/);
+    const otherTab = () => {
+      saved[key] = newer;
+      push({ [key]: newer }, {});
+    };
+    if (when === 'during') {
+      otherTab();
+      answer.resolve();
+      await rejected;
+    } else {
+      await rejected;
+      otherTab();
+    }
+    assert.deepEqual(storage.get(key), newer, `${write} ${when}`);
+    reject = false;
+    assert.equal(await storage.retry(), true, `${write} ${when}`);
+    assert.equal(sent.length, 1, `${write} ${when}: the old write isn't sent again`);
+    assert.deepEqual(saved[key], newer, `${write} ${when}`);
+    assert.deepEqual(storage.get(key), newer, `${write} ${when}`);
+    assert.equal(storage.status().state, 'ready', `${write} ${when}`);
+  }
+});
+
+test("Retry's reload takes another tab's newer value for a key this tab wrote earlier", async () => {
+  const key = 'keepSpeed.rate';
+  for (const later of [3, undefined]) {
+    const loads = [{ [key]: 1 }, later === undefined ? {} : { [key]: later }];
+    let push;
+    const storage = createBridgeStorage({
+      on(name, listener) { if (name === 'storage') push = listener; },
+      async request(type) {
+        if (type === 'storage:load') return loads.shift();
+      },
+    }, { log: { error() {} } });
+    await new Promise((resolve) => storage.whenReady(resolve));
+    storage.set(key, 2);
+    await settle();
+    push({ [key]: 2 }, {});
+    // Another tab writes or removes it, and this tab can't read that change, so it never hears it.
+    push({}, { error: 'read failed' });
+    assert.equal(storage.status().state, 'error');
+    assert.equal(await storage.retry(), true);
+    assert.equal(storage.get(key, 'missing'), later ?? 'missing', String(later));
+    assert.equal(storage.getAtLoad(key, 'missing'), later ?? 'missing', String(later));
+  }
+});
+
+test("Retry's reload keeps this tab's write that hasn't been answered yet", async () => {
+  const key = 'keepSpeed.rate';
+  const loads = [{ [key]: 1 }, { [key]: 1 }];
+  const answer = deferred();
+  let push;
+  const storage = createBridgeStorage({
+    on(name, listener) { if (name === 'storage') push = listener; },
+    request(type) {
+      if (type === 'storage:load') return Promise.resolve(loads.shift());
+      return answer.promise;
+    },
+  }, { log: { error() {} } });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  storage.set(key, 2);
+  push({}, { error: 'read failed' });
+  assert.equal(await storage.retry(), true);
+  assert.equal(storage.get(key), 2, 'a read that may predate the write does not undo it');
+  answer.resolve();
+});
+
 test('a clear queued before load waits for acknowledgement and restores the loaded history on failure', async () => {
   const key = 'keepSpeed.rate';
   const snapshot = deferred();
@@ -626,6 +716,35 @@ test('the real adapter preserves newer changes against a delayed snapshot in bot
     assert.deepEqual(chrome.data[localThenRemote], { a: 4 }, 'a newer remote set cancels the queued local write');
     assert.equal(Object.hasOwn(chrome.data, localThenRemoved), false, 'a newer remote removal cancels the queued local write');
   }
+});
+
+test("another tab's worker change before the load doesn't drop this tab's queued write", async () => {
+  const key = 'keepSpeed.rate';
+  const load = deferred();
+  const readStarted = deferred();
+  const win = page();
+  const stale = { [key]: 1.5, settings: { old: true } };
+  const chrome = fakeChrome(stale, { read: () => {
+    readStarted.resolve();
+    return load.promise;
+  } });
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  await readStarted.promise;
+
+  storage.set(key, 2);
+  // A settings change in another tab goes through the worker, and the page hears every stored
+  // key again with it, this one unchanged.
+  await chrome.storage.local.set({ settings: { old: true, other: true }, [STORAGE_REVISIONS_KEY]: revisions('gen', 1, { settings: 1 }) });
+  await settle();
+  const ready = new Promise((resolve) => storage.whenReady(resolve));
+  load.resolve(stale);
+  await ready;
+  await settle();
+
+  assert.equal(storage.get(key), 2);
+  assert.equal(chrome.data[key], 2);
+  assert.deepEqual(storage.get('settings'), { old: true, other: true });
 });
 
 test('seen posts recorded before load merge with saved history before the queued write is sent', async () => {

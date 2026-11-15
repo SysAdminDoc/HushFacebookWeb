@@ -6,6 +6,9 @@
 * In the userscript, a damaged settings record for your account showed your shared settings but threw them away at the first change, keeping only that one switch. It could also run an old one-time settings change again over choices you'd made since. A damaged record now counts as missing, so your shared settings are copied in and kept.
 * An account upgrading from v0.0.2 that lost a race with another tab while copying its old settings could retry from the shared settings instead of its own.
 * Restoring a plain settings file (not a full backup) that happened to have a "version" line ran old one-time changes on it as if it were an old backup.
+* In the extension, Retry after a storage error kept this tab's own older value for anything it had saved before, like the playback speed, even when another tab had changed it since. It now takes the saved value unless this tab's change is still on its way.
+* In the extension, a speed, volume or other change made in the first moment after a page opened could be lost when another tab changed a setting at the same time.
+* In the extension, Retry after a failed clear or restore could write it over a newer change another tab had made in the meantime. The newer change stays now.
 
 ## v0.0.47 (2026-11-15, unreleased)
 
