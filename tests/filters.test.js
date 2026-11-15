@@ -127,6 +127,17 @@ test('a pattern RE2 cannot run is skipped with a reason, and the other lines sti
   assert.equal(firstMatch(rules, ['cat k<word>']), null);
 });
 
+test('a \\p{...} name that is only an Object property is refused, not run against every post', () => {
+  const { rules, errors } = compileFilters('re:\\P{constructor}\nre:\\p{toString}\nre:\\p{Greek}');
+  assert.deepEqual(errors.map(({ line, reason }) => [line, reason]), [
+    [1, 'uses an unknown \\p{...} name'],
+    [2, 'uses an unknown \\p{...} name'],
+  ]);
+  assert.deepEqual(rules.map((rule) => rule.phrase), ['re:\\p{Greek}']);
+  assert.equal(firstMatch(rules, ['Any ordinary post']), null);
+  assert.equal(firstMatch(rules, ['Καλημέρα'])?.phrase, 're:\\p{Greek}');
+});
+
 test('saved settings and backups keep skipped lines as written, and the feature names them', async () => {
   const features = [hidePostsByWords];
   const saved = createSettings({ storage: createMemoryStorage({ settings: { hidePostsByWords: true, 'hidePostsByWords.words': LEGACY_LIST } }), features, migrations: [] });

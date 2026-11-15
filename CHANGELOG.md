@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.27 (2026-11-15, unreleased)
+
+* A re: line with a made-up \p{...} name could hide every post. Names that happen to be built into JavaScript, like re:\P{constructor}, got past the check and matched anything, so the line hid the whole feed until the pause for lines that match nearly every post kicked in, and Keep hiding turned it right back on. Others, like re:\p{toString}, were skipped as "isn't a valid pattern", which doesn't say what's wrong. Both are skipped now as "uses an unknown \p{...} name", in Hide posts by words and in Filter Marketplace listings, which reads the same list. Real names like \p{Greek} work as before. The regex library this runs on (RE2JS) moved to 2.10.0 for the fix, which makes the script about 1.4 KiB bigger.
+
 ## v0.0.26 (2026-11-14, unreleased)
 
 * Screenshot mode left Home's Stories row sharp. A friend's story card showed their name, their picture and the story's preview, and the Create story card showed your own profile picture. All of those blur now. The "Create story" label stays readable.
