@@ -56,7 +56,12 @@ const scenarios = [
   { id: 'wider-feed', fixture: 'widerFeed', screenshot: true, viewport: { width: 1600, height: 1000 } },
   { id: 'hidden-note', fixture: 'hiddenNote', screenshot: true },
   { id: 'post-dates', fixture: 'postDates', screenshot: true },
+  { id: 'stories-gap', fixture: 'storiesGap', viewport: { width: 1000, height: 1000 } },
 ];
+// HFW_BROWSER_ONLY=id,id runs just those scenarios.
+const only = process.env.HFW_BROWSER_ONLY?.split(',').filter(Boolean) ?? [];
+const chosen = only.length ? scenarios.filter((scenario) => only.includes(scenario.id)) : scenarios;
+assert.ok(chosen.length, `No scenario named ${only.join(', ')}`);
 const results = [];
 let activeBrowser;
 // A fixture's page.evaluate has no timeout of its own, so each scenario gets one. It's per
@@ -110,7 +115,7 @@ async function run() {
     catch (error) { throw new Error(`Cannot launch ${name}. Install its runtime with: npx playwright install chromium firefox`, { cause: error }); }
     try {
       console.log(`${name} ${activeBrowser.version()}`);
-      for (const scenario of scenarios) {
+      for (const scenario of chosen) {
         const started = Date.now();
         await within(SCENARIO_MS, `${name} ${scenario.id}`, async () => {
           const context = await activeBrowser.newContext({ viewport: scenario.viewport ?? { width: 360, height: 760 }, serviceWorkers: 'block' });

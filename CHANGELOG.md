@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* Diagnostics has a new row, Space under the Stories row. Some people see a big empty gap between Home's Stories row and the first post. On Home this row measures that gap, and when it's bigger than usual it lists the blocks taking up the room by their size, padding, links, pictures and whether they hold a post, without copying any of the words on the page. Copy report includes it, so a report shows what's sitting there.
+
 ## v0.0.21 (2026-11-05)
 
 This is the first release since 0.0.6, so it carries every change from 0.0.7 through 0.0.21.

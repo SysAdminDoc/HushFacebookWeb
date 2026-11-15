@@ -17,6 +17,7 @@ import { startFeatures } from './core/start-features.js';
 import { accountFromCookie, createSettings } from './core/settings.js';
 import { createGmStorage, keepsSettings, UNKEPT_SETTINGS } from './core/storage.js';
 import { keepOutOfStorageReport } from './core/storage-report.js';
+import { storiesGapLine } from './core/dom/stories-gap.js';
 import { createDailyTasks, pageMirror, scheduleStorageCheck, whenMirrorReady } from './core/tasks.js';
 import { mountFeatureStyles } from './core/style.js';
 import { features as allFeatures } from './features/index.js';
@@ -213,6 +214,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     });
     diagnostics.add('Feed load check', loads.status, shareable);
     diagnostics.add('Feed load evidence', loads.evidence, shareable);
+    diagnostics.add('Space under the Stories row', () => storiesGapLine(doc, router?.current()?.type === 'home'), shareable);
     let loadPaused = settings.get('paused');
     settings.subscribe(() => {
       const next = settings.get('paused');
