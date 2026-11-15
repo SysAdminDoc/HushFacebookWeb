@@ -497,11 +497,13 @@ export function drawnEdges(doc) {
 // The network rule for one switch: its rows, on every GraphQL answer and inline page blob
 // their scope allows. onPrune gets the ids of the rows that fired. With diagnostics and a
 // reason, each match goes on the Diagnostics decision list too. Both wait until the page gets
-// the pruned answer, and the decision's id is read before the match is changed.
+// the pruned answer, and the decision's id is read before the match is changed. posts names the
+// rows whose matches are posts, when some aren't (an ad break schedule), and listed: false counts
+// them for Overview without putting them on the decision list.
 // With onDrawn, an edge the server drew (drawnEdges) keeps its node, and onDrawn gets
 // [{ place, signal, posters }] for the page to hide those posts instead (drawn-posts.js). Without
 // it they're dropped too.
-export function adRule(feature, enabled, onPrune, { route, diagnostics, reason, onDrawn } = {}) {
+export function adRule(feature, enabled, onPrune, { route, diagnostics, reason, onDrawn, posts, listed = true } = {}) {
   const { rows, text } = markersFor(feature);
   const noting = Boolean(diagnostics && reason);
   return {
@@ -513,7 +515,9 @@ export function adRule(feature, enabled, onPrune, { route, diagnostics, reason, 
       const active = rows.filter((row) => inScope(row, ctx, route));
       if (!active.length) return false;
       const decisions = [];
-      const report = noting ? (row, value) => decisions.push({ post: matchId(value), rule: reason, signal: row.id, layer: 'data' }) : undefined;
+      const report = noting ? (row, value) => {
+        if (!posts || posts.includes(row.id)) decisions.push({ post: matchId(value), rule: reason, signal: row.id, layer: 'data', listed });
+      } : undefined;
       const drawn = onDrawn && ctx.transport === 'json-parse' ? drawnEdges(doc) : null;
       const kept = [];
       const keep = drawn?.size ? (row, value) => {

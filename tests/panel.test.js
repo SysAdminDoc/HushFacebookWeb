@@ -131,6 +131,55 @@ test('Overview says what was hidden on the page, keeps up while open, and Show t
   assert.ok(showThem());
 });
 
+test('with only posts taken out of the data, Overview leads with that count', async () => {
+  const { shadow, panel, diagnostics } = setup();
+  const lines = () => [...shadow.querySelectorAll('[data-key="overview-hidden"] :is(.title, .desc)')].map((line) => line.textContent);
+  panel.open('overview');
+  diagnostics.decide({ post: 'UzpfSTEyMw', rule: 'Sponsored', signal: 'th_dat_spo', layer: 'data' });
+  diagnostics.decide({ post: 'UzpfSTQ1Ng', rule: 'Sponsored reel', signal: 'reel_ad', layer: 'data', listed: false });
+  await tick();
+  assert.deepEqual(lines(), ['Removed before they showed: 2']);
+  assert.equal(diagnostics.decisions().length, 1, 'a decision kept off the list still counts');
+});
+
+test('Show them with nothing left to show says so and goes away, and names comments as comments', async () => {
+  const { win, shadow, panel, hider } = setup({ notesShown: () => false });
+  const feed = win.document.querySelector('.feed');
+  feed.innerHTML = '<div aria-posinset="1"><div>Post 1</div></div><div aria-posinset="2"><div>Post 2</div></div>'
+    + '<div role="article" class="comment"><div><a href="/someone/posts/pfbid0Post1?comment_id=123">1h</a><div>A comment</div></div></div>';
+  const [first, second, comment] = feed.children;
+  const card = () => shadow.querySelector('[data-key="overview-hidden"]');
+  const showThem = () => card().querySelector('[data-key="overview-hidden:show"]');
+  const toasts = () => [...shadow.querySelectorAll('.toast')].map((toast) => toast.textContent);
+  hider.hide(first, 'Sponsored');
+  panel.open('overview');
+  assert.ok(showThem());
+
+  // Facebook takes the post off the page with no tracker to tell the hider.
+  first.remove();
+  showThem().focus();
+  showThem().click();
+  await tick();
+  assert.equal(showThem(), null, 'the button goes once it finds nothing');
+  assert.ok(shadow.activeElement === card(), 'focus stays on the card');
+  assert.ok(toasts().some((text) => text.includes('Nothing is hidden on the page right now')));
+  assert.ok(!toasts().some((text) => text.includes('Showing 0')));
+
+  hider.hide(comment, 'Filter', 'cats');
+  await tick();
+  showThem().click();
+  await tick();
+  assert.ok(toasts().some((text) => text.includes('Showing 1 hidden comment again')));
+
+  feed.insertAdjacentHTML('beforeend', '<div role="article" class="comment"><div><a href="/someone/posts/pfbid0Post1?comment_id=456">1h</a><div>Another</div></div></div>');
+  hider.hide(second, 'Seen');
+  hider.hide(feed.lastElementChild, 'Filter', 'dogs');
+  await tick();
+  showThem().click();
+  await tick();
+  assert.ok(toasts().some((text) => text.includes('Showing 2 hidden posts and comments again')));
+});
+
 test('the copied report carries the hidden counts', async () => {
   const { shadow, panel, hider, post, copied } = setup();
   hider.hide(post, 'Suggested');

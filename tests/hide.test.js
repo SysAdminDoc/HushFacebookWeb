@@ -394,6 +394,67 @@ test('a post drawn again, or whose id turns up late, counts once', () => {
   assert.deepEqual(hider.counts(), { Sponsored: 2 });
 });
 
+// Overview's Show them follows hiddenNow, so every mark that goes on or comes off is heard, even
+// when no count moves.
+test('subscribers hear every mark go on or come off, not only new counts', () => {
+  const win = page(feed(post(1), post(2), post(3)));
+  const [a, b, c] = win.document.querySelectorAll('[aria-posinset]');
+  const posts = fakePosts();
+  const hider = createHider({ doc: win.document, posts });
+  let heard = 0;
+  hider.subscribe(() => heard++);
+  hider.hide(a, 'Sponsored');
+  hider.hide(b, 'Filter', 'cats');
+  hider.hide(c, 'Seen');
+  assert.equal(heard, 3);
+
+  hider.hide(a, 'Filter', 'cats');
+  assert.equal(heard, 3, 'another reason on a post already hidden changes nothing');
+  hider.show(a, 'Filter');
+  assert.equal(heard, 3, 'and neither does taking it off again');
+  hider.show(a);
+  assert.equal(heard, 4, 'the mark came off');
+  assert.equal(hider.hiddenNow(), 2);
+  hider.show(a);
+  assert.equal(heard, 4, 'nothing to take off');
+
+  hider.showAll('Filter');
+  assert.equal(heard, 5, 'showAll is heard once');
+  assert.equal(hider.hiddenNow(), 1);
+  hider.showAll('Filter');
+  assert.equal(heard, 5);
+
+  // Facebook draws the same post again in a new element: no new count, but a new mark.
+  const again = win.document.createElement('div');
+  again.innerHTML = post(1);
+  win.document.querySelector('.feed').append(again);
+  hider.hide(again.querySelector('[aria-posinset]'), 'Sponsored');
+  assert.deepEqual(hider.counts(), { Sponsored: 1, Filter: 1, Seen: 1 });
+  assert.equal(heard, 6);
+  assert.equal(hider.hiddenNow(), 2);
+
+  // A hidden post that leaves the page takes its mark along.
+  c.remove();
+  posts.removed(c);
+  assert.equal(heard, 7);
+  assert.equal(hider.hiddenNow(), 1);
+  posts.removed(a);
+  assert.equal(heard, 7, 'a post with no mark leaving is not news');
+});
+
+test('Show them says how many posts and how many comments came back', () => {
+  const comment = '<div role="article" class="comment"><div><a href="/someone/posts/pfbid0Post1?comment_id=123">1h</a><div>A comment</div></div></div>';
+  const win = page(feed(post(1), post(2)) + comment);
+  const [a, b] = win.document.querySelectorAll('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  hider.hide(a, 'Sponsored');
+  hider.hide(b, 'Seen');
+  hider.hide(win.document.querySelector('.comment'), 'Filter', 'cats');
+  assert.equal(hider.hiddenNow(), 3);
+  assert.deepEqual(hider.revealEvery(), { posts: 2, comments: 1 });
+  assert.deepEqual(hider.revealEvery(), { posts: 0, comments: 0 });
+});
+
 test('a post whose first child is an image or video is left alone', () => {
   const win = page(feed('<div aria-posinset="1"><img src="x.png" alt=""><a href="/a/posts/1">1h</a></div>'));
   const element = win.document.querySelector('[aria-posinset]');

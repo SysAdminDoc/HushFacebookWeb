@@ -11,7 +11,8 @@ export default {
 
   // Only the counts go to Diagnostics. A cleared schedule isn't a hidden post, and the same
   // video comes back in answer after answer, so on the decision list it would push every real
-  // decision off within a few minutes of scrolling video.
+  // decision off within a few minutes of scrolling video. An ad between reels is a post, so it
+  // counts on Overview with the others taken out before they showed.
   setup({ net, enabled, diagnostics }) {
     let breaks = 0;
     let ads = 0;
@@ -21,7 +22,7 @@ export default {
         else breaks += 1;
       }
       diagnostics?.changed();
-    }));
+    }, { diagnostics, reason: 'Sponsored reel', posts: ['reel_ad'], listed: false }));
     diagnostics?.add('Reel ads taken out of the data', () => String(ads), { shareable: true });
     diagnostics?.add('Videos cleared of ad breaks', () => String(breaks));
   },

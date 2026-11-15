@@ -713,16 +713,22 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const dropped = diagnostics?.dropped?.() ?? 0;
     const showing = hider?.hiddenNow?.() ?? 0;
     return h('div', { class: 'card hidden-count', tabindex: '-1', dataset: { key: 'overview-hidden' } },
-      h('div', { class: 'title', text: total || dropped ? t('Hidden on this page: {count}', { count: total }) : t('Nothing hidden on this page yet') }),
+      // With nothing hidden on the page, the drops are the whole story, so they make the title.
+      h('div', { class: 'title', text: total ? t('Hidden on this page: {count}', { count: total }) : dropped ? t('Removed before they showed: {count}', { count: dropped }) : t('Nothing hidden on this page yet') }),
       counts.length ? h('div', { class: 'desc', text: counts.slice(0, TOP_REASONS).map(([reason, count]) => t('{reason}: {count}', { reason: reasonWords(reason), count })).join(', ') }) : null,
-      dropped ? h('div', { class: 'desc', text: t('Removed before they showed: {count}', { count: dropped }) }) : null,
+      total && dropped ? h('div', { class: 'desc', text: t('Removed before they showed: {count}', { count: dropped }) }) : null,
       showing ? h('div', { class: 'actions' },
         h('button', { class: 'button', type: 'button', text: t('Show them'), dataset: { key: 'overview-hidden:show' }, onclick: showHidden })) : null);
   }
 
+  // The card redraws even when nothing came back, so a button left from before goes away.
   function showHidden() {
-    const shown = hider?.revealEvery?.() ?? 0;
-    toast(plural(shown, 'Showing {count} hidden post again', 'Showing {count} hidden posts again'));
+    const { posts = 0, comments = 0 } = hider?.revealEvery?.() ?? {};
+    refreshHiddenCard();
+    if (posts && comments) toast(plural(posts + comments, 'Showing {count} hidden posts and comments again', 'Showing {count} hidden posts and comments again'));
+    else if (posts) toast(plural(posts, 'Showing {count} hidden post again', 'Showing {count} hidden posts again'));
+    else if (comments) toast(plural(comments, 'Showing {count} hidden comment again', 'Showing {count} hidden comments again'));
+    else toast(t('Nothing is hidden on the page right now'));
   }
 
   // The hidden count keeps up while Overview is open, redrawn in place so focus stays put.

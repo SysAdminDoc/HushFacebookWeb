@@ -87,14 +87,21 @@ export function createDiagnostics({ now = () => Date.now() } = {}) {
     hasStatus: (featureId) => statuses.has(featureId),
     // layer: 'data' when it came out of Facebook's data, 'page' when it was hidden on the page.
     // A data decision counts a post taken out before it was drawn, once per post, unless drop is
-    // false (a decision about the data that took nothing out).
-    decide({ post, rule, signal, detail, layer, drop = true }) {
+    // false (a decision about the data that took nothing out). One without an id counts each
+    // time, since nothing tells two of them apart. listed: false only counts it, for a switch
+    // whose decisions would push every other one off the list.
+    decide({ post, rule, signal, detail, layer, drop = true, listed = true }) {
       const text = (value) => (value === null || value === undefined ? '' : String(value));
       const id = post === null || post === undefined || post === '' ? null : String(post);
-      if (layer === 'data' && drop !== false && (id === null || !droppedIds.has(id))) {
+      const counts = layer === 'data' && drop !== false && (id === null || !droppedIds.has(id));
+      if (counts) {
         dropped++;
         if (id !== null) droppedIds.add(id);
         if (droppedIds.size > DROPPED_IDS) droppedIds.delete(droppedIds.values().next().value);
+      }
+      if (listed === false) {
+        if (counts) changed();
+        return;
       }
       decisions.push({
         time: new Date(now()).toISOString().slice(11, 19),

@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 import { AD_MARKERS, adRule, pruneAds as pruneRows } from '../src/features/feed/ad-markers.js';
 import { parseRoute } from '../src/core/route.js';
+import { createDiagnostics } from '../src/core/diagnostics.js';
+import hideSponsoredReels from '../src/features/reels/hide-sponsored-reels.js';
 import { SEEN_MUTATIONS } from '../src/features/stories/anonymous-stories.js';
 import { describeRequest, installNetworkHooks } from '../src/core/net/hooks.js';
 import { rulesFor, transformDocumentLine } from '../src/core/net/payload.js';
@@ -376,4 +378,23 @@ test('an ad between reels goes on Hide sponsored reels, and Hide sponsored posts
   assert.equal(transformDocumentLine(streamed, [reels], home), streamed, 'Hide sponsored reels stays off the feeds');
   const inline = { transport: 'json-parse', path: '', friendlyName: '' };
   assert.equal(transformDocumentLine(streamed, [reels], inline), streamed, 'and out of inline page data');
+});
+
+test('an ad between reels counts on Overview with the posts taken out before they showed, and an ad break does not', async () => {
+  const [first, streamed] = await fixtureLines('FBUnifiedVideoContainerQuery-reel-ad.jsonl');
+  const ctx = { transport: 'fetch', path: '/api/graphql/', friendlyName: 'FBUnifiedVideoContainerQuery' };
+  const diagnostics = createDiagnostics();
+  const rules = [];
+  hideSponsoredReels.setup({ net: { transformResponses: (rule) => rules.push(rule) }, enabled: () => true, diagnostics });
+  transformDocumentLine(first, rules, ctx);
+  transformDocumentLine(streamed, rules, ctx);
+  transformDocumentLine(first, rules, ctx);
+  assert.equal(diagnostics.dropped(), 2, 'two ads, and the first one sent again counts once');
+  const schedule = JSON.stringify({ label: 'x', path: ['node'], data: { id: 'v1', instream_video_ad_breaks_comet: { mid_rolls: [{ offset: 60 }] } } });
+  assert.notEqual(transformDocumentLine(schedule, rules, ctx), schedule, 'the ad break is cleared');
+  assert.equal(diagnostics.dropped(), 2);
+  assert.deepEqual(diagnostics.decisions(), [], 'nothing goes on the decision list');
+  const row = (label) => diagnostics.rows().find((entry) => entry.label === label)?.value;
+  assert.equal(row('Reel ads taken out of the data'), '3');
+  assert.equal(row('Videos cleared of ad breaks'), '1');
 });

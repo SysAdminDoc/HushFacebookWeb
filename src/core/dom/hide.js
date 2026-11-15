@@ -153,14 +153,18 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     restore(all);
   }
 
+  // Returns whether a mark came off.
   function clear(element) {
+    let cleared = false;
     for (const child of element.children) {
       if (!child.hasAttribute(MARK)) continue;
       notButton(child);
       child.removeAttribute(MARK);
       child.removeAttribute(NOTE);
       labels.delete(child);
+      cleared = true;
     }
+    return cleared;
   }
 
   function write(marker, reasons) {
@@ -180,12 +184,15 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     return reasons;
   }
 
-  // Takes one reason off a mark, and the mark off once none is left.
+  // Takes one reason off a mark, and the mark off once none is left. Returns whether it came off.
   function unmark(marker, reason) {
     const reasons = reasonsOf(marker);
-    if (!reasons.delete(reason)) return;
-    if (reasons.size) write(marker, reasons);
-    else if (marker.parentElement) clear(marker.parentElement);
+    if (!reasons.delete(reason)) return false;
+    if (reasons.size) {
+      write(marker, reasons);
+      return false;
+    }
+    return Boolean(marker.parentElement) && clear(marker.parentElement);
   }
 
   // Where hide() would put the post's mark, or null when it leaves the post alone: the person
@@ -221,7 +228,10 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     posts.on('post/remove', ({ element }) => {
       revealed.delete(element);
       countedElements.delete(element);
+      // A post that leaves the page takes its mark along, and Overview's Show them hears it.
+      const marked = markOf(element) !== null;
       if (element.isConnected) clear(element);
+      if (marked) notify();
     });
   }
 
@@ -265,12 +275,14 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   const shownMarks = () => [...doc.querySelectorAll(`[${MARK}]`)].filter((marker) => marks.has(marker) && marker.parentElement);
 
   // Shows every post this hider has hidden on the page, for the rest of the visit. Posts that
-  // load later are still hidden. focusOn(mark) says which post focus goes into. Returns how many.
+  // load later are still hidden. focusOn(mark) says which post focus goes into. Returns how many
+  // posts and how many comments came back.
   function revealMarks(focusOn = () => false) {
     const shown = shownMarks();
+    const comments = shown.filter((marker) => isComment(marker.parentElement)).length;
     for (const marker of shown) reveal(marker, focusOn(marker));
     if (shown.length) notify();
-    return shown.length;
+    return { posts: shown.length - comments, comments };
   }
 
   // Focus on the Show hidden pressed goes into its own post.
@@ -331,13 +343,15 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       const marker = markFor(element);
       if (!marker) return false;
       watchRecycling();
-      const reasons = marker.hasAttribute(MARK) ? reasonsOf(marker) : new Map();
+      const marked = marker.hasAttribute(MARK);
+      const reasons = marked ? reasonsOf(marker) : new Map();
       const fresh = !reasons.has(reason);
       reasons.set(reason, detail ? `${name}: ${detail}` : name);
       labels.set(marker, reasons);
       write(marker, reasons);
       marks.add(marker);
-      if (count(element, reason)) notify();
+      // A post Facebook drew again counts once, but its new mark still changes what's hidden now.
+      if (count(element, reason) || !marked) notify();
       if (fresh && onHide) {
         try {
           onHide({ element, reason, detail, signal });
@@ -350,15 +364,15 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // Shows the post again. With a reason, takes only that one off, for a post that no longer
     // fits it: one still hidden for another reason stays hidden, under that one.
     show(element, reason) {
-      if (reason === undefined) clear(element);
-      else {
-        const marker = markOf(element);
-        if (marker) unmark(marker, reason);
-      }
+      const marker = markOf(element);
+      if (!marker) return;
+      if (reason === undefined ? clear(element) : unmark(marker, reason)) notify();
     },
     // Takes one reason off every post, for a feature that was just switched off.
     showAll(reason) {
-      for (const marker of doc.querySelectorAll(`[${MARK}]`)) unmark(marker, reason);
+      let cleared = false;
+      for (const marker of doc.querySelectorAll(`[${MARK}]`)) cleared = unmark(marker, reason) || cleared;
+      if (cleared) notify();
     },
     // Makes each note a button again, or not, after pausing or the note setting changed.
     refresh() {
@@ -379,7 +393,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // Posts hidden since the page loaded, comments left out.
     hiddenPosts: () => postsHidden,
     // Posts and comments hidden on the page right now, and a way to show them all, as Show
-    // hidden at the end of a note does, notes on or off. Listeners hear both change.
+    // hidden at the end of a note does, notes on or off. Listeners hear both change, and hear
+    // any mark go on or come off.
     hiddenNow: () => shownMarks().length,
     revealEvery: () => revealMarks(),
     subscribe(listener) {
