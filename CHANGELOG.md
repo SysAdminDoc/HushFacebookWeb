@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.37 (2026-11-15, unreleased)
+
+* A Marketplace listing opened straight from its link could make Facebook throw an error and draw the whole page a second time, mostly on a slow connection. View profile went in before Facebook had finished setting up the seller box. It now shows beside the seller's name without touching Facebook's own markup.
+
 ## v0.0.36 (2026-11-15, unreleased)
 
 * With Open Messenger as a full page on, tapping the Messenger button on a touch screen did nothing at all. A tap now goes to the Messages page like a click does.

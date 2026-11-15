@@ -5,7 +5,9 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
-import sellerProfileLink, { LABEL, MARK, MAX_ADDS, addProfileLink, createSellerLinks, isListing, nameLinks, sellerId } from '../src/features/marketplace/seller-profile.js';
+import sellerProfileLink, {
+  HOST_MARK, LABEL, MARK, MAX_ADDS, SELLER_PROFILE_CSS, addProfileLink, createSellerLinks, isListing, nameLinks, sellerId, shownLink,
+} from '../src/features/marketplace/seller-profile.js';
 
 const FB = 'https://www.facebook.com';
 const LISTING = `${FB}/marketplace/item/1234567890123/`;
@@ -31,7 +33,9 @@ function page(html = sellerBox(), href = LISTING) {
   return win;
 }
 
-const added = (doc) => [...doc.querySelectorAll(`a[${MARK}]`)];
+// The View profile links shown, each in the shadow root on its name's box.
+const added = (doc) => [...doc.querySelectorAll(`[${HOST_MARK}]`)].map(shownLink).filter(Boolean);
+const boxOf = (view) => view.getRootNode().host;
 
 test('a Marketplace profile link gives the seller id, and nothing else does', () => {
   assert.equal(sellerId('/marketplace/profile/100000000000001/?product_id=5', LISTING), '100000000000001');
@@ -60,10 +64,46 @@ test("the link goes after the seller's name, not after the picture or Seller det
   assert.equal(added(doc).length, 1);
   assert.equal(view.textContent, LABEL);
   assert.equal(view.getAttribute('href'), '/profile.php?id=100000000000001');
-  assert.equal(view.previousElementSibling.textContent, 'Pat Example');
+  assert.equal(boxOf(view) === found[0].link.parentElement, true, "on the name's own box");
+  assert.equal(view.previousElementSibling.localName, 'slot', 'after the slot that shows the name');
   assert.equal(links.added(), 1);
   // Facebook's own links are left as they were.
   assert.equal(doc.querySelectorAll('a[href*="/marketplace/profile/"]').length, 3);
+});
+
+test("Facebook's nodes stay just as the server drew them, so React finds what it expects", () => {
+  const win = page();
+  const doc = win.document;
+  const before = doc.body.innerHTML.replace(/ data-hfw-seller-host=""/g, '');
+  const links = createSellerLinks({ doc, enabled: () => true, setTimer: (fn) => fn() });
+  links.sync();
+  assert.equal(added(doc).length, 1);
+  // Only an attribute, which React's check doesn't compare. Not a node or a word more.
+  assert.equal(doc.body.innerHTML.replace(/ data-hfw-seller-host=""/g, ''), before);
+  const [found] = nameLinks(doc, LISTING);
+  assert.equal(found.link.nextSibling, null);
+  assert.equal(found.link.parentElement.childNodes.length, 1);
+});
+
+test("a box that can't take a shadow root, or holds someone else's, gets no link and keeps its own", () => {
+  const win = page();
+  const doc = win.document;
+  const [found] = nameLinks(doc, LISTING);
+  const box = found.link.parentElement;
+  box.attachShadow({ mode: 'open' }).append(doc.createElement('slot'));
+  assert.equal(addProfileLink(doc, found), false);
+  assert.equal(box.shadowRoot.childNodes.length, 1, "someone else's root is left alone");
+  assert.equal(box.hasAttribute(HOST_MARK), false);
+
+  const other = page();
+  const [refused] = nameLinks(other.document, LISTING);
+  refused.link.parentElement.attachShadow = () => {
+    throw new other.DOMException('Not supported', 'NotSupportedError');
+  };
+  const links = createSellerLinks({ doc: other.document, enabled: () => true, setTimer: (fn) => fn() });
+  links.sync();
+  assert.equal(added(other.document).length, 0);
+  assert.equal(links.added(), 0);
 });
 
 test('running again adds nothing, and a reused name points the link at the new seller', () => {
@@ -100,12 +140,16 @@ test('only listings get the link, and it goes when you leave or switch it off', 
   win.happyDOM.setURL(LISTING);
   links.sync();
   assert.equal(added(doc).length, 1);
+  const box = boxOf(added(doc)[0]);
   on = false;
   links.sync();
   assert.equal(added(doc).length, 0);
+  assert.equal(box.hasAttribute(HOST_MARK), false);
+  assert.equal(box.shadowRoot.querySelectorAll('slot').length, 1, 'the slot stays and shows the box as before');
   on = true;
   links.sync();
   assert.equal(added(doc).length, 1);
+  assert.equal(boxOf(added(doc)[0]) === box, true, 'the same root takes the link back');
   win.happyDOM.setURL(`${FB}/marketplace/`);
   links.sync();
   assert.equal(added(doc).length, 0);
@@ -129,7 +173,7 @@ test('a picture link that also carries the name as text gets no link of its own'
   const links = createSellerLinks({ doc, enabled: () => true, setTimer: (fn) => fn() });
   links.sync();
   assert.equal(added(doc).length, 1);
-  assert.equal(added(doc)[0].previousElementSibling.getAttribute('aria-label'), null, 'after the name, not the picture');
+  assert.equal(boxOf(added(doc)[0]).querySelector('a').getAttribute('aria-label'), null, 'after the name, not the picture');
 });
 
 test('two picture links that both carry the name as text never stand in for the name', () => {
@@ -171,8 +215,8 @@ test('off a listing, page changes schedule no work', async () => {
   win.happyDOM.setURL(LISTING);
   doc.body.insertAdjacentHTML('beforeend', sellerBox());
   await new Promise((resolve) => setTimeout(resolve, 20));
-  // One for the seller box, one for the script's own link, which changes nothing and stops there.
-  assert.equal(scheduled, 2);
+  // One for the seller box. The script's own link is in a shadow root, which the observer never sees.
+  assert.equal(scheduled, 1);
   assert.equal(added(doc).length, 1);
 });
 
@@ -184,15 +228,20 @@ test('the feature registers a diagnostics row and styles only its own link', () 
   assert.equal(rows[0][1](), '1');
   assert.equal(sellerProfileLink.default, true);
   assert.equal(sellerProfileLink.section, 'marketplace');
-  assert.ok(sellerProfileLink.css.includes(`a[${MARK}]`));
-  assert.ok(!/(^|\n)\s*a\s*\{/.test(sellerProfileLink.css));
+  // Page CSS can't reach the link, so its styles go in its shadow root, not the page.
+  assert.equal(sellerProfileLink.css, undefined);
+  const style = added(win.document)[0].getRootNode().querySelector('style');
+  assert.equal(style.textContent, SELLER_PROFILE_CSS);
+  assert.ok(SELLER_PROFILE_CSS.includes(`a[${MARK}]`));
+  assert.ok(!/(^|\n)\s*a\s*\{/.test(SELLER_PROFILE_CSS));
 });
 
-test('a link is added straight after the name element', () => {
+test("a link is added once, on the name's box", () => {
   const win = page();
   const doc = win.document;
   const [found] = nameLinks(doc, LISTING);
   assert.equal(addProfileLink(doc, found), true);
   assert.equal(addProfileLink(doc, found), false);
-  assert.equal(found.link.nextElementSibling.getAttribute(MARK), '100000000000001');
+  assert.equal(shownLink(found.link.parentElement).getAttribute(MARK), '100000000000001');
+  assert.equal(found.link.parentElement.shadowRoot.querySelectorAll(`a[${MARK}]`).length, 1);
 });

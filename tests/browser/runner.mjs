@@ -59,8 +59,9 @@ const scenarios = [
   { id: 'stories-gap', fixture: 'storiesGap', viewport: { width: 1000, height: 1000 } },
   { id: 'voice-clip', fixture: 'voiceClip' },
   { id: 'messenger-tap', fixture: 'messengerTap', touch: true },
+  { id: 'seller-link', fixture: 'sellerLink', screenshot: true, viewport: { width: 600, height: 400 } },
 ];
-const DRIVEN = { panel, voiceClip, messengerTap };
+const DRIVEN = { panel, voiceClip, messengerTap, sellerLink };
 // HFW_BROWSER_ONLY=id,id runs just those scenarios.
 const only = process.env.HFW_BROWSER_ONLY?.split(',').filter(Boolean) ?? [];
 const chosen = only.length ? scenarios.filter((scenario) => only.includes(scenario.id)) : scenarios;
@@ -150,6 +151,21 @@ async function messengerTap(page) {
   assert.deepEqual(keyed.went, ['here /messages/'], 'Enter on the Messenger button went nowhere');
   assert.equal(keyed.seen, 0, "A press reached Facebook's own listeners");
   return keyed;
+}
+
+// Tab goes from the seller's name to View profile in its shadow root, then on out of it.
+async function sellerLink(page) {
+  const drawn = await page.evaluate(() => window.hfwBrowserFixture.prepareSeller());
+  const focus = () => page.evaluate(() => window.hfwBrowserFixture.sellerFocus());
+  await page.focus('#name');
+  await page.keyboard.press('Tab');
+  assert.equal(await focus(), 'view', 'Tab from the name does not reach View profile');
+  await page.keyboard.press('Tab');
+  assert.equal(await focus(), 'after', 'Tab does not leave View profile for the next link');
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await focus(), 'name', 'Shift+Tab does not come back to the name');
+  return drawn;
 }
 
 async function run() {

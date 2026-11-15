@@ -6,15 +6,28 @@
 // The name link is the one whose words match the picture link's label, which works in any
 // language and passes over Facebook's own Seller details link to the same place. Only listings
 // get the link, whether opened on their own page or over Marketplace. Works in content mode.
+//
+// A listing loaded from its own address comes with the seller box drawn on the server, and React
+// takes that markup over a moment later. A node put into it first made React throw #418 and draw
+// the page again (live 2026-11-15: 2 of 4 loads with Facebook's scripts held back 2.5 s, 0 of 2
+// with the switch off). So the link never joins Facebook's nodes. It sits in a shadow root on the
+// name's box, after a slot that shows the box's own children as before. React only walks those
+// children, so it finds what the server drew.
 
 import { normalizeText } from '../../core/dom/visible-text.js';
 import { whenBodyReady } from '../../core/env.js';
 
 export const MARK = 'data-hfw-seller-profile';
+// On the name's box while it shows a link. Attributes are safe there: React's check compares
+// nodes and text, not attributes.
+export const HOST_MARK = 'data-hfw-seller-host';
+const SLOT_MARK = 'data-hfw-seller-slot';
 export const LABEL = 'View profile';
 const PROFILE_LINKS = 'a[href*="/marketplace/profile/"]';
 const DELAY = 100;
 
+// Styles the link inside its shadow root, which page CSS doesn't reach. Facebook's color
+// variables still do, since custom properties inherit.
 export const SELLER_PROFILE_CSS = `
 a[${MARK}] {
   display: inline-block !important;
@@ -72,14 +85,47 @@ export function nameLinks(root, base) {
   return found;
 }
 
+// The shadow root on a name's box: the one put there before (by this copy of the script or an
+// earlier one), a new one, or null when the box can't take one or has someone else's.
+function shadowFor(doc, box) {
+  const existing = box.shadowRoot;
+  if (existing) return existing.querySelector(`slot[${SLOT_MARK}]`) ? existing : null;
+  let root;
+  try {
+    root = box.attachShadow({ mode: 'open' });
+  } catch {
+    return null;
+  }
+  const style = doc.createElement('style');
+  style.textContent = SELLER_PROFILE_CSS;
+  const slot = doc.createElement('slot');
+  slot.setAttribute(SLOT_MARK, '');
+  root.append(style, slot);
+  return root;
+}
+
+// The View profile link shown on a name's box, or null.
+export const shownLink = (box) => box?.shadowRoot?.querySelector(`a[${MARK}]`) ?? null;
+
+// Takes a box's link away. The shadow root stays, holding only the slot, which shows the box's
+// children just as they'd be without it.
+export function removeProfileLink(box) {
+  shownLink(box)?.remove();
+  box.removeAttribute(HOST_MARK);
+}
+
 // Puts a View profile link after the name, or points the one already there at this seller when
-// Facebook reused the name for another listing. True when a link was added.
+// Facebook reused the name for another listing. True when a link was added. It follows everything
+// in the name's box, which live holds the name link alone.
 export function addProfileLink(doc, { id, link }) {
-  const next = link.nextElementSibling;
-  if (next?.hasAttribute(MARK)) {
-    if (next.getAttribute(MARK) !== id) {
-      next.setAttribute(MARK, id);
-      next.setAttribute('href', profileUrl(id));
+  const box = link.parentElement;
+  const root = box && shadowFor(doc, box);
+  if (!root) return false;
+  const shown = shownLink(box);
+  if (shown) {
+    if (shown.getAttribute(MARK) !== id) {
+      shown.setAttribute(MARK, id);
+      shown.setAttribute('href', profileUrl(id));
     }
     return false;
   }
@@ -88,7 +134,8 @@ export function addProfileLink(doc, { id, link }) {
   view.setAttribute('href', profileUrl(id));
   view.setAttribute('role', 'link');
   view.textContent = LABEL;
-  link.after(view);
+  root.append(view);
+  box.setAttribute(HOST_MARK, '');
   return true;
 }
 
@@ -109,7 +156,7 @@ export function createSellerLinks({ doc, enabled, setTimer = (fn, ms) => setTime
   function sync() {
     timer = null;
     if (!wanted()) {
-      for (const link of doc.querySelectorAll(`a[${MARK}]`)) link.remove();
+      for (const box of doc.querySelectorAll(`[${HOST_MARK}]`)) removeProfileLink(box);
       shown = false;
       return;
     }
@@ -125,7 +172,7 @@ export function createSellerLinks({ doc, enabled, setTimer = (fn, ms) => setTime
         addsFor.set(found.id, adds + 1);
       }
     }
-    shown = Boolean(doc.querySelector(`a[${MARK}]`));
+    shown = Boolean(doc.querySelector(`[${HOST_MARK}]`));
   }
 
   const schedule = () => {
@@ -154,7 +201,6 @@ export default {
   title: 'View profile on Marketplace sellers',
   description: "Adds a View profile link after the seller's name on a listing, so you can see their full Facebook profile before you message them, not just their Marketplace page.",
   default: true,
-  css: SELLER_PROFILE_CSS,
 
   setup({ doc, router, settings, diagnostics, enabled }) {
     const links = createSellerLinks({ doc, enabled });
