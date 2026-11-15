@@ -821,6 +821,38 @@ test("an account copied from its v0.0.2 record keeps that record's migrations bu
   assert.deepEqual(current.data[`${legacy}.migrated`], claims);
 });
 
+test('two accounts that share a v0.0.2 record and copy it at once: the first takes it, the other copies the shared settings', async () => {
+  const legacy = 'settings@1z141z3';
+  const [a, b] = ['a', 'b'].map((letter) => letter.repeat(32));
+  const copy = (tag) => ({
+    type: 'storage:migrate',
+    key: `settings@${tag}`,
+    doneKey: `settings@${tag}.migrated`,
+    sourceKey: legacy,
+    sourceDoneKey: `${legacy}.migrated`,
+    receipt: [],
+    mutation: { initialize: {}, set: {}, remove: [] },
+  });
+  // Neither page had seen a claim when it asked, as when two tabs open at the same moment.
+  const current = worker({ saved: { settings: { shared: true }, 'settings.migrated': ['one'], [legacy]: { beta: false } } });
+  const answers = await Promise.all([ask(current, copy(b)), ask(current, copy(a))]);
+  for (const answer of answers) assert.equal(answer.ok, true, answer.error);
+  assert.deepEqual(current.data[`settings@${b}`], { beta: false });
+  assert.deepEqual(current.data[`settings@${a}`], { shared: true });
+  assert.deepEqual(current.data[`settings@${a}.migrated`], ['one']);
+  assert.deepEqual(current.data[`${legacy}.migrated`], [`claimed-by-${b}`], 'the copy wrote its claim, and only the first one claims');
+  assert.equal(current.data['hushfacebookWeb.storageRevisions'][`${legacy}.migrated`] > 0, true, 'the claim has a revision like any write');
+
+  // The pages' own claims got there first, in the other order.
+  const claimed = worker({
+    saved: { settings: { shared: true }, [legacy]: { beta: false }, [`${legacy}.migrated`]: ['one', `claimed-by-${a}`, `claimed-by-${b}`] },
+  });
+  for (const answer of await Promise.all([ask(claimed, copy(b)), ask(claimed, copy(a))])) assert.equal(answer.ok, true, answer.error);
+  assert.deepEqual(claimed.data[`settings@${a}`], { beta: false });
+  assert.deepEqual(claimed.data[`settings@${b}`], { shared: true });
+  assert.deepEqual(claimed.data[`${legacy}.migrated`], ['one', `claimed-by-${a}`, `claimed-by-${b}`], 'nothing more is claimed');
+});
+
 test('commit-order overflow starts a fresh generation with a safe first revision', async () => {
   const oldEpoch = 'full-generation';
   const { context, data } = worker({

@@ -585,9 +585,16 @@ function migrateStorage({
     (sourceKey !== null && (typeof sourceKey !== 'string' || !sourceKey))
     || (sourceDoneKey !== null && (typeof sourceDoneKey !== 'string' || !sourceDoneKey))
   ) return Promise.reject(new TypeError('invalid migration source keys'));
+  // A v0.0.2 record can belong to two accounts that shared its old tag. Its first claim decides
+  // whose it is, and that's settled here, where requests are taken one at a time: two tabs
+  // opening at once both see it unclaimed. Anyone else copies the shared record instead, and
+  // the copy that takes it writes the claim along with it.
+  const fromLegacy = sourceKey !== null && LEGACY_ACCOUNT_KEY.test(sourceKey);
+  const ownClaim = `${CLAIM_PREFIX}${key.slice(key.indexOf('@') + 1)}`;
+  const shared = fromLegacy ? ['settings', 'settings.migrated'] : [];
   const run = async () => {
     let recoveredDependency = false;
-    for (const dependency of [...new Set([key, doneKey, sourceKey, sourceDoneKey].filter(Boolean))]) {
+    for (const dependency of [...new Set([key, doneKey, sourceKey, sourceDoneKey, ...shared].filter(Boolean))]) {
       const recovered = await commitPendingDirectRecovery(dependency);
       if (recovered?.committed === true) recoveredDependency = true;
     }
@@ -596,6 +603,7 @@ function migrateStorage({
       doneKey,
       ...(sourceKey ? [sourceKey] : []),
       ...(sourceDoneKey ? [sourceDoneKey] : []),
+      ...shared,
       STORAGE_REVISIONS_KEY,
     ]);
     const recovered = await pendingRecoveryFor(key, saved[key]);
@@ -604,13 +612,21 @@ function migrateStorage({
       || recovered.removed === true
       || !isStorageRecord(recoveredTarget);
     const target = targetMissing ? undefined : recoveredTarget;
-    const copiesSource = targetMissing && sourceKey && sourceKey !== key;
-    const rawSource = copiesSource ? saved[sourceKey] : target;
+    const legacyReceipt = fromLegacy && Array.isArray(saved[sourceDoneKey])
+      ? saved[sourceDoneKey].filter((id) => typeof id === 'string')
+      : [];
+    const firstClaim = legacyReceipt.find((id) => id.startsWith(CLAIM_PREFIX));
+    const takenByAnother = firstClaim !== undefined && firstClaim !== ownClaim;
+    const copyKey = takenByAnother ? 'settings' : sourceKey;
+    const copyDoneKey = takenByAnother ? 'settings.migrated' : sourceDoneKey;
+    const copiesSource = targetMissing && copyKey && copyKey !== key;
+    const claims = Boolean(copiesSource && fromLegacy && firstClaim === undefined);
+    const rawSource = copiesSource ? saved[copyKey] : target;
     const source = isStorageRecord(rawSource) ? rawSource : {};
     const previous = structuredClone(source);
     const targetDone = Array.isArray(saved[doneKey]) ? saved[doneKey].filter((id) => typeof id === 'string') : [];
-    const sourceDone = copiesSource && Array.isArray(saved[sourceDoneKey])
-      ? saved[sourceDoneKey].filter((id) => typeof id === 'string' && !id.startsWith(CLAIM_PREFIX))
+    const sourceDone = copiesSource && Array.isArray(saved[copyDoneKey])
+      ? saved[copyDoneKey].filter((id) => typeof id === 'string' && !id.startsWith(CLAIM_PREFIX))
       : [];
     const done = [...new Set([...structuredClone(targetDone), ...structuredClone(sourceDone)])];
     const pending = receipt.filter((id) => !done.includes(id));
@@ -651,8 +667,9 @@ function migrateStorage({
         committed: recoveredDependency,
       };
     }
-    const state = nextStorageRevision(saved, [key, doneKey], generation, baseRevisions);
-    await writeStorageCommit({ [key]: next, [doneKey]: nextDone }, state.revisions);
+    const claim = claims ? { [sourceDoneKey]: [...legacyReceipt, ownClaim] } : {};
+    const state = nextStorageRevision(saved, [key, doneKey, ...Object.keys(claim)], generation, baseRevisions);
+    await writeStorageCommit({ [key]: next, [doneKey]: nextDone, ...claim }, state.revisions);
     await finishDirectRecovery(key, recovered.recovery);
     return {
       value: next,
