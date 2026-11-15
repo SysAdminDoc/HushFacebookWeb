@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.46 (2026-11-15, unreleased)
+
+* Trim the share menu used to show the whole menu for a moment before it took out the targets you picked. They're gone before the menu is drawn now.
+* The Space under the Stories row line in Diagnostics now also measures inside the row. When the row reaches well below its cards, the line says how far and names the boxes that reach down there, so a Copy report shows why the cards' boxes grew.
+
 ## v0.0.45 (2026-11-15)
 
 This is the first release since 0.0.21, so it carries every change from 0.0.22 through 0.0.45. Four reports get something from it. 0.0.22 changes Tap to play for #14 (voice messages in chats) and adds a Diagnostics row for #13 and #15 (the gap under the Stories row), and 0.0.23 gives People you may know the separate switch #16 asked for.
