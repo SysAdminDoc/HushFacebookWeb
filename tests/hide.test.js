@@ -34,10 +34,13 @@ const feed = (...posts) => `<div role="main"><div class="feed">${posts.join('')}
 const attributesOf = (element) => Object.fromEntries([...element.attributes].map((a) => [a.name, a.value]));
 
 function fakePosts() {
-  const listeners = { 'post/remove': new Set() };
+  const listeners = { 'post/add': new Set(), 'post/remove': new Set() };
   return {
     on(type, fn) {
       listeners[type].add(fn);
+    },
+    added(element) {
+      for (const fn of listeners['post/add']) fn({ element });
     },
     removed(element) {
       for (const fn of listeners['post/remove']) fn({ element });
@@ -440,6 +443,39 @@ test('subscribers hear every mark go on or come off, not only new counts', () =>
   assert.equal(hider.hiddenNow(), 1);
   posts.removed(a);
   assert.equal(heard, 7, 'a post with no mark leaving is not news');
+
+  // Facebook puts the hidden one back, mark and all.
+  win.document.querySelector('.feed').append(c);
+  posts.added(c);
+  assert.equal(heard, 8, 'its mark is on the page again');
+  assert.equal(hider.hiddenNow(), 2);
+  posts.added(c);
+  posts.added(a);
+  assert.equal(heard, 8, 'a post already back, or one that left with no mark, is not news');
+});
+
+test('with the real post tracker, a hidden post Facebook takes off and puts back is heard both times', async () => {
+  const win = page(feed(post(1), post(2)));
+  const posts = createPostTracker({ doc: win.document });
+  const hider = createHider({ doc: win.document, posts });
+  // Like the feed features, this hides it again when it comes back, which counts nothing new.
+  posts.on('post/add', ({ element, id }) => {
+    if (id === 'pfbid0Post1') hider.hide(element, 'Sponsored');
+  });
+  const element = win.document.querySelector('[aria-posinset]');
+  assert.equal(hider.hiddenNow(), 1);
+  let heard = 0;
+  hider.subscribe(() => heard++);
+
+  element.remove();
+  await tick();
+  assert.deepEqual([heard, hider.hiddenNow()], [1, 0]);
+  win.document.querySelector('.feed').prepend(element);
+  await tick();
+  assert.deepEqual([heard, hider.hiddenNow()], [2, 1]);
+  assert.deepEqual(hider.counts(), { Sponsored: 1 });
+  assert.deepEqual(hider.revealEvery(), { posts: 1, comments: 0 });
+  posts.stop();
 });
 
 test('Show them says how many posts and how many comments came back', () => {

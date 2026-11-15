@@ -93,6 +93,9 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   const countedIds = new Set();
   const countedElements = new WeakSet();
   const revealed = new WeakSet();
+  // Marked posts Facebook took off the page with the mark still on. One it puts back is hidden on
+  // the page again, and nothing else would say so, since it counted already.
+  const departed = new WeakSet();
   // Marks this hider set, so a click on anything else carrying the attribute passes through.
   const marks = new WeakSet();
   // mark -> Map(reason -> its note text), in the order the reasons came.
@@ -231,7 +234,11 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       // A post that leaves the page takes its mark along, and Overview's Show them hears it.
       const marked = markOf(element) !== null;
       if (element.isConnected) clear(element);
+      else if (marked) departed.add(element);
       if (marked) notify();
+    });
+    posts.on('post/add', ({ element }) => {
+      if (departed.delete(element) && markOf(element) !== null) notify();
     });
   }
 
