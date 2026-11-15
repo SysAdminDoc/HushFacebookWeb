@@ -7,10 +7,11 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
-import feature, { edgeListing, MAX_OPENED, OPENED_KEY, priceLimit } from '../src/features/marketplace/filter-marketplace.js';
+import feature, { compilePlaces, edgeListing, EMPTY_PAGES, MAX_OPENED, OPENED_KEY, priceLimit, reasonFor } from '../src/features/marketplace/filter-marketplace.js';
 import { LISTING_CSS, LISTING_MARK, listingPage, watchListingCards } from '../src/features/marketplace/listing-cards.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { installNetworkHooks } from '../src/core/net/hooks.js';
+import { transformDocumentLine } from '../src/core/net/payload.js';
 import { parseRoute } from '../src/core/route.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 
@@ -485,6 +486,228 @@ test("nothing is kept before the extension's saved list loads, and cards drawn b
   assert.deepEqual(Object.keys(memory.get(OPENED_KEY)).sort(), [earlier.id, now.id].sort(), 'the page you were on is kept with the rest');
   page.go(SEARCH_PAGE);
   assert.deepEqual(page.marked(), [earlier.id]);
+});
+
+// The listings of the Today's picks unit in doc.
+const picksOf = (doc) => {
+  let found = null;
+  JSON.stringify(doc, (key, value) => {
+    if (value?.__typename === 'MarketplaceFeedTopPicksUnit') found = value.marketplace_listings;
+    return value;
+  });
+  return found;
+};
+const geocode = (listing) => listing.location.reverse_geocode;
+
+test('the places list keeps a city and state, or a whole state, however it is written', () => {
+  const at = (city, state) => edgeListing({ node: { __typename: 'MarketplaceFeedListingStoryObject', listing: { id: '1', location: { reverse_geocode: { city, state } } } } });
+  const goes = (places, listing) => reasonFor(listing, { min: null, max: null, places: compilePlaces(places), words: null }) === 'places';
+  const austin = at('Austin', 'TX');
+  assert.equal(goes('Austin, TX', austin), false);
+  assert.equal(goes('  austin ,   tx  ', austin), false, 'case and spaces');
+  assert.equal(goes('Austin, Texas', austin), false, "a state's name");
+  assert.equal(goes('TX', austin), false, 'a state alone');
+  assert.equal(goes('texas', austin), false);
+  assert.equal(goes(', TX', austin), false);
+  assert.equal(goes('Austin', austin), false, 'a city alone');
+  assert.equal(goes('Austin TX', austin), false, 'no comma');
+  assert.equal(goes('Austin Texas', austin), false);
+  assert.equal(goes('Austin, TX, USA', austin), false, 'a country after the state');
+  assert.equal(goes('Dallas, TX\n\nAustin, TX', austin), false, 'any line of the list');
+  assert.equal(goes('Dallas, TX; Austin, TX', austin), false, 'semicolons part places too');
+  assert.equal(goes('Dallas, TX', austin), true, 'another city in the same state');
+  assert.equal(goes('Austin, MN', austin), true, 'the same name in another state');
+  assert.equal(goes('OK', austin), true, 'another state');
+  assert.equal(goes('Austin OK', austin), true);
+  // A state Facebook spells out matches its letters, and accents, dots and hyphens don't count.
+  assert.equal(goes('Montreal, QC', at('Montréal', 'Quebec')), false);
+  assert.equal(goes('St Louis, Missouri', at('St. Louis', 'MO')), false);
+  assert.equal(goes('Winston Salem, NC', at('Winston-Salem', 'NC')), false);
+  assert.equal(goes('St.Louis, MO', at('St. Louis', 'MO')), false, 'a dot with no space');
+  assert.equal(goes('Winston–Salem, NC', at('Winston-Salem', 'NC')), false, 'any dash');
+  assert.equal(goes('Coeur d‘Alene, ID', at("Coeur d'Alene", 'ID')), false, 'any apostrophe');
+  assert.equal(goes(`Austin${String.fromCharCode(0x200b)}, TX`, austin), false, 'a zero-width space');
+  assert.equal(goes('Diyarbakır, Diyarbakir', at('Diyarbakir', 'Diyarbakir')), false, 'a dotless i');
+  assert.equal(goes('Washington, D.C.', at('Washington', 'DC')), false, 'letters with dots');
+  assert.equal(goes('Moncton, NB', at('Moncton', 'Nouveau-Brunswick')), false, "a province's French name");
+  assert.equal(goes('PEI', at('Charlottetown', 'PE')), false);
+  // With no comma, a city and its state by any of their names, the longest state name first.
+  assert.equal(goes('Charlottetown PEI', at('Charlottetown', 'PE')), false);
+  assert.equal(goes('Yellowknife NWT', at('Yellowknife', 'NT')), false);
+  assert.equal(goes('Moncton Nouveau-Brunswick', at('Moncton', 'NB')), false);
+  assert.equal(goes("St. John's Newfoundland", at("St. John's", 'NL')), false);
+  assert.equal(goes('Charleston West Virginia', at('Charleston', 'WV')), false);
+  assert.equal(goes('Charleston West Virginia', at('Charleston', 'VA')), true, 'West Virginia is not Virginia');
+  assert.equal(goes('Kansas City', at('Wichita', 'KS')), true, 'a city named after a state');
+  assert.equal(goes('Hagatna Guam', at('Hagatna', 'Guam')), false, 'a place outside the US and Canada');
+  assert.equal(goes('Hagatna Guam', at('Dededo', 'Guam')), true);
+  // Every other apostrophe Facebook or a keyboard writes.
+  for (const mark of [0x60, 0xb4, 0x2bc]) {
+    assert.equal(goes(`Coeur d${String.fromCharCode(mark)}Alene, ID`, at("Coeur d'Alene", 'ID')), false, `apostrophe ${mark}`);
+  }
+  assert.equal(goes(`Honolulu, Hawai${String.fromCharCode(0x2bb)}i`, at('Honolulu', 'HI')), false, 'an okina');
+  // A country or a ZIP code after the place is left out, and CA is still California.
+  for (const places of ['Texas, USA', 'TX, US', 'Austin TX, USA', 'Austin, TX 78701', 'Austin, TX 78701-1234', 'Austin, TX USA', 'Austin, TX, United States', 'Austin TX 78701']) {
+    assert.equal(goes(places, austin), false, places);
+  }
+  assert.equal(goes('Ontario, Canada', at('Toronto', 'ON')), false);
+  assert.equal(goes('Toronto, ON M5V 2T6', at('Toronto', 'ON')), false, 'a postal code');
+  assert.equal(goes('Toronto, ON, CA', at('Toronto', 'ON')), false);
+  assert.equal(goes('Ontario, CA', at('Toronto', 'ON')), true, 'Ontario, California');
+  assert.equal(goes('Ontario, CA', at('Ontario', 'CA')), false);
+  assert.equal(goes('Canada, KY', at('Canada', 'KY')), false, 'a town named like a country');
+  assert.equal(goes('USA', austin), false, 'a country alone names nothing');
+  // A country goes only after a state or province of its own, so La Cañada isn't Louisiana.
+  for (const places of ['La Canada', 'La Cañada', 'La Canada, USA']) {
+    assert.equal(goes(places, at('Baton Rouge', 'LA')), true, places);
+    assert.equal(goes(places, at('La Cañada', 'CA')), false, places);
+  }
+  assert.equal(goes('Quebec Canada', at('Montreal', 'QC')), false);
+  assert.equal(goes('Toronto Canada', at('Toronto', 'ON')), false);
+  // A city named like the other country's state or province, and endings that don't agree.
+  for (const places of ['Ontario USA', 'Ontario 91761']) assert.equal(goes(places, at('Ontario', 'CA')), false, places);
+  assert.equal(goes('New Brunswick 08901', at('New Brunswick', 'NJ')), false);
+  assert.equal(goes('Delaware Canada', at('Delaware', 'ON')), false);
+  assert.equal(goes('Toronto ON USA', at('Toronto', 'ON')), false);
+  assert.equal(goes('Austin TX Canada', austin), false);
+  assert.equal(goes('Toronto, ON 78701', at('Toronto', 'ON')), false, 'a ZIP code always goes');
+  // An empty list changes nothing, and a listing that doesn't say both its city and its state stays.
+  assert.equal(goes('', austin), false);
+  assert.equal(goes(' \n ; ', austin), false);
+  assert.equal(goes('Dallas, TX', at('Austin', '')), false);
+  assert.equal(goes('Dallas, TX', at('', 'TX')), false);
+  assert.equal(goes('Dallas, TX', edgeListing({ node: { __typename: 'MarketplaceFeedListingStoryObject', listing: { id: '2' } } })), false);
+});
+
+test('the search answer loses the listings outside your places, and keeps its cursors and its next page', async () => {
+  const [line] = await fixtureLines('marketplace-search.jsonl');
+  const before = parseLine(line);
+  const edges = searchEdges(before);
+  const outside = edges.filter((edge) => edge.node?.__typename === 'MarketplaceFeedListingStoryObject' && geocode(listingOf(edge)).city !== 'Kettle').map((edge) => listingOf(edge).id);
+  assert.equal(outside.length, 12, 'the capture has 12 listings outside Kettle');
+  const { rule, filtered, diagnostics } = setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.places': 'kettle,  PEBBLE' });
+  const doc = parseLine(line);
+  assert.equal(rule.transform(doc, SEARCH), true);
+  const after = searchEdges(doc);
+  assert.deepEqual(edges.filter((edge, i) => !after[i].node).map((edge) => listingOf(edge).id), outside);
+  assert.ok(after.every((edge, i) => edge.cursor === edges[i].cursor), 'cursors stay');
+  assert.deepEqual(doc.data.marketplace_search.feed_units.page_info, before.data.marketplace_search.feed_units.page_info, 'the next page loads as before');
+  assert.equal(filtered(), '12 outside your places');
+  assert.deepEqual(diagnostics.decisions().map((d) => d.signal), Array(12).fill('places'));
+
+  // A list every listing is inside, or an empty one, changes nothing.
+  for (const places of ['Pebble', ' \n ']) {
+    const untouched = parseLine(line);
+    assert.equal(setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.places': places }).rule.transform(untouched, SEARCH), false, JSON.stringify(places));
+    assert.deepEqual(untouched, before);
+  }
+});
+
+test("Today's picks hides the cards outside your places, and the streamed home feed takes them out of the data", async () => {
+  const [line] = await fixtureLines('marketplace-picks.jsonl');
+  const listings = picksOf(parseLine(line));
+  const places = 'Kettle, Pebble\nGarden';
+  const inside = (listing) => (geocode(listing).city === 'Kettle' && geocode(listing).state === 'Pebble') || geocode(listing).state === 'Garden';
+  const outside = listings.filter((listing) => !inside(listing)).map((listing) => listing.id);
+  assert.equal(outside.length, 14);
+  // Drawn on the server: nothing leaves the page's own data, and the cards go instead.
+  const { doc, router, marked } = marketplacePage('https://www.facebook.com/marketplace/', listings);
+  doc.documentElement.dataset.hfwRoute = 'marketplace';
+  const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/marketplace/' } };
+  const net = installNetworkHooks({ win, log: quiet });
+  const page = setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.places': places }, { doc, router });
+  net.transformResponses(page.rule);
+  assert.deepEqual(win.JSON.parse(line), parseLine(line), 'nothing leaves the data');
+  await tick();
+  assert.deepEqual(marked(), outside);
+  assert.equal(page.filtered(), '14 outside your places');
+  // Fetched over GraphQL, the same unit loses them from its list.
+  const fetched = parseLine(line);
+  assert.equal(setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.places': places }).rule.transform(fetched, SEARCH), true);
+  assert.deepEqual(picksOf(fetched).map((listing) => listing.id), listings.filter(inside).map((listing) => listing.id));
+
+  // The home feed's streamed listings keep their place on the node's entity. The two that go come
+  // in chunks of their own, which keep their cursors, and the last chunk's next page stays.
+  const lines = await fixtureLines('MarketplaceCometBrowseFeedLightPaginationQuery.jsonl');
+  const { rule, filtered } = setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.places': 'River falcon, Pebble' });
+  const gone = [];
+  let cursors = 0;
+  for (const chunk of lines) {
+    const answer = parseLine(chunk);
+    const nodes = [];
+    JSON.stringify(answer, (key, value) => {
+      if (value?.__typename === 'MarketplaceFeedGeneralListingObject') nodes.push(value);
+      return value;
+    });
+    rule.transform(answer, SEARCH);
+    if (nodes.length && !JSON.stringify(answer).includes('"MarketplaceFeedGeneralListingObject"')) {
+      gone.push(...nodes.map((node) => edgeListing({ node }).place));
+      assert.ok(answer.data.cursor === parseLine(chunk).data.cursor && !('node' in answer.data), 'the chunk keeps its cursor');
+      cursors += 1;
+    }
+    if (answer.data?.page_info) assert.equal(answer.data.page_info.has_next_page, true, 'the next page still loads');
+  }
+  assert.deepEqual(gone, [{ city: 'island', state: 'pebble' }, { city: 'island', state: 'pebble' }]);
+  assert.equal(cursors, 2);
+  assert.equal(filtered(), '2 outside your places');
+});
+
+test('pages that lose every listing end the list after EMPTY_PAGES in a row, and a page that keeps one starts the count again', async () => {
+  const lines = await fixtureLines('MarketplaceCometBrowseFeedLightPaginationQuery.jsonl');
+  const heard = [];
+  const { rule, store, diagnostics } = setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.places': 'Nowhere, ZZ' }, { subscribe: (fn) => heard.push(fn) });
+  // One streamed answer, each its own request, and whether its last line still offers more. The
+  // lines go through the rule's markers as they do on the page: the page_info line has none of
+  // the listing names.
+  const fetched = () => ({ ...SEARCH, friendlyName: 'MarketplaceCometBrowseFeedLightPaginationQuery' });
+  const answer = (ctx = fetched()) => {
+    let more;
+    for (const chunk of lines) {
+      const out = transformDocumentLine(chunk, [rule], ctx);
+      const doc = parseLine(out);
+      if (doc.data?.page_info) {
+        more = doc.data.page_info.has_next_page;
+        assert.equal(out !== chunk, !more, 'the page_info line changes only when the list ends there');
+      }
+    }
+    return more;
+  };
+  const run = (count, ctx) => Array.from({ length: count }, () => answer(ctx?.()));
+  // What the page parses on its own (drawn on the server) neither counts nor ends the list.
+  const inline = Object.freeze({ transport: 'json-parse', method: '', url: '', host: '', path: '', friendlyName: '' });
+  assert.deepEqual(run(EMPTY_PAGES + 1, () => inline), Array(EMPTY_PAGES + 1).fill(true));
+  assert.deepEqual(run(EMPTY_PAGES - 1), Array(EMPTY_PAGES - 1).fill(true));
+  // Changing a setting starts the count again.
+  for (const fn of heard) fn();
+  assert.deepEqual(run(EMPTY_PAGES - 1), Array(EMPTY_PAGES - 1).fill(true), 'after a settings change');
+  store.set('filterMarketplace.places', 'Island, Pebble');
+  assert.equal(answer(), true, 'a page that keeps a listing');
+  store.set('filterMarketplace.places', 'Nowhere, ZZ');
+  assert.deepEqual(run(EMPTY_PAGES - 1), Array(EMPTY_PAGES - 1).fill(true), 'the count started again');
+  assert.equal(answer(), false, 'the tenth empty page in a row is the last');
+  assert.equal(diagnostics.decisions().filter((d) => d.signal === 'no more pages').length, 1);
+  assert.equal(answer(), true, 'and the count starts again after it');
+
+  // A search answer carries its page_info with its listings.
+  const [line] = await fixtureLines('marketplace-search.jsonl');
+  const search = setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.places': 'Nowhere, ZZ' });
+  const ends = Array.from({ length: EMPTY_PAGES }, () => {
+    const doc = parseLine(line);
+    search.rule.transform(doc, { ...SEARCH });
+    return doc.data.marketplace_search.feed_units.page_info.has_next_page;
+  });
+  assert.deepEqual(ends, [...Array(EMPTY_PAGES - 1).fill(true), false]);
+  // Leaving the page starts the count again.
+  const listeners = [];
+  const moved = setup({ 'filterMarketplace.shipped': false, 'filterMarketplace.places': 'Nowhere, ZZ' }, { router: { current: () => parseRoute(SEARCH_PAGE), subscribe: (fn) => listeners.push(fn) } });
+  const searchOnce = () => {
+    const doc = parseLine(line);
+    moved.rule.transform(doc, { ...SEARCH });
+    return doc.data.marketplace_search.feed_units.page_info.has_next_page;
+  };
+  for (let i = 1; i < EMPTY_PAGES; i++) searchOnce();
+  for (const fn of listeners) fn();
+  assert.equal(searchOnce(), true);
 });
 
 test('with every option off the rule leaves the answer alone', async () => {

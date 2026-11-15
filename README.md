@@ -1,7 +1,7 @@
 ![HushFacebook Web, a quieter Facebook feed. The same Home feed twice, first with an ad at the top, then with Calm theme on and the ad and a suggested post folded into short notes.](assets/readme-hero.jpg)
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.0.28-8ABFFF" alt="Version 0.0.28">
+  <img src="https://img.shields.io/badge/version-0.0.29-8ABFFF" alt="Version 0.0.29">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
   <img src="https://img.shields.io/badge/platform-userscript%20%7C%20Chrome%20extension-1877F2" alt="Platform userscript or Chrome extension">
   <img src="https://img.shields.io/badge/for-Tampermonkey%20%7C%20Violentmonkey-00485B" alt="For Tampermonkey or Violentmonkey">
@@ -17,7 +17,7 @@
 
 HushFacebook Web removes ads and suggested posts from Facebook in a desktop browser. It also adds downloads, privacy switches and playback controls. Run it as a userscript or a Chrome extension. Both use the same code and follow the features in [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app.
 
-It's still early. The current release is 0.0.28 at [Releases](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest), and the [changelog](CHANGELOG.md) lists what changed in each version. [Feature parity](docs/feature-parity.md) explains how each Android patch carries over to the web.
+It's still early. The current release is 0.0.29 at [Releases](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest), and the [changelog](CHANGELOG.md) lists what changed in each version. [Feature parity](docs/feature-parity.md) explains how each Android patch carries over to the web.
 
 ## Install
 
@@ -88,7 +88,7 @@ Every switch starts off except the ones that only remove things nobody asked for
 
 - **News feed:** Hide sponsored posts, Hide suggested posts, Hide reel rows in the feed, Hide Stories tray, Hide the post box on groups and profiles, Hide posts by words, Hide seen posts, Keep posts you hide hidden, Hide repeats of a post already on the page, Hide AI-detected posts, Show full post dates, Keep your place in the feed, Load more posts ahead, Show progress while posts load, Hide Follow and Join buttons, Expand long posts.
 - **Reels:** Hide sponsored reels, Don't send watch history, Clean up Reels, Hold a reel for 2x.
-- **Search and Marketplace:** Hide sponsored search results, Don't save search history, Hide sponsored Marketplace listings, Filter Marketplace listings (Ships to you, price range, word lists, ones you've opened), View profile on Marketplace sellers, Marketplace only.
+- **Search and Marketplace:** Hide sponsored search results, Don't save search history, Hide sponsored Marketplace listings, Filter Marketplace listings (Ships to you, price range, places, word lists, ones you've opened), View profile on Marketplace sellers, Marketplace only.
 - **Messages and privacy:** Hide read receipts, Hide typing indicator, Hide that you're writing a comment, View stories anonymously, Hold back usage logs, Block ad telemetry, Sanitize sharing links, Skip Facebook's link redirect, Trim the share menu, Open Messenger as a full page. (Read receipt and typing switches can't reach end-to-end encrypted chats.)
 - **Comments:** Default comment order, Show every reply, Hide GIF and sticker buttons, Hide the video comment box, Tag suggestions only after @, Show comments as written, Hide when others are writing a comment.
 - **Notifications and navigation:** Hide kinds of notifications, Keep your Notifications filter, Following feed on Home, Open on a chosen tab, Hide tabs, Hide tab badges, Hide the New message button.

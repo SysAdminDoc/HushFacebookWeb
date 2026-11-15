@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.29 (2026-11-15, unreleased)
+
+* Filter Marketplace listings can now show only listings from the places you name. Write one per line, a city and state like "Austin, TX" or just a state like "TX", and listings from anywhere else go, whatever Facebook's own location setting lets through. US states and Canadian provinces and territories work written out in full too (French names included). Case, extra spaces, accents and dots don't matter, and a country or ZIP code on the end ("Toronto, ON, Canada", "Austin, TX 78701") is fine. A listing that doesn't say its city and state stays. It covers search, Today's picks and the home feed, and the next page still loads as you scroll. When ten pages in a row lose every listing to the filter, Marketplace stops loading more, since Facebook would otherwise keep fetching one empty page after another.
+
 ## v0.0.28 (2026-11-15, unreleased)
 
 * Saved photos no longer carry Facebook's ID. Facebook writes a code starting with FBMD into the photos it serves (the IPTC Special Instructions field), and it ended up in your downloads untouched. Now a photo is fetched first and saved without it. Only the ID and the small block Facebook keeps it in come out, and the picture itself isn't touched. If the photo can't be fetched that way, it's saved the old way, ID and all, so this never costs you a save. Checked on 2026-11-15 against a photo Facebook served: 134 bytes smaller, no FBMD left, and it opens the same. In Tampermonkey a photo usually no longer brings up the tab asking to allow downloads, since it only goes through the manager's download when that fetch fails.

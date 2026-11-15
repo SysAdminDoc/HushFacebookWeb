@@ -1,6 +1,7 @@
 // Takes Marketplace listings you don't want out of Facebook's data before it draws them, the way
 // Hide sponsored Marketplace listings takes out ads: listings that ship to you from somewhere
-// else, listings on your Hide posts by words lists, and listings outside a price range.
+// else, listings on your Hide posts by words lists, listings outside a price range, and listings
+// from places you didn't name.
 //
 // Live 2026-11-03 (signed in, script off), listings come in three shapes:
 // - Marketplace's home starts with Today's picks, an inline MarketplaceFeedTopPicksUnit whose
@@ -25,6 +26,16 @@
 // seller on the always-show people list keeps their listings from both, as in Hide posts by
 // words. A listing with no price that can be read stays, whatever the range.
 //
+// Every listing shape carries its place as location.reverse_geocode {city, state}: on the listing
+// for stories and Today's picks, on the node's entity for the streamed feed (47 of 47 fixture
+// listings). The card shows it as "Austin, TX", and a state is matched by its letters or its name
+// either way round. A listing that doesn't say both its city and its state stays, since it can't
+// be told apart from one inside.
+//
+// A page that loses every listing leaves nothing on screen, so the end of the list stays in view
+// and Facebook asks for the next one straight away (live 2026-11-15, a places list nothing
+// matched: 5 pages in 12 idle seconds). After EMPTY_PAGES of those in a row the list ends.
+//
 // Hide listings you've opened keeps the ids of the listing pages you open while it's on, for each
 // account (src/core/activity.js). A listing's opened state is read when Facebook's data for it
 // arrives, so the one you just opened is still there when you go back to the results, and goes
@@ -46,6 +57,9 @@ const SHIPPING = new Set(['SHIPPING_ONSITE', 'SHIPPING_OFFSITE']);
 // (developers.facebook.com/docs/marketing-api/currencies).
 const WHOLE_UNITS = new Set(['CLP', 'COP', 'CRC', 'HUF', 'ISK', 'IDR', 'JPY', 'KRW', 'PYG', 'TWD', 'VND']);
 const DRAWN_KEPT = 500;
+// Facebook asks for the next page while the end of the list is in view, so pages that lose every
+// listing would keep it asking for good. After this many in a row, the list ends there.
+export const EMPTY_PAGES = 10;
 // The listings you opened, by id, with when you last opened each (extension/isolated.js checks
 // the shape).
 export const OPENED_KEY = 'filterMarketplace.opened';
@@ -54,7 +68,7 @@ export const MAX_OPENED = 1000;
 const ITEM_PAGE = /^\/marketplace\/item\/(\d{1,32})(?!\d)/;
 
 // How Diagnostics names each reason, in the order they're checked.
-export const REASONS = { shipped: 'ships to you', opened: 'opened before', price: 'outside the price range', words: 'on the word list', people: 'seller on the people list' };
+export const REASONS = { shipped: 'ships to you', opened: 'opened before', price: 'outside the price range', places: 'outside your places', words: 'on the word list', people: 'seller on the people list' };
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = (value) => (typeof value === 'string' ? value : '');
@@ -68,6 +82,107 @@ const ships = (listing) => isObject(listing) && (
   || listing.is_partner_listing === true
 );
 
+// US states, DC, Puerto Rico and Canada's provinces and territories by name, so a state written
+// out in the places list finds a listing placed by its letters, and the other way round.
+const REGIONS = new Map(Object.entries({
+  alabama: 'al', alaska: 'ak', arizona: 'az', arkansas: 'ar', california: 'ca', colorado: 'co', connecticut: 'ct', delaware: 'de',
+  'district of columbia': 'dc', florida: 'fl', georgia: 'ga', hawaii: 'hi', idaho: 'id', illinois: 'il', indiana: 'in', iowa: 'ia',
+  kansas: 'ks', kentucky: 'ky', louisiana: 'la', maine: 'me', maryland: 'md', massachusetts: 'ma', michigan: 'mi', minnesota: 'mn',
+  mississippi: 'ms', missouri: 'mo', montana: 'mt', nebraska: 'ne', nevada: 'nv', 'new hampshire': 'nh', 'new jersey': 'nj',
+  'new mexico': 'nm', 'new york': 'ny', 'north carolina': 'nc', 'north dakota': 'nd', ohio: 'oh', oklahoma: 'ok', oregon: 'or',
+  pennsylvania: 'pa', 'puerto rico': 'pr', 'rhode island': 'ri', 'south carolina': 'sc', 'south dakota': 'sd', tennessee: 'tn',
+  texas: 'tx', utah: 'ut', vermont: 'vt', virginia: 'va', washington: 'wa', 'west virginia': 'wv', wisconsin: 'wi', wyoming: 'wy',
+  alberta: 'ab', 'british columbia': 'bc', manitoba: 'mb', 'new brunswick': 'nb', 'newfoundland and labrador': 'nl',
+  'nova scotia': 'ns', 'northwest territories': 'nt', nunavut: 'nu', ontario: 'on', 'prince edward island': 'pe', quebec: 'qc',
+  saskatchewan: 'sk', yukon: 'yt',
+  // The provinces' French names, and short forms people write.
+  'colombie britannique': 'bc', 'nouveau brunswick': 'nb', 'terre neuve et labrador': 'nl', newfoundland: 'nl',
+  'nouvelle ecosse': 'ns', 'territoires du nord ouest': 'nt', nwt: 'nt', 'ile du prince edouard': 'pe', pei: 'pe',
+}));
+// Each region's first name above, its English one.
+const REGION_NAMES = new Map();
+for (const [name, code] of REGIONS) if (!REGION_NAMES.has(code)) REGION_NAMES.set(code, name);
+// Letters with no accent to drop that people often write plain.
+const FOLDS = { ı: 'i', ł: 'l', ø: 'o', đ: 'd', ß: 'ss', æ: 'ae', œ: 'oe' };
+// A place the way the list compares it: no case, accents, apostrophes or quotes, dots between
+// single letters dropped ("D.C."), other dots and every dash read as spaces, one space between
+// words.
+const plain = (value) => text(value).replace(/´/g, "'").normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '').toLowerCase()
+  .replace(/[ıłøđßæœ]/g, (letter) => FOLDS[letter])
+  .replace(/(?<!\p{L})\p{L}(?:\.\p{L})+\.?(?!\p{L})/gu, (letters) => letters.replaceAll('.', ''))
+  .replace(/[\p{Pi}\p{Pf}'`ʼʻ]/gu, '')
+  .replace(/[\s.\p{Pd}]+/gu, ' ')
+  .trim();
+const region = (value) => REGIONS.get(value) ?? value;
+const CANADA = new Set(['ab', 'bc', 'mb', 'nb', 'nl', 'ns', 'nt', 'nu', 'on', 'pe', 'qc', 'sk', 'yt']);
+// The state or province a place ends with, by its letters or any of its names (the longest
+// first, so "West Virginia" isn't Virginia), and the words before it.
+function endingRegion(part) {
+  const words = part.split(' ');
+  for (let count = Math.min(words.length, 4); count > 0; count--) {
+    const name = words.slice(-count).join(' ');
+    const code = REGIONS.get(name) ?? (REGION_NAMES.has(name) ? name : null);
+    if (code) return { before: words.slice(0, -count).join(' '), code };
+  }
+  return null;
+}
+// What can follow a place without being part of it: the country (the list only knows US and
+// Canadian places) or a ZIP or postal code. A country stays when all that's before it is the
+// other country's state letters, so "La Canada" is a city and not Louisiana. CA stays California.
+const ENDINGS = [
+  [/ ?\b(?:us|usa|united states(?: of america)?|america)$/, 'us'],
+  [/ ?\bcanada$/, 'ca'],
+  [/ ?\b\d{5}(?: \d{4})?$/],
+  [/ ?\b[a-z]\d[a-z] ?\d[a-z]\d$/],
+];
+const bare = (part) => {
+  for (let before = ''; before !== part;) {
+    before = part;
+    for (const [ending, country] of ENDINGS) {
+      const rest = part.replace(ending, '').trim();
+      if (rest === part || (country && REGION_NAMES.has(rest) && (CANADA.has(rest) ? 'ca' : 'us') !== country)) continue;
+      part = rest;
+    }
+  }
+  return part;
+};
+
+// A listing's city and state, compared plain, or null when it doesn't say both.
+function placeOf(geocode) {
+  const city = plain(geocode?.city);
+  const state = region(plain(geocode?.state));
+  return city && state ? { city, state } : null;
+}
+
+// The places list: one "City, ST" or "ST" per line (or between semicolons). After a comma comes
+// the state, as its letters or its name. A country or a ZIP code at the end is left out, after a
+// comma or not ("Ontario, Canada", "Austin, TX 78701"), and so is anything after a second comma.
+// A line without a comma names a city or a state, or a city and its state, by any of its names,
+// with a space between them ("Austin TX", "Yellowknife NWT").
+export function compilePlaces(value) {
+  const places = [];
+  for (const line of text(value).split(/[\n;]/)) {
+    const parts = line.split(',').map(plain).filter(Boolean);
+    while (parts.length && bare(parts.at(-1)) !== parts.at(-1)) {
+      const rest = bare(parts.at(-1));
+      if (rest) parts[parts.length - 1] = rest;
+      else parts.pop();
+    }
+    const [first = '', second = ''] = parts;
+    if (second) places.push({ city: first, state: region(second) });
+    else if (first) {
+      places.push({ either: first, state: region(first) });
+      const at = endingRegion(first);
+      if (at?.before) places.push({ city: at.before, state: at.code });
+    }
+  }
+  return places;
+}
+
+const inPlace = (place, at) => (place.either === undefined
+  ? (!place.city || place.city === at.city) && place.state === at.state
+  : place.either === at.city || place.state === at.state || place.either === `${at.city} ${at.state}`);
+
 // What a listing (GroupCommerceProductItem or ProductItem) says about itself.
 export function fromListing(listing) {
   return {
@@ -76,6 +191,7 @@ export function fromListing(listing) {
     seller: text(listing.marketplace_listing_seller?.name),
     price: number(listing.listing_price?.amount),
     shipped: ships(listing),
+    place: placeOf(listing.location?.reverse_geocode),
   };
 }
 
@@ -88,6 +204,7 @@ function fromGeneral(node) {
     seller: '',
     price: amount === null ? null : amount / (WHOLE_UNITS.has(price.currency) ? 1 : 100),
     shipped: node.is_partner_listing === true || ships(node.listing),
+    place: placeOf(node.entity?.location?.reverse_geocode ?? node.listing?.location?.reverse_geocode),
   };
 }
 
@@ -98,6 +215,17 @@ export function edgeListing(edge) {
   if (STORIES.has(node.__typename) && isObject(node.listing)) return fromListing(node.listing);
   if (node.__typename === GENERAL) return fromGeneral(node);
   return null;
+}
+
+// The page_info of a Marketplace list in doc while it says there's more: the home feed's, inline
+// or in a deferred chunk of its own ({path: ['marketplace_home_feed'], data: {page_info}}, the
+// stream's last line), or a search's.
+function morePages(doc) {
+  const data = doc?.data;
+  const info = Array.isArray(doc?.path) && doc.path.at(-1) === 'marketplace_home_feed'
+    ? data?.page_info
+    : data?.marketplace_home_feed?.page_info ?? data?.marketplace_search?.feed_units?.page_info;
+  return isObject(info) && info.has_next_page === true ? info : null;
 }
 
 // Digits split into groups by sep: 1 to 3 digits (not a lone 0), then groups of 2 or 3 (Indian
@@ -146,12 +274,13 @@ export function priceLimit(value) {
 }
 
 // The reason a listing goes, one of REASONS' keys, or null. filter holds shipped and opened
-// (booleans), min and max (numbers or null), and words, people and showPeople (compiled lists,
-// or null when the lists are off).
+// (booleans), min and max (numbers or null), places (compilePlaces' list, empty for anywhere),
+// and words, people and showPeople (compiled lists, or null when the lists are off).
 export function reasonFor(listing, filter) {
   if (filter.shipped && listing.shipped) return 'shipped';
   if (filter.opened && listing.opened) return 'opened';
   if (listing.price !== null && ((filter.min !== null && listing.price < filter.min) || (filter.max !== null && listing.price > filter.max))) return 'price';
+  if (filter.places?.length && listing.place && !filter.places.some((place) => inPlace(place, listing.place))) return 'places';
   if (!filter.words || (listing.seller && matchingNames(filter.showPeople, [listing.seller]).length)) return null;
   if (firstMatch(filter.words, [listing.title, listing.seller])) return 'words';
   if (listing.seller && matchingNames(filter.people, [listing.seller]).length) return 'people';
@@ -224,6 +353,7 @@ export default {
     { key: 'words', type: 'toggle', label: 'Hide listings whose title or seller is on your Hide posts by words lists', default: false },
     { key: 'minPrice', type: 'text', lines: 1, label: 'Lowest price to show. Leave it empty for no limit', default: '', maxLength: 16 },
     { key: 'maxPrice', type: 'text', lines: 1, label: 'Highest price to show. Leave it empty for no limit', default: '', maxLength: 16 },
+    { key: 'places', type: 'text', label: 'Show only listings from these places. One per line, a city and state like Austin, TX or a state like TX. Leave it empty for anywhere', default: '', maxLength: 2000 },
   ],
 
   css: LISTING_CSS,
@@ -243,6 +373,12 @@ export default {
       if (Number.isNaN(max)) max = null;
       return min !== null && max !== null && min > max ? [max, min] : [min, max];
     };
+    let places = { text: '', list: [] };
+    const compiledPlaces = () => {
+      const value = option('places') ?? '';
+      if (places.text !== value) places = { text: value, list: compilePlaces(value) };
+      return places.list;
+    };
     const filter = () => {
       const [min, max] = limits();
       const lists = option('words') === true;
@@ -251,12 +387,13 @@ export default {
         opened: option('opened') === true,
         min,
         max,
+        places: compiledPlaces(),
         words: lists ? words(settings.get('hidePostsByWords.words') ?? '').rules : null,
         people: lists ? compiledNames('people') : [],
         showPeople: lists ? compiledNames('showPeople') : [],
       };
     };
-    const filtering = (current) => current.shipped || current.opened || Boolean(current.words) || current.min !== null || current.max !== null;
+    const filtering = (current) => current.shipped || current.opened || Boolean(current.words) || current.min !== null || current.max !== null || current.places.length > 0;
     const opened = () => {
       const all = storage?.get(OPENED_KEY, {});
       return all && typeof all === 'object' && !Array.isArray(all) ? all : {};
@@ -289,6 +426,10 @@ export default {
       drawn.set(listing.id, { listing, counted: known?.counted ?? false });
       if (drawn.size > DRAWN_KEPT) drawn.delete(drawn.keys().next().value);
     };
+    // What each answer brought so far, by request ({seen, taken} listings across its streamed
+    // lines), and how many pages in a row lost every listing.
+    const pages = new WeakMap();
+    let emptyPages = 0;
     let cards = null;
     if (doc && router) {
       cards = watchListingCards({
@@ -310,10 +451,12 @@ export default {
       });
     }
     settings.subscribe?.(() => {
+      emptyPages = 0;
       recordOpened();
       cards?.check();
     });
     router?.subscribe?.(() => {
+      emptyPages = 0;
       recordOpened();
       cards?.check();
     });
@@ -336,7 +479,7 @@ export default {
     net.transformResponses({
       id: 'filterMarketplace',
       enabled,
-      markers: [...STORIES, GENERAL, PICKS].map((typename) => `"${typename}"`),
+      markers: [...STORIES, GENERAL, PICKS, 'marketplace_home_feed'].map((name) => `"${name}"`),
       match: (ctx) => ctx.transport === 'json-parse' || ctx.path.startsWith('/api/graphql'),
       transform(answer, ctx, stage) {
         const current = filter();
@@ -354,18 +497,35 @@ export default {
           return true;
         } : undefined;
         const decisions = [];
-        const taken = filterListings(answer, (listing) => reasonFor(read(listing), current), (listing, reason) => {
+        let seen = 0;
+        const taken = filterListings(answer, (listing) => {
+          seen += 1;
+          return reasonFor(read(listing), current);
+        }, (listing, reason) => {
           decisions.push({ post: listing.id || null, rule: 'Filtered listing', signal: reason, layer: 'data' });
         }, keep);
-        if (!taken.length && !kept.length) return false;
+        // A page's listings and its page_info can come on different lines, so the answer's count
+        // is kept until its page_info shows up.
+        const fetched = ctx.transport !== 'json-parse';
+        const info = fetched ? morePages(answer) : null;
+        const page = fetched ? pages.get(ctx) ?? { seen: 0, taken: 0 } : null;
+        const pageSeen = (page?.seen ?? 0) + seen;
+        const pageTaken = (page?.taken ?? 0) + taken.length;
+        const empty = Boolean(info) && pageSeen > 0 && pageTaken === pageSeen;
+        const stop = empty && emptyPages + 1 >= EMPTY_PAGES;
+        if (stop) info.has_next_page = false;
+        if (!taken.length && !kept.length && !info && !(fetched && seen)) return false;
         later(stage, () => {
+          if (fetched && seen) pages.set(ctx, { seen: pageSeen, taken: pageTaken });
+          if (info) emptyPages = stop ? 0 : empty ? emptyPages + 1 : pageTaken < pageSeen ? 0 : emptyPages;
+          if (stop) diagnostics?.decide({ post: null, rule: 'Filtered listing', signal: 'no more pages', layer: 'data' });
           for (const listing of kept) remember(listing);
           for (const reason of taken) count(reason);
           for (const decision of decisions) diagnostics?.decide(decision);
           if (taken.length) diagnostics?.changed();
           if (kept.length) cards?.check();
         });
-        return taken.length > 0;
+        return taken.length > 0 || stop;
       },
     });
 
