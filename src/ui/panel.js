@@ -1398,10 +1398,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   let lastErrorNotice = null;
   // Once the extension is gone from this tab every save fails the same way, so one notice with a
   // Reload button stands for all of them. It stays until used or dismissed, and comes back only
-  // when something you did needed it.
+  // when something you did needed it (force: a settings action, or a save from the page).
   let reloadNotice = null;
   const announceReload = (force = false) => {
-    if (reloadNotice && !force) return;
+    if (reloadNotice && !force) return reloadNotice;
     reloadNotice?.dismiss();
     lastErrorNotice?.dismiss();
     reloadNotice = toast(t('HushFacebook Web was updated. Reload this page to keep saving your changes.'), {
@@ -1412,6 +1412,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         { label: 'Dismiss', run: () => {} },
       ],
     });
+    return reloadNotice;
   };
   // A failure the reload caused goes under the reload notice, even one (a download, say) that
   // found out before the storage did. After a reload, so does one logged before the panel could
@@ -1512,5 +1513,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (dialog.open) render();
   };
   reopenAfterReload();
-  return { open, close, toast, refresh, copyReport };
+  // For notices from the page. reload: true is the one reload notice (the message isn't used),
+  // put back even after a dismiss, since what the person just did needed it.
+  const notice = (message, options) => (options?.reload ? announceReload(true) : toast(message, options));
+  return { open, close, toast: notice, refresh, copyReport };
 }

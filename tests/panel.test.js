@@ -2266,6 +2266,28 @@ test('a failure the reload caused shows the reload notice even before the storag
   assert.match(notices[0], /HushFacebook Web was updated/);
 });
 
+test('a dismissed reload notice comes back for a save from the page, and not for a failure nobody asked for', async () => {
+  const gone = Object.assign(new Error('Extension context invalidated.'), { code: EXTENSION_RELOADED });
+  const storage = { status: () => ({ state: 'error', error: gone }), onStatus(listener) { listener(this.status()); }, async retry() { return false; } };
+  const { shadow, panel, log } = setup({ environment: { storage, reload() {} } });
+  await tick();
+  const notices = () => [...shadow.querySelectorAll('.toast')];
+  assert.equal(notices().length, 1);
+  button(shadow, 'Dismiss').click();
+  assert.equal(notices().length, 0);
+  log.error("A setting couldn't be saved in the extension", gone);
+  await tick();
+  assert.equal(notices().length, 0, 'it stays dismissed for a save the page made on its own');
+  // In the order the download does it: the notice, then its error in the log.
+  panel.toast(null, { reload: true, tone: 'error' });
+  log.error("Couldn't save a photo or video", gone);
+  await tick();
+  assert.equal(notices().length, 1);
+  assert.match(notices()[0].textContent, /HushFacebook Web was updated/);
+  panel.toast(null, { reload: true, tone: 'error' });
+  assert.equal(notices().length, 1, 'another save puts up the same one notice, not a second');
+});
+
 test('after a reload, a failure whose code throws when read still gets its own notice', async () => {
   const gone = Object.assign(new Error('Extension context invalidated.'), { code: EXTENSION_RELOADED });
   const storage = { status: () => ({ state: 'error', error: gone }), onStatus(listener) { listener(this.status()); }, async retry() { return false; } };

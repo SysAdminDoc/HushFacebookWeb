@@ -1639,8 +1639,8 @@ test('a failed save says why in one notice and keeps the details for Diagnostics
   assert.deepEqual(toasts, [["Couldn't save it: it went past the transfer limit. Try a lower quality.", 'error']]);
 });
 
-// The panel shows a reload-coded error as its one reload notice with Reload on it, so a save the
-// reload stopped logs that and toasts nothing of its own.
+// A save the reload stopped asks the panel for its one reload notice with Reload on it (put back
+// even after a dismiss), before logging the error, and toasts nothing of its own.
 test('a save the extension reload stopped goes to the reload notice, and a reason with its own full stop gets one', async () => {
   const win = page(POST('<a href="/photo/?fbid=9999999"><img></a>'));
   const doc = win.document;
@@ -1662,7 +1662,8 @@ test('a save the extension reload stopped goes to the reload notice, and a reaso
     win, doc, api, net: { transformResponses: (rule) => rules.push(rule) }, router: { current: () => ({ href: win.location.href }) },
     log: Object.fromEntries(['error', 'warn', 'info'].map((level) => [level, (message, detail) => logged.push([level, message, detail?.code])])),
     toast: (message, options) => {
-      toasts.push([message, options?.tone]);
+      // How much was logged by then, so the order shows.
+      toasts.push(options?.reload ? ['reload', logged.length] : [message, options?.tone]);
       return { dismiss() {} };
     },
     enabled: () => true,
@@ -1672,8 +1673,10 @@ test('a save the extension reload stopped goes to the reload notice, and a reaso
   const shared = downloads({ doc });
   const save = () => shared.run(findMedia(doc.querySelector('img'), { href: win.location.href, index: shared.index }), doc.body);
   await save();
-  assert.deepEqual(toasts, []);
+  assert.deepEqual(toasts, [['reload', 0]]);
   assert.deepEqual(logged, [['error', "Couldn't save a photo or video", EXTENSION_RELOADED]]);
+
+  toasts.length = 0;
 
   logged.length = 0;
   managerError = { error: 'the browser refused it.', final: true };
@@ -1687,6 +1690,26 @@ test('a save the extension reload stopped goes to the reload notice, and a reaso
   managerError = { error: 'the browser refused it.' };
   api.request = () => {
     throw 'boom https://scontent.xx.fbcdn.net/v/Pat.jpg';
+  };
+  await save();
+  assert.deepEqual(toasts, [["Couldn't save it: the download stopped.", 'error']]);
+  assert.deepEqual(logged.map(([level]) => level), ['warn']);
+
+  // Nor does an object that only looks like an error, and a reason with no words keeps the sentence whole.
+  for (const thrown of [{ message: 'https://scontent.xx.fbcdn.net/v/Pat.jpg' }, new Error(' . ')]) {
+    toasts.length = 0;
+    api.request = () => {
+      throw thrown;
+    };
+    await save();
+    assert.deepEqual(toasts, [["Couldn't save it: the download stopped.", 'error']]);
+  }
+
+  // Nothing thrown at all still ends as a failed save, not a saved one.
+  toasts.length = 0;
+  logged.length = 0;
+  api.request = () => {
+    throw null;
   };
   await save();
   assert.deepEqual(toasts, [["Couldn't save it: the download stopped.", 'error']]);

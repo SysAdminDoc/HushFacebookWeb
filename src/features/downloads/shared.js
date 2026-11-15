@@ -12,6 +12,8 @@ import { createMediaIndex, MEDIA_MARKERS } from '../../core/media-index.js';
 
 const instances = new WeakMap();
 const NOTICE_AFTER = 1500;
+// An error from another realm (a manager's sandbox, say) fails instanceof, so its tag counts too.
+const isError = (value) => value instanceof Error || Object.prototype.toString.call(value) === '[object Error]';
 
 export const QUALITY_OPTION = {
   key: 'quality', type: 'select', label: 'Video quality', default: 'best',
@@ -75,17 +77,20 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
       }
       failed++;
       // The file name carries the poster's name, so it stays out of the message. One the reload
-      // stopped is an error, which the panel shows as its one reload notice with Reload on it.
+      // stopped is the panel's one reload notice with Reload on it, put back even if it was
+      // dismissed, since this click needed it. The error is logged after, so the panel doesn't
+      // raise that notice twice.
       if (error?.code === EXTENSION_RELOADED) {
+        toast?.(null, { reload: true, tone: 'error' });
         log?.error("Couldn't save a photo or video", error);
         return;
       }
       // A warning, since the panel gives every error a notice of its own and this one already
-      // says why. The reason's own full stop goes, since the sentence has one. Only an error's
-      // own message is shown: anything else thrown could hold an address.
+      // says why. The reason's own full stop goes, since the sentence has one. Only a real
+      // error's own message is shown: anything else thrown could hold an address.
       log?.warn("Couldn't save a photo or video", error);
-      const reason = typeof error?.message === 'string' && error.message ? t(error.message) : t('the download stopped');
-      toast?.(t("Couldn't save it: {reason}.", { reason: reason.replace(/[.\s]+$/, '') }), { tone: 'error' });
+      const message = isError(error) && typeof error.message === 'string' ? t(error.message).replace(/[.\s]+$/, '') : '';
+      toast?.(t("Couldn't save it: {reason}.", { reason: message || t('the download stopped') }), { tone: 'error' });
     } finally {
       clearTimeout(later);
       notice?.dismiss?.();

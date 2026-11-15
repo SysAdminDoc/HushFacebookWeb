@@ -313,7 +313,7 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
         return await fetchAndLink(true);
       } catch (error) {
         if (over) return undefined;
-        if (error.cancelled || !api.download) throw error;
+        if (error?.cancelled || !api.download) throw error;
         fetchFailed = error;
       }
     }
@@ -326,11 +326,11 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
         // Cancelled in the browser means no, and a final error stands. Anything else, fetch it
         // instead, unless that's what already failed: then its reason, which reads plainer than
         // a manager's code, is the one to show.
-        if (error.cancelled) throw cancelledError(error);
-        if (error.final) throw error;
+        if (error?.cancelled) throw cancelledError(error);
+        if (error?.final) throw error;
         // A manager that's gone because the extension was reloaded says why a fetch that fails
         // too failed: a reload of the page fixes both.
-        if (error.code === EXTENSION_RELOADED) managerFailed = error;
+        if (error?.code === EXTENSION_RELOADED) managerFailed = error;
         if (fetchFailed) throw managerFailed ?? fetchFailed;
       }
     }
@@ -338,7 +338,7 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
     try {
       return await fetchAndLink(false);
     } catch (error) {
-      if (over || error.cancelled) throw error;
+      if (over || error?.cancelled) throw error;
       throw managerFailed;
     }
   };
@@ -355,7 +355,8 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
     saveThroughLink(file, name, doc, container);
     return 'link';
   };
-  run().then((how) => settle(null, how), (error) => settle(error));
+  // Something thrown that isn't an error still ends the save as failed, never as saved.
+  run().then((how) => settle(null, how), (error) => settle(error ?? new Error('the download stopped')));
   return { done, cancel: () => settle(cancelledError()) };
 }
 
