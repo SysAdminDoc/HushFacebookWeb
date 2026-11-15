@@ -2187,6 +2187,19 @@ test('after a reload, later save failures stay under its notice past the error g
   assert.match(notices[1].textContent, /Couldn't copy the report\. Details are in Diagnostics\./);
 });
 
+test('after a reload, a failure whose code throws when read still gets its own notice', async () => {
+  const gone = Object.assign(new Error('Extension context invalidated.'), { code: EXTENSION_RELOADED });
+  const storage = { status: () => ({ state: 'error', error: gone }), onStatus(listener) { listener(this.status()); }, async retry() { return false; } };
+  const { shadow, log } = setup({ environment: { storage, reload() {} } });
+  const hostile = Object.defineProperty(new Error('page error'), 'code', { get() { throw new Error('no code here'); } });
+  assert.doesNotThrow(() => log.error('A page script failed', hostile));
+  await tick();
+  const notices = [...shadow.querySelectorAll('.toast')].map((notice) => notice.textContent);
+  assert.equal(notices.length, 2);
+  assert.match(notices[0], /HushFacebook Web was updated/);
+  assert.match(notices[1], /A page script failed\. Details are in Diagnostics\./);
+});
+
 test('A notice can carry several buttons, and one marked keep leaves it up', async () => {
   const { shadow, panel } = setup();
   const ran = [];

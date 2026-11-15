@@ -64,6 +64,14 @@ const REASON_WORDS = {
 const reasonWords = (reason) => (Object.hasOwn(REASON_WORDS, reason) ? t(REASON_WORDS[reason]) : reason);
 // How many reasons Overview names under its hidden count, the most common first.
 const TOP_REASONS = 3;
+// An error's code, or undefined. What the page throws can have a code that throws when read.
+const codeIn = (detail) => {
+  try {
+    return detail !== null && typeof detail === 'object' ? detail.code : undefined;
+  } catch {
+    return undefined;
+  }
+};
 // Why a feature isn't running, by the reason startFeatures recorded: on its card, then
 // shorter in Diagnostics.
 const UNAVAILABLE_NOTES = {
@@ -1389,7 +1397,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // After a reload, a failure the reload caused (or one logged before the panel could see why)
   // goes under the reload notice. Anything else, like a copy the clipboard refused, keeps its own.
   const announceError = (entry, force = false, translated = null, detail) => {
-    if (extensionReloaded(environment.storage) && (detail === undefined || detail?.code === EXTENSION_RELOADED)) {
+    if (extensionReloaded(environment.storage) && (detail === undefined || codeIn(detail) === EXTENSION_RELOADED)) {
       announceReload(force);
       return;
     }
@@ -1404,9 +1412,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   };
   function actionError(message, error, vars) {
     log.error('A settings action failed. Try again', error);
-    const translated = error?.code === 'ACTIVITY_SAVE_UNCONFIRMED'
+    const code = codeIn(error);
+    const translated = code === 'ACTIVITY_SAVE_UNCONFIRMED'
       ? t('This activity save is still unconfirmed. Your recovery copy stays here.')
-      : error?.code === 'ACTIVITY_REGISTER_CONFLICT'
+      : code === 'ACTIVITY_REGISTER_CONFLICT'
         ? t('Two tabs saved different activity. Try the action again to use this copy')
       : t(message, vars);
     announceError({ message }, true, translated, error ?? null);
