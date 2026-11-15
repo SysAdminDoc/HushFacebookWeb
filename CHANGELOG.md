@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.47 (2026-11-15, unreleased)
+
+* With Keep posts you hide hidden on, every post it hid said "Dismissed", so a post hidden for matching one you'd hidden looked like one you'd pressed the X on yourself. Those posts now say what matched, like "Same photo or video as a post you hid" or "Starts the same as a post you hid". The post whose X you pressed still says Dismissed.
+* The Hidden posts kept away line in Diagnostics counted a post again each time the switch came back on or another tab hid a post. Each post counts once now.
+
 ## v0.0.46 (2026-11-15, unreleased)
 
 * Trim the share menu used to show the whole menu for a moment before it took out the targets you picked. They're gone before the menu is drawn now.
