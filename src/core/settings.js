@@ -189,12 +189,14 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   // Where an account seen for the first time copies its settings from: the record v0.0.2 kept
   // under its old tag, unless another account already took it. Two accounts can share an old
   // tag and the record doesn't say whose it was, so only the first one here gets it. Anyone
-  // after that starts from the shared settings, and the old record stays as it was.
+  // after that starts from the shared settings, and the old record stays as it was. Claims are
+  // added in order, so when two accounts opened at once both claimed it, the first claim still
+  // decides, and a copy that has to start over keeps the source it started with.
   function accountSource(get) {
     if (!legacyKey || !isSettingsRecord(get(legacyKey, undefined))) return STORAGE_KEY;
     const receipt = get(legacyDoneKey, undefined);
-    const claims = Array.isArray(receipt) ? receipt.filter(isClaim) : [];
-    return claims.every((id) => id === claim) ? legacyKey : STORAGE_KEY;
+    const first = Array.isArray(receipt) ? receipt.find(isClaim) : undefined;
+    return first === undefined || first === claim ? legacyKey : STORAGE_KEY;
   }
 
   // Marks the v0.0.2 record as this account's, the first time it's copied from.

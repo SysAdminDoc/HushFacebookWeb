@@ -1050,6 +1050,54 @@ test('a copy from the v0.0.2 record that loses a race retries from that same rec
   assert.deepEqual(calls[1], calls[0], 'the retry copies from the record the account claimed, not the shared one');
 });
 
+test("a copy from the v0.0.2 record keeps its source when the other account's claim lands before the retry", async () => {
+  const [account, other] = COLLIDING;
+  const legacy = legacyStorageKeyFor(account);
+  const data = new Map(Object.entries({
+    settings: { alpha: false },
+    'settings.migrated': ALL_MIGRATIONS,
+    [legacy]: { beta: true, 'beta.words': 'crypto' },
+    [`${legacy}.migrated`]: ALL_MIGRATIONS,
+  }));
+  const calls = [];
+  const get = (name, fallback) => (data.has(name) ? structuredClone(data.get(name)) : fallback);
+  const storage = {
+    kind: 'extension',
+    get,
+    getAtLoad: get,
+    whenReady: (run) => run(),
+    set: (name, value) => data.set(name, structuredClone(value)),
+    onChange() {},
+    migrate(name, mutation, receiptKey, receipt, options) {
+      calls.push(options);
+      if (calls.length === 1) {
+        // The other account with the same old tag opened in another tab and claimed it too.
+        data.set(`${legacy}.migrated`, [...data.get(`${legacy}.migrated`), claimFor(other)]);
+        const conflict = new Error('changed while saving');
+        conflict.code = 'STORAGE_MIGRATION_CONFLICT';
+        conflict.current = { beta: true, 'beta.words': 'crypto' };
+        conflict.receipt = ALL_MIGRATIONS;
+        conflict.copyAll = true;
+        return Promise.reject(conflict);
+      }
+      return Promise.resolve(applyObjectMutation(data.get(name), mutation));
+    },
+  };
+  const settings = createSettings({ storage, features, account });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(data.get(`${legacy}.migrated`), [...ALL_MIGRATIONS, claimFor(account), claimFor(other)]);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1], { sourceKey: legacy, sourceDoneKey: `${legacy}.migrated` }, 'the first claim keeps the old record');
+  assert.equal(settings.get('beta.words'), 'crypto');
+  assert.equal(settings.get('alpha'), true, "the shared settings don't come in halfway");
+
+  // The account that claimed second starts from the shared settings, as when it comes later.
+  const second = createSettings({ storage: { ...storage, migrate: (name, mutation) => Promise.resolve(applyObjectMutation(data.get(name), mutation)) }, features, account: other });
+  assert.equal(second.get('beta'), false);
+  assert.equal(second.get('alpha'), false);
+});
+
 test('an upgrade from v0.0.2 copies the old record to one account and keeps it for anyone else', () => {
   const [a, b] = COLLIDING;
   const legacy = legacyStorageKeyFor(a);
