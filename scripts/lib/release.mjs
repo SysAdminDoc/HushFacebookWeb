@@ -13,11 +13,11 @@ export const EXTRA_STAGES = { live: 'build' };
 // publish needs the live check too.
 export const PUBLISH_NEEDS = ['live'];
 
-export const NODE_BASELINE = '24.22.1';
-// This project builds on the Node 24 and Node 26 LTS lines, each from its October 2026
+export const NODE_BASELINE = '24.22.3';
+// This project builds on the Node 24 and Node 26 LTS lines, each from its November 2026
 // security release up. Odd lines like 25 never become LTS and are refused. NODE_BASELINE is
 // the oldest and is what .nvmrc pins.
-export const NODE_MINIMUMS = [NODE_BASELINE, '26.12.1'];
+export const NODE_MINIMUMS = [NODE_BASELINE, '26.13.1'];
 export function nodeVersionProblem(version = process.versions.node) {
   const parts = String(version).match(/^v?(\d+)\.(\d+)\.(\d+)$/)?.slice(1).map(Number);
   const floor = parts && NODE_MINIMUMS.map((minimum) => minimum.split('.').map(Number)).find(([major]) => major === parts[0]);

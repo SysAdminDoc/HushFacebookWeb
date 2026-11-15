@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.24 (2026-11-14, unreleased)
+
+* Building now needs Node 24.22.3 or a newer 24.x, or Node 26.13.1 or a newer 26.x. Those are November's security releases for both lines. Nothing in the script or the extension changes.
+
 ## v0.0.23 (2026-11-14, unreleased)
 
 * People you may know has its own switch now, Hide People you may know, on to start. Until now Hide suggested posts took those rows out along with the suggested posts, so there was no way to keep one and lose the other. The option that hides the block on the Friends page and profiles moved to the new switch with whatever you had it set to. If you had Hide suggested posts off, the new switch starts off too, so nothing you see changes until you flip it.
