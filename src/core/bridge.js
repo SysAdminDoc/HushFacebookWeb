@@ -759,8 +759,10 @@ function stoppedBecause(reason) {
 // has all of it. The key ties both to this one download, and lets the background find it again
 // when the same request is sent twice (the isolated half asks again if the worker went away).
 // A download the browser took and then stopped is final: Chrome has already retried the
-// transfer itself, and the page's own fetch can't read Facebook's files.
-export const bridgeDownload = (bridge, { makeKey = () => globalThis.crypto.randomUUID() } = {}) => ({ url, name, onload, onerror, ontimeout }) => {
+// transfer itself, and the page's own fetch can't read Facebook's files. A failure because the
+// extension was reloaded keeps EXTENSION_RELOADED as its code, so it shows under the reload
+// notice. reloaded() says whether the tab already knows, which makes a timeout the reload too.
+export const bridgeDownload = (bridge, { makeKey = () => globalThis.crypto.randomUUID(), reloaded = () => false } = {}) => ({ url, name, onload, onerror, ontimeout }) => {
   const key = makeKey();
   let over = false;
   const cancel = () => bridge.request('download:cancel', { key }).catch(() => {});
@@ -781,7 +783,9 @@ export const bridgeDownload = (bridge, { makeKey = () => globalThis.crypto.rando
     if (over) return;
     // The browser may have started it all the same, and nothing should go on behind a failure.
     cancel();
-    end(() => (/did not answer/.test(error.message) ? ontimeout?.() : onerror?.({ error: error.message })));
+    const gone = error?.code === EXTENSION_RELOADED || reloaded();
+    end(() => (gone ? onerror?.({ error: error.message, code: EXTENSION_RELOADED })
+      : /did not answer/.test(error.message) ? ontimeout?.() : onerror?.({ error: error.message })));
   });
   return {
     abort() {

@@ -2187,6 +2187,16 @@ test('after a reload, later save failures stay under its notice past the error g
   assert.match(notices[1].textContent, /Couldn't copy the report\. Details are in Diagnostics\./);
 });
 
+test('a failure the reload caused shows the reload notice even before the storage has found out', async () => {
+  const storage = { status: () => ({ state: 'ready', error: null }), onStatus(listener) { listener(this.status()); }, async retry() { return true; } };
+  const { shadow, log } = setup({ environment: { storage, reload() {} } });
+  log.error("Couldn't save the video", Object.assign(new Error('Extension context invalidated.'), { code: EXTENSION_RELOADED }));
+  await tick();
+  const notices = [...shadow.querySelectorAll('.toast')].map((notice) => notice.textContent);
+  assert.equal(notices.length, 1);
+  assert.match(notices[0], /HushFacebook Web was updated/);
+});
+
 test('after a reload, a failure whose code throws when read still gets its own notice', async () => {
   const gone = Object.assign(new Error('Extension context invalidated.'), { code: EXTENSION_RELOADED });
   const storage = { status: () => ({ state: 'error', error: gone }), onStatus(listener) { listener(this.status()); }, async retry() { return false; } };

@@ -1394,10 +1394,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       ],
     });
   };
-  // After a reload, a failure the reload caused (or one logged before the panel could see why)
-  // goes under the reload notice. Anything else, like a copy the clipboard refused, keeps its own.
+  // A failure the reload caused goes under the reload notice, even one (a download, say) that
+  // found out before the storage did. After a reload, so does one logged before the panel could
+  // see why. Anything else, like a copy the clipboard refused, keeps its own.
   const announceError = (entry, force = false, translated = null, detail) => {
-    if (extensionReloaded(environment.storage) && (detail === undefined || codeIn(detail) === EXTENSION_RELOADED)) {
+    if (codeIn(detail) === EXTENSION_RELOADED || (detail === undefined && extensionReloaded(environment.storage))) {
       announceReload(force);
       return;
     }

@@ -7,6 +7,7 @@ import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
 import { FACEBOOK_ID, ascii, iptc, jpeg, photoshop, resource, segment } from './helpers/jpeg.js';
 import { boxes, text, trackFile } from './helpers/mp4.js';
+import { EXTENSION_RELOADED } from '../src/core/bridge.js';
 import { extensionOf, fileName, saveFile, startSave } from '../src/core/download.js';
 import { createMediaIndex, MEDIA_MARKERS, photoFile, videoFiles } from '../src/core/media-index.js';
 import { cornerControls, createDownloadButton, mediaAt } from '../src/features/downloads/button.js';
@@ -566,6 +567,24 @@ test("the manager's download is tried first, and a fetched copy is saved when it
   await assert.rejects(saveFile({ url: 'https://v.example.invalid/a.mp4', name: 'g.mp4', api: stopped, doc: fakeDoc() }),
     (error) => error.message === "Facebook's server stopped sending it (SERVER_CONTENT_LENGTH_MISMATCH)" && !error.cancelled);
   assert.deepEqual(fetched, [], 'a final error starts no fallback');
+});
+
+test('a save the reloaded extension could not take says so when the fallback fails too, and still saves when it works', async () => {
+  const gone = (options) => options.onerror({ error: 'Extension context invalidated.', code: EXTENSION_RELOADED });
+  const refused = (options) => (options.onload({ status: 403, response: null }), {});
+  const served = (options) => (options.onload({ status: 200, response: new Blob(['x']) }), {});
+  await assert.rejects(saveFile({ url: 'https://v.example.invalid/a.mp4', name: 'a.mp4', api: { download: gone, request: refused }, doc: fakeDoc() }),
+    (error) => error.code === EXTENSION_RELOADED && !error.cancelled);
+  // A JPEG's fetch comes first, and the reload still says why both failed.
+  await assert.rejects(saveFile({ url: 'https://v.example.invalid/b.jpg', name: 'b.jpg', api: { download: gone, request: refused }, doc: fakeDoc() }),
+    (error) => error.code === EXTENSION_RELOADED);
+  const doc = fakeDoc();
+  assert.equal(await saveFile({ url: 'https://v.example.invalid/c.mp4', name: 'c.mp4', api: { download: gone, request: served }, doc }), 'link');
+  assert.deepEqual(doc.clicks, ['c.mp4']);
+  // Any other manager failure keeps the fetch's own reason.
+  const other = (options) => options.onerror({ error: 'not_whitelisted' });
+  await assert.rejects(saveFile({ url: 'https://v.example.invalid/d.mp4', name: 'd.mp4', api: { download: other, request: refused }, doc: fakeDoc() }),
+    (error) => /answered 403/.test(error.message) && error.code === undefined);
 });
 
 test("a JPEG is fetched and saved without Facebook's ID, and the manager saves it as served only when that fetch fails", async (t) => {

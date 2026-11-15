@@ -2469,6 +2469,21 @@ test("a stopped download says why in plain words and keeps the browser's name fo
   assert.equal((await stopped('the download stopped')).error, 'the download stopped');
 });
 
+test('a download that failed because the extension was reloaded keeps that as its code', async () => {
+  const failed = (rejection, reloaded) => new Promise((resolve) => {
+    const bridge = { on: () => () => {}, request: (type) => (type === 'download' ? Promise.reject(rejection) : Promise.resolve({})) };
+    bridgeDownload(bridge, { makeKey: () => '0f8e2a52-6a51-4c39-9d3b-000000000009', reloaded })({
+      url: 'https://video.xx.fbcdn.net/v/one.mp4', name: 'Pat video.mp4', onerror: resolve, ontimeout: () => resolve('timeout'),
+    });
+  });
+  const gone = Object.assign(new Error('Extension context invalidated.'), { code: EXTENSION_RELOADED });
+  assert.deepEqual(await failed(gone), { error: 'Extension context invalidated.', code: EXTENSION_RELOADED });
+  assert.equal(await failed(new Error('the extension did not answer')), 'timeout');
+  // Once the tab knows, a download that was on its way when the extension went away is the reload too.
+  assert.deepEqual(await failed(new Error('the extension did not answer'), () => true), { error: 'the extension did not answer', code: EXTENSION_RELOADED });
+  assert.deepEqual(await failed(new Error('that download belongs to another page')), { error: 'that download belongs to another page' });
+});
+
 test('the isolated half refuses download requests without a key or with anything extra', async () => {
   const win = page();
   const chrome = fakeChrome({}, { download: () => ({ ok: true, result: { id: 7, state: 'in_progress' } }) });

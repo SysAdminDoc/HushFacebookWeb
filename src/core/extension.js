@@ -2,7 +2,7 @@
 // downloads and the toolbar button, all through the bridge (bridge.js). null in the userscript.
 // The first call connects, so it has to happen at document-start, before Facebook's scripts.
 
-import { bridgeDownload, connectBridge, createBridgeStorage } from './bridge.js';
+import { bridgeDownload, connectBridge, createBridgeStorage, extensionReloaded } from './bridge.js';
 import { TARGET } from './target.js';
 
 // Saved by the background's daily release check (extension/background.js, same key, which lists
@@ -50,10 +50,11 @@ export function extensionHost({ log } = {}) {
   if (TARGET !== 'extension') return null;
   if (!host) {
     const bridge = connectBridge();
+    const storage = createBridgeStorage(bridge, { log });
     host = {
       bridge,
-      storage: createBridgeStorage(bridge, { log }),
-      download: bridgeDownload(bridge),
+      storage,
+      download: bridgeDownload(bridge, { reloaded: () => extensionReloaded(storage) }),
       onOpenSettings: (run) => bridge.on('open-settings', run),
       // { asked, nextAt }: asked is false when the last check was too recent or GitHub asked
       // for a pause, which nextAt ends.

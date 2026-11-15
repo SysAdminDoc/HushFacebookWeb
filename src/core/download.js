@@ -14,6 +14,7 @@
 // A video Facebook only streams comes as two parts, its picture and its sound. Both are
 // fetched the same way, joined into one MP4 (mp4-merge.js) and saved through the link.
 
+import { EXTENSION_RELOADED } from './bridge.js';
 import { withoutFacebookId } from './jpeg-meta.js';
 import { mergeTracks } from './mp4-merge.js';
 
@@ -77,6 +78,8 @@ function viaManager(download, url, name, timeout) {
         // The extension's downloads: the browser took the file and then stopped, so another
         // try would only hide why.
         final: error?.final === true,
+        // EXTENSION_RELOADED from the extension, kept so the failure shows as the reload.
+        ...(typeof error?.code === 'string' ? { code: error.code } : {}),
       })),
       ontimeout: () => reject(new Error('it took too long')),
     });
@@ -304,6 +307,7 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
     // A JPEG is fetched and saved through the link first, so Facebook's ID can come out of it
     // on the way (jpeg-meta.js). If the fetch fails, the manager saves it as served.
     let fetchFailed = null;
+    let managerFailed = null;
     if (JPEG.test(name)) {
       try {
         return await fetchAndLink(true);
@@ -324,10 +328,19 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
         // a manager's code, is the one to show.
         if (error.cancelled) throw cancelledError(error);
         if (error.final) throw error;
-        if (fetchFailed) throw fetchFailed;
+        // A manager that's gone because the extension was reloaded says why a fetch that fails
+        // too failed: a reload of the page fixes both.
+        if (error.code === EXTENSION_RELOADED) managerFailed = error;
+        if (fetchFailed) throw managerFailed ?? fetchFailed;
       }
     }
-    return fetchAndLink(false);
+    if (!managerFailed) return fetchAndLink(false);
+    try {
+      return await fetchAndLink(false);
+    } catch (error) {
+      if (over || error.cancelled) throw error;
+      throw managerFailed;
+    }
   };
   const fetchAndLink = async (clean) => {
     const served = await attempt(fetchBlob(url, { request: api.request, win, timeout: deadline, type: clean ? 'arraybuffer' : 'blob' }));
