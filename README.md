@@ -84,7 +84,7 @@ To help translate, copy [translations/template.json](translations/template.json)
 
 ### What it can do
 
-Most switches start off. The ad switches start on, and so do Hide suggested posts, Hide People you may know, both link switches, Keep posts you hide hidden and Show progress while posts load. So do the ones that only add a button or a link: photo, reel and story downloads, View profile on Marketplace sellers, and Settings in your account menu.
+Most switches start off. The four Hide sponsored switches start on, and so do Hide suggested posts, Hide People you may know, both link switches, Keep posts you hide hidden and Show progress while posts load. So do the ones that only add a button or a link: photo, reel and story downloads, View profile on Marketplace sellers, and Settings in your account menu.
 
 - **News feed:** Hide sponsored posts, Hide suggested posts, Hide People you may know, Hide reel rows in the feed, Hide Stories tray, Hide the post box on groups and profiles, Hide posts by words, Hide seen posts, Keep posts you hide hidden, Hide repeats of a post already on the page, Hide AI-detected posts, Show full post dates, Keep your place in the feed, Load more posts ahead, Show progress while posts load, Hide Follow and Join buttons, Hide counts, Expand long posts.
 - **Reels:** Hide sponsored reels, Don't send watch history, Clean up Reels, Hold a reel for 2x.
