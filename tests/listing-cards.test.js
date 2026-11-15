@@ -67,6 +67,20 @@ test('a listing shown twice, once in a box with others, still gets its own card'
   assert.equal(sameAsByHand(doc, 'shown twice'), 3);
 });
 
+test('a listing under a main column drawn inside another still tells the boxes above it apart', () => {
+  // Listing 2 sits under the inner main column, so its own card search stops there, but the box
+  // above it holds listing 1's cell too and has to count as holding two listings.
+  const win = page(`<div role="main"><div id="outer">
+    <div role="main" id="inner-main"><div id="two-cell"><a id="two" href="/marketplace/item/2/">m</a></div></div>
+    <div id="one-cell"><a id="one" href="/marketplace/item/1/">t</a></div>
+  </div></div>`);
+  const doc = win.document;
+  const cardOf = listingCards([...doc.querySelectorAll(LINKS)]);
+  assert.ok(cardOf(doc.getElementById('one')) === doc.getElementById('one-cell'));
+  assert.equal(cardOf(doc.getElementById('two')), null);
+  assert.equal(sameAsByHand(doc, 'nested main'), 2);
+});
+
 test('a link with no listing id stops a card like another listing, and a lone listing has no card', () => {
   const win = page(`<div role="main"><div id="grid">
     <div id="cell"><div id="inner"><a id="listing" href="/marketplace/item/7/?ref=search">x</a></div><a id="odd" href="/marketplace/item/abc/">?</a></div>

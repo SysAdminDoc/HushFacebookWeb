@@ -30,12 +30,13 @@ const SEVERAL = Symbol('several listings');
 // stops at a box that already says its listing or SEVERAL, and turns every other box it passes
 // SEVERAL. Each box changes at most twice, so all the walks take about two steps a box. Asking
 // each box around each hidden card for its listings, as this did before, went through the whole
-// grid once for every hidden card.
+// grid once for every hidden card. These walks go past a main column to the top of the page, since
+// a box above a main column drawn inside another holds that column's listings too.
 export function listingCards(links) {
   const under = new Map();
   for (const link of links) {
     const id = itemId(link);
-    for (let box = link.parentElement; box && box.getAttribute('role') !== 'main'; box = box.parentElement) {
+    for (let box = link.parentElement; box; box = box.parentElement) {
       const seen = under.get(box);
       if (seen === SEVERAL || seen === id) break;
       under.set(box, seen === undefined ? id : SEVERAL);

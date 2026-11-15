@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.42 (2026-11-15, unreleased)
+
+* Filter Marketplace could leave a listing on screen when Facebook drew one results column inside another. The quicker card search from 0.0.38 stopped counting at the inner column, so the box around that listing looked like it held only one. It counts across the whole page again.
+
 ## v0.0.41 (2026-11-15, unreleased)
 
 * In the userscript, Add to this account and the Undo after Delete them (on the card for activity from before accounts were kept apart) could report success when nothing changed. That happened when the first save failed and a video kept its spot, speed or volume before the retry. The retry's copy went where nothing reads it. Now it says it couldn't, and pressing it again really adds or restores it.
