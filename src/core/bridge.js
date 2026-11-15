@@ -178,9 +178,6 @@ export function createBridgeStorage(bridge, { log } = {}) {
   // reload can tell a write the saved copy already holds from one it may not.
   const lastWrite = new Map();
   const unanswered = new Map();
-  // What a read found for each key it left at this tab's own value because that write was still
-  // to come, so the write failing after it shows the saved value again.
-  const heldBack = new Map();
   // Storage failures that may have hidden another tab's change: per key when the failure said
   // which keys it was reading, and for every key when it couldn't. failureAtWrite keeps the
   // count for each key when this tab last wrote it, so a later one shows.
@@ -279,7 +276,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       }
     }
     finishing = false;
-    for (const { type, payload, confirmed, write } of queuedWrites.values()) save(type, payload, confirmed, write);
+    for (const { type, payload, confirmed } of queuedWrites.values()) save(type, payload, confirmed);
     queuedWrites.clear();
     written.clear();
     if ([...confirmedWrites.values()].some((operation) => operation.failed)) setStatus('error', lastError);
@@ -353,11 +350,6 @@ export function createBridgeStorage(bridge, { log } = {}) {
         queuedWrites.delete(key);
         written.delete(key);
       }
-      heldBack.clear();
-      for (const key of written) {
-        if (!keepsLocal(key) || newerRemote(key)) continue;
-        heldBack.set(key, { has: snapshot.has(key), value: copy(snapshot.get(key)), write: lastWrite.get(key), events: keyEvents.get(key) ?? 0 });
-      }
       pageLoadData.clear();
       for (const [key, value] of snapshot) pageLoadData.set(key, copy(value));
       for (const [key, change] of remoteChanges) {
@@ -367,14 +359,11 @@ export function createBridgeStorage(bridge, { log } = {}) {
       for (const key of data.keys()) {
         if (snapshot.has(key) || keepsLocal(key) || newerRemote(key)) continue;
         data.delete(key);
-        keyEvents.set(key, (keyEvents.get(key) ?? 0) + 1);
         tell(key, undefined, 'load');
       }
       for (const [key, value] of snapshot) {
         if (keepsLocal(key) || newerRemote(key) || same(data.get(key), value)) continue;
         data.set(key, copy(value));
-        // A write of this tab's failing after this doesn't put back what the page showed before it.
-        keyEvents.set(key, (keyEvents.get(key) ?? 0) + 1);
         tell(key, value, 'load');
       }
       if (savedRevisionsValid && savedStorageEpoch === storageEpoch) {
@@ -520,24 +509,6 @@ export function createBridgeStorage(bridge, { log } = {}) {
     // doesn't count the write as on its way.
     return request(type, payload, answered).finally(answered);
   };
-  // The read that kept this write on the page, when nothing has changed the key since.
-  const heldFor = (key, write) => {
-    const held = heldBack.get(key);
-    if (!held || held.write !== write || lastWrite.get(key) !== write || held.events !== (keyEvents.get(key) ?? 0)) return null;
-    heldBack.delete(key);
-    return held;
-  };
-  // A plain write that failed. Still this tab's latest for the key, it no longer counts as this
-  // tab's value, so a read on its way replaces it, and one that already kept it is undone.
-  const plainWriteFailed = (key, write) => {
-    if (lastWrite.get(key) !== write) return;
-    written.delete(key);
-    const held = heldFor(key, write);
-    if (!held) return;
-    if (held.has) data.set(key, copy(held.value));
-    else data.delete(key);
-    tell(key, held.value, 'rollback');
-  };
   const sendConfirmed = async (operation) => {
     const { key, version } = operation;
     const events = keyEvents.get(key) ?? 0;
@@ -558,19 +529,16 @@ export function createBridgeStorage(bridge, { log } = {}) {
     } catch (error) {
       log?.error("Saved activity couldn't be changed in the extension", error);
       if (confirmedWrites.get(key) === operation) {
-        // A read that kept this write on the page while it was on its way found what's saved.
-        const held = heldFor(key, operation.write);
-        const shown = !operation.loaded && before === undefined ? copy(pageLoadData.get(key)) : before;
-        const previous = held ? copy(held.value) : shown;
+        const previous = !operation.loaded && before === undefined ? copy(pageLoadData.get(key)) : before;
         // A push while this was on its way that left the key at its old value (a snapshot
         // repeating it, or the echo of an earlier write of this tab's) brought nothing newer.
         if (
           directVersions.get(key) === version
-          && (held || (keyEvents.get(key) ?? 0) === events || same(data.get(key), previous))
+          && ((keyEvents.get(key) ?? 0) === events || same(data.get(key), previous))
         ) {
           // Kept for Retry, unless a storage failure since the write may have hidden something
-          // newer, or that read found another tab's change. Then Retry doesn't send it again.
-          operation.failed = !hiddenSinceWrite(key) && !(held && !same(previous, shown));
+          // newer. Then Retry's read decides instead of sending it again.
+          operation.failed = !hiddenSinceWrite(key);
           if (!operation.failed) confirmedWrites.delete(key);
           if (previous === undefined) data.delete(key);
           else data.set(key, previous);
@@ -588,14 +556,11 @@ export function createBridgeStorage(bridge, { log } = {}) {
       return false;
     }
   };
-  const save = (type, payload, confirmed, write) => confirmed ? sendConfirmed(confirmed)
-    : send(payload.key, type, payload).catch((error) => {
-      log?.error("A setting couldn't be saved in the extension", error);
-      plainWriteFailed(payload.key, write);
-    });
-  const persist = (key, type, payload, confirmed, write) => {
-    if (!loaded || finishing) queuedWrites.set(key, { type, payload, confirmed, write });
-    else void save(type, payload, confirmed, write);
+  const save = (type, payload, confirmed) => confirmed ? sendConfirmed(confirmed)
+    : send(payload.key, type, payload).catch((error) => log?.error("A setting couldn't be saved in the extension", error));
+  const persist = (key, type, payload, confirmed) => {
+    if (!loaded || finishing) queuedWrites.set(key, { type, payload, confirmed });
+    else void save(type, payload, confirmed);
   };
   const retry = () => {
     // Retrying can't help once the extension is gone from this tab. Only a page reload does.
@@ -636,11 +601,10 @@ export function createBridgeStorage(bridge, { log } = {}) {
     const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
     // Older feature actions may ignore a returned promise. The status still exposes failure.
     void promise.catch(() => {});
-    const write = ++writeCount;
-    const operation = { key, type, payload, value: copy(value), version, write, previous: copy(data.get(key)), loaded, failed: false, resolve, reject };
+    const operation = { key, type, payload, value: copy(value), version, previous: copy(data.get(key)), loaded, failed: false, resolve, reject };
     confirmedWrites.set(key, operation);
     written.add(key);
-    lastWrite.set(key, write);
+    lastWrite.set(key, ++writeCount);
     failureAtWrite.set(key, failuresFor(key));
     if (value === undefined) data.delete(key);
     else data.set(key, copy(value));
@@ -755,12 +719,11 @@ export function createBridgeStorage(bridge, { log } = {}) {
       const stored = copy(value);
       supersedeWrite(key);
       written.add(key);
-      const write = ++writeCount;
-      lastWrite.set(key, write);
+      lastWrite.set(key, ++writeCount);
       failureAtWrite.set(key, failuresFor(key));
       if (stored === undefined) data.delete(key);
       else data.set(key, stored);
-      persist(key, 'storage:set', { key, value: stored ?? null }, null, write);
+      persist(key, 'storage:set', { key, value: stored ?? null });
     },
     setConfirmed: (key, value) => value === undefined
       ? confirmedWrite(key, 'storage:remove', { key })
