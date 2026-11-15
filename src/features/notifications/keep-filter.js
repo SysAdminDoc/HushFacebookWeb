@@ -135,8 +135,9 @@ export default {
     router?.subscribe?.(() => keeper.lookSoon());
     settings?.subscribe?.(() => keeper.apply());
     diagnostics?.add('Notifications filter kept', () => pickLabel(keeper.kept()));
-    actions?.add('Open Notifications on All again', () => {
-      keeper.reset();
+    // The notice waits for the save, so a failed one gets the panel's "failed, try again" instead.
+    actions?.add('Open Notifications on All again', async () => {
+      await keeper.reset();
       toast?.(t('Notifications open on All again'));
     });
   },

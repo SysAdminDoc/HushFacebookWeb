@@ -303,7 +303,19 @@ test('starts off, web only, with a way back to All', async () => {
   await new Promise((resolve) => setTimeout(resolve, 1100));
   assert.deepEqual(asked, [1, 1], 'pressed again after the move');
   assert.equal(added['Notifications filter kept'](), 'Unread');
-  added['Open Notifications on All again']();
+  await added['Open Notifications on All again']();
   assert.equal(storage.get(PICK_KEY, null), null);
   assert.equal(toasts.length, 1);
+});
+
+test('Open Notifications on All again says nothing worked when the save fails', async () => {
+  const storage = { ...createMemoryStorage({ [PICK_KEY]: 'unread' }), remove: () => Promise.reject(new Error('storage full')) };
+  const win = page(LIST(0));
+  wire(win.document);
+  const added = {};
+  const toasts = [];
+  const router = { current: () => ({ type: 'notifications' }), subscribe() {} };
+  keepNotificationsFilter.setup({ doc: win.document, router, storage, enabled: () => true, actions: { add: (name, fn) => { added[name] = fn; } }, diagnostics: { add() {} }, toast: (text) => toasts.push(text) });
+  await assert.rejects(added['Open Notifications on All again'](), /storage full/, 'the failure reaches the panel, which offers Try again');
+  assert.deepEqual(toasts, [], 'no notice says it worked');
 });

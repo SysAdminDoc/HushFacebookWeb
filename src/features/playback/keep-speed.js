@@ -113,8 +113,9 @@ export default {
     const keeper = createSpeedKeeper({ doc, win: win ?? doc.defaultView, storage, enabled });
     keeper.start();
     diagnostics?.add('Video speed kept', () => speedLabel(keeper.kept()));
-    actions?.add('Back to normal speed', () => {
-      keeper.reset();
+    // The notice waits for the save, so a failed one gets the panel's "failed, try again" instead.
+    actions?.add('Back to normal speed', async () => {
+      await keeper.reset();
       toast?.(t('New videos play at normal speed again'));
     });
   },

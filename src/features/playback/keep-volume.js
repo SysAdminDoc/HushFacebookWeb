@@ -308,7 +308,7 @@ export function createVolumeKeeper({
     kept,
     reset: () => {
       unsaved = null;
-      storage.remove(VOLUME_KEY);
+      return storage.remove(VOLUME_KEY);
     },
   };
 }
@@ -330,8 +330,9 @@ export default {
     });
     keeper.start();
     diagnostics?.add('Volume kept', () => volumeLabel(keeper.kept()));
-    actions?.add('Forget my volume', () => {
-      keeper.reset();
+    // The notice waits for the save, so a failed one gets the panel's "failed, try again" instead.
+    actions?.add('Forget my volume', async () => {
+      await keeper.reset();
       toast?.(t('New videos start the way Facebook sets them again'));
     });
   },

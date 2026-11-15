@@ -234,6 +234,19 @@ test('the feature shows the kept speed and can go back to normal', () => {
   assert.equal(keepSpeed.default, false);
 });
 
+test('Back to normal speed says nothing worked when the save fails', async () => {
+  const storage = { ...createMemoryStorage({ [SPEED_KEY]: 1.25 }), remove: () => Promise.reject(new Error('storage full')) };
+  const win = page();
+  const buttons = [];
+  const toasts = [];
+  keepSpeed.setup({
+    doc: win.document, win, storage, enabled: () => true, toast: (message) => toasts.push(message),
+    actions: { add: (label, run) => buttons.push([label, run]) },
+  });
+  await assert.rejects(buttons[0][1](), /storage full/, 'the failure reaches the panel, which offers Try again');
+  assert.deepEqual(toasts, [], 'no notice says it worked');
+});
+
 // ---- Hold a reel for 2x ----
 
 function holder(win, { on = () => true } = {}) {

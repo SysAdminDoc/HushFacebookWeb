@@ -565,7 +565,7 @@ test('saved values are checked, and only the right controls count', () => {
   assert.equal(muteToggle(before.querySelector('video')), before.querySelector('[role="button"]'));
 });
 
-test('the switch starts off, shows the kept volume and can forget it', () => {
+test('the switch starts off, shows the kept volume and can forget it', async () => {
   const storage = createMemoryStorage({ [VOLUME_KEY]: { volume: 0.25, muted: false } });
   const win = page();
   const rows = [];
@@ -578,7 +578,7 @@ test('the switch starts off, shows the kept volume and can forget it', () => {
     toast: (message) => toasts.push(message),
   });
   assert.deepEqual(rows.map(([label, read]) => [label, read()]), [['Volume kept', '25%']]);
-  buttons[0][1]();
+  await buttons[0][1]();
   assert.equal(storage.get(VOLUME_KEY), undefined);
   assert.equal(toasts.length, 1);
   assert.equal(volumeLabel({ volume: 0.5, muted: true }), 'Muted (50%)');
@@ -587,6 +587,20 @@ test('the switch starts off, shows the kept volume and can forget it', () => {
   assert.deepEqual(keepVolume.options.map(({ key, type, default: on }) => [key, type, on]), [['startMuted', 'toggle', false]]);
   assert.equal(keepVolume.section, 'playback');
   assert.equal(keepVolume.needsPage, undefined, 'works in content mode');
+});
+
+test('Forget my volume says nothing worked when the save fails', async () => {
+  const storage = { ...createMemoryStorage({ [VOLUME_KEY]: { volume: 0.25, muted: false } }), remove: () => Promise.reject(new Error('storage full')) };
+  const win = page();
+  const buttons = [];
+  const toasts = [];
+  keepVolume.setup({
+    doc: win.document, win, storage, enabled: () => true,
+    actions: { add: (label, run) => buttons.push([label, run]) },
+    toast: (message) => toasts.push(message),
+  });
+  await assert.rejects(buttons[0][1](), /storage full/, 'the failure reaches the panel, which offers Try again');
+  assert.deepEqual(toasts, [], 'no notice says it worked');
 });
 
 test('the Start every video muted choice reaches the keeper', () => {
