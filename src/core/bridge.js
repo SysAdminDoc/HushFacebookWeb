@@ -772,7 +772,9 @@ export const bridgeDownload = (bridge, { makeKey = () => globalThis.crypto.rando
     stopListening();
     report?.();
   };
-  const ended = ({ state, error } = {}) => {
+  // The answer to the request can be empty, which says nothing about how it ended.
+  const ended = (answer) => {
+    const { state, error } = answer ?? {};
     if (state === 'complete') end(onload);
     else if (state === 'interrupted') end(() => onerror?.({ error: stoppedBecause(error), final: true }));
     // The extension went away after the browser took the file, so its end will never come. The

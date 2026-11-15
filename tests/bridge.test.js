@@ -2490,6 +2490,49 @@ test('a download the browser took hears that the extension was reloaded instead 
   assert.equal(ends.three, 'saved', 'one that ended before its answer is not reported again');
 });
 
+test('a download the page cancels is not watched for a reload, and an empty answer leaves one waiting', async (t) => {
+  const win = page();
+  const keys = Array.from({ length: 2 }, (_, n) => `0f8e2a52-6a51-4c39-9d3b-00000000020${n + 1}`);
+  const chrome = fakeChrome({}, {
+    // The first gets the browser's usual answer, the second one with nothing in it.
+    download: (message) => (message.type === 'download' && message.key === keys[0]
+      ? { ok: true, result: { id: 7, state: 'in_progress' } }
+      : { ok: true }),
+  });
+  await startIsolated(win, chrome);
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const bridge = connectBridge({ doc: win.document, win, secret: randomUUID() });
+  const pushed = [];
+  bridge.on('download', (data) => pushed.push(data.state));
+  let made = 0;
+  const download = bridgeDownload(bridge, { makeKey: () => keys[made++] });
+  const ends = {};
+  const start = (file) => download({
+    url: `https://video.xx.fbcdn.net/v/${file}.mp4`, name: 'Pat video.mp4',
+    onload: () => { ends[file] = 'saved'; },
+    onerror: (error) => { ends[file] = error; },
+  });
+  const one = start('one');
+  await settle();
+  one.abort();
+  await settle();
+  assert.equal(chrome.sent.filter((message) => message.type === 'download:cancel').length, 1);
+  delete chrome.runtime.id;
+  t.mock.timers.tick(5000);
+  await settle();
+  assert.deepEqual(pushed, [], 'nothing was left to watch');
+
+  chrome.runtime.id = 'hushfacebook-web-test';
+  start('two');
+  await settle();
+  assert.deepEqual(ends, {}, 'an empty answer says nothing about how it ended');
+  delete chrome.runtime.id;
+  t.mock.timers.tick(5000);
+  await settle();
+  assert.deepEqual(pushed, ['gone']);
+  assert.deepEqual(ends.two, { error: 'the extension was updated while it saved', code: EXTENSION_RELOADED, final: true });
+});
+
 test("a stopped download says why in plain words and keeps the browser's name for it", async () => {
   const stopped = (error) => new Promise((resolve) => {
     const bridge = {

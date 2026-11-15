@@ -1680,4 +1680,15 @@ test('a save the extension reload stopped goes to the reload notice, and a reaso
   await save();
   assert.deepEqual(toasts, [["Couldn't save it: the browser refused it.", 'error']]);
   assert.deepEqual(logged, [['warn', "Couldn't save a photo or video", undefined]]);
+
+  // Something thrown that isn't an error could hold an address, so the toast doesn't show it.
+  toasts.length = 0;
+  logged.length = 0;
+  managerError = { error: 'the browser refused it.' };
+  api.request = () => {
+    throw 'boom https://scontent.xx.fbcdn.net/v/Pat.jpg';
+  };
+  await save();
+  assert.deepEqual(toasts, [["Couldn't save it: the download stopped.", 'error']]);
+  assert.deepEqual(logged.map(([level]) => level), ['warn']);
 });

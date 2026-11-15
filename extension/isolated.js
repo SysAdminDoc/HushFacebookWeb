@@ -726,7 +726,12 @@ const handlers = {
     downloadStarted(key, answer);
     return answer;
   },
-  'download:cancel': ({ key }) => askWorker({ type: 'download:cancel', key }),
+  // A cancelled download never gets an end from the worker, so it stops being watched here. The
+  // page cancels one it gave up waiting on too.
+  'download:cancel': ({ key }) => {
+    downloadEnded(key);
+    return askWorker({ type: 'download:cancel', key });
+  },
   'update:check': () => askWorker({ type: 'update:check' }),
   'tab:keep': ({ keep }) => askWorker({ type: 'tab:keep', keep }, { again: false }),
 };
