@@ -72,6 +72,10 @@ export function toolbarCount({ win, doc, send, count, enabled, log }) {
   win.addEventListener('pageshow', (event) => {
     hidden = false;
     if (!event?.persisted) return;
+    // Back from the cache, the page starts over: an answer still due for the 0 it sent on the
+    // way in no longer counts, and its count gets a try of its own.
+    sends++;
+    retried = false;
     sent = undefined;
     changed();
   });

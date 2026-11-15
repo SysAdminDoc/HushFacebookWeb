@@ -200,6 +200,34 @@ test("only the newest send's answer spends the extra try or gives it back, whate
   assert.deepEqual(early.sent, [1, 2, 2], 'one try for the lost 2, not two');
 });
 
+test("a page back from the cache gets its own try, whatever the 0 it sent on the way in hears late", async (t) => {
+  clock(t);
+  // It left with its one try already spent on a lost 5.
+  const { win, sent, state } = start();
+  state.fail = true;
+  state.count = 5;
+  mock.timers.tick(0);
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  state.fail = false;
+  state.hold = true;
+  win.dispatchEvent(new Event('pagehide'));
+  const [leaving] = state.held;
+  state.hold = false;
+  const shown = new Event('pageshow');
+  shown.persisted = true;
+  win.dispatchEvent(shown);
+  leaving.reject(new Error('the port closed'));
+  await settle();
+  state.fail = true;
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  assert.deepEqual(sent, [5, 5, 0, 5, 5], 'the lost 5 still goes once more by itself');
+});
+
 test('a count the worker lost goes once more by itself a second later, as the count is then, and never from a hidden page', async (t) => {
   clock(t);
   const { sent, warnings, state, badge } = start();
