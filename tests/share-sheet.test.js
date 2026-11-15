@@ -175,6 +175,35 @@ test('a sheet that opens later is marked once the page settles, and nothing is m
   });
 });
 
+test('a sheet is trimmed in the frame its rows show up in, before the page paints them', async () => {
+  // #9: the whole menu showed for a moment, until the settle pass 150 ms later trimmed it.
+  const doc = page('<div id="layer"></div>');
+  const timers = [];
+  const frames = [];
+  const marker = createShareSheetMarker({ doc, enabled: () => true, setTimer: (fn) => timers.push(fn), nextFrame: (fn) => frames.push(fn) });
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  marker.start();
+  // Facebook draws the dialog first and its rows in a later change.
+  doc.getElementById('layer').innerHTML = '<div role="dialog"></div>';
+  await tick();
+  assert.equal(frames.length, 1);
+  frames.shift()();
+  const sheet = SHEET().trim();
+  doc.querySelector('[role="dialog"]').innerHTML = sheet.slice(sheet.indexOf('>') + 1, sheet.lastIndexOf('</div>'));
+  await tick();
+  doc.querySelector('[role="dialog"]').setAttribute('aria-label', 'Share');
+  await tick();
+  assert.equal(frames.length, 1, 'changes before the frame share one pass');
+  frames.shift()();
+  assert.equal(marker.marked(), 9);
+  assert.deepEqual(marks(doc), ['contacts', 'contacts', 'contacts', 'messenger', 'whatsapp', 'story', 'group', 'friend', 'x']);
+  assert.equal(timers.length, 1, 'the settle pass still follows');
+  timers.shift()();
+  assert.equal(marker.marked(), 9);
+  marker.stop();
+  await doc.defaultView.happyDOM.close();
+});
+
 test('the switch starts off, sits under Menus and works without the page', () => {
   assert.equal(shareSheet.default, false);
   assert.equal(shareSheet.section, 'menu');

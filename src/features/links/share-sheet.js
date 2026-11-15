@@ -104,7 +104,10 @@ export function markShareSheets(doc) {
   let marked = 0;
   const wanted = new Map();
   for (const dialog of doc.querySelectorAll('[role="dialog"]')) {
-    const shareHeading = [...dialog.querySelectorAll(HEADING)].some((heading) =>
+    // Read only for a list that looks like the targets row, since this runs every frame a
+    // dialog changes and a post's dialog can hold hundreds of headings.
+    let shareHeading = null;
+    const headed = () => shareHeading ??= [...dialog.querySelectorAll(HEADING)].some((heading) =>
       heading.closest('[role="dialog"]') === dialog && /^(?:Share|Share post|Share this post|Share to)$/i.test(clean(heading.textContent)));
     for (const list of dialog.querySelectorAll('[role="list"]')) {
       if (list.closest('[role="dialog"]') !== dialog) continue;
@@ -134,7 +137,7 @@ export function markShareSheets(doc) {
       const copyLink = [...list.querySelectorAll(CONTROL)].some((control) => control.closest('[role="list"]') === list
         && [clean(control.textContent), clean(control.getAttribute('aria-label'))].includes('Copy link'));
       if (label && !namedShareList && !shareIntent) continue;
-      if (!namedShareList && !shareHeading && !copyLink && !shareIntent) continue;
+      if (!namedShareList && !copyLink && !shareIntent && !headed()) continue;
       for (const [item, target] of found) wanted.set(item, target);
       const contacts = contactsOf(dialog, list);
       if (!contacts) continue;
@@ -156,8 +159,17 @@ export function shareSheetCss(get) {
   return hidden.length ? `${hidden.join(',\n')} { display: none !important; }` : '';
 }
 
-export function createShareSheetMarker({ doc, enabled, setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = clearTimeout }) {
+// The page's next frame, before it paints. A tab in the background draws no frames, and the
+// settle pass covers it there.
+const frameOf = (doc, setTimer) => (fn) => {
+  const view = doc.defaultView;
+  if (typeof view?.requestAnimationFrame === 'function') view.requestAnimationFrame(fn);
+  else setTimer(fn, 0);
+};
+
+export function createShareSheetMarker({ doc, enabled, setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = clearTimeout, nextFrame = frameOf(doc, setTimer) }) {
   let timer = null;
+  let framed = false;
   let marked = 0;
   let discovery = null;
   let stopped = false;
@@ -166,6 +178,9 @@ export function createShareSheetMarker({ doc, enabled, setTimer = (fn, ms) => se
   const sync = () => {
     if (timer !== null) clearTimer(timer);
     timer = null;
+    run();
+  };
+  const run = () => {
     if (stopped) return;
     const on = enabled();
     for (const [dialog, observer] of dialogs) {
@@ -179,7 +194,7 @@ export function createShareSheetMarker({ doc, enabled, setTimer = (fn, ms) => se
     }
     for (const dialog of doc.querySelectorAll('[role="dialog"]')) {
       if (dialogs.has(dialog)) continue;
-      const observer = new Observer(schedule);
+      const observer = new Observer(soon);
       observer.observe(dialog, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['href', 'aria-label', 'role', 'hidden', 'aria-hidden'] });
       dialogs.set(dialog, observer);
     }
@@ -187,6 +202,20 @@ export function createShareSheetMarker({ doc, enabled, setTimer = (fn, ms) => se
   };
   const schedule = () => {
     if (!stopped) timer ??= setTimer(sync, DELAY);
+  };
+  // A change in a dialog is marked in the frame it shows up in, before that frame paints, so the
+  // menu never draws the targets it's about to lose (#9: the whole menu showed for a moment),
+  // then once more when the burst settles.
+  const soon = () => {
+    if (stopped) return;
+    if (!framed) {
+      framed = true;
+      nextFrame(() => {
+        framed = false;
+        run();
+      });
+    }
+    schedule();
   };
   const isDialog = (node) => node.nodeType === 1 && (node.matches('[role="dialog"]') || node.querySelector('[role="dialog"]'));
   const stop = () => {
@@ -206,7 +235,7 @@ export function createShareSheetMarker({ doc, enabled, setTimer = (fn, ms) => se
         // dialogs, so ordinary feed changes do not repeatedly rescan open share sheets.
         if (records.some((record) => record.type === 'attributes'
           ? dialogs.has(record.target) || isDialog(record.target)
-          : [...record.addedNodes, ...record.removedNodes].some(isDialog))) schedule();
+          : [...record.addedNodes, ...record.removedNodes].some(isDialog))) soon();
       });
       discovery.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['role'] });
       doc.defaultView?.addEventListener('pagehide', (event) => { if (!event.persisted) stop(); });
