@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.40 (2026-11-15, unreleased)
+
+* Open Messenger as a full page didn't work while you had unread chats. Facebook adds the count to the button's name then ("Messenger, 1 unread"), and the script only knew the plain name, so the list of chats opened as usual. Both names work now.
+* With Open Messenger as a full page on, a screen reader no longer calls the Messenger button a collapsed pop-up, since it doesn't open one anymore. Turning the switch off gives the button Facebook's own description back.
+
 ## v0.0.39 (2026-11-15, unreleased)
 
 * The release script's publish step can be run again when its check of the uploaded files fails. It used to see its own new tag and ask for a version bump, so a release whose check hit a network hiccup couldn't be finished.
