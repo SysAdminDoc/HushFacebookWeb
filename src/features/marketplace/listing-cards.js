@@ -19,17 +19,36 @@ const ITEM = /\/marketplace\/item\/(\d+)/;
 
 export const itemId = (link) => link.getAttribute('href')?.match(ITEM)?.[1] ?? null;
 
-// The card a listing's link sits in: the largest box around the link that holds no other
-// listing. Null when there's nothing else to tell it from before the main column.
-export function listingCard(link, id) {
-  let card = link;
-  for (let parent = card.parentElement; parent && parent.getAttribute('role') !== 'main'; parent = parent.parentElement) {
-    for (const other of parent.querySelectorAll(LISTING_LINK)) {
-      if (itemId(other) !== id) return card;
+const SEVERAL = Symbol('several listings');
+
+// The card each listing link sits in, for links, all of a page's: the largest box around the link
+// that holds no other listing. Null when there's nothing else to tell it from before the main
+// column. A link with no id counts as another listing to every card.
+//
+// One walk up from each link leaves every box with the listing under it, or SEVERAL. Every box
+// above one that's been seen has been seen too, holding the same listing or SEVERAL, so a walk
+// stops at a box that already says its listing or SEVERAL, and turns every other box it passes
+// SEVERAL. Each box changes at most twice, so all the walks take about two steps a box. Asking
+// each box around each hidden card for its listings, as this did before, went through the whole
+// grid once for every hidden card.
+export function listingCards(links) {
+  const under = new Map();
+  for (const link of links) {
+    const id = itemId(link);
+    for (let box = link.parentElement; box && box.getAttribute('role') !== 'main'; box = box.parentElement) {
+      const seen = under.get(box);
+      if (seen === SEVERAL || seen === id) break;
+      under.set(box, seen === undefined ? id : SEVERAL);
     }
-    card = parent;
   }
-  return null;
+  return (link) => {
+    let card = link;
+    for (let box = link.parentElement; box && box.getAttribute('role') !== 'main'; box = box.parentElement) {
+      if (under.get(box) === SEVERAL) return card;
+      card = box;
+    }
+    return null;
+  };
 }
 
 // The card an ad's /ads/about/ link sits in: the largest box around it that holds no listing, no
@@ -106,11 +125,17 @@ export function watchListingCards({ doc, route, active, reasonOf, onHidden }) {
     active,
     onHidden,
     mark: LISTING_MARK,
-    cardsOf: () => [...doc.querySelectorAll(LINKS)].flatMap((link) => {
-      const id = itemId(link);
-      const reason = id && reasonOf(id);
-      return reason ? [[listingCard(link, id), id, reason]] : [];
-    }),
+    cardsOf: () => {
+      const links = [...doc.querySelectorAll(LINKS)];
+      const hidden = links.flatMap((link) => {
+        const id = itemId(link);
+        const reason = id && reasonOf(id);
+        return reason ? [[link, id, reason]] : [];
+      });
+      if (!hidden.length) return [];
+      const cardOf = listingCards(links);
+      return hidden.map(([link, id, reason]) => [cardOf(link), id, reason]);
+    },
   });
 }
 

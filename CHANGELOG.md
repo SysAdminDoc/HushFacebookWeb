@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.38 (2026-11-15, unreleased)
+
+* Marketplace could stutter on a long scroll of results with a lot of listings filtered out. Each hidden card made the script look through the whole results grid again, every time the page changed. It now finds all the cards in one quick pass.
+
 ## v0.0.37 (2026-11-15, unreleased)
 
 * A Marketplace listing opened straight from its link could make Facebook throw an error and draw the whole page a second time, mostly on a slow connection. View profile went in before Facebook had finished setting up the seller box. It now shows beside the seller's name without touching Facebook's own markup.
