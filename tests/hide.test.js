@@ -525,21 +525,23 @@ const buttonParts = (element) => ['role', 'tabindex', 'aria-label'].map((name) =
 // Behind a post: Facebook's white and grey light pages, and its dark ones.
 const PAGES_BEHIND = ['#ffffff', '#f0f2f5', '#18191a', '#242526'];
 
-// The note's colors in each of Facebook's modes, as note-colors.js sets them.
+// The note's colors in each of Facebook's modes and on a page with no mode class yet, as
+// note-colors.js sets them: the rules each element matches, later ones winning.
 const noteColors = () => {
-  const modes = {};
-  for (const [, selector, body] of NOTE_COLORS.matchAll(/^([^{]+)\{([^}]*)\}/gm)) {
-    const mode = selector.includes('__fb-light-mode') ? 'light' : 'dark';
-    modes[mode] = Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6})/g)].map(([, name, value]) => [name, value]));
-  }
-  return modes;
+  const { document } = testWindow('https://www.facebook.com/');
+  const element = (name) => Object.assign(document.createElement('div'), { className: name });
+  const places = { 'no class': document.documentElement, dark: element('__fb-dark-mode'), light: element('__fb-light-mode') };
+  const rules = [...NOTE_COLORS.matchAll(/^([^{]+)\{([^}]*)\}/gm)].map(([, selector, body]) => ({ selector: selector.trim(), body }));
+  return Object.fromEntries(Object.entries(places).map(([mode, place]) => [mode, Object.fromEntries(rules
+    .filter(({ selector }) => place.matches(selector))
+    .flatMap(({ body }) => [...body.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6})/g)].map(([, name, value]) => [name, value])))]));
 };
 
 test('the focus ring on a note and on Show hidden shows on a light page as well as a dark one', () => {
   const css = hideCss({ notes: true });
   assert.ok(css.includes(NOTE_COLORS), 'the colors ship with the rules that use them');
   const modes = noteColors();
-  assert.deepEqual(Object.keys(modes).sort(), ['dark', 'light']);
+  assert.deepEqual(Object.keys(modes).sort(), ['dark', 'light', 'no class']);
   const rules = [...css.matchAll(/:focus-visible \{([^}]*)\}/g)].map(([, body]) => body);
   assert.equal(rules.length, 2);
   for (const body of rules) {

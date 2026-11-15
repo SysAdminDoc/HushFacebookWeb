@@ -3,7 +3,7 @@
 export const uiTokens = `
   --base: #15191f; --mantle: #101419; --crust: #0d1117;
   --surface0: #1a2029; --surface1: #303b4b;
-  --text: #edf2f8; --subtext: #a6afbd; --accent: #8abfff; --accent-ink: #12263e;
+  --text: #edf2f8; --subtext: #a6afbd; --accent: #8abfff; --accent-ink: #12263e; --placeholder: #8f97a4;
   --border: #2b333f; --selected: #1c3048; --control: #768599;
   --green: #a6e3a1; --red: #f38ba8; --peach: #fab387;
   --selected-border: #29415c; --rail: #2f4a66; --knob: #f4f9ff; --knob-border: #264e7f;
@@ -17,7 +17,7 @@ export const uiTokens = `
 export const uiLightTokens = `
   --base: #ffffff; --mantle: #f5f6f8; --crust: #eef0f3;
   --surface0: #f7f8fa; --surface1: #dde2e8;
-  --text: #1c1e21; --subtext: #59616d; --accent: #0b5cd6; --accent-ink: #ffffff;
+  --text: #1c1e21; --subtext: #59616d; --accent: #0b5cd6; --accent-ink: #ffffff; --placeholder: #626a76;
   --border: #d9dde3; --selected: #e6effc; --control: #7d8794;
   --green: #1f8a3e; --red: #c42b48; --peach: #9a5200;
   --selected-border: #b8cff0; --rail: #b8cff0; --knob: #ffffff; --knob-border: #0a4fb8;
@@ -63,7 +63,7 @@ svg { flex: none; }
    buttons. */
 .launcher[data-place="corner"] { left: 12px; bottom: 12px; background-color: var(--secondary-button-background-floating, var(--base)); box-shadow: 0 2px 12px var(--shadow-md); }
 .launcher[hidden] { display: none; }
-/* The ring sits on Facebook's bar, white in its light mode, so a dark halo fills the gap. */
+/* The ring sits on Facebook's bar, so a halo in the field color fills the gap between them. */
 .launcher:focus-visible { outline-offset: 2px; box-shadow: 0 0 0 2px var(--crust); }
 .launcher[data-place="corner"]:focus-visible { box-shadow: 0 0 0 2px var(--crust), 0 2px 12px var(--shadow-md); }
 .dialog {
@@ -75,7 +75,8 @@ svg { flex: none; }
   box-shadow: 0 24px 80px var(--shadow-lg);
 }
 .dialog:not([open]) { display: none; }
-.dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(6px); }
+/* Chrome before 122 and Safari before 17.4 don't pass variables down to ::backdrop. */
+.dialog::backdrop { background: var(--backdrop, #0b0e13cc); backdrop-filter: blur(6px); }
 header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 12px 16px 12px 20px; border-bottom: 1px solid var(--border); background: var(--mantle); }
 .brand { min-width: 0; display: flex; align-items: center; gap: 12px; }
 .brand-icon { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--selected); border: 1px solid var(--selected-border); }
@@ -121,7 +122,7 @@ nav hr { border: 0; border-top: 1px solid var(--border); margin: 12px 12px; }
   background: var(--crust); border: 1px solid var(--control); border-radius: 10px; font-size: 14px; line-height: 20px;
   text-overflow: ellipsis;
 }
-.search::placeholder { color: var(--subtext); opacity: 0.85; text-overflow: ellipsis; }
+.search::placeholder { color: var(--placeholder); opacity: 1; text-overflow: ellipsis; }
 .result { padding: 14px 0; border-top: 1px solid var(--border); }
 .result:first-child { border-top: 0; }
 .result > .card { border: 0; padding: 8px 0 0; }

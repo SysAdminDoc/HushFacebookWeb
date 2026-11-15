@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { contrast } from '../src/features/appearance/accent.js';
-import { uiLightTokens, uiTokens } from '../src/ui/styles.js';
+import { panelCss, uiLightTokens, uiTokens } from '../src/ui/styles.js';
 
 const tokens = (css) => Object.fromEntries([...css.matchAll(/--([\w-]+):\s*(#[0-9a-fA-F]+)/g)].map(([, name, value]) => [name, value]));
 
@@ -15,9 +15,12 @@ const PAIRS = [
   // The current page in the menu, the reload card and the setup tiles.
   { on: ['selected', 'tile-top', 'tile-hover'], colors: ['text', 'subtext', 'accent'], least: 4.5 },
   { on: ['accent'], colors: ['accent-ink'], least: 4.5 },
+  // The search box's placeholder, drawn at full strength.
+  { on: ['crust'], colors: ['placeholder'], least: 4.5 },
   // Switch, field and button edges, the on switch and an invalid field's edge.
   { on: ['base', 'surface0', 'crust'], colors: ['control', 'accent', 'red'], least: 3 },
-  { on: ['base', 'mantle'], colors: ['green'], least: 3 },
+  // The status dot, on the brand row's card.
+  { on: ['base', 'mantle', 'surface0'], colors: ['green'], least: 3 },
 ];
 
 for (const [mode, css] of [['dark', uiTokens], ['light', uiLightTokens]]) {
@@ -38,4 +41,12 @@ for (const [mode, css] of [['dark', uiTokens], ['light', uiLightTokens]]) {
 
 test('the light set gives every color the dark one has, so nothing stays dark on a light page', () => {
   assert.deepEqual(Object.keys(tokens(uiLightTokens)).sort(), Object.keys(tokens(uiTokens)).sort());
+});
+
+test("the search placeholder isn't faded below its color, and the dialog veil has a color where variables don't reach it", () => {
+  const placeholder = /\.search::placeholder \{([^}]*)\}/.exec(panelCss)?.[1] ?? '';
+  assert.match(placeholder, /color: var\(--placeholder\)/);
+  assert.match(placeholder, /opacity: 1;/);
+  const veil = /\.dialog::backdrop \{([^}]*)\}/.exec(panelCss)?.[1] ?? '';
+  assert.match(veil, new RegExp(`background: var\\(--backdrop, ${tokens(uiTokens).backdrop}\\)`));
 });
