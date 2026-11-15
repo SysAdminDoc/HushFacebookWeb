@@ -617,6 +617,47 @@ const extensionGone = () => {
   }
 };
 
+// Downloads the browser took and hasn't finished. Their end comes from the worker, so after a
+// reload it never would, and the page would wait out its whole deadline. While any is under way
+// this checks every few seconds, and tells the page each one is gone once the extension is. One
+// with no end by the time the page has given up on it stops being watched.
+const RELOAD_CHECK = 5000;
+const WATCH_AT_MOST = 15 * 60 * 1000;
+const downloadsUnderway = new Map(); // key -> when the browser took it
+// Ends that came in before the worker's answer about starting them.
+const endedEarly = new Set();
+let reloadCheck = 0;
+const stopReloadCheck = () => {
+  clearInterval(reloadCheck);
+  reloadCheck = 0;
+};
+function checkForReload() {
+  const now = Date.now();
+  for (const [key, since] of downloadsUnderway) if (now - since > WATCH_AT_MOST) downloadsUnderway.delete(key);
+  if (!downloadsUnderway.size) {
+    stopReloadCheck();
+    return;
+  }
+  if (!extensionGone()) return;
+  stopReloadCheck();
+  const keys = [...downloadsUnderway.keys()];
+  downloadsUnderway.clear();
+  for (const key of keys) toMain({ push: 'download', data: { key, state: 'gone' } });
+}
+function downloadStarted(key, answer) {
+  if (endedEarly.delete(key) || answer?.state === 'complete' || answer?.state === 'interrupted') return;
+  downloadsUnderway.set(key, Date.now());
+  reloadCheck ||= setInterval(checkForReload, RELOAD_CHECK);
+}
+function downloadEnded(key) {
+  if (downloadsUnderway.delete(key)) {
+    if (!downloadsUnderway.size) stopReloadCheck();
+    return;
+  }
+  endedEarly.add(key);
+  if (endedEarly.size > 50) endedEarly.delete(endedEarly.values().next().value);
+}
+
 async function workerStorageRequest(type, payload) {
   const answer = await chrome.runtime.sendMessage({
     type,
@@ -680,7 +721,11 @@ const handlers = {
       sourceDoneKey,
     })
   ),
-  download: ({ url, name, key }) => askWorker({ type: 'download', url, name, key }),
+  download: async ({ url, name, key }) => {
+    const answer = await askWorker({ type: 'download', url, name, key });
+    downloadStarted(key, answer);
+    return answer;
+  },
   'download:cancel': ({ key }) => askWorker({ type: 'download:cancel', key }),
   'update:check': () => askWorker({ type: 'update:check' }),
   'tab:keep': ({ keep }) => askWorker({ type: 'tab:keep', keep }, { again: false }),
@@ -890,6 +935,7 @@ document.addEventListener(HELLO_MAIN, (event) => {
       && (message.state === 'complete' || message.state === 'interrupted')
     ) {
       const error = message.state === 'interrupted' ? String(message.error ?? '').slice(0, 200) : undefined;
+      downloadEnded(message.key);
       toMain({ push: 'download', data: { key: message.key, state: message.state, ...(error ? { error } : {}) } });
     }
     if (message?.type === 'storage-error') {

@@ -2447,6 +2447,47 @@ test("downloads go to the background in GM_download's shape and count as saved o
     ['download', 'six', 5],
     ['download', 'six', 5],
   ]);
+  // Its end comes, as the worker would send it, so nothing is left for the reload check to watch.
+  chrome.tellPage({ type: 'download-state', key: keys[5], state: 'complete' });
+  await settle();
+  assert.equal(ends.six, 'saved');
+});
+
+test('a download the browser took hears that the extension was reloaded instead of waiting out its deadline', async (t) => {
+  const win = page();
+  const keys = Array.from({ length: 3 }, (_, n) => `0f8e2a52-6a51-4c39-9d3b-00000000010${n + 1}`);
+  let chrome = null;
+  chrome = fakeChrome({}, {
+    download: (message) => {
+      // The third one's end comes in before the worker's answer about starting it.
+      if (message.key === keys[2]) chrome.tellPage({ type: 'download-state', key: keys[2], state: 'complete' });
+      return { ok: true, result: { id: 7, state: 'in_progress' } };
+    },
+  });
+  await startIsolated(win, chrome);
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let made = 0;
+  const download = bridgeDownload(connectBridge({ doc: win.document, win, secret: randomUUID() }), { makeKey: () => keys[made++] });
+  const ends = {};
+  for (const file of ['one', 'two', 'three']) {
+    download({
+      url: `https://video.xx.fbcdn.net/v/${file}.mp4`, name: 'Pat video.mp4',
+      onload: () => { ends[file] = 'saved'; },
+      onerror: (error) => { ends[file] = error; },
+    });
+  }
+  await settle();
+  chrome.tellPage({ type: 'download-state', key: keys[0], state: 'complete' });
+  await settle();
+  t.mock.timers.tick(5000);
+  await settle();
+  assert.deepEqual(ends, { one: 'saved', three: 'saved' }, 'nothing changes while the extension is there');
+
+  delete chrome.runtime.id;
+  t.mock.timers.tick(5000);
+  await settle();
+  assert.deepEqual(ends.two, { error: 'the extension was updated while it saved', code: EXTENSION_RELOADED, final: true });
+  assert.equal(ends.three, 'saved', 'one that ended before its answer is not reported again');
 });
 
 test("a stopped download says why in plain words and keeps the browser's name for it", async () => {
@@ -2501,6 +2542,8 @@ test('the isolated half refuses download requests without a key or with anything
   ]) await refused(forged.send(type, payload), /not allowed/, JSON.stringify(payload));
   assert.deepEqual(chrome.sent, []);
   assert.deepEqual((await forged.send('download', { url, name: 'a.jpg', key })).result, { id: 7, state: 'in_progress' });
+  // Its end comes, as the worker would send it, so nothing is left for the reload check to watch.
+  chrome.tellPage({ type: 'download-state', key, state: 'complete' });
 });
 
 test('Check now reaches the worker as a bare request and brings its answer back', async () => {
@@ -3548,6 +3591,8 @@ test('oversize, duplicate, piled-up and flooding requests are turned away', asyn
   }
   await refused(flooding.send('download', download), /too many extension requests were sent/);
   assert.equal(floodChrome.sent.filter((message) => message.type === 'download').length, BRIDGE_MAX_DOWNLOADS_PER_WINDOW);
+  // Their end comes, as the worker would send it, so nothing is left for the reload check to watch.
+  floodChrome.tellPage({ type: 'download-state', key: download.key, state: 'complete' });
 });
 
 test('the channel names carry the secret', () => {

@@ -766,6 +766,7 @@
   "the extension did not answer": "the extension did not answer",
   "the extension request could not be encoded": "the extension request could not be encoded",
   "the extension request is too large": "the extension request is too large",
+  "the extension was updated while it saved": "the extension was updated while it saved",
   "the file couldn't be fetched": "the file couldn't be fetched",
   "the transfer couldn't be measured": "the transfer couldn't be measured",
   "the video and its sound didn't fit together": "the video and its sound didn't fit together",

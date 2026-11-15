@@ -775,6 +775,9 @@ export const bridgeDownload = (bridge, { makeKey = () => globalThis.crypto.rando
   const ended = ({ state, error } = {}) => {
     if (state === 'complete') end(onload);
     else if (state === 'interrupted') end(() => onerror?.({ error: stoppedBecause(error), final: true }));
+    // The extension went away after the browser took the file, so its end will never come. The
+    // browser may well have finished it, so nothing tries again.
+    else if (state === 'gone') end(() => onerror?.({ error: 'the extension was updated while it saved', code: EXTENSION_RELOADED, final: true }));
   };
   const stopListening = bridge.on('download', (data) => {
     if (data?.key === key) ended(data);

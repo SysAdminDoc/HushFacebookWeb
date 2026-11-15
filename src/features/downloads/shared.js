@@ -4,6 +4,7 @@
 
 import { createDownloadButton } from './button.js';
 import { findMedia, planSave } from './find.js';
+import { EXTENSION_RELOADED } from '../../core/bridge.js';
 import { startSave } from '../../core/download.js';
 import { gmApi } from '../../core/env.js';
 import { t } from '../../core/i18n.js';
@@ -73,10 +74,16 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
         return;
       }
       failed++;
-      // The file name carries the poster's name, so it stays out of the message. A warning,
-      // since the panel gives every error a notice of its own and this one already says why.
+      // The file name carries the poster's name, so it stays out of the message. One the reload
+      // stopped is an error, which the panel shows as its one reload notice with Reload on it.
+      if (error.code === EXTENSION_RELOADED) {
+        log?.error("Couldn't save a photo or video", error);
+        return;
+      }
+      // A warning, since the panel gives every error a notice of its own and this one already
+      // says why. The reason's own full stop goes, since the sentence has one.
       log?.warn("Couldn't save a photo or video", error);
-      toast?.(t("Couldn't save it: {reason}.", { reason: t(error.message) }), { tone: 'error' });
+      toast?.(t("Couldn't save it: {reason}.", { reason: t(error.message).replace(/[.\s]+$/, '') }), { tone: 'error' });
     } finally {
       clearTimeout(later);
       notice?.dismiss?.();

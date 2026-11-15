@@ -1638,3 +1638,46 @@ test('a failed save says why in one notice and keeps the details for Diagnostics
   await shared.run({ feature: 'downloadPhotos', kind: 'video', id: '7', author: 'Pat', item: { kind: 'video', id: '7', files: [], dash: true, stream: joinable } }, doc.body);
   assert.deepEqual(toasts, [["Couldn't save it: it went past the transfer limit. Try a lower quality.", 'error']]);
 });
+
+// The panel shows a reload-coded error as its one reload notice with Reload on it, so a save the
+// reload stopped logs that and toasts nothing of its own.
+test('a save the extension reload stopped goes to the reload notice, and a reason with its own full stop gets one', async () => {
+  const win = page(POST('<a href="/photo/?fbid=9999999"><img></a>'));
+  const doc = win.document;
+  const rules = [];
+  const toasts = [];
+  const logged = [];
+  let managerError = { error: 'Extension context invalidated.', code: EXTENSION_RELOADED };
+  const api = {
+    download: ({ onerror }) => {
+      onerror(managerError);
+      return {};
+    },
+    request: ({ onerror }) => {
+      onerror();
+      return {};
+    },
+  };
+  downloadPhotos.setup({
+    win, doc, api, net: { transformResponses: (rule) => rules.push(rule) }, router: { current: () => ({ href: win.location.href }) },
+    log: Object.fromEntries(['error', 'warn', 'info'].map((level) => [level, (message, detail) => logged.push([level, message, detail?.code])])),
+    toast: (message, options) => {
+      toasts.push([message, options?.tone]);
+      return { dismiss() {} };
+    },
+    enabled: () => true,
+    option: () => 'best',
+  });
+  rules[0].transform({ p: photo('9999999') });
+  const shared = downloads({ doc });
+  const save = () => shared.run(findMedia(doc.querySelector('img'), { href: win.location.href, index: shared.index }), doc.body);
+  await save();
+  assert.deepEqual(toasts, []);
+  assert.deepEqual(logged, [['error', "Couldn't save a photo or video", EXTENSION_RELOADED]]);
+
+  logged.length = 0;
+  managerError = { error: 'the browser refused it.', final: true };
+  await save();
+  assert.deepEqual(toasts, [["Couldn't save it: the browser refused it.", 'error']]);
+  assert.deepEqual(logged, [['warn', "Couldn't save a photo or video", undefined]]);
+});
