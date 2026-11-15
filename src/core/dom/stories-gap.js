@@ -10,13 +10,25 @@
 // blocks before the first post on its way up to that column, each with its height, the marks
 // this script put on or in it, and how many links, pictures and letters it holds. Copy report
 // carries the row, so a report shows which block it is.
+//
+// The room can also be inside the row itself. On 2026-11-15 the first reporter's devtools showed
+// every story card's box 280.9 px tall around a 160 px card, so the row ended 120 px below its
+// cards and measuring from the row's bottom read as usual. The test account's row ends 16 px
+// below its cards (its own padding) with defaults, every switch off, no script and the
+// reporter's settings. So the line also measures from where the cards end and names the deepest
+// boxes that reach past them, alike ones counted together.
 
 const TRAY = '[data-focus-target="stories_tray"]';
 // An account with no friends' stories gets a Create story card in place of the row.
 const CREATE = 'a[href*="/stories/create"]';
+// A story card is a link this tall at least. Live they're 160 px; a short text link can't say
+// where the cards end.
+const STORY_CARD = 'a[href*="/stories/"]';
+const CARD = 80;
 const PICTURES = 'img, svg, video, canvas';
 const LOADING = '[data-visualcompletion="loading-state"]';
-// More than this between the row and the post is reported block by block.
+// More than this between the row and the post, or inside the row below its cards, is reported
+// block by block.
 export const USUAL_GAP = 40;
 // Blocks shown at most, so the line stays short enough for Copy report.
 const MOST = 4;
@@ -77,7 +89,51 @@ const inRoom = (block, top, bottom) => {
   return box.height >= 2 && box.bottom > top + 1 && box.top < bottom - 1;
 };
 
-// The Stories row's bottom, the first post's top and the blocks between them, or why not.
+// Where the cards end in the row: the bottom most of its story cards share, so one stretched
+// card can't move it. Null when the row has no card-sized story link.
+function cardsBottom(row) {
+  const counts = new Map();
+  for (const link of row.querySelectorAll(STORY_CARD)) {
+    const box = boxOf(link);
+    if (box.height < CARD) continue;
+    const bottom = Math.round(box.bottom);
+    counts.set(bottom, (counts.get(bottom) ?? 0) + 1);
+  }
+  let end = null;
+  for (const [bottom, count] of counts) {
+    const best = end === null ? 0 : counts.get(end);
+    if (count > best || (count === best && bottom < end)) end = bottom;
+  }
+  return end;
+}
+
+// The room inside the Stories row below its cards and the deepest boxes reaching into it, alike
+// boxes side by side counted as one (stretched card boxes come in a run). Lone boxes come first,
+// since a box that's tall on its own is what stretches the rest. Null without card-sized cards.
+export function measureRoomInRow(row, view) {
+  const end = cardsBottom(row);
+  if (end === null) return null;
+  const room = Math.round(boxOf(row).bottom - end);
+  if (room <= USUAL_GAP) return { room, blocks: [] };
+  const reaching = [...row.querySelectorAll('*')].filter((element) => {
+    const box = boxOf(element);
+    return box.height >= 2 && box.bottom > end + SPACE;
+  });
+  const deepest = reaching.filter((element) => !reaching.some((other) => other !== element && element.contains(other)));
+  const groups = [];
+  for (const element of deepest) {
+    const key = `${element.localName} ${element.getAttribute('role') ?? ''} ${Math.round(boxOf(element).height)}`;
+    const group = groups.find((entry) => entry.parent === element.parentElement && entry.key === key);
+    if (group) group.count++;
+    else groups.push({ parent: element.parentElement, key, first: element, count: 1 });
+  }
+  groups.sort((a, b) => Math.min(a.count, 2) - Math.min(b.count, 2));
+  const blocks = groups.map(({ first, count }) => `${describeBlock(first, view)}${count > 1 ? `, and ${count - 1} more like it` : ''}`);
+  return { room, blocks };
+}
+
+// The Stories row's bottom, the first post's top and the blocks between them, or why not, with
+// the room inside the row below its cards.
 export function measureStoriesGap(doc) {
   const view = doc.defaultView;
   const main = doc.querySelector('[role="main"]');
@@ -89,7 +145,8 @@ export function measureStoriesGap(doc) {
   const top = boxOf(row).bottom;
   const bottom = boxOf(post).top;
   const gap = Math.round(bottom - top);
-  if (gap <= USUAL_GAP) return { state: 'usual', gap };
+  const inside = row.matches(TRAY) ? measureRoomInRow(row, view) : null;
+  if (gap <= USUAL_GAP) return { state: 'usual', gap, inside };
   const column = commonAncestor(row, post);
   const blocks = [];
   const note = (block) => {
@@ -114,7 +171,7 @@ export function measureStoriesGap(doc) {
     const style = view.getComputedStyle(element);
     if ((parseFloat(style.paddingTop) > SPACE || parseFloat(style.marginTop) > SPACE) && !blocks.includes(element)) blocks.push(element);
   }
-  return { state: 'gap', gap, blocks: blocks.map((block) => describeBlock(block, view)) };
+  return { state: 'gap', gap, blocks: blocks.map((block) => describeBlock(block, view)), inside };
 }
 
 function commonAncestor(a, b) {
@@ -130,9 +187,13 @@ export function storiesGapLine(doc, onHome) {
   const found = measureStoriesGap(doc);
   if (found.state === 'no-page' || found.state === 'no-row') return 'No Stories row on this page';
   if (found.state === 'no-post') return 'No post drawn yet';
-  if (found.state === 'usual') return `${found.gap} px, as usual`;
-  const shown = found.blocks.slice(0, MOST);
-  const more = found.blocks.length - shown.length;
-  const list = shown.length ? `: ${shown.join('; ')}${more > 0 ? `; ${more} more` : ''}` : ', with no block of its own in it';
-  return `${found.gap} px${list}`;
+  const under = found.state === 'usual' ? `${found.gap} px, as usual` : `${found.gap} px${listOf(found.blocks)}`;
+  if (!found.inside || found.inside.room <= USUAL_GAP) return under;
+  return `${under}. The row reaches ${found.inside.room} px below its cards${listOf(found.inside.blocks)}`;
+}
+
+function listOf(blocks) {
+  const shown = blocks.slice(0, MOST);
+  const more = blocks.length - shown.length;
+  return shown.length ? `: ${shown.join('; ')}${more > 0 ? `; ${more} more` : ''}` : ', with no block of its own in it';
 }
