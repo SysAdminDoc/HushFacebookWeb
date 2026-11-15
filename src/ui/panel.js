@@ -481,14 +481,15 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const open = openHelp.has(key) || (found && closedHelp.get(key) !== query);
     const restId = `hfw-${key}-more`;
     const more = h('span', { id: restId, hidden: !open, text: ` ${rest}` });
-    // Named after its row, since a screen reader's list of buttons shows only names.
-    const name = (shown) => (shown ? t('Less about {title}', { title: t(title) }) : t('More about {title}', { title: t(title) }));
+    // Named by its own word and then its row's title, since a screen reader's list of buttons
+    // shows only names. The word it shows comes first in every language, so saying it works.
+    const buttonId = `hfw-${key}-more-button`;
+    const titleId = `hfw-${key}-more-title`;
     const toggleMore = (event) => {
       const opening = more.hidden;
       more.hidden = !opening;
       const button = event.currentTarget;
       button.setAttribute('aria-expanded', String(opening));
-      button.setAttribute('aria-label', name(opening));
       button.textContent = opening ? t('Less') : t('More');
       if (opening) {
         openHelp.add(key);
@@ -500,7 +501,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     };
     return [
       h('div', { class: 'desc' }, first, more, ' ',
-        h('button', { class: 'more', type: 'button', 'aria-expanded': String(open), 'aria-controls': restId, 'aria-label': name(open), dataset: { key: `more:${key}` }, text: open ? t('Less') : t('More'), onclick: toggleMore })),
+        h('button', { class: 'more', type: 'button', id: buttonId, 'aria-expanded': String(open), 'aria-controls': restId, 'aria-labelledby': `${buttonId} ${titleId}`, dataset: { key: `more:${key}` }, text: open ? t('Less') : t('More'), onclick: toggleMore })),
+      h('span', { id: titleId, hidden: true, text: t(title) }),
       id ? h('div', { id, hidden: true, text }) : null,
     ];
   }
