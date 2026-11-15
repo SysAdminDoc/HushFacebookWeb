@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.41 (2026-11-15, unreleased)
+
+* In the userscript, Add to this account and the Undo after Delete them (on the card for activity from before accounts were kept apart) could report success when nothing changed. That happened when the first save failed and a video kept its spot, speed or volume before the retry. The retry's copy went where nothing reads it. Now it says it couldn't, and pressing it again really adds or restores it.
+
 ## v0.0.40 (2026-11-15, unreleased)
 
 * Open Messenger as a full page didn't work while you had unread chats. Facebook adds the count to the button's name then ("Messenger, 1 unread"), and the script only knew the plain name, so the list of chats opened as usual. Both names work now.

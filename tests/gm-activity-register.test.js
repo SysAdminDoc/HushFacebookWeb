@@ -134,6 +134,26 @@ test('a raw ordinary value committed before a stale repair retry survives fresh 
   assert.equal(old.calls.filter(([method, key]) => ['set', 'remove'].includes(method) && key === SPEED).length, 0);
 });
 
+test('a repair retry after this page saved a newer ordinary value says so, and asking again lands in the new epoch', async () => {
+  const backend = new Map([[SPEED, 1.25]]);
+  const p = page(backend, 'a');
+  p.controls.rejectProposal = 1;
+  p.controls.rejectCleanup = true;
+  const repairing = p.register.write(SPEED, 1.5);
+  await tick();
+  await p.register.set(SPEED, 2);
+  await p.next();
+  assert.equal(p.timers.filter((timer) => !timer.ran).length, 0, 'it is not retried either');
+  // Its record would sit in the old epoch, where no read ever looks, so it isn't reported as saved.
+  await assert.rejects(repairing, { code: 'ACTIVITY_SUPERSEDED' });
+  assert.equal(physicalWrites(p).length, 1, 'no record is written for the old epoch');
+  assert.equal(fresh(backend).read(SPEED), 2);
+  // The same change asked for again is a new proposal on the value as it is now.
+  assert.equal(await p.register.write(SPEED, 1.5), 1.5);
+  assert.equal(fresh(backend).read(SPEED), 1.5);
+  assert.equal(backend.get(SPEED).value, 2, 'the ordinary value stays as the seed');
+});
+
 test('concurrent different-value repairs remain recoverable instead of choosing a clock or UUID winner', async () => {
   for (const otherTime of [100, 5]) {
     for (const propagate of [false, true]) {

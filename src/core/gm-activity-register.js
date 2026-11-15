@@ -193,12 +193,15 @@ export function createGmActivityRegister({
     if (kind === 'restore' && (typeof options.restoreFrom !== 'string' || !ID.test(options.restoreFrom))) throw new TypeError('Choose the activity deletion to undo');
     const desired = fingerprint([kind, value, options.restoreFrom]);
     const previous = jobs.get(key);
-    if (previous && previous.desired === desired) {
+    const state = snapshot(key);
+    // The same change asked for again keeps its operation while the epoch it was made in lasts.
+    // After a newer ordinary value it's made again on that value, since the old one would be
+    // written where no read looks.
+    if (previous && previous.desired === desired && previous.operation.seed === state.seed) {
       previous.allowed = permission.allowed;
       if (previous.active) return previous.active;
       return run(previous);
     }
-    const state = snapshot(key);
     if (state.names.length >= GM_ACTIVITY_MAX_RECORDS || state.bytes >= GM_ACTIVITY_MAX_BYTES) return Promise.reject(full());
     if (previous?.timer !== null && previous?.timer !== undefined) cancel(previous.timer);
     previous?.reject?.(superseded());
@@ -242,6 +245,9 @@ export function createGmActivityRegister({
         requireAllowed(job);
         if (jobs.get(job.key) !== job) throw superseded();
         const state = snapshot(job.key);
+        // A newer ordinary value landed since this change was asked for, so its record would be
+        // ignored by every read. It stops there rather than reporting a save.
+        if (state.seed !== job.operation.seed) throw superseded();
         const size = new TextEncoder().encode(JSON.stringify(job.operation)).byteLength;
         if (state.names.length >= GM_ACTIVITY_MAX_RECORDS || state.bytes + size > GM_ACTIVITY_MAX_BYTES) throw full();
         name = `${prefix(job.key)}${nextId()}`;
@@ -261,7 +267,7 @@ export function createGmActivityRegister({
         if (name && !acknowledged) discard(name, job);
         if (!allowed(job)) return finish(changedAccount());
         if (jobs.get(job.key) !== job) return finish(superseded());
-        if (['ACTIVITY_REGISTER_FULL', 'ACTIVITY_REGISTER_CONFLICT'].includes(error.code) || number >= RETRY_DELAYS.length) return finish(error);
+        if (['ACTIVITY_REGISTER_FULL', 'ACTIVITY_REGISTER_CONFLICT', 'ACTIVITY_SUPERSEDED'].includes(error.code) || number >= RETRY_DELAYS.length) return finish(error);
         try {
           job.timer = schedule(() => { void attempt(number + 1); }, RETRY_DELAYS[number]);
           job.timer?.unref?.();
