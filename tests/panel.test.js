@@ -23,6 +23,8 @@ import { SEEN_SETTINGS_KEY } from '../src/ui/new-dots.js';
 import { QUICK_SETUPS } from '../src/ui/quick-setups.js';
 import menuEntry from '../src/features/menu/menu-entry.js';
 import rememberWatched, { WATCHED_KEY } from '../src/features/playback/remember-watched.js';
+import hideParts from '../src/features/appearance/hide-parts.js';
+import { describeRule, partsCss } from '../src/features/appearance/part-rules.js';
 
 const GLOBALS = ['document', 'Node', 'CSS', 'requestAnimationFrame', 'navigator', 'setTimeout', 'clearTimeout'];
 const nodeSetTimeout = globalThis.setTimeout;
@@ -918,6 +920,108 @@ test('watched-history Retry appears while Playback stays open and acknowledgemen
   await tick();
   assert.ok(!button(), 'the recovery action clears after acknowledgement');
   assert.equal(shadow.querySelectorAll('[data-links-for="rememberWatched"] a').length, 1);
+});
+
+test('Hide parts of the page: the panel steps aside for the picker, a save hides the part with Undo, and the list has Show again', async () => {
+  const actions = createActions();
+  const { win, shadow, panel, settings, log, unavailable } = setup({ features: [hideParts], actions });
+  const doc = win.document;
+  doc.head.insertAdjacentHTML('beforeend', '<style>a, span { display: inline; }</style>');
+  doc.body.insertAdjacentHTML('afterbegin', `<div role="complementary"><div id="right">
+    <div id="requests"><h3 id="requests-title">Friend requests</h3><a href="/friends/requests/">See all</a></div>
+    <div id="birthdays"><h3 id="birthdays-title">Birthdays</h3></div></div></div>`);
+  startFeatures({
+    features: [hideParts], net: null, settings, log, unavailable, changed: () => panel.refresh(),
+    context: (feature) => ({ doc, win, actions: actions.for(feature.id), toast: panel.toast, pickPart: (options) => panel.pickPart(options) }),
+  });
+  const dialog = shadow.querySelector('dialog');
+  const pick = () => [...shadow.querySelectorAll('main button')].find((item) => item.textContent === 'Pick a part to hide');
+  const pickerButton = (key) => shadow.querySelector(`[data-key="picker:${key}"]`);
+  const click = (node) => node.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+  const parts = () => settings.get('hideParts.parts');
+  const lastToast = () => shadow.querySelector('.toast:last-child');
+  const undo = () => [...lastToast().querySelectorAll('button')].find((item) => item.textContent === 'Undo');
+  const showAgain = () => [...shadow.querySelectorAll('[data-links-for="hideParts"] button')];
+
+  panel.open('appearance');
+  assert.equal(shadow.querySelector('[data-key="hideParts.parts"]'), null, 'the saved parts are no text box');
+  assert.equal(shadow.querySelector('[data-links-for="hideParts"]').textContent, 'No parts hidden yet.');
+
+  // Escape puts the panel back where it was.
+  pick().click();
+  await tick();
+  assert.equal(dialog.open, false);
+  assert.ok(shadow.querySelector('.picker'));
+  assert.ok(shadow.activeElement === shadow.querySelector('.picker'), "the picker's bar keeps focus once the panel has closed");
+  doc.body.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  await tick();
+  assert.equal(dialog.open, true);
+  assert.equal(shadow.querySelector('.picker'), null);
+  assert.ok(pick(), 'back on Appearance');
+  assert.equal(parts(), '');
+
+  // Opening the panel some other way, like the settings button, ends the picking.
+  pick().click();
+  await tick();
+  panel.open('appearance');
+  await tick();
+  assert.equal(dialog.open, true);
+  assert.equal(shadow.querySelector('.picker'), null);
+  assert.equal(doc.querySelector('style[data-hushfacebook-web="part-preview"]'), null);
+  assert.equal(click(doc.getElementById('requests-title')), true, 'and the page hears clicks again');
+
+  // The heading is picked, Bigger takes its box, and Save keeps it hidden with Undo.
+  pick().click();
+  await tick();
+  assert.equal(click(doc.getElementById('requests-title')), false, 'Facebook never hears the click');
+  pickerButton('bigger').click();
+  pickerButton('save').click();
+  await tick();
+  assert.equal(dialog.open, false, 'the page stays in view');
+  assert.equal(parts(), 'complementary link /friends/requests/ up 1');
+  assert.equal(hideParts.css(settings.get), partsCss('complementary link /friends/requests/ up 1'));
+  assert.match(lastToast().textContent, /Part hidden/);
+  undo().click();
+  await tick();
+  assert.equal(parts(), '');
+
+  for (const id of ['requests-title', 'birthdays-title']) {
+    panel.open('appearance');
+    pick().click();
+    await tick();
+    click(doc.getElementById(id));
+    pickerButton('save').click();
+    await tick();
+  }
+  const saved = ['complementary at 1 1 1', 'complementary at 1 2 1'];
+  assert.equal(parts(), saved.join('\n'));
+
+  // Each part is listed in words, with a Show again named for it.
+  panel.open('appearance');
+  assert.deepEqual([...shadow.querySelectorAll('[data-links-for="hideParts"] .link-label')].map((item) => item.textContent), saved.map(describeRule));
+  assert.deepEqual(showAgain().map((button) => labelledText(shadow, button)), saved.map((line) => `Show again ${describeRule(line)}`));
+  showAgain()[0].focus();
+  showAgain()[0].click();
+  await tick();
+  assert.equal(parts(), saved[1]);
+  assert.equal(showAgain().length, 1);
+  assert.ok(shadow.activeElement === showAgain()[0], 'focus goes to the part now in its place');
+  assert.match(lastToast().textContent, /That part shows again/);
+  undo().click();
+  await tick();
+  assert.equal(parts(), saved.join('\n'), 'Undo hides it again');
+
+  // With the last part gone, focus steps back to the one before it, then to the switch.
+  showAgain()[1].focus();
+  showAgain()[1].click();
+  await tick();
+  assert.equal(parts(), saved[0]);
+  assert.ok(shadow.activeElement === showAgain()[0], 'the part before it');
+  showAgain()[0].click();
+  await tick();
+  assert.equal(parts(), '');
+  assert.ok(shadow.activeElement === shadow.querySelector('main [data-key="hideParts"]'), "the feature's switch");
+  assert.equal(shadow.querySelector('[data-links-for="hideParts"]').textContent, 'No parts hidden yet.');
 });
 
 test("a feature's status line shows on its card while it's on and changes without taking focus", async () => {

@@ -63,8 +63,9 @@ const scenarios = [
   { id: 'voice-clip', fixture: 'voiceClip' },
   { id: 'messenger-tap', fixture: 'messengerTap', touch: true },
   { id: 'seller-link', fixture: 'sellerLink', screenshot: true, viewport: { width: 600, height: 400 } },
+  { id: 'hide-parts', fixture: 'hideParts', screenshot: true, viewport: { width: 1100, height: 760 } },
 ];
-const DRIVEN = { panel, voiceClip, messengerTap, sellerLink };
+const DRIVEN = { panel, voiceClip, messengerTap, sellerLink, hideParts };
 // HFW_BROWSER_ONLY=id,id runs just those scenarios.
 const only = process.env.HFW_BROWSER_ONLY?.split(',').filter(Boolean) ?? [];
 const chosen = only.length ? scenarios.filter((scenario) => only.includes(scenario.id)) : scenarios;
@@ -169,6 +170,97 @@ async function sellerLink(page) {
   await page.keyboard.press('Shift+Tab');
   assert.equal(await focus(), 'name', 'Shift+Tab does not come back to the name');
   return drawn;
+}
+
+// Hide parts of the page, pointed at and clicked for real: the outline follows the pointer, a
+// post is refused, a picked box shows hidden, and the page hears nothing until Save.
+async function hideParts(page, engine) {
+  const fixture = (name, args) => page.evaluate(({ name: method, args: options }) => window.hfwBrowserFixture[method](options), { name, args });
+  const near = (one, two) => Boolean(one && two) && ['left', 'top', 'width', 'height'].every((side) => Math.abs(one[side] - two[side]) < 1.5);
+  assert.equal((await fixture('preparePicker')).focused, true, 'Pick a part to hide did not take focus');
+  await page.keyboard.press('Enter');
+  let seen = await fixture('pickerState');
+  assert.equal(seen.dialogOpen, false, 'The panel stayed open over the page');
+  assert.equal(seen.barFocused, true, "The panel's closing took focus from the picker's bar");
+  assert.equal(seen.openerFocused, false, 'Focus went back to what opened the panel');
+
+  // The bar starts over the top bar and steps to the bottom once the pointer is on something it
+  // covers, so the top bar's tabs can be pointed at. The fixed footer sends it back up. Single
+  // moves, since every point a stepped move passes can move the bar.
+  const topbar = await fixture('pointAt', { id: 'topbar', corner: true });
+  await page.mouse.move(topbar.x, topbar.y);
+  assert.equal((await fixture('pickerState')).barLow, true, 'The bar stayed over the top bar');
+  const tab = await fixture('pointAt', { id: 'watch-tab' });
+  await page.mouse.move(tab.x, tab.y);
+  assert.ok(near((await fixture('pickerState')).outline, tab.rect), 'A tab under the bar cannot be pointed at');
+  const footer = await fixture('pointAt', { id: 'footer', corner: true });
+  await page.mouse.move(footer.x, footer.y);
+  assert.equal((await fixture('pickerState')).barLow, false, 'The bar stayed over the footer');
+  await page.mouse.move(topbar.x, topbar.y);
+
+  // An icon in a link outlines its row, and a padded box outlines itself.
+  const icon = await fixture('pointAt', { id: 'market-icon' });
+  await page.mouse.move(icon.x, icon.y);
+  seen = await fixture('pickerState');
+  assert.ok(near(seen.outline, await fixture('boxOf', 'market-row')), 'The outline is not on the shortcut row under the pointer');
+  const requests = await fixture('pointAt', { id: 'requests', corner: true });
+  await page.mouse.move(requests.x, requests.y, { steps: 4 });
+  seen = await fixture('pickerState');
+  assert.ok(near(seen.outline, requests.rect), 'The outline is not on the box under the pointer');
+
+  // A post is refused with a red outline, and Pick another goes back to pointing.
+  const post = await fixture('pointAt', { id: 'post-text' });
+  await page.mouse.click(post.x, post.y);
+  seen = await fixture('pickerState');
+  assert.equal(seen.outline?.refused, true, 'A refused pick has no red outline');
+  assert.match(seen.title, /part of a post/);
+  assert.equal(seen.focused, 'picker:again');
+  await page.keyboard.press('Enter');
+  seen = await fixture('pickerState');
+  assert.equal(seen.barFocused, true, 'Pick another did not go back to pointing');
+
+  // The box is picked and shows hidden at once, with Save ready for Enter.
+  await page.mouse.move(requests.x, requests.y);
+  await page.mouse.click(requests.x, requests.y);
+  seen = await fixture('pickerState');
+  assert.equal(seen.focused, 'picker:save', 'Save did not take focus after a pick');
+  assert.equal(await fixture('displayOf', 'requests'), 'none', 'The picked box does not show hidden');
+  assert.deepEqual(seen.heard, [], 'The page heard the pointer while picking');
+  await page.screenshot({ path: join(output, `${engine}-hide-parts-picked.png`), animations: 'disabled' });
+  await page.keyboard.press('Enter');
+  seen = await fixture('pickerState');
+  assert.equal(seen.picker, false);
+  assert.equal(seen.preview, false, 'The preview style stayed after Save');
+  assert.equal(seen.dialogOpen, false, 'Save opened the panel over the page');
+  assert.equal(seen.parts, 'complementary link /friends/requests/ up 1');
+  assert.match(seen.toast, /Part hidden/);
+  assert.equal(seen.undo, true, 'The save has no Undo');
+  const saved = await fixture('savedPart');
+  assert.equal(saved.matched, 1);
+  assert.equal(saved.cssHidesMatched, true, "The saved CSS hides something the matcher doesn't find");
+  assert.equal(saved.selectorAgrees, true, "The browser's selector engine and the matcher disagree");
+  assert.equal(saved.styleHasRule, true, 'The feature style lacks the saved rule');
+  assert.equal(saved.afterReload, true, 'Settings read back from storage build different CSS');
+
+  // Clicks reach the page again.
+  await fixture('clearHeard');
+  const sponsored = await fixture('pointAt', { id: 'sponsored', corner: true });
+  await page.mouse.click(sponsored.x, sponsored.y);
+  seen = await fixture('pickerState');
+  assert.ok(seen.heard.includes('click'), 'The page still hears no clicks after Save');
+
+  // The card lists the part with a Show again named for it, and a real click on it shows the part.
+  const list = await fixture('showList');
+  assert.equal(list.items, 1);
+  assert.equal(list.named, true, 'Show again is not named for its part');
+  await page.screenshot({ path: join(output, `${engine}-hide-parts-list.png`), animations: 'disabled' });
+  await page.mouse.click(list.button.left + list.button.width / 2, list.button.top + list.button.height / 2);
+  seen = await fixture('pickerState');
+  assert.equal(seen.parts, '');
+  assert.notEqual(await fixture('displayOf', 'requests'), 'none', 'Show again left the part hidden');
+  assert.match(seen.toast, /shows again/);
+  assert.deepEqual(seen.errors, []);
+  return { line: saved.line, matched: saved.matched };
 }
 
 async function run() {

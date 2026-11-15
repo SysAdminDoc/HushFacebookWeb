@@ -5,15 +5,18 @@
 //   title, description, default
 //   needsPage   true when it hooks Facebook's window (skipped in content-script mode)
 //   reload      true when a change only applies after Facebook reloads
-//   options     extra settings: [{ key, type: toggle|select|text|number, label, default, choices? }]
+//   options     extra settings: [{ key, type: toggle|select|text|number, label, default, choices?, hidden? }]
+//               hidden: kept and backed up like any setting, but the card shows the feature's own list instead
 //   css         string, or (get) => string, applied while the feature is on
 //   setup(ctx)  runs once at document-start
 //               ctx = { win, doc, net, router, posts, hider, diagnostics, actions, storage, log, toast, openSettings,
-//                       settings, enabled, option }
+//                       pickPart, settings, enabled, option }
 //               net is null in content mode (needsPage features never get that far)
 //               diagnostics.add('Row label', () => 'value') adds a Diagnostics row (src/core/diagnostics.js)
 //               actions.add('Button label', run) puts a button on the feature's card (src/core/actions.js)
-//               actions.links(get, 'Shown when empty') lists links on the card
+//               actions.links(get, 'Shown when empty') lists links on the card. An item can carry
+//               action: { label, run } for a button beside it, and leave out href to be a plain line
+//               pickPart({ section, rules, onSave }): the part picker (src/ui/part-picker.js), from the panel
 //               storage.get(key, fallback) / storage.set(key, value): GM storage beside the settings.
 //               Keys in ACTIVITY_KEYS (src/core/activity.js) are kept for each account
 //               toast('Message', { tone: 'error' }): a short note at the bottom of the page;
@@ -103,6 +106,7 @@ import hideFooterLinks from './appearance/hide-footer.js';
 import hideActiveDots from './appearance/hide-active-dots.js';
 import widerFeed from './appearance/wider-feed.js';
 import screenshotMode from './appearance/screenshot-mode.js';
+import hideParts from './appearance/hide-parts.js';
 import hideMenuPromotions from './menu/hide-menu-promotions.js';
 import menuEntry from './menu/menu-entry.js';
 import hideMetaUpsells from './meta/hide-meta-upsells.js';
@@ -115,7 +119,7 @@ export const features = [
   hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, filterMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, keepNotificationsFilter, holdBackLogs, blockAdTelemetry,
   commentOrder, showAllReplies, hideCommentStickers, hideVideoCommentBox, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, downloadMenu, tapToPlay, pauseOffscreenVideos, limitHdr, resumeVideos,
   keepSpeed, keepVolume, holdForSpeed, pictureInPicture, frameStep, keepControls, videoQuality, rememberWatched, hideVideoSuggestions,
-  forceDarkMode, calmTheme, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, hideFooterLinks, hideActiveDots, widerFeed, screenshotMode,
+  forceDarkMode, calmTheme, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, hideFooterLinks, hideActiveDots, hideParts, widerFeed, screenshotMode,
   menuEntry, hideMenuPromotions, hideMetaUpsells, hidePromotions, blockInstantGamesAds,
   // In this order: the first to claim a Home load redirects it (opening/start.js).
   marketplaceOnly, openOnTab, followingFeed, messengerPage,

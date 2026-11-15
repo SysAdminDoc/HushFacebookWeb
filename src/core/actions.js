@@ -3,7 +3,9 @@
 // '' leaves its button off the card for now. Each button keeps its place number either way.
 //
 // A feature can also show a list of links on its card (Remember what you watch): get returns
-// [{ label, detail, href }] each time the card is drawn, and empty is shown when there are none.
+// [{ label, detail, href, action }] each time the card is drawn, and empty is shown when there
+// are none. An item without href is a plain line, and action ({ label, run }) puts a button beside
+// it (Hide parts of the page's Show again).
 
 export function createActions() {
   const byFeature = new Map();

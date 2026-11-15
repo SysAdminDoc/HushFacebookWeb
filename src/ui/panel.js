@@ -19,6 +19,7 @@ import { trackLauncherSpot } from './launcher-place.js';
 import { navigationIcon } from './navigation-icons.js';
 import { createNewDots } from './new-dots.js';
 import { watchPageTheme } from './page-theme.js';
+import { startPartPicker } from './part-picker.js';
 import { buildDiagnosticReport } from './diagnostic-report.js';
 import { buildProblemReport } from './problem-report.js';
 import { applyQuickSetup, QUICK_SETUPS } from './quick-setups.js';
@@ -141,6 +142,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // words change or the panel opens again, so a new search (the same words typed again
   // included) opens them again.
   const closedHelp = new Set();
+  // The running part picker (pickPart), or null.
+  let picker = null;
   const fieldErrors = new Map();
   const pending = new Set();
   const actionNotices = new Map();
@@ -272,7 +275,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     newDots.finish();
     announceSearch('');
     moveStacks(root);
-    if (opener?.isConnected && !opener.hidden && opener !== document.body && opener !== document.documentElement) opener.focus({ preventScroll: true });
+    // The part picker's bar keeps the focus it took.
+    if (picker) opener = null;
+    else if (opener?.isConnected && !opener.hidden && opener !== document.body && opener !== document.documentElement) opener.focus({ preventScroll: true });
     else if (!launcher.hidden) launcher.focus({ preventScroll: true });
     opener = null;
   });
@@ -423,17 +428,46 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     }
   }
 
-  // The links a feature lists on its card (ctx.actions.links), opened in this tab.
+  // The links a feature lists on its card (ctx.actions.links), opened in this tab. An item with
+  // no href is a plain line, and an item's action ({ label, run }) is a button beside it, named by
+  // its own word and then the item.
   const linkSignatures = new WeakMap();
   function featureLinks(feature) {
     const found = actions?.links?.(feature.id);
     if (!found) return null;
     const node = !found.items.length ? h('div', { class: 'links-empty', dataset: { linksFor: feature.id }, text: t(found.empty) })
-      : h('ol', { class: 'links', dataset: { linksFor: feature.id } }, found.items.map(({ label, detail, href }) => h('li', {},
-      h('a', { href, text: label, dir: 'auto' }),
-      detail ? h('span', { class: 'detail', text: detail }) : null)));
+      : h('ol', { class: 'links', dataset: { linksFor: feature.id } }, found.items.map(({ label, detail, href, action }, index) => {
+        const labelId = `hfw-${feature.id}-link-${index}`;
+        const buttonId = `${labelId}-action`;
+        return h('li', { class: action ? 'with-action' : null },
+          href ? h('a', { href, text: label, dir: 'auto', id: action ? labelId : null }) : h('span', { class: 'link-label', id: labelId, text: label, dir: 'auto' }),
+          detail ? h('span', { class: 'detail', text: detail }) : null,
+          action ? h('button', {
+            class: 'button link-action', type: 'button', id: buttonId, 'aria-labelledby': `${buttonId} ${labelId}`,
+            dataset: { key: `link:${feature.id}:${index}` }, text: t(action.label), onclick: () => runLinkAction(action),
+          }) : null);
+      }));
     linkSignatures.set(node, JSON.stringify(found));
     return node;
+  }
+
+  // A list item's button that went away with its item (Show again): the one now in its place, the
+  // one before it, or the feature's switch when the list is empty.
+  function nearestLinkAction(key) {
+    const match = /^link:(.+):(\d+)$/.exec(key);
+    if (!match) return null;
+    const [, id, index] = match;
+    return root.querySelector(`[data-key="${CSS.escape(`link:${id}:${Number(index) - 1}`)}"]`) ?? root.querySelector(`[data-key="${CSS.escape(id)}"]`);
+  }
+
+  function runLinkAction(action) {
+    const failed = (error) => actionError('{action} failed. Try again', error, { action: t(action.label) });
+    try {
+      const result = action.run();
+      if (result && typeof result.then === 'function') Promise.resolve(result).catch(failed);
+    } catch (error) {
+      failed(error);
+    }
   }
 
   // Buttons the feature added for itself (ctx.actions).
@@ -527,6 +561,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const ids = { desc: `hfw-${feature.id}-desc`, note: `hfw-${feature.id}-note`, reload: `hfw-${feature.id}-reload` };
     const describedBy = [ids.desc, blocked ? ids.note : null, feature.reload ? ids.reload : null].filter(Boolean).join(' ');
     const status = on && diagnostics?.hasStatus?.(feature.id) ? diagnostics.statusOf(feature.id) : undefined;
+    // A hidden option is the feature's own store (the parts Hide parts of the page keeps), shown
+    // as its list instead.
+    const options = (feature.options ?? []).filter((option) => !option.hidden);
     return h('div', { class: `card${blocked ? ' unavailable' : ''}` },
       h('div', { class: 'row' },
         h('div', { class: 'text' },
@@ -536,7 +573,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           feature.reload ? h('div', { class: 'note', id: ids.reload, text: t('Applies after Facebook reloads.') }) : null,
           status === undefined ? null : h('div', { class: 'note', 'data-status-for': feature.id, role: 'status', hidden: status === null, text: t(status ?? '') })),
         toggle(feature.id, feature.title, { locked: blocked, describedBy })),
-      (on || showOptions) && feature.options?.length ? h('div', { class: 'options' }, feature.options.map((option) => optionControl(feature, option, dots))) : null,
+      (on || showOptions) && options.length ? h('div', { class: 'options' }, options.map((option) => optionControl(feature, option, dots))) : null,
       on ? featureLinks(feature) : null,
       on ? featureActions(feature) : null);
   }
@@ -1174,7 +1211,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     // when a language change mirrors the panel, while preserving normal redraw scroll.
     if (directionChanged) nav.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     if (focusedKey) {
-      const replacement = root.querySelector(`[data-key="${CSS.escape(focusedKey)}"]`);
+      const replacement = root.querySelector(`[data-key="${CSS.escape(focusedKey)}"]`) ?? nearestLinkAction(focusedKey);
       replacement?.focus({ preventScroll: true });
       if (selection && replacement?.setSelectionRange) replacement.setSelectionRange(...selection);
     }
@@ -1415,6 +1452,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   // sectionId: a page, or a group, which opens its page scrolled to it.
   function open(sectionId, searchQuery) {
+    stopPicking();
     // Every opening is a fresh look, so a Less from before shows its row open again.
     closedHelp.clear();
     const pageId = sectionId ? pageOf(sectionId) : null;
@@ -1442,6 +1480,31 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   function close() {
     dialog.close();
+  }
+
+  // Hide parts of the page (ctx.pickPart): the panel steps aside while the picker runs and comes
+  // back when it's cancelled. A save leaves the page in view, with the feature's own notice.
+  // section: the page or group to come back to.
+  function pickPart({ section = 'layout', rules, onSave }) {
+    stopPicking();
+    // Closed first, since nothing outside a modal dialog can take focus while it's open.
+    close();
+    const handle = startPartPicker({
+      root, host, doc: document, win: document.defaultView, rules, onSave,
+      onEnd: ({ saved }) => {
+        if (picker !== handle) return;
+        picker = null;
+        if (!saved) open(section);
+        else if (!launcher.hidden) launcher.focus({ preventScroll: true });
+      },
+    });
+    picker = handle;
+  }
+
+  function stopPicking() {
+    const running = picker;
+    picker = null;
+    running?.stop();
   }
 
   settings.subscribe(() => {
@@ -1545,7 +1608,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         if (!replacement) continue;
         node.replaceWith(replacement);
         if (restore) {
-          const next = buttons ? replacement.querySelector(`[data-key="${CSS.escape(active.dataset.key)}"]`)
+          const next = active.dataset?.key ? replacement.querySelector(`[data-key="${CSS.escape(active.dataset.key)}"]`) ?? nearestLinkAction(active.dataset.key)
             : [...replacement.querySelectorAll('a')].find((link) => link.getAttribute('href') === active.getAttribute('href'));
           (next ?? root.querySelector(`[data-key="${CSS.escape(id)}"]`))?.focus({ preventScroll: true });
         }
@@ -1590,5 +1653,5 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // For notices from the page. reload: true is the one reload notice (the message isn't used),
   // put back even after a dismiss, since what the person just did needed it.
   const notice = (message, options) => (options?.reload ? announceReload(true) : toast(message, options));
-  return { open, close, toast: notice, refresh, copyReport };
+  return { open, close, toast: notice, refresh, copyReport, pickPart };
 }

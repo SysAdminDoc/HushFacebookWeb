@@ -212,6 +212,9 @@ nav button .new-dot { margin-inline-start: 0; }
 .links a { color: var(--accent); text-decoration: none; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .links a:hover { text-decoration: underline; }
 .links .detail { color: var(--subtext); font-size: 13px; line-height: 20px; }
+.links .link-label { font-weight: 600; overflow-wrap: anywhere; }
+.links li.with-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; }
+.links li.with-action > .link-action { grid-column: 2; grid-row: 1 / span 2; min-height: 34px; min-width: 0; padding: 4px 12px; font-size: 13px; }
 .links-empty { color: var(--subtext); font-size: 13px; line-height: 20px; margin-top: 12px; }
 .button { min-height: 40px; min-width: min(96px, 100%); max-width: 100%; border: 1px solid var(--control); background: transparent; padding: 8px 18px; border-radius: 8px; font-size: 14px; transition: background 0.15s ease; }
 .button:hover { background: var(--surface1); }
@@ -255,6 +258,21 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .toast.small { gap: 4px 10px; padding: 5px 8px 5px 12px; font-size: 13px; box-shadow: 0 4px 14px var(--shadow-sm); }
 .toast.small span { flex: 0 1 auto; }
 .toast.small button { min-height: 24px; padding: 2px 4px; }
+/* Hide parts of the page: the bar at the top while picking, and the outline around what a click would pick. */
+.picker { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); z-index: 2147483003; display: grid; gap: 4px; padding: 14px 18px; border-radius: 10px; background: var(--surface0); border: 1px solid var(--surface1); box-shadow: 0 10px 30px var(--shadow); font-size: 14px; overflow-wrap: anywhere; animation: rise 0.18s ease-out; }
+.picker.low { top: auto; bottom: 12px; }
+.picker:focus { outline: none; }
+.picker:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.picker [hidden] { display: none; }
+.picker-title { font-weight: 600; max-width: 60ch; }
+.picker-hint { color: var(--subtext); font-size: 13px; max-width: 60ch; }
+.picker-hint:empty { display: none; }
+.picker .actions { margin-top: 8px; }
+.picker .button { min-height: 36px; padding: 6px 14px; }
+.picker .button:disabled { opacity: 0.5; cursor: not-allowed; }
+.picker .button:disabled:hover { background: transparent; }
+.picker-outline { position: fixed; z-index: 2147483002; pointer-events: none; box-sizing: border-box; border: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.picker-outline.refused { border-color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 nav, main, .log, textarea { scrollbar-width: thin; scrollbar-color: var(--surface1) transparent; }
 @media (max-width: 1100px) {

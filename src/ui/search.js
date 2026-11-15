@@ -28,7 +28,8 @@ const optionText = (option) => [option.label, ...(option.keywords ?? [])].flatMa
 export function searchText(feature, sections) {
   const section = sections.find((entry) => entry.id === feature.section);
   const page = PAGES.find((entry) => entry.id === section?.page)?.title;
-  const options = (feature.options ?? []).flatMap((option) => [...optionText(option), ...(option.choices ?? []).flatMap((choice) => both(choice.label))]);
+  const options = (feature.options ?? []).filter((option) => !option.hidden)
+    .flatMap((option) => [...optionText(option), ...(option.choices ?? []).flatMap((choice) => both(choice.label))]);
   const own = [feature.title, feature.description].flatMap((text) => both(text, feature.vars));
   return fold([...own, ...both(section?.title), ...both(page), ...(feature.keywords ?? []).flatMap((text) => both(text)), ...options].join(' '));
 }

@@ -258,6 +258,8 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
         log,
         toast,
         openSettings,
+        // Picking happens from the panel's own button, so the panel is always there by then.
+        pickPart: (options) => panel?.pickPart(options),
         keepTab: host?.keepTab ?? null,
       }),
       changed: () => panel?.refresh(),
