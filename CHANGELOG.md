@@ -4,6 +4,8 @@
 
 * After two Quick setups in a row, Undo on the first one's notice undid the second one instead. A newer change now takes the older notice away, and each Undo only puts back the change it announced. Restoring a backup and Reset to defaults work the same way.
 * A Quick setup with nothing left to change used to say "Changed 0 settings". It now says those settings were already on, or for Back to defaults that your settings were already at their defaults.
+* Short notices with a button, like Undo after hiding a post, could push the button onto a second line. It stays beside the message now, and long notices still wrap on a narrow screen.
+* Tabbing through the watched list in Playback cut off the sides of each link's focus outline. The whole outline shows now.
 
 ## v0.0.44 (2026-11-15, unreleased)
 

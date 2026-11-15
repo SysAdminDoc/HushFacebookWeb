@@ -182,7 +182,7 @@ a.card { display: block; color: inherit; text-decoration: none; }
 nav button .new-dot { margin-inline-start: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 .links { list-style: none; margin: 16px 0 0; padding: 0 4px 0 0; max-height: 320px; overflow-y: auto; border-top: 1px solid var(--border); }
-.links li { display: flex; flex-direction: column; padding: 8px 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.links li { display: flex; flex-direction: column; padding: 8px 6px; border-bottom: 1px solid var(--border); min-width: 0; }
 .links a { color: var(--accent); text-decoration: none; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .links a:hover { text-decoration: underline; }
 .links .detail { color: var(--subtext); font-size: 13px; line-height: 20px; }
@@ -218,7 +218,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .toast-live, .toast-wait { display: grid; gap: var(--toast-gap); justify-items: inherit; min-width: 0; max-width: 100%; }
 :is(.toast-live, .toast-wait):not(:empty) ~ :is(.toast-live, .toast-wait):not(:empty) { margin-top: var(--toast-gap); }
 .toast { display: flex; align-items: center; gap: 8px 16px; max-width: 100%; padding: 14px 18px; border-radius: 8px; background: var(--surface0); border: 1px solid var(--surface1); box-shadow: 0 10px 30px #0005; font-size: 14px; overflow-wrap: anywhere; flex-wrap: wrap; animation: rise 0.18s ease-out; }
-.toast span { min-width: 0; flex: 1 1 12em; }
+.toast span { min-width: 0; flex: 1 1 auto; }
 .toast .actions { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; margin-inline-start: auto; }
 .toast.error { border-color: var(--red); }
 .toast button { flex: none; min-height: 32px; border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 4px; }
