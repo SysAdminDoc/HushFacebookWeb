@@ -3,6 +3,9 @@
 ## Unreleased
 
 * Saving a video whose picture and sound come as separate files could write a file that won't play when one of them had a second movie header, or listed samples outside its fragments. Those saves now stop with "the video and its sound didn't fit together" instead of handing you a broken file.
+* In the userscript, a damaged settings record for your account showed your shared settings but threw them away at the first change, keeping only that one switch. It could also run an old one-time settings change again over choices you'd made since. A damaged record now counts as missing, so your shared settings are copied in and kept.
+* An account upgrading from v0.0.2 that lost a race with another tab while copying its old settings could retry from the shared settings instead of its own.
+* Restoring a plain settings file (not a full backup) that happened to have a "version" line ran old one-time changes on it as if it were an old backup.
 
 ## v0.0.47 (2026-11-15, unreleased)
 

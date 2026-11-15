@@ -36,8 +36,11 @@ export function applyObjectMutation(current, mutation = {}) {
     const existing = Array.isArray(current) ? current.filter((id) => typeof id === 'string') : [];
     return [...new Set([...structuredClone(existing), ...structuredClone(mutation.union)])];
   }
-  const initial = current === undefined && Object.hasOwn(mutation, 'initialize') ? mutation.initialize : current;
-  const next = initial && typeof initial === 'object' && !Array.isArray(initial) ? structuredClone(initial) : {};
+  // A value that isn't a record (missing, or damaged) is treated as missing, the way the extension's
+  // worker does, so initialize fills it.
+  const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  const initial = !isRecord(current) && Object.hasOwn(mutation, 'initialize') ? mutation.initialize : current;
+  const next = isRecord(initial) ? structuredClone(initial) : {};
   const allowed = (name) => {
     const condition = mutation.conditions?.[name];
     if (!condition) return true;

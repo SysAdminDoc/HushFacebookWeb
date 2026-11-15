@@ -1010,6 +1010,46 @@ test('two ids that shared a v0.0.2 tag keep their own settings, receipts and not
   assert.notEqual(`${storageKeyFor(a)}.migrated`, `${storageKeyFor(b)}.migrated`);
 });
 
+test('a copy from the v0.0.2 record that loses a race retries from that same record', async () => {
+  const [account] = COLLIDING;
+  const legacy = legacyStorageKeyFor(account);
+  const data = new Map(Object.entries({
+    settings: { alpha: false },
+    'settings.migrated': ALL_MIGRATIONS,
+    [legacy]: { beta: true, 'beta.words': 'crypto' },
+    [`${legacy}.migrated`]: ALL_MIGRATIONS,
+  }));
+  const calls = [];
+  const get = (name, fallback) => (data.has(name) ? structuredClone(data.get(name)) : fallback);
+  const storage = {
+    kind: 'extension',
+    get,
+    getAtLoad: get,
+    whenReady: (run) => run(),
+    set: (name, value) => data.set(name, structuredClone(value)),
+    onChange() {},
+    migrate(name, mutation, receiptKey, receipt, options) {
+      calls.push(options);
+      if (calls.length === 1) {
+        // Another tab's write landed between the read and the copy, and the account is still empty.
+        const conflict = new Error('changed while saving');
+        conflict.code = 'STORAGE_MIGRATION_CONFLICT';
+        conflict.current = { beta: true, 'beta.words': 'crypto' };
+        conflict.receipt = ALL_MIGRATIONS;
+        conflict.copyAll = true;
+        return Promise.reject(conflict);
+      }
+      return Promise.resolve(applyObjectMutation(data.get(name), mutation));
+    },
+  };
+  createSettings({ storage, features, account });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], { sourceKey: legacy, sourceDoneKey: `${legacy}.migrated` });
+  assert.deepEqual(calls[1], calls[0], 'the retry copies from the record the account claimed, not the shared one');
+});
+
 test('an upgrade from v0.0.2 copies the old record to one account and keeps it for anyone else', () => {
   const [a, b] = COLLIDING;
   const legacy = legacyStorageKeyFor(a);
@@ -1105,6 +1145,33 @@ test('the old ad switch turned off carries over to search and Marketplace once',
   assert.equal(again.get('hideSponsoredMarketplace'), false);
 });
 
+// An account record that isn't a settings object (a damaged write, an older bug) counts as missing,
+// the way the panel already reads it, so the first edit copies the shared values in.
+test('a malformed account record inherits the shared settings and keeps them after an edit', () => {
+  for (const bad of ['bad', null, [1]]) {
+    const account = '615000000000031';
+    const accountKey = storageKeyFor(account);
+    const storage = createMemoryStorage({ settings: { beta: true, 'beta.order': 'all' }, 'settings.migrated': ALL_MIGRATIONS, [accountKey]: bad, [`${accountKey}.migrated`]: ALL_MIGRATIONS });
+    const settings = createSettings({ storage, features, account });
+    assert.equal(settings.get('beta'), true, `${JSON.stringify(bad)}: the shared value shows`);
+    settings.set('alpha', false);
+    assert.deepEqual(storage.dump()[accountKey], { beta: true, 'beta.order': 'all', alpha: false }, `${JSON.stringify(bad)}: and is kept`);
+    const again = createSettings({ storage, features, account });
+    assert.equal(again.get('beta.order'), 'all', `${JSON.stringify(bad)}: after a reload too`);
+  }
+});
+
+test("a malformed account record doesn't run a change the shared record already ran", () => {
+  const account = '615000000000032';
+  const accountKey = storageKeyFor(account);
+  // Search was turned back on after the ad switch change carried the old switch over.
+  const storage = createMemoryStorage({ settings: { hideSponsoredPosts: false, hideSponsoredMarketplace: false }, 'settings.migrated': ALL_MIGRATIONS, [accountKey]: null });
+  const settings = createSettings({ storage, features: adSwitches, account });
+  assert.equal(settings.get('hideSponsoredSearch'), true);
+  assert.equal(settings.get('hideSponsoredPosts'), false);
+  assert.equal(settings.get('hideSponsoredMarketplace'), false);
+});
+
 test('the ad switch change leaves people who had it on, and new installs, alone for good', () => {
   const kept = createMemoryStorage({ settings: { hideSponsoredPosts: true } });
   assert.equal(createSettings({ storage: kept, features: adSwitches }).get('hideSponsoredSearch'), true);
@@ -1164,6 +1231,10 @@ test('importing a v0.0.1 export gets the ad switch change, a newer export does n
   const plain = createSettings({ storage: createMemoryStorage(), features: adSwitches });
   plain.importJson('{"hideSponsoredPosts":false}');
   assert.equal(plain.get('hideSponsoredSearch'), true, 'a bare settings object has no version to go by');
+  // A bare object is only settings, so a key named version in it isn't the file's version.
+  const keyed = createSettings({ storage: createMemoryStorage(), features: adSwitches });
+  assert.deepEqual(keyed.importJson('{"version":"0.0.1","hideSponsoredPosts":false}').applied, ['hideSponsoredPosts']);
+  assert.equal(keyed.get('hideSponsoredSearch'), true);
 });
 
 const peopleSwitches = [

@@ -250,7 +250,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   function migrationRecord(get) {
     const own = get(doneKey, undefined);
     const cleanOwn = Array.isArray(own) ? [...new Set(own.filter((id) => typeof id === 'string'))] : own;
-    if (key === STORAGE_KEY || get(key, undefined) !== undefined) return cleanOwn;
+    if (key === STORAGE_KEY || isSettingsRecord(get(key, undefined))) return cleanOwn;
     const shared = get(`${accountSource(get)}.migrated`, undefined);
     if (Array.isArray(own) || Array.isArray(shared)) {
       return [...new Set([
@@ -342,7 +342,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
   }
 
   function loadManagerSettings() {
-    const inheritedShared = key !== STORAGE_KEY && storage.get(key, undefined) === undefined;
+    const inheritedShared = key !== STORAGE_KEY && !isSettingsRecord(storage.get(key, undefined));
     const storedMigrations = migrationRecord(storage.get);
     const migration = migrationResult(read(storage.get), storedMigrations);
     if (!inheritedShared) {
@@ -473,7 +473,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     ready = true;
     if (storage.getAtLoad) {
       const get = (name, fallback) => storage.getAtLoad(name, fallback);
-      const inheritedShared = key !== STORAGE_KEY && get(key, undefined) === undefined;
+      const inheritedShared = key !== STORAGE_KEY && !isSettingsRecord(get(key, undefined));
       const storedMigrations = migrationRecord(get);
       const migration = migrationResult(read(get), storedMigrations);
       values = { ...migration.before };
@@ -671,6 +671,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
     stageMigration(migration, {
       copyAll: supersededByAccountDeletion(operation) || error.copyAll === true,
       receipt,
+      source: accountSource(storage.get),
     });
     if (pendingInternal) pendingInternal.conflicts = attempts;
     queuedWaiters = [...operation.waiters, ...queuedWaiters];
@@ -1107,7 +1108,7 @@ export function createSettings({ storage, features, log, version = 'dev', accoun
       }
       const changed = { ...incoming };
       for (const migration of migrations) {
-        if (olderThan(parsed.version, migration.before)) migration.run(changed);
+        if (wrapped && olderThan(parsed.version, migration.before)) migration.run(changed);
       }
       // A complete backup replaces every choice, so a bad value for one this version knows would
       // quietly put that choice back to its default. Refuse the whole file instead. Keys this
