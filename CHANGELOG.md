@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.44 (2026-11-15, unreleased)
+
+* Updated the development tools: Playwright 1.65.1, ESLint 10.15.0 and minimatch 11.0.8. Nothing in the script or the extension changes.
+
 ## v0.0.43 (2026-11-15, unreleased)
 
 * In the userscript, Add to this account and the Undo after Delete them could still report success when a playing video saved its spot at the same moment. They now wait to see whether that newer save lands first, and say the change was replaced when it does.
