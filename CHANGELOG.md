@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.35 (2026-11-15, unreleased)
+
+* Pressing Tab on a photo's download button could leave you nowhere if Facebook drew the photo's link again while the button had focus. Focus now moves to the new link. If the post is gone, Tab just goes on as usual.
+
 ## v0.0.34 (2026-11-15, unreleased)
 
 * Clean up Reels now shows a reel's name and caption when you Tab into the reel, the same as when you point at it, so you can see which button you're on. Away from Reels it no longer looks for reel parts every time the page grows, which saves work on a long feed.

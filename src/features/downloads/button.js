@@ -266,10 +266,34 @@ function step(doc, group, event) {
     move(group, () => next.focus());
     return;
   }
-  if (!anchor.isConnected) return;
-  move(group, () => anchor.focus({ preventScroll: true }));
-  // Going forward, the browser's own Tab then moves on from there.
-  if (event.shiftKey) event.preventDefault();
+  // Facebook may have drawn the element again while focus sat on the button: focus goes to its
+  // copy, not on from the button's place at the end of the page. With no copy (the post is gone)
+  // the browser's Tab goes on, so focus is never stuck on the button.
+  const back = anchor.isConnected ? anchor : on.copy();
+  if (!back) return;
+  move(group, () => back.focus({ preventScroll: true }));
+  // Going forward, the browser's own Tab then moves on from there. One that can't take focus
+  // leaves it on the button, so the browser's Shift+Tab goes on instead.
+  if (event.shiftKey && doc.activeElement === back) event.preventDefault();
+}
+
+// What stands in for an element focus reached once Facebook has drawn it again: the link to the
+// same address in the nearest box still in the page from the ones around it then (around,
+// nearest first), so a twin elsewhere on the page, like the same post shown twice, isn't taken
+// for it. A link holding a photo or video is preferred for one that held one. Else the focusable
+// box around the photo or video now.
+function copyOf(doc, gone, media, around) {
+  const href = gone.getAttribute?.('href');
+  if (href) {
+    const holds = (link) => Boolean(link.querySelector('img, video'));
+    const held = holds(gone);
+    for (const box of [...around, doc]) {
+      if (box !== doc && !box.isConnected) continue;
+      const same = [...box.querySelectorAll('a[href]')].filter((link) => link !== gone && link.getAttribute('href') === href);
+      if (same.length) return same.find((link) => holds(link) === held) ?? same[0];
+    }
+  }
+  return media?.isConnected ? media.closest('a[href], button, [tabindex]:not([tabindex="-1"])') : null;
 }
 
 // find(element) returns what the button would save ({ ... }) or null. run(found) saves it.
@@ -291,6 +315,8 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
   let point = null;
   // The element keyboard focus reached when it brought the button up. Null when the pointer did.
   let anchor = null;
+  // The anchor's ancestors when focus reached it, nearest first, for finding its copy.
+  let around = [];
   // find() is asked again for the media the button is on, as recheck() wants.
   let stale = false;
   const group = groupFor(doc);
@@ -306,6 +332,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
       return false;
     },
     focus: () => button.focus({ preventScroll: true }),
+    copy: () => (anchor ? copyOf(doc, anchor, current, around) : null),
     // The media this button is up on, or null.
     over: () => (button && !button.hidden && host?.isConnected ? current : null),
     place: () => place(),
@@ -347,6 +374,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     current = null;
     found = null;
     anchor = null;
+    around = [];
     if (button) button.hidden = true;
     if (was) group.relayout(member);
   }
@@ -437,6 +465,8 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
     mount();
     clearTimeout(hideTimer);
     anchor = element;
+    around = [];
+    for (let node = element.parentElement; node; node = node.parentElement) around.push(node);
     current = media;
     found = next;
     showState();
@@ -589,6 +619,7 @@ export function createDownloadButton({ doc, win, find, run, active, log, onMissi
       win.removeEventListener('resize', onScroll);
       leaveGroup(doc, group, member);
       anchor = null;
+      around = [];
       host?.remove();
     },
   };

@@ -1075,6 +1075,72 @@ for (const [href, viewer] of [['https://www.facebook.com/photo/?fbid=1&set=a.2',
   });
 }
 
+for (const shiftKey of [false, true]) {
+  test(`Tab${shiftKey ? ' (Shift)' : ''} from the button after Facebook drew the photo's link again goes to the new link`, () => {
+    const win = page('<div class="post"><a class="photo" href="/photo/?fbid=1"><img></a></div><a class="after" href="/x">x</a>');
+    const doc = win.document;
+    const link = doc.querySelector('a.photo');
+    box(link, [100, 100, 600, 400]);
+    box(doc.querySelector('a.photo img'), [100, 100, 600, 400]);
+    const button = createDownloadButton({ doc, win, active: () => true, find: () => ({}), run: async () => {} });
+    press(win, doc.body, 'Tab');
+    link.focus();
+    assert.equal(press(win, link, 'Tab').defaultPrevented, true);
+    const host = doc.querySelector('[data-hushfacebook-web="download"]');
+    assert.ok(doc.activeElement === host, 'on the button');
+    const post = doc.querySelector('.post');
+    post.innerHTML = '<a class="photo again" href="/photo/?fbid=1"><img></a>';
+    const again = doc.querySelector('a.again');
+    box(again, [100, 100, 600, 400]);
+    box(again.querySelector('img'), [100, 100, 600, 400]);
+    const event = press(win, host, 'Tab', { shiftKey });
+    assert.ok(doc.activeElement === again, 'focus lands on the link Facebook drew in its place');
+    assert.equal(event.defaultPrevented, shiftKey, 'forward, the browser moves on from the new link');
+
+    again.focus();
+    assert.equal(press(win, again, 'Tab').defaultPrevented, true);
+    assert.ok(doc.activeElement === host, 'on the button again');
+    post.innerHTML = '<span>gone</span>';
+    assert.equal(press(win, host, 'Tab', { shiftKey }).defaultPrevented, false, 'the post is gone: the browser moves on, focus is never stuck');
+    button.stop();
+  });
+}
+
+test("after Facebook draws a photo's link again, Shift+Tab finds the copy in its own post, not a twin elsewhere", () => {
+  const win = page('<div class="first"><a class="twin" href="/photo/?fbid=1"><img></a></div><div class="post"><a class="photo" href="/photo/?fbid=1"><img></a></div>');
+  const doc = win.document;
+  const twin = doc.querySelector('a.twin');
+  box(twin, [100, 0, 600, 400]);
+  box(twin.querySelector('img'), [100, 0, 600, 400]);
+  const link = doc.querySelector('a.photo');
+  box(link, [100, 2000, 600, 400]);
+  box(link.querySelector('img'), [100, 2000, 600, 400]);
+  const button = createDownloadButton({ doc, win, active: () => true, find: () => ({}), run: async () => {} });
+  const host = () => doc.querySelector('[data-hushfacebook-web="download"]');
+  const onButton = () => {
+    doc.activeElement?.blur?.();
+    press(win, doc.body, 'Tab');
+    doc.querySelector('.post a.photo').focus();
+    press(win, doc.activeElement, 'Tab');
+    assert.ok(doc.activeElement === host(), 'on the button');
+  };
+  const post = doc.querySelector('.post');
+  onButton();
+  // The post's time link goes to the same photo. The link holding the photo stands in for it.
+  post.innerHTML = '<a class="time" href="/photo/?fbid=1">3h</a><a class="photo again" href="/photo/?fbid=1"><img></a>';
+  assert.equal(press(win, host(), 'Tab', { shiftKey: true }).defaultPrevented, true);
+  assert.ok(doc.activeElement === doc.querySelector('a.again'), 'the copy in the same post, not the twin above it');
+
+  box(doc.querySelector('a.again'), [100, 2000, 600, 400]);
+  box(doc.querySelector('a.again img'), [100, 2000, 600, 400]);
+  // A copy that can't take focus leaves Shift+Tab to the browser, so focus isn't held on the button.
+  onButton();
+  post.innerHTML = '<a class="photo hidden" href="/photo/?fbid=1"><img></a>';
+  doc.querySelector('a.hidden').focus = () => {};
+  assert.equal(press(win, host(), 'Tab', { shiftKey: true }).defaultPrevented, false);
+  button.stop();
+});
+
 test('Tab to a photo brings its Download button up, steps onto it and moves on past it', async () => {
   const win = page('<a class="before" href="/x">x</a><div class="post" tabindex="0"><a class="photo" href="/photo/?fbid=1"><img></a><div class="like" tabindex="0">Like</div></div><a class="other" href="/photo/?fbid=2"><img class="two"></a>');
   const doc = win.document;
