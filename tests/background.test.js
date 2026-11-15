@@ -2113,6 +2113,13 @@ test("a page being left takes only its own count off the button, never the next 
   assert.equal((await showCount(current, 0, { ...topFrame(6), documentId: 'third', frameId: 4, documentLifecycle: 'cached' })).result, true);
   assert.equal(tabText(current, 6), null);
   assert.equal((await showCount(current, 3, { ...topFrame(6), documentId: 'third', frameId: 4, documentLifecycle: 'cached' })).ok, false, 'a page being left can only take it off');
+
+  // Even asking from the top frame, onto a next page that has nothing hidden and so no record.
+  await showCount(current, 9, { ...topFrame(7), documentId: 'fourth' });
+  await showCount(current, 0, { ...topFrame(7), documentId: 'fifth' });
+  assert.equal((await showCount(current, 5, { ...topFrame(7), documentId: 'fourth', documentLifecycle: 'pending_deletion' })).result, false);
+  assert.equal(tabText(current, 7), null);
+  assert.equal(current.session['hushfacebookWeb.tabBadges']?.[7], undefined);
 });
 
 test('Keep your place keeps its own tab from Memory Saver and lets it go, where the browser can', async () => {

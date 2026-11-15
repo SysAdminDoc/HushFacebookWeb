@@ -1372,11 +1372,14 @@ async function showOpenFailed(tabId, failed) {
 }
 
 // A page's hidden count. A page Chrome is prerendering isn't the tab's page yet, and one being
-// left only takes its own count off, never the count of the page that came after it.
+// left only takes its own count off, never the count of the page that came after it. It may send
+// nothing but 0 here too, whatever frame it asks from: the page after it keeps no record while
+// it shows nothing, so no record is no proof the tab moved on.
 function showCount(sender, count) {
   if (sender.documentLifecycle === 'prerender') return false;
   const page = sender.documentId ?? null;
   const leaving = LEAVING.has(sender.documentLifecycle);
+  if (leaving && count !== 0) return false;
   return changeBadge(sender.tab.id, (record) => (
     leaving && record && record.document !== page ? null : { ...record, document: page, count }
   ));
