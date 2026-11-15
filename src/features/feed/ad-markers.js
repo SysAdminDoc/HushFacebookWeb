@@ -13,6 +13,7 @@
 //   scope    optional: which answers the row may touch. Without one, every GraphQL answer and
 //            inline page blob. queries: GraphQL friendly names. routes: page types (route.js)
 //            for inline page data, which has no name.
+//   except   optional: answers the row leaves to another switch's row, in the same shape as scope
 //   action   what happens to a match:
 //              drop-node   the edge keeps its cursor and every other key, so paging still works,
 //                          and loses node and rendering_strategy, which is what Facebook draws
@@ -170,6 +171,15 @@ export const INSTREAM_ADS = {
   routes: () => false,
 };
 
+// The video viewer's answer, behind Reels and a video opened from the Video tab (live
+// 2026-11-14). It streams each reel as an edge of viewer.video_feed_unit_feed, an ad now and then
+// among them. Inline page data isn't part of it: no reel ad came inline, so one there stays with
+// Hide sponsored posts' own rows, which know about posts the server drew.
+export const REELS = {
+  queries: /^FBUnifiedVideoContainerQuery$/,
+  routes: () => false,
+};
+
 // Facebook's AI label, a section of the story's header (live 2026-10-11, all 5 labeled
 // stories on Home, the groups feed and search): {__typename: GENAI_TYPENAME,
 // was_detected_as_ai_generated: true, was_self_disclosed_as_ai_generated: false,
@@ -227,8 +237,9 @@ export const AD_MARKERS = [
     id: 'sponsored_data',
     feature: 'hideSponsoredPosts',
     surface: 'news feed (older shape)',
-    seen: "not yet on a story. 2026-11-03: Home's document carries a sponsored_data object only as an ad link's click tracking ({client_token}), never on a node",
+    seen: "not yet on a feed story. 2026-11-03: Home's document carries a sponsored_data object only as an ad link's click tracking ({client_token}), never on a node. 2026-11-14: on every ad between reels, which reel_ad takes",
     text: ['"sponsored_data":{'],
+    except: REELS,
     match: (edge, node) => isRecord(node) && node.sponsored_data != null,
     action: 'drop-node',
   },
@@ -238,6 +249,7 @@ export const AD_MARKERS = [
     surface: 'news feed',
     seen: '2026-10-10: null on every organic feed story, set inside a search ad',
     text: ['"th_dat_spo":{'],
+    except: REELS,
     match: (edge, node) => isRecord(node) && node.th_dat_spo != null,
     action: 'drop-node',
   },
@@ -317,6 +329,22 @@ export const AD_MARKERS = [
       && ((Array.isArray(value.instream_video_ad_breaks) && value.instream_video_ad_breaks.length > 0) || isObject(value.post_roll_ad_break)),
     action: 'empty-list',
     empty: { instream_video_ad_breaks: [], post_roll_ad_break: null },
+  },
+  // An ad between reels is a Story whose sponsored_data reads {__typename: 'SposnoredDaat' (their
+  // spelling), ad_id, ad_attachment_type: 'video_ad', ...}, as the page's first reel or streamed
+  // in as an edge with a path of its own. Its later parts come deferred, with that edge's node in
+  // their path, and land on nothing once the node is gone: with it gone the player never asked
+  // for the ad's video (useInstreamAdsHaloFetcherQuery). th_dat_spo is the same field renamed, as
+  // Facebook does on the feeds.
+  {
+    id: 'reel_ad',
+    feature: 'hideSponsoredReels',
+    surface: 'Reels and the video viewer (ads between reels)',
+    seen: '2026-11-14: 4 of 35 reels on /reel/ were ads with the script off, each a Story in viewer.video_feed_unit_feed carrying sponsored_data; none of 35 with it on, none with Hide sponsored posts off, and 1 of 35 with this switch off',
+    text: ['"sponsored_data":{', '"th_dat_spo":{'],
+    scope: REELS,
+    match: (edge, node) => isRecord(node) && (node.sponsored_data != null || node.th_dat_spo != null),
+    action: 'drop-node',
   },
   // The row comes streamed in with a path of its own (live 2026-11-04: news_feed.edges[2] on two
   // loads), never in the answer the server drew, so emptying it needs no onDrawn: three loads of
@@ -429,8 +457,10 @@ export function adMarkerFor(value, rows = AD_MARKERS) {
   return rows.find((row) => ((row.kind ?? 'edge') === 'edge' ? edge && row.match(value, value.node) : row.match(value))) ?? null;
 }
 
-// Whether a row may touch this answer. route() is the page the inline data arrived on.
+// Whether a row may touch this answer. route() is the page the inline data arrived on. A row
+// steps aside on the answers its except names, which another switch's row takes.
 export function inScope(row, ctx, route) {
+  if (row.except && inScope({ scope: row.except }, ctx, route)) return false;
   if (!row.scope) return true;
   if (ctx?.transport === 'json-parse') return Boolean(route && row.scope.routes(route()));
   return row.scope.queries.test(ctx?.friendlyName ?? '');

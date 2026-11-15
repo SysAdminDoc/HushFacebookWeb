@@ -94,7 +94,7 @@ test('a post in an answer a later rule fails on is never reported or counted as 
   assert.equal(counted, 1);
 });
 
-test('a cleared video ad break schedule is counted but stays off the decision list', () => {
+test('a cleared video ad break schedule and an ad between reels are counted but stay off the decision list', () => {
   const diagnostics = createDiagnostics();
   const rules = [];
   hideSponsoredReels.setup({ net: { transformResponses: (rule) => rules.push(rule) }, enabled: () => true, diagnostics });
@@ -105,6 +105,12 @@ test('a cleared video ad break schedule is counted but stays off the decision li
   }
   assert.deepEqual(diagnostics.decisions(), []);
   assert.deepEqual(diagnostics.rows().find((row) => row.label === 'Videos cleared of ad breaks'), { label: 'Videos cleared of ad breaks', value: '3', shareable: false });
+  // An ad between reels has a count of its own, which Copy report carries.
+  const reel = JSON.stringify({ data: { viewer: { video_feed_unit_feed: { edges: [{ cursor: 'c1', node: { __typename: 'Story', id: 's1', sponsored_data: { __typename: 'SposnoredDaat', ad_id: 'a1' } } }] } } } });
+  assert.deepEqual(JSON.parse(transformDocumentLine(reel, rules, ctx)).data.viewer.video_feed_unit_feed.edges, [{ cursor: 'c1' }]);
+  assert.deepEqual(diagnostics.decisions(), []);
+  assert.deepEqual(diagnostics.rows().find((row) => row.label === 'Reel ads taken out of the data'), { label: 'Reel ads taken out of the data', value: '1', shareable: true });
+  assert.equal(diagnostics.rows().find((row) => row.label === 'Videos cleared of ad breaks').value, '3');
 });
 
 test('word filters and seen posts report each story they drop, with what matched', () => {

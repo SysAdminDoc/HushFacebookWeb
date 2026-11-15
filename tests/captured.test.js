@@ -335,3 +335,45 @@ test('the ad in a captured Home page loses its story, and the edge keeps its cur
   assert.equal(after.data.cursor, before.data.cursor, 'paging still works');
   assert.deepEqual(fired, ['th_dat_spo']);
 });
+
+// Captured 2026-11-14 on /reel/ with the script off: the viewer's first answer, its first reel an
+// ad, then another ad streamed in as edge 1 and one of that ad's deferred parts.
+test('an ad between reels goes on Hide sponsored reels, and Hide sponsored posts leaves it to that switch', async () => {
+  const [first, streamed, deferred] = await fixtureLines('FBUnifiedVideoContainerQuery-reel-ad.jsonl');
+  const ctx = { transport: 'fetch', path: '/api/graphql/', friendlyName: 'FBUnifiedVideoContainerQuery' };
+  const fired = [];
+  const reels = adRule('hideSponsoredReels', () => true, (ids) => fired.push(...ids));
+  const posts = adRule('hideSponsoredPosts', () => true, () => assert.fail('Hide sponsored posts fired on a reel'), { route: () => parseRoute('https://www.facebook.com/reel/') });
+
+  const page = parseLine(first);
+  const [ad] = page.data.viewer.video_feed_unit_feed.edges;
+  assert.equal(ad.node.__typename, 'Story');
+  assert.equal(ad.node.sponsored_data.__typename, 'SposnoredDaat', 'the capture carries the ad field');
+  const pageAfter = parseLine(transformDocumentLine(first, [posts, reels], ctx));
+  assert.deepEqual(pageAfter.data.viewer.video_feed_unit_feed.edges, [{ cursor: ad.cursor }], 'the edge keeps its cursor, so paging still works');
+  assert.deepEqual(pageAfter.extensions, page.extensions);
+
+  const edge = parseLine(streamed);
+  assert.deepEqual(edge.path, ['viewer', 'video_feed_unit_feed', 'edges', 1]);
+  const edgeAfter = parseLine(transformDocumentLine(streamed, [posts, reels], ctx));
+  assert.equal(edgeAfter.data.node, undefined);
+  assert.deepEqual({ ...edgeAfter, data: null }, { ...edge, data: null }, 'the label, path and extensions are as they came');
+
+  // The deferred part is no edge: it lands on the node that's gone, and goes through as it came.
+  assert.deepEqual(parseLine(deferred).path, ['viewer', 'video_feed_unit_feed', 'edges', 1, 'node']);
+  assert.equal(transformDocumentLine(deferred, [posts, reels], ctx), deferred);
+  assert.deepEqual(fired, ['reel_ad', 'reel_ad']);
+
+  // With Hide sponsored reels off the ads stay. Elsewhere, Hide sponsored posts still takes the
+  // same kind of ad story, and only that answer's name makes reels its own.
+  assert.equal(transformDocumentLine(first, [posts], ctx), first);
+  assert.equal(transformDocumentLine(streamed, [posts], ctx), streamed);
+  const home = { ...ctx, friendlyName: 'CometNewsFeedPaginationQuery' };
+  const taken = [];
+  const feed = adRule('hideSponsoredPosts', () => true, (ids) => taken.push(...ids));
+  assert.equal(parseLine(transformDocumentLine(streamed, [feed], home)).data.node, undefined);
+  assert.deepEqual(taken, ['sponsored_data']);
+  assert.equal(transformDocumentLine(streamed, [reels], home), streamed, 'Hide sponsored reels stays off the feeds');
+  const inline = { transport: 'json-parse', path: '', friendlyName: '' };
+  assert.equal(transformDocumentLine(streamed, [reels], inline), streamed, 'and out of inline page data');
+});

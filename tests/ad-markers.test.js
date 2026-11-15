@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, groupInHref, hasAiLabel, hasSponsoredLabel, inScope, joinGroups, markersFor, ownGroupPosts,
+  AD_MARKERS, AD_MARKER_TEXT, adMarkerFor, adRule, FEEDS, groupInHref, hasAiLabel, hasSponsoredLabel, inScope, joinGroups, markersFor, ownGroupPosts, REELS,
   ownGroupsRule, pruneAds, titleHas,
 } from '../src/features/feed/ad-markers.js';
 import { parseRoute } from '../src/core/route.js';
@@ -69,7 +69,8 @@ const aiLabel = (detected = true, disclosed = false) => ({
 });
 const labeled = (id, label = aiLabel()) => edge2026(id, {}, { comet_sections: { context_layout: { story: { comet_sections: { metadata: [{ __typename: 'CometFeedStoryMinimizedTimestampStrategy' }, label] } } } } });
 
-// One edge per row, caught by that row before any other.
+// One edge per row, caught by that row before any other of its switch. Another switch's row
+// may catch it too only where the two split the answers between them (scope and except).
 const SAMPLES = {
   category: () => ({ category: 'SPONSORED', node: { __typename: 'Story', id: 'ad' }, cursor: 'c' }),
   cat_sensitive: () => edge2026('ad', { cat_sensitive: { enc: 'e'.repeat(64), cat: 'SPONSORED' } }),
@@ -106,6 +107,8 @@ const SAMPLES = {
   'sponsored category': () => categorized('ad', 'SPONSORED', '1000000000000201'),
   'suggested category': () => categorized('suggested', 'ENGAGEMENT', '1000000000000202'),
   'promotion category': () => categorized('promotion', 'PROMOTION', '1000000000000203'),
+  // An ad between reels as captured on 2026-11-14 (tests/fixtures/FBUnifiedVideoContainerQuery-reel-ad.jsonl).
+  reel_ad: () => ({ node: { __typename: 'Story', id: 'reel-ad', sponsored_data: { __typename: 'SposnoredDaat', ad_id: '1', ad_attachment_type: 'video_ad' } }, cursor: 'r' }),
 };
 
 test('every row says where it was seen, what lets it past the prefilter and what it does', () => {
@@ -203,7 +206,11 @@ test('every row has a sample, and its line gets past the prefilter and is pruned
   for (const row of AD_MARKERS) {
     if (row.action !== 'drop-node') continue;
     const edge = SAMPLES[row.id]();
-    assert.equal(adMarkerFor(edge)?.id, row.id, `${row.id} catches its own sample first`);
+    assert.equal(adMarkerFor(edge, markersFor(row.feature).rows)?.id, row.id, `${row.id} catches its own sample first`);
+    for (const other of AD_MARKERS.filter((each) => each.feature !== row.feature && adMarkerFor(edge, [each]))) {
+      const split = (row.except && other.scope === row.except) || (other.except && other.except === row.scope);
+      assert.ok(split, `${row.id} and ${other.id} (${other.feature}) split the answers between them`);
+    }
     const line = JSON.stringify({ data: { viewer: { news_feed: { edges: [edge2026('o1'), edge] } } } });
     assert.ok(row.text.some((text) => line.includes(text)), `${row.id}: its own text is in the line`);
     assert.equal(rulesFor(line, [rule]).length, 1, `${row.id}: the line isn't skipped`);
@@ -421,6 +428,21 @@ test('suggested posts go only on Home and the groups feed, never in search or on
   assert.deepEqual(fired.slice(0, 3), ['follow_button', 'group_join', 'group_suggestions']);
   assert.equal(inScope({ scope: FEEDS }, inline, null), false, 'no router, no inline pruning');
   assert.equal(inScope({}, query('anything'), null), true, 'a row without a scope runs everywhere');
+});
+
+test("a row with an except steps aside on that answer only, and inline data isn't one", () => {
+  const query = (friendlyName) => ({ transport: 'xhr', path: '/api/graphql/', friendlyName });
+  const inline = { transport: 'json-parse', path: '', friendlyName: '' };
+  const reel = () => parseRoute('https://www.facebook.com/reel/');
+  assert.equal(inScope({ except: REELS }, query('FBUnifiedVideoContainerQuery'), null), false);
+  for (const name of ['CometNewsFeedPaginationQuery', 'FBUnifiedVideoContainerPaginationQuery', '']) {
+    assert.equal(inScope({ except: REELS }, query(name), null), true, name || 'no name');
+  }
+  assert.equal(inScope({ except: REELS }, inline, reel), true, 'inline data on /reel/ stays with the row');
+  assert.equal(inScope({ scope: REELS }, inline, reel), false);
+  assert.equal(inScope({ scope: FEEDS, except: REELS }, query('FBUnifiedVideoContainerQuery'), null), false);
+  const owners = AD_MARKERS.filter((row) => row.except === REELS).map((row) => row.id);
+  assert.deepEqual(owners, ['sponsored_data', 'th_dat_spo'], 'the two rows reel_ad reads for step aside on its answer');
 });
 
 test('People you may know goes on its own switch, on Home and the groups feed only, and takes nothing else (#16)', () => {

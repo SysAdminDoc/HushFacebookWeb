@@ -5,19 +5,24 @@ export default {
   section: 'ads',
   android: 'Hide sponsored reels',
   title: 'Hide sponsored reels',
-  description: 'Drops the ad breaks Facebook schedules inside videos and reels.',
+  description: 'Takes out the ads between reels, and the ad breaks Facebook schedules inside videos and reels.',
   default: true,
   needsPage: true,
 
-  // Only the count goes to Diagnostics. A cleared schedule isn't a hidden post, and the same
+  // Only the counts go to Diagnostics. A cleared schedule isn't a hidden post, and the same
   // video comes back in answer after answer, so on the decision list it would push every real
   // decision off within a few minutes of scrolling video.
   setup({ net, enabled, diagnostics }) {
     let breaks = 0;
+    let ads = 0;
     net.transformResponses(adRule('hideSponsoredReels', enabled, (ids) => {
-      breaks += ids.length;
+      for (const id of ids) {
+        if (id === 'reel_ad') ads += 1;
+        else breaks += 1;
+      }
       diagnostics?.changed();
     }));
+    diagnostics?.add('Reel ads taken out of the data', () => String(ads), { shareable: true });
     diagnostics?.add('Videos cleared of ad breaks', () => String(breaks));
   },
 };

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.25 (2026-11-14, unreleased)
+
+* Hide sponsored reels takes out the ads between reels now. Facebook has started putting them in the Reels feed. They were already being hidden, but by Hide sponsored posts, so turning that one off brought them back and turning Hide sponsored reels off changed nothing. Each switch handles its own ads now. Diagnostics counts them in a new row, Reel ads taken out of the data.
+
 ## v0.0.24 (2026-11-14, unreleased)
 
 * Building now needs Node 24.22.3 or a newer 24.x, or Node 26.13.1 or a newer 26.x. Those are November's security releases for both lines. Nothing in the script or the extension changes.
