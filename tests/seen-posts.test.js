@@ -17,7 +17,8 @@ import { CLEARED_KEY, createSeenStore, SEEN_KEY } from '../src/core/seen-store.j
 import { createSettings } from '../src/core/settings.js';
 import { startFeatures } from '../src/core/start-features.js';
 import { createMemoryStorage } from '../src/core/storage.js';
-import hideSeenPosts, { pruneSeen, SHOW_KEY } from '../src/features/feed/hide-seen-posts.js';
+import hideSeenPosts, { LEGACY_SHOW_KEY, pruneSeen, SHOW_KEY } from '../src/features/feed/hide-seen-posts.js';
+import { stepAside } from '../src/core/storage-report.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const windows = [];
@@ -630,6 +631,23 @@ test('a tab that chose to show seen posts keeps showing them after a reload', ()
   const { doc, posts, button } = setupFeature(win, { storage });
   assert.equal(note(doc, 1), null);
   assert.ok(button('Hide seen posts again'));
+  posts.stop();
+});
+
+test("the show-again mark steps out of Facebook's storage count, and a tab marked by an earlier version keeps it", () => {
+  const storage = sharedStorage({ [SEEN_KEY]: { [keyOf(1)]: Date.now() - DAY } });
+  const win = page(post(1));
+  win.sessionStorage.setItem(LEGACY_SHOW_KEY, '1');
+  const { doc, posts, button } = setupFeature(win, { storage });
+  assert.equal(note(doc, 1), null, 'the earlier mark still shows seen posts');
+  assert.equal(win.sessionStorage.getItem(LEGACY_SHOW_KEY), null, 'the old name is gone');
+  assert.equal(win.sessionStorage.getItem(SHOW_KEY), '1');
+  const putBack = stepAside(win.sessionStorage);
+  assert.equal(win.sessionStorage.getItem(SHOW_KEY), null, 'out while Facebook counts');
+  putBack();
+  assert.equal(win.sessionStorage.getItem(SHOW_KEY), '1');
+  button('Hide seen posts again').run();
+  assert.equal(note(doc, 1), 'Hidden: Seen. Show');
   posts.stop();
 });
 

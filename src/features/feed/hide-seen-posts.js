@@ -17,10 +17,14 @@ import { drawnEdges, inScope } from './ad-markers.js';
 import { FILTERED } from './filters.js';
 import { later } from '../../core/net/payload.js';
 import { t } from '../../core/i18n.js';
+import { MARK_PREFIX } from '../../core/storage-report.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const DAYS = [1, 3, 7, 30];
-export const SHOW_KEY = 'hfw.showSeen';
+// Under the mark prefix, so the name steps out while Facebook's page counts the tab's storage.
+export const SHOW_KEY = `${MARK_PREFIX}showSeen`;
+// The name earlier versions used, which Facebook's count could see. Read once and moved.
+export const LEGACY_SHOW_KEY = 'hfw.showSeen';
 
 // What a seen key says matched, for the Diagnostics decision list.
 const matchedBy = (key) => (key.startsWith('m:') ? 'same photo or video' : 'same text');
@@ -49,7 +53,14 @@ function tabFlag(win) {
   return {
     get() {
       try {
-        return win?.sessionStorage?.getItem(SHOW_KEY) === '1';
+        const store = win?.sessionStorage;
+        if (!store) return false;
+        const legacy = store.getItem(LEGACY_SHOW_KEY);
+        if (legacy !== null) {
+          store.removeItem(LEGACY_SHOW_KEY);
+          if (legacy === '1') store.setItem(SHOW_KEY, '1');
+        }
+        return store.getItem(SHOW_KEY) === '1';
       } catch {
         return false;
       }

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.33 (2026-11-15, unreleased)
+
+* Show seen posts in this tab now keeps its little marker out of sight while Facebook checks how much browser storage it's using, like the script's other markers already did. A tab where you'd turned it on before this update keeps showing seen posts.
+
 ## v0.0.32 (2026-11-15, unreleased)
 
 * In the userscript, the error log could say a change to your seen posts or video settings wasn't saved when it had been. It happened when you switched Facebook accounts right after the change. Now it's only logged when a save really fails.
