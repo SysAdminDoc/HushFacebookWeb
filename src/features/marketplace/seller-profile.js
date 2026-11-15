@@ -199,7 +199,7 @@ export default {
   section: 'marketplace',
   android: 'Show View profile on Marketplace sellers',
   title: 'View profile on Marketplace sellers',
-  description: "Adds a View profile link after the seller's name on a listing, so you can see their full Facebook profile before you message them, not just their Marketplace page.",
+  description: "Adds a View profile link after the seller's name on a listing. It opens their full Facebook profile, not just their Marketplace page, so you can see it before you message them.",
   default: true,
 
   setup({ doc, router, settings, diagnostics, enabled }) {

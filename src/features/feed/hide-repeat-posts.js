@@ -25,7 +25,7 @@ export default {
   section: 'filters',
   webOnly: true,
   title: 'Hide repeats of a post already on the page',
-  description: 'When someone posts the same words or photo more than once, in several groups say, Home and your groups feed show the first copy and hide the rest behind a note. A post by someone else with the same words stays. Nothing is kept after the page closes.',
+  description: 'When someone posts the same words or photo more than once, Home and your groups feed show the first copy only. The copies after it hide behind a note, like when one post goes to several groups. A post by someone else with the same words stays. Nothing is kept after the page closes.',
   default: false,
 
   setup({ router, posts, hider, diagnostics, settings, enabled }) {

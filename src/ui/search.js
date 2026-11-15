@@ -42,6 +42,14 @@ export function findFeatures(features, sections, query) {
   });
 }
 
+// Whether a found row should open the help it keeps behind More: some word typed is in that part
+// and nowhere in what the row already shows. Each text comes in the shown language and English.
+export function matchesHiddenHelp(query, hidden, shown) {
+  const inHidden = fold(hidden.join(' '));
+  const inShown = fold(shown.join(' '));
+  return wordsOf(query).some((word) => inHidden.includes(word) && !inShown.includes(word));
+}
+
 // The button a result should land on in its section: the first option with its own focus key
 // whose words hold every word typed. Null keeps the row's usual control.
 export function matchingAction(setting, query) {

@@ -46,7 +46,7 @@ export default {
   section: 'promotions',
   android: 'Hide the Get Messenger card',
   title: "Hide Facebook's own cards and tips",
-  description: 'Takes out the cards Facebook puts up for its own things, like Get the Messenger app over your chats or in the Messenger menu, the tips in stories and the promotions it puts between posts on Home. Reminders Facebook sends the same way go too.',
+  description: 'Takes out the cards Facebook puts up for its own things. That includes Get the Messenger app over your chats or in the Messenger menu, the tips in stories and the promotions it puts between posts on Home. Reminders Facebook sends the same way go too.',
   default: false,
   needsPage: true,
 

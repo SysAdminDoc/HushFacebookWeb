@@ -17,7 +17,7 @@ export default {
   section: 'watched',
   webOnly: true,
   title: 'Hide suggested videos under a video',
-  description: "When a video opens on its own page, the videos Facebook lines up under it go away, so the page stays on yours when it ends. The video, its post and comments stay.",
+  description: 'When a video opens on its own page, the videos Facebook lines up under it go away. The page stays on yours when it ends. The video, its post and comments stay.',
   default: false,
   css: `${SUGGESTIONS} { display: none !important; }`,
 };

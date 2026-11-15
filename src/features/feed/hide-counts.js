@@ -186,7 +186,7 @@ export default {
   section: 'reading',
   android: 'Hide counts on posts',
   title: 'Hide counts',
-  description: "Takes the numbers off the Like, Comment and Share buttons under posts and beside reels, along with a post's reaction pictures and the reactions on comments, so you read without the tallies. The buttons keep working and your own reaction still shows.",
+  description: "Takes the numbers off the Like, Comment and Share buttons under posts and beside reels. A post's reaction pictures and the reactions on comments go too, so you read without the tallies. The buttons keep working and your own reaction still shows.",
   default: false,
   options: KINDS.map(({ option, label }) => ({ key: option, type: 'toggle', label, default: true })),
   css: countsCss,

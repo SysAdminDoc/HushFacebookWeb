@@ -113,7 +113,7 @@ export default {
   section: 'opening',
   android: 'Open Messenger from the top bar',
   title: 'Open Messenger as a full page',
-  description: 'The Messenger button in the top bar goes straight to the Messages page instead of opening the list of chats over Facebook.',
+  description: 'The Messenger button in the top bar goes straight to the Messages page. Facebook would open the list of chats over the page instead.',
   default: false,
   needsPage: false,
 

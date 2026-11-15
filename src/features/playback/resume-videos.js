@@ -154,7 +154,7 @@ export default {
   section: 'playback',
   android: 'Resume long videos',
   title: 'Resume long videos',
-  description: "A long video you stopped partway through starts where you left it the next time you play it, a few seconds early so you can find your place. Reels and stories aren't kept.",
+  description: "A long video you stopped partway through starts where you left it the next time you play it. It backs up a few seconds so you can find your place. Reels and stories aren't kept.",
   default: false,
   options: [
     {

@@ -320,7 +320,7 @@ export default {
   section: 'playback',
   android: 'Remember your volume',
   title: 'Remember your volume',
-  description: "The volume you set with a video's slider, and whether the sound is on, carries over to every video and reel after it, even after a reload. Sound starts once you've clicked or typed on the page, as browsers require, and a mute you chose stays. With Start every video muted, each new video starts silent and its speaker button turns the sound on for that one.",
+  description: "The volume you set with a video's slider carries over to every video and reel after it, even after a reload. So does whether the sound is on. Sound starts once you've clicked or typed on the page, as browsers require, and a mute you chose stays. With Start every video muted, each new video starts silent and its speaker button turns the sound on for that one.",
   default: false,
   options: [{ key: 'startMuted', type: 'toggle', label: 'Start every video muted', default: false }],
 

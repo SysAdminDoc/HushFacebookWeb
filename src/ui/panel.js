@@ -9,7 +9,7 @@
 import { EXTENSION_RELOADED, extensionReloaded } from '../core/bridge.js';
 import { decisionLine } from '../core/diagnostics.js';
 import { saveThroughLink } from '../core/download.js';
-import { language, LANGUAGES, plural, setLanguage, t } from '../core/i18n.js';
+import { english, language, LANGUAGES, plural, setLanguage, t } from '../core/i18n.js';
 import { KEPT_ON_RESET, MAX_BACKUP_BYTES } from '../core/settings.js';
 import { TARGET } from '../core/target.js';
 import { PAGES, SECTIONS } from '../features/sections.js';
@@ -22,7 +22,8 @@ import { watchPageTheme } from './page-theme.js';
 import { buildDiagnosticReport } from './diagnostic-report.js';
 import { buildProblemReport } from './problem-report.js';
 import { applyQuickSetup, QUICK_SETUPS } from './quick-setups.js';
-import { findFeatures, matchingAction } from './search.js';
+import { findFeatures, matchesHiddenHelp, matchingAction } from './search.js';
+import { firstSentence } from './sentences.js';
 import { panelCss } from './styles.js';
 
 const ALWAYS_OPENS = TARGET === 'extension' ? "The extension's toolbar button" : "Your userscript manager's menu";
@@ -85,7 +86,11 @@ const UNAVAILABLE_SHORT = { page: 'needs page access', network: 'network protect
 const searchCount = (count) => (count === 0 ? t('No setting matches.') : plural(count, '{count} setting matches.', '{count} settings match.'));
 // The extension's toolbar button. The userscript has no button of its own to put it on.
 const TOOLBAR_COUNT_NOTE = "How many posts were hidden in this tab, on the extension's button in the browser toolbar. NEW there instead means a newer release is out.";
-const LOAD_WARNING_NOTE = "A notice when Home or a group's feed still shows Facebook's loading cards 20 seconds after it opened, with a way to pause the script for that tab. Diagnostics keeps the result either way.";
+const LOAD_WARNING_NOTE = "A notice when Home or a group's feed still shows Facebook's loading cards 20 seconds after it opened. It offers a way to pause the script for that tab. Diagnostics keeps the result either way.";
+const LAUNCHER_NOTE = "The gear in Facebook's top bar, next to Messenger and Notifications. A page without that bar shows it in the bottom-left corner. {opener} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.";
+const HIDDEN_NOTE_NOTE = 'A short line that says why a post was hidden. Click it to see the post, or Show hidden at its end to see every post hidden on the page.';
+const BACKUP_NOTE = 'Save your choices to a file and load them in another browser, or move them between the userscript and the extension. Seen posts, video spots, speed and volume stay behind.';
+const REPORT_NOTE = 'Opens a GitHub report with your versions and settings filled in, for you to add what happened.';
 const LANGUAGE_NOTE = "The language for these settings and the script's notices. Facebook's own language doesn't change it, and Reset to defaults keeps it. The two tests stretch every phrase or mirror the panel, to show how a translation will fit.";
 const QUICK_SETUPS_NOTE = 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.';
 const SEARCH_SETTLE_MS = 600;
@@ -131,6 +136,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const newDots = createNewDots({ storage: environment.storage, features, log });
   const newDot = () => h('span', { class: 'new-dot' }, h('span', { class: 'visually-hidden', text: t('New') }));
   const drafts = new Map();
+  const openHelp = new Set(); // Rows whose More was clicked open, kept across redraws.
   const fieldErrors = new Map();
   const pending = new Set();
   const actionNotices = new Map();
@@ -461,6 +467,33 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     });
   }
 
+  // A row's help: its first sentence, with the rest behind More, shown in place. A search that
+  // finds the row by words in the rest opens it. id goes on a hidden copy of the whole text for
+  // the row's control to read, since a screen reader leaves out the hidden part of a shown one.
+  function help(key, title, description, { vars, id } = {}) {
+    const text = t(description, vars);
+    const [first, rest] = firstSentence(text, language().lang);
+    if (!rest) return h('div', { class: 'desc', id, text });
+    const [plainFirst, plainRest] = firstSentence(english(description, vars), 'en');
+    const found = query.trim() !== '' && matchesHiddenHelp(query, [rest, plainRest], [t(title), english(title), first, plainFirst]);
+    const open = found || openHelp.has(key);
+    const restId = `hfw-${key}-more`;
+    const more = h('span', { id: restId, hidden: !open, text: ` ${rest}` });
+    const toggleMore = (event) => {
+      const opening = more.hidden;
+      more.hidden = !opening;
+      event.currentTarget.setAttribute('aria-expanded', String(opening));
+      event.currentTarget.textContent = opening ? t('Less') : t('More');
+      if (opening) openHelp.add(key);
+      else openHelp.delete(key);
+    };
+    return [
+      h('div', { class: 'desc' }, first, more, ' ',
+        h('button', { class: 'more', type: 'button', 'aria-expanded': String(open), 'aria-controls': restId, dataset: { key: `more:${key}` }, text: open ? t('Less') : t('More'), onclick: toggleMore })),
+      id ? h('div', { id, hidden: true, text }) : null,
+    ];
+  }
+
   // dots: marks what an update added (new-dots.js), in a section's own view only.
   function featureCard(feature, { showOptions = false, dots = false } = {}) {
     const reason = unavailable.get(feature.id);
@@ -474,7 +507,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       h('div', { class: 'row' },
         h('div', { class: 'text' },
           h('div', { class: 'title' }, t(feature.title), dots && newDots.featureIsNew(feature) ? newDot() : null),
-          h('div', { class: 'desc', id: ids.desc, text: t(feature.description) }),
+          help(feature.id, feature.title, feature.description, { id: ids.desc }),
           blocked ? h('div', { class: 'note', id: ids.note, text: `${t(UNAVAILABLE_NOTES[reason] ?? UNAVAILABLE_NOTES.failed)}${on ? ` ${t('You can still turn it off.')}` : ''}` }) : null,
           feature.reload ? h('div', { class: 'note', id: ids.reload, text: t('Applies after Facebook reloads.') }) : null,
           status === undefined ? null : h('div', { class: 'note', 'data-status-for': feature.id, role: 'status', hidden: status === null, text: t(status ?? '') })),
@@ -520,8 +553,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   }
 
   // A search result's link: opens its page with that row's control focused, or the row's button
-  // the words typed name (Reset, Restore).
-  function showSetting(setting) {
+  // the words typed name (Reset, Restore). Help the result showed open stays open there.
+  function showSetting(setting, result) {
+    for (const button of result?.querySelectorAll('.more[aria-expanded="true"]') ?? []) openHelp.add(button.dataset.key.slice('more:'.length));
     const focusKey = matchingAction(setting, query) ?? setting.focusKey ?? setting.id;
     clearSearch();
     current = pageOf(setting.section) ?? current;
@@ -543,7 +577,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function resultsView(found) {
     if (!found.length) return [h('p', { class: 'empty', text: t('No setting matches "{query}". Try a shorter word, or pick a page.', { query: query.trim() }) })];
     return [h('div', { class: 'settings-group results' }, found.map((setting) => h('div', { class: 'result' },
-      h('button', { class: 'result-section', type: 'button', text: t('In {section}', { section: placeName(setting.section) }), dataset: { key: `show:${setting.id}` }, onclick: () => showSetting(setting) }),
+      h('button', { class: 'result-section', type: 'button', text: t('In {section}', { section: placeName(setting.section) }), dataset: { key: `show:${setting.id}` }, onclick: (event) => showSetting(setting, event.currentTarget.closest('.result')) }),
       setting.render ? setting.render() : featureCard(setting, { showOptions: true }))))];
   }
 
@@ -771,7 +805,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: t('Show the settings button') }),
-            h('div', { class: 'desc', id: 'hfw-ui.launcher-desc', text: t("The gear in Facebook's top bar, next to Messenger and Notifications. A page without that bar shows it in the bottom-left corner. {opener} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.", { opener: t(ALWAYS_OPENS) }) })),
+            help('ui.launcher', 'Show the settings button', LAUNCHER_NOTE, { vars: { opener: t(ALWAYS_OPENS) }, id: 'hfw-ui.launcher-desc' })),
           toggle('ui.launcher', 'Show the settings button', { describedBy: 'hfw-ui.launcher-desc' })));
   }
 
@@ -780,7 +814,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: t('Leave a note where a post was hidden') }),
-            h('div', { class: 'desc', id: 'hfw-ui.hiddenNote-desc', text: t('A short line that says why a post was hidden. Click it to see the post, or Show hidden at its end to see every post hidden on the page.') })),
+            help('ui.hiddenNote', 'Leave a note where a post was hidden', HIDDEN_NOTE_NOTE, { id: 'hfw-ui.hiddenNote-desc' })),
           toggle('ui.hiddenNote', 'Leave a note where a post was hidden', { describedBy: 'hfw-ui.hiddenNote-desc' })));
   }
 
@@ -789,7 +823,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: t('Show the hidden count on the toolbar button') }),
-            h('div', { class: 'desc', id: 'hfw-ui.toolbarCount-desc', text: t(TOOLBAR_COUNT_NOTE) })),
+            help('ui.toolbarCount', 'Show the hidden count on the toolbar button', TOOLBAR_COUNT_NOTE, { id: 'hfw-ui.toolbarCount-desc' })),
           toggle('ui.toolbarCount', 'Show the hidden count on the toolbar button', { describedBy: 'hfw-ui.toolbarCount-desc' })));
   }
 
@@ -798,7 +832,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'row' },
           h('div', { class: 'text' },
             h('div', { class: 'title', text: t('Warn when the feed seems stuck') }),
-            h('div', { class: 'desc', id: 'hfw-ui.loadWarning-desc', text: t(LOAD_WARNING_NOTE) })),
+            help('ui.loadWarning', 'Warn when the feed seems stuck', LOAD_WARNING_NOTE, { id: 'hfw-ui.loadWarning-desc' })),
           toggle('ui.loadWarning', 'Warn when the feed seems stuck', { describedBy: 'hfw-ui.loadWarning-desc' })));
   }
 
@@ -809,7 +843,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const title = t('Language');
     return h('div', { class: 'card', dataset: { key: 'language' } },
       h('div', { class: 'title', text: title === 'Language' ? title : `${title} (Language)` }),
-      h('div', { class: 'desc', id: 'hfw-ui.language-desc', text: t(LANGUAGE_NOTE) }),
+      help('ui.language', 'Language', LANGUAGE_NOTE, { id: 'hfw-ui.language-desc' }),
       h('div', { class: 'options' },
         h('div', { class: 'field' },
           h('label', null, title,
@@ -822,7 +856,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function backupCard() {
     return h('div', { class: 'card', dataset: { key: 'backup-restore' } },
         h('div', { class: 'title', text: t('Back up and restore') }),
-        h('div', { class: 'desc', text: t('Save your choices to a file and load them in another browser, or move them between the userscript and the extension. Seen posts, video spots, speed and volume stay behind.') }),
+        help('backup-restore', 'Back up and restore', BACKUP_NOTE),
         h('div', { class: 'actions' },
           h('button', { class: 'button primary', type: 'button', text: t('Back up settings'), dataset: { key: 'backup' }, disabled: bulkChangePending(), onclick: exportSettings }),
           actionButton('restore', 'Restore from a file', () => fileInput.click(), { busyLabel: 'Restoring...' }),
@@ -840,7 +874,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     });
     return h('a', { class: 'card link-card', href: report.url, target: '_blank', rel: 'noopener noreferrer', dataset: { key: 'report-problem' } },
       h('div', { class: 'title', text: t('Report a problem') }),
-      h('div', { class: 'desc', text: t('Opens a GitHub report with your versions and settings filled in. Add what happened.') }));
+      h('div', { class: 'desc', text: t(REPORT_NOTE) }));
   }
 
   function kofiCard() {
@@ -975,20 +1009,20 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           : 'Seen posts and video spots shared by everyone on this browser. Use them while signed out or delete them.',
         options: [{ label: environment.activity.perAccount ? 'Add to this account' : 'Use while signed out', focusKey: 'legacy:add' }, { label: 'Delete them', focusKey: 'legacy:delete' }], focusKey: 'legacy:add', render: () => legacyActivityCard(legacy),
       }] : []),
-      { id: 'ui.launcher', section: 'general', group: 'facebook', title: 'Show the settings button', description: "The gear in Facebook's top bar, next to Messenger and Notifications. {opener} always opens settings too.", vars: { opener: t(ALWAYS_OPENS) }, render: launcherCard },
+      { id: 'ui.launcher', section: 'general', group: 'facebook', title: 'Show the settings button', description: LAUNCHER_NOTE, vars: { opener: t(ALWAYS_OPENS) }, render: launcherCard },
       // environment.update is there only in the extension, the build with a toolbar button.
       ...(environment.update ? [{ id: 'ui.toolbarCount', section: 'general', group: 'facebook', title: 'Show the hidden count on the toolbar button', description: TOOLBAR_COUNT_NOTE, keywords: ['badge', 'icon'], render: toolbarCountCard }] : []),
-      { id: 'ui.hiddenNote', section: 'general', group: 'facebook', title: 'Leave a note where a post was hidden', description: 'A short line that says why a post was hidden. Click it to see the post, or Show hidden at its end to see every post hidden on the page.', render: hiddenNoteCard },
+      { id: 'ui.hiddenNote', section: 'general', group: 'facebook', title: 'Leave a note where a post was hidden', description: HIDDEN_NOTE_NOTE, render: hiddenNoteCard },
       { id: 'ui.loadWarning', section: 'general', group: 'facebook', title: 'Warn when the feed seems stuck', description: LOAD_WARNING_NOTE, keywords: ['loading', 'popup'], render: loadWarningCard },
       { id: 'ui.language', section: 'general', group: 'yours', title: 'Language', description: LANGUAGE_NOTE, options: LANGUAGES.map((entry) => ({ label: entry.label })), keywords: ['translation', 'locale', 'right to left'], focusKey: 'ui.language', render: languageCard },
-      { id: 'backup-restore', section: 'general', group: 'yours', title: 'Back up and restore', description: 'Save your choices to a file, restore them, or reset every setting.',
+      { id: 'backup-restore', section: 'general', group: 'yours', title: 'Back up and restore', description: BACKUP_NOTE,
         options: [
           { label: 'Back up settings', focusKey: 'backup', keywords: ['backup', 'export'] },
           { label: 'Restore from a file', focusKey: 'restore', keywords: ['import', 'load'] },
           { label: 'Reset to defaults', focusKey: 'reset' },
         ], focusKey: 'backup', render: backupCard },
       ...(update && !update.update ? [{ ...updateRow(update), group: 'about' }] : []),
-      { id: 'report-problem', section: 'general', group: 'about', title: 'Report a problem', description: 'Opens a GitHub report with your versions and settings filled in. Add what happened.', keywords: ['bug', 'issue'], render: reportProblemCard },
+      { id: 'report-problem', section: 'general', group: 'about', title: 'Report a problem', description: REPORT_NOTE, keywords: ['bug', 'issue'], render: reportProblemCard },
       { id: 'kofi', section: 'general', group: 'about', title: 'Buy me a coffee', keywords: ['donate', 'kofi'], render: kofiCard },
     ];
   }

@@ -32,7 +32,7 @@ export default {
   section: 'privacy',
   android: 'Hold back analytics uploads',
   title: 'Hold back usage logs',
-  description: "Facebook's site keeps a log of what you look at and click, and sends it in batches as you go, along with how long you've been on the site. With this on, neither leaves your browser, so Facebook's count of your time on Facebook won't take in time spent in this browser. Nothing else is held back.",
+  description: "Keeps Facebook's log of what you look at and click, and of how long you've been on the site, from leaving your browser. Facebook's site sends both in batches as you go. With this on, its count of your time on Facebook won't take in time spent in this browser. Nothing else is held back.",
   default: false,
   needsPage: true,
 

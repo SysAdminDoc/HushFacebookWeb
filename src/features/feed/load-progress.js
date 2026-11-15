@@ -66,7 +66,7 @@ export default {
   id: 'showLoadProgress',
   section: 'feed',
   title: 'Show progress while posts load',
-  description: "When your settings hide a lot of posts, Home or a group can sit on Facebook's gray loading boxes while it fetches more five at a time. This puts a line above them with how many posts were hidden so far, so you can tell it's still working.",
+  description: "Puts a line above Facebook's gray loading boxes with how many posts were hidden so far. When your settings hide a lot of posts, Home or a group can sit on those boxes while Facebook fetches more five at a time, and the line shows it's still working.",
   default: true,
   webOnly: true,
   css,

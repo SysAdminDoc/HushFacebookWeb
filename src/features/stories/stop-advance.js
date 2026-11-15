@@ -131,7 +131,7 @@ export default {
   section: 'reels',
   android: 'Stop Story auto-advance',
   title: 'Stop stories moving on',
-  description: "A video story stays on screen when it ends instead of moving to the next one, so you go on when you're ready with the arrow. You can have it play again instead. Photo stories still move on by themselves for now.",
+  description: "A video story stays on screen when it ends instead of moving to the next one. Go on with the arrow when you're ready. You can have it play again instead. Photo stories still move on by themselves for now.",
   default: false,
   options: [
     {

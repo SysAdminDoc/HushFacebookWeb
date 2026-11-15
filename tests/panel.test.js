@@ -299,7 +299,7 @@ test('General puts a privacy-safe filled problem report directly above Ko-fi', (
   assert.equal(report.dataset.key, 'report-problem');
   assert.equal(report.nextElementSibling.dataset.key, 'kofi');
   assert.equal(report.querySelector('.title').textContent, 'Report a problem');
-  assert.equal(report.querySelector('.desc').textContent, 'Opens a GitHub report with your versions and settings filled in. Add what happened.');
+  assert.equal(report.querySelector('.desc').textContent, 'Opens a GitHub report with your versions and settings filled in, for you to add what happened.');
   assert.equal(report.getAttribute('target'), '_blank');
   assert.equal(report.getAttribute('rel'), 'noopener noreferrer');
   const url = new URL(report.getAttribute('href'));
@@ -975,6 +975,106 @@ test('the gear button comes back when the menu row stops working', () => {
 
 const describedText = (shadow, control) => (control.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
   .map((id) => [...shadow.querySelectorAll('[id]')].find((node) => node.id === id)?.textContent ?? `missing #${id}`);
+
+// What a row's help shows before More is clicked: its words without the hidden rest or the button.
+const shownHelp = (desc) => [...desc.childNodes]
+  .filter((node) => node.nodeType === 3 || (!node.hidden && !node.classList.contains('more')))
+  .map((node) => node.textContent).join('').trim();
+
+test('every settings row shows one sentence of 120 characters or less, and its control still reads all of it', () => {
+  const { shadow, panel } = setup({ features: allFeatures, update: () => checkStatus() });
+  const english = new Intl.Segmenter('en', { granularity: 'sentence' });
+  let rows = 0;
+  for (const page of [...PAGES.map((entry) => entry.id), 'general']) {
+    panel.open(page);
+    // A row's own control, not the switches among its options.
+    const controls = [...shadow.querySelectorAll('main .card [role="switch"], main .card select[data-key="ui.language"]')]
+      .filter((control) => control.dataset.key === 'ui.language' || !control.closest('.options'));
+    for (const control of controls) {
+      const card = control.closest('.card');
+      const desc = card.querySelector('.desc');
+      const shown = shownHelp(desc);
+      const key = control.dataset.key;
+      assert.ok(shown.length <= 120, `${key}: ${shown.length} characters before More`);
+      assert.equal([...english.segment(shown)].length, 1, `${key} shows one sentence: ${shown}`);
+      const whole = describedText(shadow, control)[0];
+      const button = desc.querySelector('.more');
+      if (button) {
+        const rest = shadow.getElementById(button.getAttribute('aria-controls'));
+        assert.equal(rest.hidden, true, `${key} keeps the rest behind More`);
+        assert.equal(`${shown} ${rest.textContent.trim()}`, whole, `${key} reads every word of its help`);
+      } else {
+        assert.equal(shown, whole, `${key} reads its help`);
+      }
+      rows++;
+    }
+  }
+  const backup = shadow.querySelector('[data-key="backup-restore"]');
+  assert.ok(shownHelp(backup.querySelector('.desc')).length <= 120, 'Back up and restore too');
+  assert.ok(rows > allFeatures.length, `every feature and General row was checked (${rows})`);
+});
+
+test('More shows the rest of a row in place and says so, Less puts it back, and a redraw keeps it', () => {
+  const features = [
+    { id: 'long', section: 'feed', title: 'Long', description: 'Hides the long posts. Zebra posts count as long too.', default: false },
+    { id: 'short', section: 'feed', title: 'Short', description: 'Hides the short posts.', default: false },
+  ];
+  const { shadow, panel } = setup({ features });
+  panel.open('feed');
+  const control = (key) => shadow.querySelector(`main [data-key="${key}"]`);
+  const more = () => shadow.querySelector('main [data-key="more:long"]');
+  const rest = () => shadow.getElementById(more().getAttribute('aria-controls'));
+  assert.equal(shownHelp(control('long').closest('.card').querySelector('.desc')), 'Hides the long posts.');
+  assert.equal(more().getAttribute('aria-expanded'), 'false');
+  assert.equal(more().textContent, 'More');
+  assert.equal(more().getAttribute('type'), 'button', 'never a form submit');
+  assert.equal(rest().hidden, true);
+  assert.deepEqual(describedText(shadow, control('long')), ['Hides the long posts. Zebra posts count as long too.']);
+  assert.equal(shadow.querySelector('main [data-key="more:short"]'), null, 'one sentence has nothing more to show');
+  assert.deepEqual(describedText(shadow, control('short')), ['Hides the short posts.']);
+
+  more().click();
+  assert.equal(more().getAttribute('aria-expanded'), 'true');
+  assert.equal(more().textContent, 'Less');
+  assert.equal(rest().hidden, false);
+  assert.equal(rest().textContent.trim(), 'Zebra posts count as long too.');
+  assert.deepEqual(describedText(shadow, control('long')), ['Hides the long posts. Zebra posts count as long too.'], 'the switch reads the same either way');
+  panel.refresh();
+  assert.equal(more().getAttribute('aria-expanded'), 'true', 'still open after a redraw');
+  assert.equal(rest().hidden, false);
+  more().click();
+  assert.equal(more().getAttribute('aria-expanded'), 'false');
+  assert.equal(more().textContent, 'More');
+  assert.equal(rest().hidden, true);
+  panel.refresh();
+  assert.equal(rest().hidden, true, 'and closed stays closed');
+});
+
+test('a search for words behind More finds the row with that part open, and its page keeps it open', () => {
+  const features = [
+    { id: 'long', section: 'feed', title: 'Long', description: 'Hides the long posts. Zebra posts count as long too.', default: false },
+  ];
+  const { win, shadow, panel } = setup({ features });
+  panel.open('overview');
+  const search = shadow.querySelector('[data-key="search"]');
+  const find = (words) => {
+    search.value = words;
+    search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  };
+  const more = () => shadow.querySelector('main [data-key="more:long"]');
+  find('zebra');
+  assert.equal(shadow.querySelectorAll('.result').length, 1, 'found by a word only the hidden part has');
+  assert.equal(more().getAttribute('aria-expanded'), 'true', 'and shown open');
+  assert.equal(shadow.getElementById(more().getAttribute('aria-controls')).hidden, false);
+  find('long posts');
+  assert.equal(more().getAttribute('aria-expanded'), 'false', 'words the row already shows leave it closed');
+  find('long zebra');
+  assert.equal(more().getAttribute('aria-expanded'), 'true');
+  shadow.querySelector('[data-key="show:long"]').click();
+  assert.equal(shadow.querySelector('.result'), null, 'on its page now');
+  assert.equal(more().getAttribute('aria-expanded'), 'true', 'still open there');
+  assert.equal(shadow.getElementById(more().getAttribute('aria-controls')).hidden, false);
+});
 
 test('each switch reads its help, why it is unavailable and the reload note, in sections and search', async () => {
   const features = [

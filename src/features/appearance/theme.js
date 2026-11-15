@@ -102,7 +102,7 @@ export default {
   section: 'appearance',
   webOnly: true,
   title: 'Calm theme',
-  description: "Softer colors that are easier on the eyes, in light and dark mode, and more room between the lines of posts and comments. Light or dark follows Facebook's own setting.",
+  description: "Softer colors that are easier on the eyes, in light and dark mode. It also puts more room between the lines of posts and comments. Light or dark follows Facebook's own setting.",
   default: false,
   options: [
     { key: 'palette', type: 'select', label: 'Palette', default: THEMES[0].value, choices: THEMES.map(({ value, label }) => ({ value, label })) },

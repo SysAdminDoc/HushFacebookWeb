@@ -126,7 +126,7 @@ export default {
   section: 'comments',
   android: 'Comment sheet options',
   title: 'Show every reply',
-  description: "Opens every folded reply under comments on a post's own page and when you open a post's comments from the feed, so you don't have to click View replies.",
+  description: "Opens every folded reply under comments, so you don't have to click View replies. It works on a post's own page and when you open a post's comments from the feed.",
   default: false,
 
   setup({ doc, win, router, diagnostics, enabled }) {

@@ -14,7 +14,7 @@ export default {
   section: 'promotions',
   android: 'Hide Meta upsells',
   title: 'Hide Meta upsells',
-  description: "Takes Meta AI, Chat with AIs, Meta Quest, Ray-Ban Meta, WhatsApp, Instagram, Threads and Messenger Kids out of the left column and Facebook's menu.",
+  description: "Takes Meta AI and Meta's other apps and devices out of the left column and Facebook's menu. That's Meta AI, Chat with AIs, Meta Quest, Ray-Ban Meta, WhatsApp, Instagram, Threads and Messenger Kids.",
   default: false,
   css: UPSELLS_CSS,
 };

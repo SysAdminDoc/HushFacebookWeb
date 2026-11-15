@@ -123,7 +123,7 @@ export default {
   id: 'keepNotificationsFilter',
   section: 'notifications',
   title: 'Keep your Notifications filter',
-  description: 'The Notifications list under the bell and the Notifications page open on All or Unread, whichever you picked last, instead of going back to All every time Facebook loads.',
+  description: 'The Notifications list under the bell and the Notifications page open on All or Unread, whichever you picked last. Facebook would go back to All every time it loads.',
   default: false,
   webOnly: true,
 

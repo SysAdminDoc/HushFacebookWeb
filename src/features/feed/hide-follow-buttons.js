@@ -95,7 +95,7 @@ export default {
   section: 'reading',
   android: 'Hide Follow and Join buttons',
   title: 'Hide Follow and Join buttons',
-  description: "Takes the Follow and Join buttons off the names in posts from people, pages and groups you don't follow, so a post's header shows just who wrote it.",
+  description: "Takes the Follow and Join buttons off the names in posts from people, pages and groups you don't follow. A post's header shows just who wrote it.",
   default: false,
   css: HIDE_FOLLOW_CSS,
 

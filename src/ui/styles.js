@@ -154,6 +154,10 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .row .text { flex: 1; min-width: 0; }
 .title { font-size: 15px; line-height: 22px; font-weight: 600; }
 .desc { color: var(--subtext); font-size: 13.5px; line-height: 20px; margin-top: 3px; max-width: 72ch; }
+/* More and Less read as a link at the end of a row's help. */
+.more { display: inline; margin: 0; padding: 0 2px; border: 0; border-radius: 4px; background: none; color: var(--accent); font-weight: 600; white-space: nowrap; }
+.more:hover { text-decoration: underline; }
+.more:focus-visible { outline-offset: 1px; }
 .note { color: var(--peach); font-size: 13px; line-height: 19px; margin-top: 6px; }
 .unavailable .title { color: var(--subtext); }
 .options { margin: 14px 0 2px; padding-block: 2px; padding-inline: 14px 0; border-inline-start: 2px solid var(--rail); display: grid; gap: 12px; }

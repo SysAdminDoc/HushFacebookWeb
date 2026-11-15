@@ -125,7 +125,7 @@ export default {
   section: 'comments',
   android: 'Default comment order',
   title: 'Default comment order',
-  description: "Opens comments in the order you pick instead of Most relevant, on a post's own page and when you open a post's comments from the feed. You can still change the order on any post.",
+  description: "Opens comments in the order you pick instead of Most relevant. It works on a post's own page and when you open a post's comments from the feed. You can still change the order on any post.",
   default: false,
   options: [
     {

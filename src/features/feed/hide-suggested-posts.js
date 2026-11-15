@@ -52,7 +52,7 @@ export default {
   section: 'feed',
   android: 'Hide suggested and promoted posts',
   title: 'Hide suggested posts',
-  description: "Hides posts from Pages, people and groups you don't follow that Facebook mixes into Home and your groups feed, plus the group suggestion rows on Home. People you may know has its own switch.",
+  description: "Hides posts from Pages, people and groups you don't follow that Facebook mixes into Home and your groups feed. It also takes the group suggestion rows off Home. People you may know has its own switch.",
   default: true,
 
   setup({ net, router, posts, hider, settings, diagnostics, enabled }) {

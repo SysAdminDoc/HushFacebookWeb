@@ -140,7 +140,7 @@ export default {
   id: 'loadAhead',
   section: 'feed',
   title: 'Load more posts ahead',
-  description: "Home keeps fetching posts while you read, as many screens ahead as you pick, and starts as soon as it opens instead of at your first scroll. Facebook still sends five posts at a time, a few seconds apart, so this gets them coming sooner and keeps more of them waiting below you.",
+  description: 'Home keeps fetching posts while you read, as many screens ahead as you pick. It starts as soon as Home opens instead of at your first scroll. Facebook still sends five posts at a time, a few seconds apart, so this gets them coming sooner and keeps more of them waiting below you.',
   default: false,
   webOnly: true,
   needsPage: true,

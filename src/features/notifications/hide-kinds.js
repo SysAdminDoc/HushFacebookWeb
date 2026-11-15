@@ -135,7 +135,7 @@ export default {
   section: 'notifications',
   android: 'Block promotional notifications',
   title: 'Hide kinds of notifications',
-  description: 'Takes the kinds of notification you pick out of the Notifications list and page, like birthdays, memories and suggestions. The red count on the bell still counts them.',
+  description: 'Takes the kinds of notification you pick out of the Notifications list and page. Birthdays, memories and suggestions are some of them. The red count on the bell still counts them.',
   default: false,
   options: [
     ...GROUPS.map(({ option, label, default: on }) => ({ key: option, type: 'toggle', label: `Hide ${label.charAt(0).toLowerCase()}${label.slice(1)}`, default: on })),

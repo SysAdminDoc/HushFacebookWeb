@@ -73,6 +73,17 @@ export async function panelTheme({ theme }) {
   panel.toast('Saved.');
   await frame();
 
+  // A row's help opens in place with More, and the opened row still fits its box.
+  const more = shadow.querySelector('.settings-group .more');
+  check(more !== null, 'No row keeps its help behind More');
+  const rest = shadow.getElementById(more.getAttribute('aria-controls'));
+  const closedHeight = more.closest('.card').getBoundingClientRect().height;
+  more.click();
+  await frame();
+  check(more.getAttribute('aria-expanded') === 'true' && !rest.hidden && rest.getBoundingClientRect().height > 0, 'More did not show the rest');
+  check(more.closest('.card').getBoundingClientRect().height > closedHeight, 'The row did not grow to show the rest');
+  check(rest.getBoundingClientRect().right <= more.closest('.card').getBoundingClientRect().right + 1, 'The rest runs out of its row');
+
   const dialog = shadow.querySelector('.dialog');
   const noteColor = (element) => getComputedStyle(element.querySelector(`[${MARK}]`), '::before').color;
   const look = (mode) => {
@@ -83,7 +94,7 @@ export async function panelTheme({ theme }) {
     // Every row's words against the box they sit in.
     const group = shadow.querySelector('.settings-group');
     const box = getComputedStyle(group).backgroundColor;
-    for (const selector of ['.title', '.desc']) {
+    for (const selector of ['.title', '.desc', '.more']) {
       const ratio = contrast(getComputedStyle(group.querySelector(selector)).color, box);
       check(ratio >= 4.5, `${selector} reads at ${ratio.toFixed(2)}:1 in ${mode}`);
     }

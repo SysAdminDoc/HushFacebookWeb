@@ -342,7 +342,7 @@ export default {
   section: 'filters',
   android: 'Hide posts by words',
   title: 'Hide posts by words',
-  description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups, and in search results, comments and Reels if you choose. Posts and reels you open by their link always show.',
+  description: 'Hides posts that mention the words, people, Pages or sites you list, on Home and in groups. You can add search results, comments and Reels. Posts and reels you open by their link always show.',
   default: false,
   options: OPTIONS,
 

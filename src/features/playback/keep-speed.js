@@ -106,7 +106,7 @@ export default {
   section: 'playback',
   android: 'Keep the reel speed',
   title: 'Keep your video speed',
-  description: "The speed you pick in a video's Settings menu stays for every video and reel after it, even after a reload, instead of going back to normal each time. Stories keep their own pace.",
+  description: "The speed you pick in a video's Settings menu stays for every video and reel after it, even after a reload. Facebook would put it back to normal each time. Stories keep their own pace.",
   default: false,
 
   setup({ doc, win, storage, enabled, diagnostics, actions, toast }) {

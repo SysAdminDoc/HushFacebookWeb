@@ -177,7 +177,7 @@ export default {
   section: 'reading',
   android: 'Keep post dates',
   title: 'Show full post dates',
-  description: "Each post shows the day and time it went up next to Facebook's short \"3h\" or \"2d\", so you don't have to point at it to find out.",
+  description: 'Each post shows the day and time it went up next to Facebook\'s short "3h" or "2d". You don\'t have to point at it to find out.',
   default: false,
   needsPage: true,
   css: POST_DATES_CSS,
