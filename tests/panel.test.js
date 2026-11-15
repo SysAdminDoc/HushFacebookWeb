@@ -1079,6 +1079,14 @@ test('a search for words behind More finds the row with that part open, and its 
   assert.equal(shadow.getElementById(more().getAttribute('aria-controls')).hidden, true);
   find('Zebra ');
   assert.equal(more().getAttribute('aria-expanded'), 'false', 'a space or a capital is the same search');
+  panel.close();
+  shadow.querySelector('.launcher').click();
+  assert.equal(search.value, 'Zebra ', 'the search is still up');
+  assert.equal(more().getAttribute('aria-expanded'), 'true', 'yet the panel opened again opens the row');
+  more().click();
+  panel.open('feed', 'zebra');
+  assert.equal(more().getAttribute('aria-expanded'), 'true', 'and so does an opening that brings the same words');
+  more().click();
   find('');
   find('zebra');
   assert.equal(more().getAttribute('aria-expanded'), 'true', 'the same words in a new search open it again');
@@ -1112,6 +1120,9 @@ test('the long text layout stretches each part of a row in its own brackets, so 
   const name = labelledText(shadow, more);
   assert.ok(name.startsWith(more.textContent), `the name starts with the word on the button: ${name}`);
   assert.ok(name.includes(t('Long')), 'and names the row');
+  panel.open('general');
+  const language = shadow.querySelector('main [data-key="more:ui.language"]');
+  assert.ok(labelledText(shadow, language).endsWith(`${t('Language')} (Language)`), 'the Language row is named the way its title shows');
 });
 
 test('each switch reads its help, why it is unavailable and the reload note, in sections and search', async () => {

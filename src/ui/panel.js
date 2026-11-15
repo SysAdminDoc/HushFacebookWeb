@@ -138,7 +138,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const drafts = new Map();
   const openHelp = new Set(); // Rows whose More was clicked open, kept across redraws.
   // Rows a search opened and Less closed again. A redraw keeps them closed until the search
-  // words change, so a new search (the same words typed again included) opens them again.
+  // words change or the panel opens again, so a new search (the same words typed again
+  // included) opens them again.
   const closedHelp = new Set();
   const fieldErrors = new Map();
   const pending = new Set();
@@ -473,7 +474,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // A row's help: its first sentence, with the rest behind More, shown in place. A search that
   // finds the row by words in the rest opens it. id goes on a hidden copy of the whole text for
   // the row's control to read, since a screen reader leaves out the hidden part of a shown one.
-  function help(key, title, description, { vars, id } = {}) {
+  // shownTitle: the row's title as it shows, when that isn't just t(title).
+  function help(key, title, description, { vars, id, shownTitle } = {}) {
     const text = t(description, vars);
     const [first, rest] = helpParts(description, vars, text);
     if (!rest) return h('div', { class: 'desc', id, text });
@@ -503,7 +505,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return [
       h('div', { class: 'desc' }, first, more, ' ',
         h('button', { class: 'more', type: 'button', id: buttonId, 'aria-expanded': String(open), 'aria-controls': restId, 'aria-labelledby': `${buttonId} ${titleId}`, dataset: { key: `more:${key}` }, text: open ? t('Less') : t('More'), onclick: toggleMore })),
-      h('span', { id: titleId, hidden: true, text: t(title) }),
+      h('span', { id: titleId, hidden: true, text: shownTitle ?? t(title) }),
       id ? h('div', { id, hidden: true, text }) : null,
     ];
   }
@@ -870,9 +872,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   function languageCard() {
     const value = settingValue('ui.language');
     const title = t('Language');
+    const shownTitle = title === 'Language' ? title : `${title} (Language)`;
     return h('div', { class: 'card', dataset: { key: 'language' } },
-      h('div', { class: 'title', text: title === 'Language' ? title : `${title} (Language)` }),
-      help('ui.language', 'Language', LANGUAGE_NOTE, { id: 'hfw-ui.language-desc' }),
+      h('div', { class: 'title', text: shownTitle }),
+      help('ui.language', 'Language', LANGUAGE_NOTE, { id: 'hfw-ui.language-desc', shownTitle }),
       h('div', { class: 'options' },
         h('div', { class: 'field' },
           h('label', null, title,
@@ -1412,6 +1415,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
 
   // sectionId: a page, or a group, which opens its page scrolled to it.
   function open(sectionId, searchQuery) {
+    // Every opening is a fresh look, so a Less from before shows its row open again.
+    closedHelp.clear();
     const pageId = sectionId ? pageOf(sectionId) : null;
     if (pageId) {
       if (pageId !== current || query) main.scrollTop = 0;
