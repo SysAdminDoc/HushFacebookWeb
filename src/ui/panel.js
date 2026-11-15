@@ -18,6 +18,7 @@ import { GEAR_ICON, SLIDERS_ICON } from './icons.js';
 import { trackLauncherSpot } from './launcher-place.js';
 import { navigationIcon } from './navigation-icons.js';
 import { createNewDots } from './new-dots.js';
+import { watchPageTheme } from './page-theme.js';
 import { buildDiagnosticReport } from './diagnostic-report.js';
 import { buildProblemReport } from './problem-report.js';
 import { applyQuickSetup, QUICK_SETUPS } from './quick-setups.js';
@@ -102,6 +103,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const shadow = host.attachShadow({ mode: 'closed' });
   const root = h('div', { class: 'root' });
   shadow.append(h('style', { text: panelCss }), root);
+  // Light or dark with Facebook, switching while open too. Toasts and the gear live in root, so they follow.
+  watchPageTheme(document, (theme) => {
+    if (theme === 'light') root.dataset.theme = 'light';
+    else delete root.dataset.theme;
+  });
 
   // Groups with something in them, and the pages that have such a group. A feature's section is
   // its group; Overview and General rows name their page instead.

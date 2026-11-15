@@ -29,6 +29,7 @@
 // becomes a button the same way the mark does, after it in Tab order. A first element that
 // can't draw a ::before (REPLACED) leaves the note with no second button.
 
+import { NOTE_COLORS } from './note-colors.js';
 import { inDialog, isComment, postIdOf } from './posts.js';
 
 export const MARK = 'data-hfw-hide';
@@ -60,20 +61,22 @@ export function hideCss({ notes }) {
     `[${MARK}] { font-size: 0 !important; }`,
     // Facebook's mark is a display:contents wrapper, which can't take focus.
     `[${MARK}] { display: flex !important; gap: 8px; border-radius: 6px; }`,
-    `[${MARK}]::before { content: attr(${NOTE}); display: block; flex: 1 1 auto; padding: 12px 16px; border: 1px solid #343745; border-radius: 6px; background: #171923; font: 600 13px/1.4 system-ui, sans-serif; color: #c4b0ff; cursor: pointer; }`,
+    `[${MARK}]::before { content: attr(${NOTE}); display: block; flex: 1 1 auto; padding: 12px 16px; border: 1px solid var(--hfw-note-border); border-radius: 6px; background: var(--hfw-note-bg); font: 600 13px/1.4 system-ui, sans-serif; color: var(--hfw-note-text); cursor: pointer; }`,
     `[${MARK}]:hover:not(:has(> :hover))::before { text-decoration: underline; }`,
-    // The ring sits on Facebook's page, and on a light one the lavender alone barely shows, so a
-    // dark halo fills the gap and runs under it.
-    `[${MARK}]:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px; box-shadow: 0 0 0 4px #171923 !important; }`,
+    // The ring sits on Facebook's page, so a halo in the note's own background fills the gap and
+    // runs under it, keeping the ring clear of whatever the page has there.
+    `[${MARK}]:focus-visible { outline: 2px solid var(--hfw-note-text) !important; outline-offset: 2px; box-shadow: 0 0 0 4px var(--hfw-note-bg) !important; }`,
     // Facebook's own element, so its classes' look goes first.
     `${ALL} { all: unset !important; display: block !important; flex: none !important; border-radius: 6px !important; cursor: pointer !important; font-size: 0 !important; }`,
     `${ALL} > * { display: none !important; }`,
-    `${ALL}::before { all: unset !important; content: "${SHOW_ALL}" !important; display: block !important; padding: 12px 16px !important; border: 1px solid #343745 !important; border-radius: 6px !important; background: #262a3b !important; font: 600 13px/1.4 system-ui, sans-serif !important; color: #c4b0ff !important; white-space: nowrap !important; }`,
+    `${ALL}::before { all: unset !important; content: "${SHOW_ALL}" !important; display: block !important; padding: 12px 16px !important; border: 1px solid var(--hfw-note-border) !important; border-radius: 6px !important; background: var(--hfw-note-bg-strong) !important; font: 600 13px/1.4 system-ui, sans-serif !important; color: var(--hfw-note-text) !important; white-space: nowrap !important; }`,
     `${ALL}::after { content: none !important; }`,
     `${ALL}:hover::before { text-decoration: underline !important; }`,
     // Important, or the all: unset above puts the ring back on the edge, outside its halo.
-    `${ALL}:focus-visible { outline: 2px solid #c4b0ff !important; outline-offset: 2px !important; box-shadow: 0 0 0 4px #171923 !important; }`,
+    `${ALL}:focus-visible { outline: 2px solid var(--hfw-note-text) !important; outline-offset: 2px !important; box-shadow: 0 0 0 4px var(--hfw-note-bg) !important; }`,
     `[${HELD}] { display: block !important; }`,
+    // What each of Facebook's modes sets the colors above to (note-colors.js).
+    NOTE_COLORS,
   ].join('\n');
 }
 

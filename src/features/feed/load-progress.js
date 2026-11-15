@@ -23,6 +23,7 @@
 
 import { SKIP, walk } from '../../core/json-walk.js';
 import { plural } from '../../core/i18n.js';
+import { NOTE_COLORS } from '../../core/dom/note-colors.js';
 import { FEED_PAGES, feedKind, loadingSign, shown } from '../../core/load-watchdog.js';
 
 export const NOTE = 'data-hfw-loading';
@@ -54,7 +55,8 @@ export const noteText = (count) => plural(count, 'Hid {count} post so far. Getti
 
 export function css() {
   return [
-    `[${NOTE}]::before { content: attr(${NOTE}); display: block; margin-bottom: 8px; padding: 10px 16px; border: 1px solid #343745; border-radius: 6px; background: linear-gradient(90deg, #171923 30%, #262a3b 50%, #171923 70%) 0 0 / 300% 100%; font: 600 13px/1.4 system-ui, sans-serif; color: #c4b0ff; animation: hfw-loading 1.8s linear infinite; }`,
+    NOTE_COLORS,
+    `[${NOTE}]::before { content: attr(${NOTE}); display: block; margin-bottom: 8px; padding: 10px 16px; border: 1px solid var(--hfw-note-border); border-radius: 6px; background: linear-gradient(90deg, var(--hfw-note-bg) 30%, var(--hfw-note-bg-strong) 50%, var(--hfw-note-bg) 70%) 0 0 / 300% 100%; font: 600 13px/1.4 system-ui, sans-serif; color: var(--hfw-note-text); animation: hfw-loading 1.8s linear infinite; }`,
     '@keyframes hfw-loading { from { background-position: 100% 0; } to { background-position: 0 0; } }',
     `@media (prefers-reduced-motion: reduce) { [${NOTE}]::before { animation: none; } }`,
   ].join('\n');

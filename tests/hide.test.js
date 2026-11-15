@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { MARK, NOTE, createHider, hideCss } from '../src/core/dom/hide.js';
+import { NOTE_COLORS } from '../src/core/dom/note-colors.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
 import { createSettings } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
@@ -524,18 +525,46 @@ const buttonParts = (element) => ['role', 'tabindex', 'aria-label'].map((name) =
 // Behind a post: Facebook's white and grey light pages, and its dark ones.
 const PAGES_BEHIND = ['#ffffff', '#f0f2f5', '#18191a', '#242526'];
 
+// The note's colors in each of Facebook's modes, as note-colors.js sets them.
+const noteColors = () => {
+  const modes = {};
+  for (const [, selector, body] of NOTE_COLORS.matchAll(/^([^{]+)\{([^}]*)\}/gm)) {
+    const mode = selector.includes('__fb-light-mode') ? 'light' : 'dark';
+    modes[mode] = Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6})/g)].map(([, name, value]) => [name, value]));
+  }
+  return modes;
+};
+
 test('the focus ring on a note and on Show hidden shows on a light page as well as a dark one', () => {
-  const rules = [...hideCss({ notes: true }).matchAll(/:focus-visible \{([^}]*)\}/g)].map(([, body]) => body);
+  const css = hideCss({ notes: true });
+  assert.ok(css.includes(NOTE_COLORS), 'the colors ship with the rules that use them');
+  const modes = noteColors();
+  assert.deepEqual(Object.keys(modes).sort(), ['dark', 'light']);
+  const rules = [...css.matchAll(/:focus-visible \{([^}]*)\}/g)].map(([, body]) => body);
   assert.equal(rules.length, 2);
   for (const body of rules) {
-    const ring = /outline: 2px solid (#[0-9a-f]{6})/.exec(body)?.[1];
+    const ring = /outline: 2px solid var\((--[\w-]+)\)/.exec(body)?.[1];
     const offset = Number(/outline-offset: (\d+)px/.exec(body)?.[1]);
-    const halo = /box-shadow: 0 0 0 (\d+)px (#[0-9a-f]{6})/.exec(body);
-    assert.ok(ring && halo, `a ring and a dark halo: ${body}`);
+    const halo = /box-shadow: 0 0 0 (\d+)px var\((--[\w-]+)\)/.exec(body);
+    assert.ok(ring && halo, `a ring and a halo: ${body}`);
     assert.ok(Number(halo[1]) >= offset + 2, 'the halo fills the gap and runs under the ring, so no page shows between');
-    assert.ok(contrast(ring, halo[2]) >= 3, 'the ring reads on its halo');
-    for (const behind of PAGES_BEHIND) {
-      assert.ok(Math.max(contrast(ring, behind), contrast(halo[2], behind)) >= 3, `one of them reads on ${behind}`);
+    // Each mode's pair on every page, since a note in one of Facebook's islands of the other
+    // mode sits on that mode's colors.
+    for (const [mode, colors] of Object.entries(modes)) {
+      const [ringColor, haloColor] = [colors[ring], colors[halo[2]]];
+      assert.ok(ringColor && haloColor, `${mode} sets ${ring} and ${halo[2]}`);
+      assert.ok(contrast(ringColor, haloColor) >= 3, `the ring reads on its halo in ${mode}`);
+      for (const behind of PAGES_BEHIND) {
+        assert.ok(Math.max(contrast(ringColor, behind), contrast(haloColor, behind)) >= 3, `one of them reads on ${behind} in ${mode}`);
+      }
+    }
+  }
+});
+
+test("a hidden post's note reads in both of Facebook's modes", () => {
+  for (const [mode, colors] of Object.entries(noteColors())) {
+    for (const background of ['--hfw-note-bg', '--hfw-note-bg-strong']) {
+      assert.ok(contrast(colors['--hfw-note-text'], colors[background]) >= 4.5, `${mode}: the note's words on ${background}`);
     }
   }
 });

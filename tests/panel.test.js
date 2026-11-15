@@ -15,6 +15,7 @@ import { createLog } from '../src/core/log.js';
 import { createSettings } from '../src/core/settings.js';
 import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
 import { features as allFeatures } from '../src/features/index.js';
+import { DARK, LIGHT } from '../src/features/appearance/force-dark.js';
 import { PAGES, SECTIONS } from '../src/features/sections.js';
 import { startFeatures } from '../src/core/start-features.js';
 import { mountPanel, REGION_SETTLE_MS } from '../src/ui/panel.js';
@@ -2443,4 +2444,23 @@ test("storage that hasn't loaded, or can't be read, shows no dots and saves noth
   second.panel.open('feed');
   assert.deepEqual(dotsIn(second.shadow), []);
   assert.equal(second.shadow.querySelector('[data-key="dotFeed"]').checked, false, 'settings still draw');
+});
+
+test("the panel, its toasts and the gear take Facebook's light or dark mode, and switch with it while open", async () => {
+  const { win, shadow, panel } = setup();
+  const html = win.document.documentElement;
+  const root = shadow.querySelector('.root');
+  assert.equal(root.dataset.theme, undefined, 'dark before Facebook says');
+  html.classList.add(LIGHT);
+  await tick();
+  assert.equal(root.dataset.theme, 'light');
+  panel.open('feed');
+  panel.toast('Saved.');
+  assert.ok(root.querySelector('.dialog') && root.querySelector('.toast'), 'the dialog and toast are drawn inside it');
+  html.classList.replace(LIGHT, DARK);
+  await tick();
+  assert.equal(root.dataset.theme, undefined);
+  html.classList.replace(DARK, LIGHT);
+  await tick();
+  assert.equal(root.dataset.theme, 'light');
 });

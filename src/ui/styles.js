@@ -1,10 +1,29 @@
-// Shared colors also keep floating media controls in step with settings.
+// Shared colors also keep floating media controls in step with settings. Those float over photos
+// and videos, so they keep this dark set on either theme, as Facebook's own video controls do.
 export const uiTokens = `
   --base: #15191f; --mantle: #101419; --crust: #0d1117;
   --surface0: #1a2029; --surface1: #303b4b;
   --text: #edf2f8; --subtext: #a6afbd; --accent: #8abfff; --accent-ink: #12263e;
   --border: #2b333f; --selected: #1c3048; --control: #768599;
   --green: #a6e3a1; --red: #f38ba8; --peach: #fab387;
+  --selected-border: #29415c; --rail: #2f4a66; --knob: #f4f9ff; --knob-border: #264e7f;
+  --green-glow: #a6e3a126; --peach-glow: #fab38726; --peach-border: #6b4f33;
+  --tile-top: #1c2633; --tile-hover: #1d2632; --tile-hover-border: #3b5674;
+  --shadow-sm: #0004; --shadow: #0005; --shadow-md: #0006; --shadow-lg: #0008; --backdrop: #0b0e13cc;
+`;
+
+// The panel on Facebook's light mode (page-theme.js). Text on every surface it sits on reads at
+// 4.5:1 or better, and the controls' edges at 3:1 (tests/styles.test.js checks both).
+export const uiLightTokens = `
+  --base: #ffffff; --mantle: #f5f6f8; --crust: #eef0f3;
+  --surface0: #f7f8fa; --surface1: #dde2e8;
+  --text: #1c1e21; --subtext: #59616d; --accent: #0b5cd6; --accent-ink: #ffffff;
+  --border: #d9dde3; --selected: #e6effc; --control: #7d8794;
+  --green: #1f8a3e; --red: #c42b48; --peach: #9a5200;
+  --selected-border: #b8cff0; --rail: #b8cff0; --knob: #ffffff; --knob-border: #0a4fb8;
+  --green-glow: #1f8a3e26; --peach-glow: #9a520026; --peach-border: #e0b98a;
+  --tile-top: #eef4fd; --tile-hover: #f0f5fc; --tile-hover-border: #a9c4ec;
+  --shadow-sm: #0000001f; --shadow: #00000024; --shadow-md: #00000029; --shadow-lg: #0000002e; --backdrop: #f0f2f5cc;
 `;
 
 export const panelCss = `
@@ -17,6 +36,8 @@ export const panelCss = `
   color: var(--text);
   --flip: 1;
 }
+.root[data-theme="light"] { ${uiLightTokens} }
+.root[data-theme="light"], .root[data-theme="light"] .dialog { color-scheme: light; }
 /* Right to left: start and end swap sides, and a switch's knob slides the other way. The gear
    follows Facebook's top bar, which mirrors on its own. */
 .root[dir="rtl"] { --flip: -1; }
@@ -40,24 +61,24 @@ svg { flex: none; }
 .launcher[data-place="wait"] { visibility: hidden; }
 /* A page without the bar: floating over the bottom-left corner, like Facebook's own floating
    buttons. */
-.launcher[data-place="corner"] { left: 12px; bottom: 12px; background-color: var(--secondary-button-background-floating, var(--base)); box-shadow: 0 2px 12px #0006; }
+.launcher[data-place="corner"] { left: 12px; bottom: 12px; background-color: var(--secondary-button-background-floating, var(--base)); box-shadow: 0 2px 12px var(--shadow-md); }
 .launcher[hidden] { display: none; }
 /* The ring sits on Facebook's bar, white in its light mode, so a dark halo fills the gap. */
 .launcher:focus-visible { outline-offset: 2px; box-shadow: 0 0 0 2px var(--crust); }
-.launcher[data-place="corner"]:focus-visible { box-shadow: 0 0 0 2px var(--crust), 0 2px 12px #0006; }
+.launcher[data-place="corner"]:focus-visible { box-shadow: 0 0 0 2px var(--crust), 0 2px 12px var(--shadow-md); }
 .dialog {
   width: min(1180px, calc(100vw - 48px)); height: min(900px, calc(100dvh - 64px));
   max-width: none; max-height: none; padding: 0; margin: auto; overflow: hidden;
   display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
   font: inherit; color: inherit; color-scheme: dark;
   background: var(--base); border: 1px solid var(--border); border-radius: 14px;
-  box-shadow: 0 24px 80px #0008;
+  box-shadow: 0 24px 80px var(--shadow-lg);
 }
 .dialog:not([open]) { display: none; }
-.dialog::backdrop { background: #0b0e13cc; backdrop-filter: blur(6px); }
+.dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(6px); }
 header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 12px 16px 12px 20px; border-bottom: 1px solid var(--border); background: var(--mantle); }
 .brand { min-width: 0; display: flex; align-items: center; gap: 12px; }
-.brand-icon { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--selected); border: 1px solid #29415c; }
+.brand-icon { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--selected); border: 1px solid var(--selected-border); }
 .brand-icon svg { width: 22px; height: 22px; fill: var(--accent); }
 .brand-copy { min-width: 0; display: grid; }
 header h2 { margin: 0; font-size: 18px; line-height: 22px; font-weight: 650; letter-spacing: -0.2px; white-space: nowrap; }
@@ -65,9 +86,9 @@ header h2 { margin: 0; font-size: 18px; line-height: 22px; font-weight: 650; let
 .header-actions { flex: none; display: flex; align-items: center; gap: 10px; }
 /* The power switch and its state share one pill: green dot and On, or a peach dot and Paused. */
 .power { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 6px 4px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface0); cursor: pointer; }
-.power-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px #a6e3a126; }
-.power[data-state="paused"] { border-color: #6b4f33; }
-.power[data-state="paused"] .power-dot { background: var(--peach); box-shadow: 0 0 0 3px #fab38726; }
+.power-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-glow); }
+.power[data-state="paused"] { border-color: var(--peach-border); }
+.power[data-state="paused"] .power-dot { background: var(--peach); box-shadow: 0 0 0 3px var(--peach-glow); }
 .power-state { font-size: 13px; font-weight: 600; white-space: nowrap; }
 .power .switch { margin: 0; }
 .icon-button { border: 1px solid var(--border); background: transparent; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; }
@@ -134,7 +155,7 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .desc { color: var(--subtext); font-size: 13.5px; line-height: 20px; margin-top: 3px; max-width: 72ch; }
 .note { color: var(--peach); font-size: 13px; line-height: 19px; margin-top: 6px; }
 .unavailable .title { color: var(--subtext); }
-.options { margin: 14px 0 2px; padding-block: 2px; padding-inline: 14px 0; border-inline-start: 2px solid #2f4a66; display: grid; gap: 12px; }
+.options { margin: 14px 0 2px; padding-block: 2px; padding-inline: 14px 0; border-inline-start: 2px solid var(--rail); display: grid; gap: 12px; }
 .options label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; color: var(--subtext); font-size: 14px; line-height: 21px; }
 .options .option-toggle { flex-wrap: nowrap; justify-content: space-between; gap: 14px; }
 .option-toggle .switch { order: 1; }
@@ -158,7 +179,7 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .row > .switch { margin-top: 1px; }
 .switch::after { content: ""; position: absolute; top: 2px; inset-inline-start: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--subtext); border: 1px solid transparent; transition: transform 0.15s ease; }
 .switch:checked { background: var(--accent); border-color: var(--accent); }
-.switch:checked::after { transform: translateX(calc(var(--flip) * 20px)); background: #f4f9ff; border-color: #264e7f; }
+.switch:checked::after { transform: translateX(calc(var(--flip) * 20px)); background: var(--knob); border-color: var(--knob-border); }
 .switch:disabled, .switch[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 /* Overview's tiles: Quick setups across the top, then one per page. */
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
@@ -168,13 +189,13 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .tile-desc { color: var(--subtext); font-size: 13px; line-height: 19px; }
 .tile-count { color: var(--subtext); font-size: 12px; line-height: 16px; font-weight: 600; }
 .tile-count.some { color: var(--accent); }
-.setup-tile { background: linear-gradient(180deg, #1c2633, var(--surface0)); }
+.setup-tile { background: linear-gradient(180deg, var(--tile-top), var(--surface0)); }
 .setup-tile.reset { background: var(--surface0); }
 .setup-tile .tile-desc { flex: 1; }
 .tile-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 6px; }
 .tile-foot .button { min-height: 36px; min-width: 0; padding: 6px 16px; }
 .page-tile { flex-direction: row; align-items: flex-start; gap: 14px; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease; }
-.page-tile:hover { border-color: #3b5674; background: #1d2632; transform: translateY(-1px); }
+.page-tile:hover { border-color: var(--tile-hover-border); background: var(--tile-hover); transform: translateY(-1px); }
 .tile-icon { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--selected); color: var(--accent); }
 .tile-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -217,7 +238,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
    under an empty region. */
 .toast-live, .toast-wait { display: grid; gap: var(--toast-gap); justify-items: inherit; min-width: 0; max-width: 100%; }
 :is(.toast-live, .toast-wait):not(:empty) ~ :is(.toast-live, .toast-wait):not(:empty) { margin-top: var(--toast-gap); }
-.toast { display: flex; align-items: center; gap: 8px 16px; max-width: 100%; padding: 14px 18px; border-radius: 8px; background: var(--surface0); border: 1px solid var(--surface1); box-shadow: 0 10px 30px #0005; font-size: 14px; overflow-wrap: anywhere; flex-wrap: wrap; animation: rise 0.18s ease-out; }
+.toast { display: flex; align-items: center; gap: 8px 16px; max-width: 100%; padding: 14px 18px; border-radius: 8px; background: var(--surface0); border: 1px solid var(--surface1); box-shadow: 0 10px 30px var(--shadow); font-size: 14px; overflow-wrap: anywhere; flex-wrap: wrap; animation: rise 0.18s ease-out; }
 .toast span { min-width: 0; flex: 1 1 auto; }
 .toast .actions { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; margin-inline-start: auto; }
 .toast.error { border-color: var(--red); }
@@ -226,7 +247,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
    room for the gear when it's down there too. */
 .toasts.corner { --toast-gap: 6px; left: 12px; bottom: 14px; transform: none; max-width: calc(100vw - 24px); justify-items: start; }
 .root:has(> .launcher[data-place="corner"]:not([hidden])) .toasts.corner { left: 60px; max-width: calc(100vw - 72px); }
-.toast.small { gap: 4px 10px; padding: 5px 8px 5px 12px; font-size: 13px; box-shadow: 0 4px 14px #0004; }
+.toast.small { gap: 4px 10px; padding: 5px 8px 5px 12px; font-size: 13px; box-shadow: 0 4px 14px var(--shadow-sm); }
 .toast.small span { flex: 0 1 auto; }
 .toast.small button { min-height: 24px; padding: 2px 4px; }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
