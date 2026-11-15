@@ -15,20 +15,24 @@ export function toolbarCount({ win, doc, send, count, enabled, log }) {
   let warned = false;
   let retried = false;
   let hidden = false;
+  let sends = 0;
 
   const tell = (value) => {
     sent = value;
     lastAt = Date.now();
+    const mine = ++sends;
     send(value).then(() => {
-      retried = false;
+      if (mine === sends) retried = false;
     }, (error) => {
       // Sent again on the next change, and once by itself a second later with the count as it
       // is then, for a worker that stopped mid-answer on a page where nothing else changes. Not
       // while the page is hidden: one back from the back/forward cache sends its count anyway.
-      // Once is enough for the log: after an extension update nothing gets through, and the
-      // panel already says so.
-      if (sent === value) sent = undefined;
-      if (!retried && !hidden) {
+      // Only the newest send's answer counts: an older one answering late says nothing about
+      // what the button shows now. Once is enough for the log: after an extension update
+      // nothing gets through, and the panel already says so.
+      const newest = mine === sends;
+      if (newest) sent = undefined;
+      if (newest && !retried && !hidden) {
         retried = true;
         changed();
       }

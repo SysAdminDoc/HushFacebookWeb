@@ -14,12 +14,14 @@ function start({ prerendering = false, on = true } = {}) {
   doc.prerendering = prerendering;
   const sent = [];
   const warnings = [];
-  const state = { count: 0, on, fail: false };
+  // hold: the next sends wait in held for the test to answer them.
+  const state = { count: 0, on, fail: false, hold: false, held: [] };
   const badge = toolbarCount({
     win,
     doc,
     send: (value) => {
       sent.push(value);
+      if (state.hold) return new Promise((resolve, reject) => state.held.push({ resolve, reject }));
       return state.fail ? Promise.reject(new Error('the extension was updated')) : Promise.resolve(true);
     },
     count: () => state.count,
@@ -128,10 +130,15 @@ test('a count the worker never took goes again with the next change, and the log
   state.count = 3;
   mock.timers.tick(0);
   await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY * 10);
+  await settle();
+  assert.deepEqual(sent, [3, 3], 'its one try by itself is lost too, then it waits');
   badge.changed();
   mock.timers.tick(TOOLBAR_COUNT_EVERY);
   await settle();
-  assert.deepEqual(sent, [3, 3], 'the same count again, since the button never showed it');
+  assert.deepEqual(sent, [3, 3, 3], 'the same count again with the next change, since the button never showed it');
   assert.equal(warnings.length, 1);
   state.fail = false;
   badge.changed();
@@ -139,8 +146,58 @@ test('a count the worker never took goes again with the next change, and the log
   await settle();
   badge.changed();
   mock.timers.tick(TOOLBAR_COUNT_EVERY);
-  assert.deepEqual(sent, [3, 3, 3], 'and once it went, not again');
+  assert.deepEqual(sent, [3, 3, 3, 3], 'and once it went, not again');
   assert.equal(warnings.length, 1);
+});
+
+test("only the newest send's answer spends the extra try or gives it back, whatever order answers come in", async (t) => {
+  clock(t);
+  // An old send lost after a newer one went through: the button has the newer count, and the
+  // next loss still gets its try.
+  const late = start();
+  late.state.hold = true;
+  late.state.count = 1;
+  mock.timers.tick(0);
+  const [first] = late.state.held;
+  late.state.hold = false;
+  late.state.count = 2;
+  late.badge.changed();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  first.reject(new Error('no answer in time'));
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY * 5);
+  await settle();
+  assert.deepEqual(late.sent, [1, 2], 'the button shows 2, so nothing goes again');
+  late.state.fail = true;
+  late.state.count = 3;
+  late.badge.changed();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  assert.deepEqual(late.sent, [1, 2, 3, 3], 'the lost 3 still gets its one try');
+
+  // An old send that went through after a newer one was lost doesn't give the newer one a
+  // second try.
+  const early = start();
+  early.state.hold = true;
+  early.state.count = 1;
+  mock.timers.tick(0);
+  const [slow] = early.state.held;
+  early.state.hold = false;
+  early.state.fail = true;
+  early.state.count = 2;
+  early.badge.changed();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  slow.resolve(true);
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY * 5);
+  await settle();
+  assert.deepEqual(early.sent, [1, 2, 2], 'one try for the lost 2, not two');
 });
 
 test('a count the worker lost goes once more by itself a second later, as the count is then, and never from a hidden page', async (t) => {
