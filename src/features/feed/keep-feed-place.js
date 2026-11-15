@@ -141,7 +141,7 @@ export default {
   section: 'reading',
   android: 'Block background-return feed refresh',
   title: 'Keep your place in the feed',
-  description: 'Keeps you where you were when Facebook would reload Home from the top or move you back to Home. Facebook does that when you come back after a couple of minutes in another tab or ten minutes away from the computer, and going back from a post or its comments can refresh it too. After half an hour away it also moves you from a group, Marketplace or search to Home.',
+  description: 'Keeps you where you were when Facebook would reload Home from the top or move you back to Home. It reloads Home when you come back after a couple of minutes in another tab or ten minutes away from the computer, and going back from a post or its comments can refresh it too. After half an hour away it also moves you from a group, Marketplace or search to Home.',
   default: false,
   needsPage: true,
 

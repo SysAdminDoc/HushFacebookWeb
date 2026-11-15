@@ -60,7 +60,7 @@ export default {
   id: 'hidePostBox',
   section: 'feed',
   title: 'Hide the post box on groups and profiles',
-  description: 'Takes the post box off the top of groups and your profile, for when you only read. That\'s "Write something..." in groups and "What\'s on your mind?" on your profile. Comment boxes stay. Home\'s box goes with Hide Stories tray.',
+  description: 'Takes the post box off groups and your profile, for when you only read. That\'s "Write something..." at the top of a group and "What\'s on your mind?" on your profile. Comment boxes stay. Home\'s box goes with Hide Stories tray.',
   default: false,
   webOnly: true,
   css: POST_BOX_CSS,
