@@ -1,105 +1,38 @@
 # Changelog
 
-## v0.0.45 (2026-11-15, unreleased)
+## v0.0.45 (2026-11-15)
 
-* After two Quick setups in a row, Undo on the first one's notice undid the second one instead. A newer change now takes the older notice away, and each Undo only puts back the change it announced. Restoring a backup and Reset to defaults work the same way.
-* A Quick setup with nothing left to change used to say "Changed 0 settings". It now says those settings were already on, or for Back to defaults that your settings were already at their defaults.
-* Short notices with a button, like Undo after hiding a post, could push the button onto a second line. It stays beside the message now, and long notices still wrap on a narrow screen.
+This is the first release since 0.0.21, so it carries every change from 0.0.22 through 0.0.45. Four reports get something from it. 0.0.22 changes Tap to play for #14 (voice messages in chats) and adds a Diagnostics row for #13 and #15 (the gap under the Stories row), and 0.0.23 gives People you may know the separate switch #16 asked for.
+
+* After two Quick setups in a row, Undo on the first one's notice undid the second one instead. The newer notice now takes the older one away, and each Undo only puts back the change it announced. Restoring a backup and Reset to defaults work the same way.
+* A Quick setup with nothing left to change used to say "Changed 0 settings". It now says those settings were already on, or for Back to defaults that your settings were already at their defaults. When Back to defaults only clears an entry that couldn't be saved, like a number out of range, it says your settings are back to their defaults.
+* Short notices with a button, like "Changed 9 settings." and its Undo after a Quick setup, could push the button onto a second line. It stays beside the message now, and long notices still wrap on a narrow screen.
 * Tabbing through the watched list in Playback cut off the sides of each link's focus outline. The whole outline shows now.
 * The Activity in this tab note in General only sits with the rows that need you in a private window, where changes made here can be lost. Everywhere else it's under About, and the wording is plainer.
 * The Back to defaults tile says it keeps your Language, which it always did.
-
-## v0.0.44 (2026-11-15, unreleased)
-
-* Updated the development tools: Playwright 1.65.1, ESLint 10.15.0 and minimatch 11.0.8. Nothing in the script or the extension changes.
-
-## v0.0.43 (2026-11-15, unreleased)
-
-* In the userscript, Add to this account and the Undo after Delete them could still report success when a playing video saved its spot at the same moment. They now wait to see whether that newer save lands first, and say the change was replaced when it does.
-
-## v0.0.42 (2026-11-15, unreleased)
-
-* Filter Marketplace could leave a listing on screen when Facebook drew one results column inside another. The quicker card search from 0.0.38 stopped counting at the inner column, so the box around that listing looked like it held only one. It counts across the whole page again.
-
-## v0.0.41 (2026-11-15, unreleased)
-
+* Updated the development tools to Playwright 1.65.1, ESLint 10.15.0 and minimatch 11.0.8. Nothing in the script or the extension changes.
+* In the userscript, Add to this account and the Undo after Delete them could report success when a playing video saved its spot at the same moment. They now wait to see whether that newer save lands first, and say the change was replaced when it does.
+* Filter Marketplace could leave a listing on screen when Facebook drew one results column inside another. The quicker card search further down this list (0.0.38) stopped counting at the inner column, so the box around that listing looked like it held only one. It counts across the whole page again.
 * In the userscript, Add to this account and the Undo after Delete them (on the card for activity from before accounts were kept apart) could report success when nothing changed. That happened when the first save failed and a video kept its spot, speed or volume before the retry. The retry's copy went where nothing reads it. Now it says it couldn't, and pressing it again really adds or restores it.
-
-## v0.0.40 (2026-11-15, unreleased)
-
 * Open Messenger as a full page didn't work while you had unread chats. Facebook adds the count to the button's name then ("Messenger, 1 unread"), and the script only knew the plain name, so the list of chats opened as usual. Both names work now.
 * With Open Messenger as a full page on, a screen reader no longer calls the Messenger button a collapsed pop-up, since it doesn't open one anymore. Turning the switch off gives the button Facebook's own description back.
-
-## v0.0.39 (2026-11-15, unreleased)
-
 * The release script's publish step can be run again when its check of the uploaded files fails. It used to see its own new tag and ask for a version bump, so a release whose check hit a network hiccup couldn't be finished.
-
-## v0.0.38 (2026-11-15, unreleased)
-
 * Marketplace could stutter on a long scroll of results with a lot of listings filtered out. Each hidden card made the script look through the whole results grid again, every time the page changed. It now finds all the cards in one quick pass.
-
-## v0.0.37 (2026-11-15, unreleased)
-
 * A Marketplace listing opened straight from its link could make Facebook throw an error and draw the whole page a second time, mostly on a slow connection. View profile went in before Facebook had finished setting up the seller box. It now shows beside the seller's name without touching Facebook's own markup.
-
-## v0.0.36 (2026-11-15, unreleased)
-
 * With Open Messenger as a full page on, tapping the Messenger button on a touch screen did nothing at all. A tap now goes to the Messages page like a click does.
-
-## v0.0.35 (2026-11-15, unreleased)
-
 * Pressing Tab on a photo's download button could leave you nowhere if Facebook drew the photo's link again while the button had focus. Focus now moves to the new link. If the post is gone, Tab just goes on as usual.
-
-## v0.0.34 (2026-11-15, unreleased)
-
 * Clean up Reels now shows a reel's name and caption when you Tab into the reel, the same as when you point at it, so you can see which button you're on. Away from Reels it no longer looks for reel parts every time the page grows, which saves work on a long feed.
-
-## v0.0.33 (2026-11-15, unreleased)
-
 * Show seen posts in this tab now keeps its little marker out of sight while Facebook checks how much browser storage it's using, like the script's other markers already did. A tab where you'd turned it on before this update keeps showing seen posts.
-
-## v0.0.32 (2026-11-15, unreleased)
-
 * In the userscript, the error log could say a change to your seen posts or video settings wasn't saved when it had been. It happened when you switched Facebook accounts right after the change. Now it's only logged when a save really fails.
-
-## v0.0.31 (2026-11-15, unreleased)
-
 * Screen readers should hear notices more reliably. An error notice sat inside the polite area that reads ordinary notices aloud, and some screen readers read a notice built like that twice. Errors and ordinary notices now each have their own area, and both are on the page before the first notice comes. A notice that shows up right as the page loads, or as settings open or close, appears at once but goes into its area a moment later, so it's read out instead of missed. On screen it looks the same, except an error now sits below the other notices in its stack.
-
-## v0.0.30 (2026-11-15, unreleased)
-
 * Keep your place in the feed now also keeps the tab safe from Memory Saver in the extension. Chrome, Brave and Edge can throw out a tab that sits in the background for a while, and coming back to it loads Facebook again from the top, which nothing in the page can stop. With the switch on, the browser is asked to leave the Facebook tab alone. Turn the switch off, leave Facebook or close the tab and it's back to normal, and a page you come back to with Back asks again. Updating, reloading or turning the extension off and on lets go too, until the page is loaded again. Diagnostics shows it in a new row, Tab kept from Memory Saver. A browser without that setting just skips it, and the userscript can't reach the tab at all, so nothing changes there. The extension doesn't ask for any new permission.
-
-## v0.0.29 (2026-11-15, unreleased)
-
 * Filter Marketplace listings can now show only listings from the places you name. Write one per line, a city and state like "Austin, TX" or just a state like "TX", and listings from anywhere else go, whatever Facebook's own location setting lets through. US states and Canadian provinces and territories work written out in full too (French names included). Case, extra spaces, accents and dots don't matter, and a country or ZIP code on the end ("Toronto, ON, Canada", "Austin, TX 78701") is fine. A listing that doesn't say its city and state stays. It covers search, Today's picks and the home feed, and the next page still loads as you scroll. When ten pages in a row lose every listing to the filter, Marketplace stops loading more, since Facebook would otherwise keep fetching one empty page after another.
-
-## v0.0.28 (2026-11-15, unreleased)
-
 * Saved photos no longer carry Facebook's ID. Facebook writes a code starting with FBMD into the photos it serves (the IPTC Special Instructions field), and it ended up in your downloads untouched. Now a photo is fetched first and saved without it. Only the ID and the small block Facebook keeps it in come out, and the picture itself isn't touched. If the photo can't be fetched that way, it's saved the old way, ID and all, so this never costs you a save. Checked on 2026-11-15 against a photo Facebook served: 134 bytes smaller, no FBMD left, and it opens the same. In Tampermonkey a photo usually no longer brings up the tab asking to allow downloads, since it only goes through the manager's download when that fetch fails.
-
-## v0.0.27 (2026-11-15, unreleased)
-
-* A re: line with a made-up \p{...} name could hide every post. Names that happen to be built into JavaScript, like re:\P{constructor}, got past the check and matched anything, so the line hid the whole feed until the pause for lines that match nearly every post kicked in, and Keep hiding turned it right back on. Others, like re:\p{toString}, were skipped as "isn't a valid pattern", which doesn't say what's wrong. Both are skipped now as "uses an unknown \p{...} name", in Hide posts by words and in Filter Marketplace listings, which reads the same list. Real names like \p{Greek} work as before. The regex library this runs on (RE2JS) moved to 2.10.0 for the fix, which makes the script about 1.4 KiB bigger.
-
-## v0.0.26 (2026-11-14, unreleased)
-
+* A `re:` line with a made-up `\p{...}` name could hide every post. Names that happen to be built into JavaScript, like `\P{constructor}`, got past the check and matched anything, so the line hid the whole feed until the pause for lines that match nearly every post kicked in, and Keep hiding turned it right back on. Others, like `\p{toString}`, were skipped as "isn't a valid pattern", which doesn't say what's wrong. Both are skipped now as "uses an unknown `\p{...}` name", in Hide posts by words and in Filter Marketplace listings, which reads the same list. Real names like `\p{Greek}` work as before. The regex library this runs on (RE2JS) moved to 2.10.0 for the fix, which makes the script about 1.4 KiB bigger.
 * Screenshot mode left Home's Stories row sharp. A friend's story card showed their name, their picture and the story's preview, and the Create story card showed your own profile picture. All of those blur now. The "Create story" label stays readable.
-
-## v0.0.25 (2026-11-14, unreleased)
-
 * Hide sponsored reels takes out the ads between reels now. Facebook has started putting them in the Reels feed. They were already being hidden, but by Hide sponsored posts, so turning that one off brought them back and turning Hide sponsored reels off changed nothing. Each switch handles its own ads now. Diagnostics counts them in a new row, Reel ads taken out of the data.
-
-## v0.0.24 (2026-11-14, unreleased)
-
 * Building now needs Node 24.22.3 or a newer 24.x, or Node 26.13.1 or a newer 26.x. Those are November's security releases for both lines. Nothing in the script or the extension changes.
-
-## v0.0.23 (2026-11-14, unreleased)
-
 * People you may know has its own switch now, Hide People you may know, on to start. Until now Hide suggested posts took those rows out along with the suggested posts, so there was no way to keep one and lose the other. The option that hides the block on the Friends page and profiles moved to the new switch with whatever you had it set to. If you had Hide suggested posts off, the new switch starts off too, so nothing you see changes until you flip it.
-
-## v0.0.22 (2026-11-14, unreleased)
-
 * With Tap to play on, pressing play on a voice message in a chat did nothing. A voice message plays through a sound that's never drawn on the page, so there was nothing for the tap to land on and the start was refused like any autoplay. Now a sound with nothing on the page starts when it comes within two seconds of a press on a button (a click or tap, or Enter or Space). Videos still wait for a tap on the video itself, and a sound that starts on its own still waits.
 * Diagnostics has a new row, Space under the Stories row. Some people see a big empty gap between Home's Stories row and the first post. On Home this row measures that gap, and when it's bigger than usual it lists the blocks taking up the room by their size, padding, links, pictures and whether they hold a post, without copying any of the words on the page. Copy report includes it, so a report shows what's sitting there.
 
