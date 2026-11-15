@@ -70,6 +70,11 @@ function fill(template, vars) {
 // The phrase as English shows it, whatever the language: search keeps these as aliases.
 export const english = (template, vars) => fill(template, vars);
 
+// A piece of a phrase the way the test layout draws a whole one (long text stretches it in its
+// own [ ]). The settings panel shows a row's help in two parts, and each part has to show the
+// stretch and its closing ] by itself.
+export const stretched = (template, vars) => fill(active.transform ? active.transform(template) : template, vars);
+
 export function t(template, vars) {
   if (typeof template !== 'string' || template === '') return template;
   if (active.transform) return fill(active.transform(template), vars);

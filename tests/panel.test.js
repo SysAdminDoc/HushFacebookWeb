@@ -1027,6 +1027,7 @@ test('More shows the rest of a row in place and says so, Less puts it back, and 
   assert.equal(shownHelp(control('long').closest('.card').querySelector('.desc')), 'Hides the long posts.');
   assert.equal(more().getAttribute('aria-expanded'), 'false');
   assert.equal(more().textContent, 'More');
+  assert.equal(more().getAttribute('aria-label'), 'More about Long', "a list of buttons tells each row's apart");
   assert.equal(more().getAttribute('type'), 'button', 'never a form submit');
   assert.equal(rest().hidden, true);
   assert.deepEqual(describedText(shadow, control('long')), ['Hides the long posts. Zebra posts count as long too.']);
@@ -1036,6 +1037,7 @@ test('More shows the rest of a row in place and says so, Less puts it back, and 
   more().click();
   assert.equal(more().getAttribute('aria-expanded'), 'true');
   assert.equal(more().textContent, 'Less');
+  assert.equal(more().getAttribute('aria-label'), 'Less about Long');
   assert.equal(rest().hidden, false);
   assert.equal(rest().textContent.trim(), 'Zebra posts count as long too.');
   assert.deepEqual(describedText(shadow, control('long')), ['Hides the long posts. Zebra posts count as long too.'], 'the switch reads the same either way');
@@ -1066,14 +1068,37 @@ test('a search for words behind More finds the row with that part open, and its 
   assert.equal(shadow.querySelectorAll('.result').length, 1, 'found by a word only the hidden part has');
   assert.equal(more().getAttribute('aria-expanded'), 'true', 'and shown open');
   assert.equal(shadow.getElementById(more().getAttribute('aria-controls')).hidden, false);
+  assert.equal(more().getAttribute('aria-label'), 'Less about Long');
+  more().click();
+  panel.refresh();
+  assert.equal(more().getAttribute('aria-expanded'), 'false', 'Less holds through a redraw while that search is up');
+  assert.equal(shadow.getElementById(more().getAttribute('aria-controls')).hidden, true);
   find('long posts');
   assert.equal(more().getAttribute('aria-expanded'), 'false', 'words the row already shows leave it closed');
   find('long zebra');
-  assert.equal(more().getAttribute('aria-expanded'), 'true');
+  assert.equal(more().getAttribute('aria-expanded'), 'true', 'another search opens it again');
   shadow.querySelector('[data-key="show:long"]').click();
   assert.equal(shadow.querySelector('.result'), null, 'on its page now');
   assert.equal(more().getAttribute('aria-expanded'), 'true', 'still open there');
   assert.equal(shadow.getElementById(more().getAttribute('aria-controls')).hidden, false);
+});
+
+test('the long text layout stretches each part of a row in its own brackets, so the sentence shown reads as whole', () => {
+  const features = [
+    { id: 'long', section: 'feed', title: 'Long', description: 'Hides the long posts. Zebra posts count as long too.', default: false },
+  ];
+  const { shadow, panel, settings } = setup({ features });
+  cleanups.push(() => setLanguage('en'));
+  settings.set('ui.language', 'long-test');
+  panel.open('feed');
+  const more = shadow.querySelector('main [data-key="more:long"]');
+  const shown = shownHelp(more.closest('.desc'));
+  const rest = shadow.getElementById(more.getAttribute('aria-controls')).textContent.trim();
+  for (const [part, words] of [[shown, 'Hides the long posts.'], [rest, 'Zebra posts count as long too.']]) {
+    assert.match(part, /^\[.*\]$/, `closed by its own bracket: ${part}`);
+    assert.ok(part.length >= words.length * 1.4, `stretched by itself: ${part}`);
+  }
+  assert.equal(shown.includes('Žéḃŕá'), false, 'the rest stays behind More');
 });
 
 test('each switch reads its help, why it is unavailable and the reload note, in sections and search', async () => {

@@ -9,7 +9,7 @@
 import { EXTENSION_RELOADED, extensionReloaded } from '../core/bridge.js';
 import { decisionLine } from '../core/diagnostics.js';
 import { saveThroughLink } from '../core/download.js';
-import { english, language, LANGUAGES, plural, setLanguage, t } from '../core/i18n.js';
+import { english, language, LANGUAGES, plural, setLanguage, stretched, t } from '../core/i18n.js';
 import { KEPT_ON_RESET, MAX_BACKUP_BYTES } from '../core/settings.js';
 import { TARGET } from '../core/target.js';
 import { PAGES, SECTIONS } from '../features/sections.js';
@@ -137,6 +137,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const newDot = () => h('span', { class: 'new-dot' }, h('span', { class: 'visually-hidden', text: t('New') }));
   const drafts = new Map();
   const openHelp = new Set(); // Rows whose More was clicked open, kept across redraws.
+  // Rows a search opened and Less closed again, with that search, so a redraw keeps them closed.
+  const closedHelp = new Map();
   const fieldErrors = new Map();
   const pending = new Set();
   const actionNotices = new Map();
@@ -472,26 +474,43 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // the row's control to read, since a screen reader leaves out the hidden part of a shown one.
   function help(key, title, description, { vars, id } = {}) {
     const text = t(description, vars);
-    const [first, rest] = firstSentence(text, language().lang);
+    const [first, rest] = helpParts(description, vars, text);
     if (!rest) return h('div', { class: 'desc', id, text });
     const [plainFirst, plainRest] = firstSentence(english(description, vars), 'en');
     const found = query.trim() !== '' && matchesHiddenHelp(query, [rest, plainRest], [t(title), english(title), first, plainFirst]);
-    const open = found || openHelp.has(key);
+    const open = openHelp.has(key) || (found && closedHelp.get(key) !== query);
     const restId = `hfw-${key}-more`;
     const more = h('span', { id: restId, hidden: !open, text: ` ${rest}` });
+    // Named after its row, since a screen reader's list of buttons shows only names.
+    const name = (shown) => (shown ? t('Less about {title}', { title: t(title) }) : t('More about {title}', { title: t(title) }));
     const toggleMore = (event) => {
       const opening = more.hidden;
       more.hidden = !opening;
-      event.currentTarget.setAttribute('aria-expanded', String(opening));
-      event.currentTarget.textContent = opening ? t('Less') : t('More');
-      if (opening) openHelp.add(key);
-      else openHelp.delete(key);
+      const button = event.currentTarget;
+      button.setAttribute('aria-expanded', String(opening));
+      button.setAttribute('aria-label', name(opening));
+      button.textContent = opening ? t('Less') : t('More');
+      if (opening) {
+        openHelp.add(key);
+        closedHelp.delete(key);
+      } else {
+        openHelp.delete(key);
+        if (query.trim()) closedHelp.set(key, query);
+      }
     };
     return [
       h('div', { class: 'desc' }, first, more, ' ',
-        h('button', { class: 'more', type: 'button', 'aria-expanded': String(open), 'aria-controls': restId, dataset: { key: `more:${key}` }, text: open ? t('Less') : t('More'), onclick: toggleMore })),
+        h('button', { class: 'more', type: 'button', 'aria-expanded': String(open), 'aria-controls': restId, 'aria-label': name(open), dataset: { key: `more:${key}` }, text: open ? t('Less') : t('More'), onclick: toggleMore })),
       id ? h('div', { id, hidden: true, text }) : null,
     ];
+  }
+
+  // Where a row's help splits. The long text layout stretches each part in its own [ ], so the
+  // sentence shown grows the way a longer translation would and still reads as whole.
+  function helpParts(description, vars, text) {
+    if (!language().transform) return firstSentence(text, language().lang);
+    const [first, rest] = firstSentence(description, 'en');
+    return rest ? [stretched(first, vars), stretched(rest, vars)] : [text, ''];
   }
 
   // dots: marks what an update added (new-dots.js), in a section's own view only.
