@@ -44,6 +44,8 @@ export function toolbarCount({ win, doc, send, count, enabled, log }) {
 
   const flush = () => {
     timer = null;
+    // A change after pagehide waits for the page to come back, which sends the count anyway.
+    if (hidden) return;
     if (doc?.prerendering) {
       if (!waiting) {
         waiting = true;
@@ -72,8 +74,8 @@ export function toolbarCount({ win, doc, send, count, enabled, log }) {
   win.addEventListener('pageshow', (event) => {
     hidden = false;
     if (!event?.persisted) return;
-    // Back from the cache, the page starts over: an answer still due for the 0 it sent on the
-    // way in no longer counts, and its count gets a try of its own.
+    // Back from the cache, the page starts over: an answer still due for the 0 it sent on its
+    // way into the cache no longer counts, and its count gets a try of its own.
     sends++;
     retried = false;
     sent = undefined;
