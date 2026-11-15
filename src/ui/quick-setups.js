@@ -44,7 +44,7 @@ export const QUICK_SETUPS = Object.freeze([
       'directLinks',
     ]),
   }),
-  Object.freeze({ id: 'defaults', label: 'Back to defaults', description: 'Puts every setting back the way it came, with Undo in case you change your mind.', reset: true }),
+  Object.freeze({ id: 'defaults', label: 'Back to defaults', description: 'Puts every setting except Language back the way it came, with Undo in case you change your mind.', reset: true }),
 ]);
 
 export function applyQuickSetup(settings, id) {

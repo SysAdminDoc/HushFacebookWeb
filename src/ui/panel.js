@@ -61,9 +61,9 @@ const LANGUAGE_NOTE = "The language for these settings and the script's notices.
 const QUICK_SETUPS_NOTE = 'Turn on a tested group of cleanup or privacy switches, or put every setting back to its default.';
 const SEARCH_SETTLE_MS = 600;
 const ACTIVITY_CONTEXT_NOTES = {
-  managed: 'Private windows keep activity in this tab. The extension also uses temporary activity when it cannot confirm the window type.',
+  managed: "In a private window, or when the extension can't tell what kind of window it is, your activity, like seen posts and video spots, stays in this tab only.",
   private: 'Activity stays in this private tab and disappears when you close it. Saved settings still apply, but your userscript manager may forget changes you make here once the private window closes.',
-  unknown: 'Your userscript manager does not report private browsing. Activity stays in this tab. Saved settings still apply.',
+  unknown: "Your userscript manager doesn't say whether this is a private window, so your activity, like seen posts and video spots, stays in this tab only. Saved settings still apply.",
   loading: 'Checking where this tab keeps activity.',
 };
 
@@ -836,7 +836,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const storageState = environment.storage?.status?.().state;
     // Once the account changed, here or in another tab, nothing goes to any account until a reload.
     const legacy = environment.activity?.check() ? environment.activity.legacy() : null;
-    const activityNote = ACTIVITY_CONTEXT_NOTES[environment.activity?.context?.()];
+    const activityContext = environment.activity?.context?.();
+    // Only a private window can lose changes made here, so only that note asks for attention.
+    const activityNote = ACTIVITY_CONTEXT_NOTES[activityContext];
     // Titles, descriptions and labels in English, as in a feature (see updateRow). group is one
     // of GENERAL_GROUPS.
     return [
@@ -857,7 +859,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       }] : []),
       ...(update?.update ? [{ ...updateRow(update), group: 'attention' }] : []),
       ...(activityNote ? [{
-        id: 'activity-context', section: 'general', group: 'attention', title: 'Activity in this tab', description: activityNote,
+        id: 'activity-context', section: 'general', group: activityContext === 'private' ? 'attention' : 'about', title: 'Activity in this tab', description: activityNote,
         render: () => h('div', { class: 'card', dataset: { key: 'activity-context' } },
           h('div', { class: 'title', text: t('Activity in this tab') }), h('div', { class: 'desc', text: t(activityNote) })),
       }] : []),

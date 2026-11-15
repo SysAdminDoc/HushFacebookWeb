@@ -1306,7 +1306,9 @@ test('General explains tab-local activity without offering shared activity in pr
     const note = shadow.querySelector('[data-key="activity-context"]');
     assert.ok(note, context);
     assert.ok(!shadow.querySelector('[data-key="legacy-activity"]'));
-    assert.match(note.textContent, context === 'private' ? /private tab.*Saved settings still apply.*may forget changes you make here once the private window closes/ : context === 'unknown' ? /does not report private browsing.*Saved settings still apply/ : context === 'managed' ? /Private windows keep activity.*cannot confirm the window type/ : /Checking where this tab keeps activity/);
+    assert.match(note.textContent, context === 'private' ? /private tab.*Saved settings still apply.*may forget changes you make here once the private window closes/ : context === 'unknown' ? /doesn't say whether this is a private window.*Saved settings still apply/ : context === 'managed' ? /In a private window.*can't tell what kind of window/ : /Checking where this tab keeps activity/);
+    // Only a private window can lose changes made here, so only that note sits with the rows that need attention.
+    assert.equal(note.closest('[data-group]')?.dataset.group, context === 'private' ? 'general-attention' : 'general-about', context);
   }
 });
 
