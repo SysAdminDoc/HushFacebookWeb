@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.26 (2026-11-14, unreleased)
+
+* Screenshot mode left Home's Stories row sharp. A friend's story card showed their name, their picture and the story's preview, and the Create story card showed your own profile picture. All of those blur now. The "Create story" label stays readable.
+
 ## v0.0.25 (2026-11-14, unreleased)
 
 * Hide sponsored reels takes out the ads between reels now. Facebook has started putting them in the Reels feed. They were already being hidden, but by Hide sponsored posts, so turning that one off brought them back and turning Hide sponsored reels off changed nothing. Each switch handles its own ads now. Diagnostics counts them in a new row, Reel ads taken out of the data.

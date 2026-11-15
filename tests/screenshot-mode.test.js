@@ -2,7 +2,7 @@
 // its posts and its comments, a public group, a public reel), with made-up names. The left and
 // right columns follow declutter.test.js's Home and the column's usual contact row. The post
 // composer, a reel on Home, the chat list, notifications and the story viewer's list follow
-// signed-in Home on 2026-11-03.
+// signed-in Home on 2026-11-03, and Home's stories tray follows signed-in Home on 2026-11-14.
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
@@ -39,6 +39,18 @@ const PAGE = `
     <div>${PIC('composer-pic')}</div>
     <div><div role="button" tabindex="0" id="composer"><div><span id="composer-prompt" style="-webkit-line-clamp:2">What's on your mind, Pat?</span></div><div role="none"></div></div></div>
   </div>
+
+  <div role="region" aria-label="Stories"><div><div><div role="grid" aria-label="Stories"><div role="row">
+    <div role="gridcell"><div><div><a role="link" id="tray-create" aria-label="Create story" href="${FB}/stories/create/"><div>
+      <div><div><div><img id="tray-create-pic" src="me.jpg"></div></div></div>
+      <div><div><div><div><div><span dir="auto" id="tray-create-label"><span>Create story</span></span></div></div></div></div></div>
+    </div></a></div></div></div>
+    <div role="gridcell"><div><div><a role="link" id="tray-card" aria-label="Ann Example's story" href="${FB}/stories/1000000000000001/UzpfSVNDOjEwMDAwMDAwMDAwMDAwMDE=/?source=story_tray"><div>
+      <div><div><div><img id="tray-preview" src="story.jpg"></div></div></div>
+      <div><div><div><img id="tray-pic" src="ann.jpg" height="40" width="40"></div></div></div>
+      <div><div><div><div><div><div><div><div><div><span dir="auto" id="tray-name"><span><span>Ann Example</span></span></span></div></div></div></div></div></div></div></div></div>
+    </div></a></div></div></div>
+  </div></div></div></div></div>
 
   <div aria-posinset="1">
     <a href="${FB}/examplepage?__cft__[0]=x">${PIC('post-pic', 'role="img" aria-label="Example Page"')}</a>
@@ -151,20 +163,20 @@ function page() {
 // What a list of selectors reaches, by id; anything without one shows up as its tag.
 const reached = (win, selectors) => [...win.document.querySelectorAll(selectors.join(', '))].map((el) => el.id || `<${el.tagName.toLowerCase()}>`).sort();
 
-test('profile pictures and cover photos blur, photos, reactions, emoji and icons stay sharp', () => {
+test('profile pictures, cover photos and the stories tray blur, photos in posts, reactions, emoji and icons stay sharp', () => {
   const win = page();
-  assert.deepEqual(reached(win, PICTURES), ['c1-pic', 'c2-pic', 'c3-pic', 'chat-pic', 'composer-pic', 'cover', 'left-own-pic', 'left-shortcut-pic', 'me-pic', 'notif-pic', 'post-pic', 'rc-contact-pic', 'story-row-pic']);
+  assert.deepEqual(reached(win, PICTURES), ['c1-pic', 'c2-pic', 'c3-pic', 'chat-pic', 'composer-pic', 'cover', 'left-own-pic', 'left-shortcut-pic', 'me-pic', 'notif-pic', 'post-pic', 'rc-contact-pic', 'story-row-pic', 'tray-create-pic', 'tray-pic', 'tray-preview']);
 });
 
 test('names blur: post authors, commenters, people named in posts and comments, page and group names', () => {
   const win = page();
   assert.deepEqual(reached(win, NAMES), [
     'c1-mention', 'c1-name', 'c2-name', 'c3-name', 'chat-name', 'chat-preview', 'composer-prompt', 'group-author', 'group-line', 'left-own', 'left-shortcut',
-    'notif-text', 'page-title', 'people', 'post-author', 'post-mention', 'profile-id', 'rc-contact', 'reel-audio', 'reel-mention', 'reel-owner', 'reel-place', 'related-author', 'story-name',
+    'notif-text', 'page-title', 'people', 'post-author', 'post-mention', 'profile-id', 'rc-contact', 'reel-audio', 'reel-mention', 'reel-owner', 'reel-place', 'related-author', 'story-name', 'tray-name',
   ]);
   // Everything else on the page keeps its words: comment text, timestamps, hashtags, outside
   // links, a group's own tabs, a section heading, Facebook's rows and the ad.
-  for (const id of ['c1-text', 'c2-text', 'c3-text', 'c3-badge', 'c3-verified', 'c1-time', 'post-time', 'related-time', 'group-time', 'post-hashtag', 'c1-tag', 'post-out', 'group-about', 'group-media', 'photos-link', 'photos-heading', 'left-friends', 'left-groups', 'left-messenger', 'rc-ad', 'rc-birthdays', 'reel-privacy', 'reel-audio-button', 'c1-report', 'notif-time', 'story-new', 'reel-tag', 'reel-like']) {
+  for (const id of ['c1-text', 'c2-text', 'c3-text', 'c3-badge', 'c3-verified', 'c1-time', 'post-time', 'related-time', 'group-time', 'post-hashtag', 'c1-tag', 'post-out', 'group-about', 'group-media', 'photos-link', 'photos-heading', 'left-friends', 'left-groups', 'left-messenger', 'rc-ad', 'rc-birthdays', 'reel-privacy', 'reel-audio-button', 'c1-report', 'notif-time', 'story-new', 'reel-tag', 'reel-like', 'tray-create-label']) {
     assert.ok(!win.document.getElementById(id).matches(NAMES.join(', ')), id);
   }
 });

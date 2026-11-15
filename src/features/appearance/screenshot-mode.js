@@ -37,20 +37,28 @@
 //   badge on its picture is a drawing of a reaction or a comment, not a person.
 // - The story viewer lists stories as buttons holding a picture, the name in a div[dir=auto]
 //   and "1 new · 4h" with an abbr. The card itself names its poster with a profile.php link.
-// Not seen live yet: the right column's contacts (empty on the account we used) and Home's
-// stories tray with someone's story in it. The contact rule only reaches a link or button
-// holding a profile picture inside that column.
+// Live 2026-11-14 signed in, Home's stories tray with a friend's story in it:
+// - The tray is a region holding a grid, one card per grid cell, each card a link to /stories/.
+//   A friend's card holds two plain <img>s (the story's preview and the poster's 40 px picture)
+//   and the poster's name in a span[dir=auto]. The Create story card links to /stories/create/
+//   and shows your own profile picture, also a plain <img>, under the words "Create story".
+//   Every picture on a card blurs, and every name but the Create story label.
+// Not seen live yet: the right column's contacts (empty on the account we used, and Facebook
+// dropped the chat sidebar from it around 2026-10-20). The contact rule only reaches a link or
+// button holding a profile picture inside that column.
 
 import { LEFT } from './declutter-table.js';
 
 const FACEBOOK_LINK = 'a[href*="facebook.com/"]:not([href*="l.facebook.com"], [href*="/hashtag/"])';
 const COMMENT = '[role="article"][aria-label]';
 const CHAT_ROW = '[role="gridcell"] a[href*="/messages/"]';
+const STORY_CARD = '[role="gridcell"] a[href*="/stories/"]';
 
 export const PICTURES = [
   'svg:has(image)',
   'img[data-imgperflogname="profileCoverPhoto"]',
   `${CHAT_ROW} img`,
+  `${STORY_CARD} img`,
 ];
 
 export const NAMES = [
@@ -70,6 +78,7 @@ export const NAMES = [
   '[role="main"] [role="region"] > div > [role="button"] > div > span',
   `a[href*="/reel/"] object ${FACEBOOK_LINK}`,
   `${CHAT_ROW} span[dir="auto"]`,
+  `${STORY_CARD}:not([href*="/stories/create"]) span[dir="auto"]`,
   'a[href*="notif_id="] span[dir="auto"]:not(:has(abbr))',
   '[role="button"]:has(svg image):has(abbr) div[dir="auto"]',
 ];
