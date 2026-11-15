@@ -1348,13 +1348,18 @@ async function paintBadge(tabId, record) {
   ]);
 }
 
-// A badge whose record can't be read or saved is still painted, without the count.
+// A badge whose record can't be read or saved is still painted, without the count. One with
+// nothing to show is painted but not kept, so clicks and pages with nothing hidden don't fill
+// the list and push out tabs that have something. Dropping it loses nothing: a page being left
+// only ever sends 0, which can't take anything off a tab that shows nothing.
 function changeBadge(tabId, change) {
   return changeBadges(async (records) => {
     const record = change(records[tabId]);
     if (record === null) return false;
-    records[tabId] = { ...record, at: Date.now() };
-    await paintBadge(tabId, records[tabId]);
+    const next = { ...record, at: Date.now() };
+    if (next.failed === true || next.count > 0) records[tabId] = next;
+    else delete records[tabId];
+    await paintBadge(tabId, next);
     return true;
   });
 }

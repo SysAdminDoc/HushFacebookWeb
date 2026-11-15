@@ -2649,6 +2649,23 @@ test("a tab ask the worker drops isn't sent again, so it can't land after a newe
   assert.equal(tries, 2);
 });
 
+test("a toolbar count the worker drops isn't sent again, so a 0 lost to the back/forward cache can't land after the page's next count", async () => {
+  const win = page();
+  const chrome = fakeChrome({}, { download: () => ({ ok: true, result: true }) });
+  const send = chrome.runtime.sendMessage;
+  const counts = [];
+  chrome.runtime.sendMessage = async (message) => {
+    if (message.type === 'badge:count') counts.push(message.count);
+    if (message.type === 'badge:count' && counts.length === 1) throw new Error('The page keeping the extension port is moved into back/forward cache, so the message channel is closed.');
+    return send(message);
+  };
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+  await refused(forged.send('badge:count', { count: 0 }), /back\/forward cache/);
+  assert.equal((await forged.send('badge:count', { count: 12 })).result, true);
+  assert.deepEqual(counts, [0, 12]);
+});
+
 test("the page reads the release check's record as the worker saves it now and as it used to, and nothing else under that key", async () => {
   const saved = { current: '0.0.2', latest: '0.0.3', url: null, newer: true, checkedAt: 5, triedAt: 6, state: 'offline', failures: 1, nextAt: 7, checking: null };
   for (const [value, shown] of [

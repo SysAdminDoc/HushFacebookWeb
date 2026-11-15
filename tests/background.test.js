@@ -2050,10 +2050,24 @@ test("a Facebook tab's button shows how many posts were hidden there, 999+ past 
   assert.equal(tabText(current, 7), undefined);
   assert.equal((await showCount(current, 2, topFrame(8, 'https://example.com/'))).ok, false, 'only Facebook');
 
-  // A closed tab's count goes with it.
+  // A tab showing nothing keeps no record, and a closed tab's count goes with it.
+  assert.deepEqual(Object.keys(current.session['hushfacebookWeb.tabBadges']), ['6']);
+  await showCount(current, 3);
   current.listeners.removed.forEach((fn) => fn(6));
   await settle();
   assert.deepEqual(Object.keys(current.session['hushfacebookWeb.tabBadges']), ['5']);
+});
+
+test('a click or a page with nothing hidden keeps no badge record, so they never crowd out the tabs that have one', async () => {
+  const current = worker({ tabs: { 5: true } });
+  assert.equal(await current.context.openSettings({ id: 5, index: 0, url: 'https://www.facebook.com/' }), 'opened');
+  await showCount(current, 0, topFrame(6));
+  assert.deepEqual(Object.keys(current.session['hushfacebookWeb.tabBadges'] ?? {}), []);
+  await showCount(current, 4, topFrame(6));
+  assert.deepEqual(Object.keys(current.session['hushfacebookWeb.tabBadges']), ['6']);
+  await showCount(current, 0, topFrame(6));
+  assert.equal(tabText(current, 6), null, 'still taken off the button');
+  assert.deepEqual(Object.keys(current.session['hushfacebookWeb.tabBadges']), []);
 });
 
 test('"!" and NEW come before the count, and the count comes back once they go', async () => {

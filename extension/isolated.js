@@ -734,14 +734,15 @@ const handlers = {
   },
   'update:check': () => askWorker({ type: 'update:check' }),
   'tab:keep': ({ keep }) => askWorker({ type: 'tab:keep', keep }, { again: false }),
-  'badge:count': ({ count }) => askWorker({ type: 'badge:count', count }),
+  'badge:count': ({ count }) => askWorker({ type: 'badge:count', count }, { again: false }),
 };
 
 // Chrome stops an idle worker, and one stopped in the middle of an answer leaves the message
 // with none, so it's asked once more. A download's key makes the second ask find the download the
 // first one started instead of starting another, and a second update check waits out the first
-// one's cooldown. A tab hold is asked once: a let-go sent as the page goes into the back/forward
-// cache loses its answer, and sent again on the way back it would land after the page's new ask.
+// one's cooldown. A tab hold and a toolbar count are asked once: a let-go or a 0 sent as the page
+// goes into the back/forward cache loses its answer, and sent again on the way back it would land
+// after the page's new ask.
 async function askWorker(message, { again = true } = {}) {
   let answer;
   try {
