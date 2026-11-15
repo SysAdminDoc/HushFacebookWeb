@@ -11,8 +11,10 @@
 export const MESSAGES_PATH = '/messages/';
 export const BUTTON = '[role="banner"] [role="button"][aria-label="Messenger"]';
 
-// Presses that would open the dropdown. Only the click and Enter or Space navigate.
-const PRESSES = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'touchstart'];
+// Presses that would open the dropdown. Only the click and Enter or Space navigate. A touch is
+// held back by its pointer events, which leave the tap's click alone. Stopping its touchstart
+// would cancel that click, so a tap would go nowhere.
+const PRESSES = ['pointerdown', 'mousedown', 'pointerup', 'mouseup'];
 
 export const messengerButton = (target) => (typeof target?.closest === 'function' ? target.closest(BUTTON) : null);
 
@@ -58,9 +60,7 @@ export default {
       stop(event);
       if (where) go(where);
     };
-    // Not passive: Chrome makes a document's touchstart listeners passive unless told, and
-    // ignores preventDefault in them.
-    for (const type of PRESSES) doc.addEventListener(type, onPress, { capture: true, passive: false });
+    for (const type of PRESSES) doc.addEventListener(type, onPress, true);
     for (const type of ['click', 'auxclick', 'keydown']) doc.addEventListener(type, onActivate, true);
     diagnostics?.add('Messenger button presses sent to Messages', () => String(sent));
   },

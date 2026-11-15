@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.36 (2026-11-15, unreleased)
+
+* With Open Messenger as a full page on, tapping the Messenger button on a touch screen did nothing at all. A tap now goes to the Messages page like a click does.
+
 ## v0.0.35 (2026-11-15, unreleased)
 
 * Pressing Tab on a photo's download button could leave you nowhere if Facebook drew the photo's link again while the button had focus. Focus now moves to the new link. If the post is gone, Tab just goes on as usual.

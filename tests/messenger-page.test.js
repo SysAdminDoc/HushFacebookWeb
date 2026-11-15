@@ -95,13 +95,14 @@ test('which presses navigate and where', () => {
   assert.equal(messengerTarget({ type: 'keydown', key: 'a' }), null);
 });
 
-test('the press listeners can hold a touch back, since a passive one cannot', () => {
+test("a tap's touchstart is left alone, since stopping it cancels the click that goes to Messages", () => {
+  // The tap itself runs in a real browser: tests/browser messenger-tap.
   const added = [];
   const doc = { addEventListener: (type, listener, options) => added.push([type, options]) };
   messengerPage.setup({ doc, win: {}, enabled: () => true });
-  const touch = added.find(([type]) => type === 'touchstart');
-  assert.deepEqual(touch[1], { capture: true, passive: false });
-  assert.ok(added.filter(([type]) => type !== 'touchstart').every(([, options]) => options === true || options?.capture === true));
+  assert.equal(added.some(([type]) => type.startsWith('touch')), false);
+  assert.ok(['pointerdown', 'pointerup'].every((type) => added.some(([added]) => added === type)), 'the pointer events hold the touch back');
+  assert.ok(added.every(([, options]) => options === true), 'in the capture phase');
 });
 
 test('the switch starts off and works without the page', () => {

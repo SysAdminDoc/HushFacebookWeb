@@ -58,8 +58,9 @@ const scenarios = [
   { id: 'post-dates', fixture: 'postDates', screenshot: true },
   { id: 'stories-gap', fixture: 'storiesGap', viewport: { width: 1000, height: 1000 } },
   { id: 'voice-clip', fixture: 'voiceClip' },
+  { id: 'messenger-tap', fixture: 'messengerTap', touch: true },
 ];
-const DRIVEN = { panel, voiceClip };
+const DRIVEN = { panel, voiceClip, messengerTap };
 // HFW_BROWSER_ONLY=id,id runs just those scenarios.
 const only = process.env.HFW_BROWSER_ONLY?.split(',').filter(Boolean) ?? [];
 const chosen = only.length ? scenarios.filter((scenario) => only.includes(scenario.id)) : scenarios;
@@ -133,6 +134,24 @@ async function voiceClip(page) {
   return page.evaluate(() => window.hfwBrowserFixture.voiceClipState());
 }
 
+// Open Messenger as a full page, tapped on a touch screen, clicked and keyed: each goes to the
+// Messages page, and none reaches Facebook's own listeners to open the list of chats.
+async function messengerTap(page) {
+  await page.evaluate(() => window.hfwBrowserFixture.prepareMessenger());
+  const state = () => page.evaluate(() => window.hfwBrowserFixture.messengerState());
+  await page.tap('#messenger');
+  await page.waitForTimeout(400);
+  assert.deepEqual((await state()).went, ['here /messages/'], 'A tap on the Messenger button went nowhere');
+  await page.click('#messenger');
+  assert.deepEqual((await state()).went, ['here /messages/'], 'A click on the Messenger button went nowhere');
+  await page.focus('#messenger');
+  await page.keyboard.press('Enter');
+  const keyed = await state();
+  assert.deepEqual(keyed.went, ['here /messages/'], 'Enter on the Messenger button went nowhere');
+  assert.equal(keyed.seen, 0, "A press reached Facebook's own listeners");
+  return keyed;
+}
+
 async function run() {
   for (const engine of [chromium, firefox]) {
     const name = engine.name();
@@ -143,7 +162,7 @@ async function run() {
       for (const scenario of chosen) {
         const started = Date.now();
         await within(SCENARIO_MS, `${name} ${scenario.id}`, async () => {
-          const context = await activeBrowser.newContext({ viewport: scenario.viewport ?? { width: 360, height: 760 }, serviceWorkers: 'block' });
+          const context = await activeBrowser.newContext({ viewport: scenario.viewport ?? { width: 360, height: 760 }, serviceWorkers: 'block', hasTouch: Boolean(scenario.touch) });
           try {
             context.setDefaultTimeout(5000);
             await context.route('**/*', (route) => {
