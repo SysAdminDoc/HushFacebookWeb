@@ -13,14 +13,25 @@ export function toolbarCount({ win, doc, send, count, enabled, log }) {
   let lastAt = -Infinity;
   let waiting = false;
   let warned = false;
+  let retried = false;
+  let hidden = false;
 
   const tell = (value) => {
     sent = value;
     lastAt = Date.now();
-    send(value).catch((error) => {
-      // Sent again on the next change. Once is enough for the log: after an extension update
-      // nothing gets through, and the panel already says so.
+    send(value).then(() => {
+      retried = false;
+    }, (error) => {
+      // Sent again on the next change, and once by itself a second later with the count as it
+      // is then, for a worker that stopped mid-answer on a page where nothing else changes. Not
+      // while the page is hidden: one back from the back/forward cache sends its count anyway.
+      // Once is enough for the log: after an extension update nothing gets through, and the
+      // panel already says so.
       if (sent === value) sent = undefined;
+      if (!retried && !hidden) {
+        retried = true;
+        changed();
+      }
       if (warned) return;
       warned = true;
       log?.warn("Couldn't update the hidden count on the toolbar button", error);
@@ -49,11 +60,13 @@ export function toolbarCount({ win, doc, send, count, enabled, log }) {
   }
 
   win.addEventListener('pagehide', () => {
+    hidden = true;
     if (timer !== null) win.clearTimeout(timer);
     timer = null;
     if (sent !== 0 && !doc?.prerendering) tell(0);
   });
   win.addEventListener('pageshow', (event) => {
+    hidden = false;
     if (!event?.persisted) return;
     sent = undefined;
     changed();

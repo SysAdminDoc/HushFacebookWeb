@@ -142,3 +142,62 @@ test('a count the worker never took goes again with the next change, and the log
   assert.deepEqual(sent, [3, 3, 3], 'and once it went, not again');
   assert.equal(warnings.length, 1);
 });
+
+test('a count the worker lost goes once more by itself a second later, as the count is then, and never from a hidden page', async (t) => {
+  clock(t);
+  const { sent, warnings, state, badge } = start();
+  state.fail = true;
+  state.count = 3;
+  mock.timers.tick(0);
+  await settle();
+  state.fail = false;
+  state.count = 4;
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  assert.deepEqual(sent, [3, 4], 'no change needed, and the newest count, not the lost one');
+  assert.equal(warnings.length, 1);
+
+  // Lost twice in a row (an updated extension): one more try, then it waits for the next change.
+  state.fail = true;
+  state.count = 5;
+  badge.changed();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY * 10);
+  await settle();
+  assert.deepEqual(sent, [3, 4, 5, 5]);
+  // A send that went through gives the next loss its own try again.
+  state.fail = false;
+  state.count = 6;
+  badge.changed();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  state.fail = true;
+  state.count = 7;
+  badge.changed();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  await settle();
+  assert.deepEqual(sent, [3, 4, 5, 5, 6, 7, 7]);
+
+  // The 0 a page sends on its way into the back/forward cache isn't tried again while it's away.
+  const away = start();
+  away.state.count = 5;
+  mock.timers.tick(0);
+  await settle();
+  away.state.fail = true;
+  away.win.dispatchEvent(new Event('pagehide'));
+  await settle();
+  mock.timers.tick(TOOLBAR_COUNT_EVERY * 5);
+  await settle();
+  assert.deepEqual(away.sent, [5, 0]);
+  away.state.fail = false;
+  const shown = new Event('pageshow');
+  shown.persisted = true;
+  away.win.dispatchEvent(shown);
+  mock.timers.tick(TOOLBAR_COUNT_EVERY);
+  assert.deepEqual(away.sent, [5, 0, 5], 'back, it sends its count');
+});
