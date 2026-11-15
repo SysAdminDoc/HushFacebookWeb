@@ -165,6 +165,7 @@ function receiptMutation(mutation) {
 function validWorkerRequest(message) {
   if (!isStorageRecord(message) || utf8Bytes(message, MESSAGE_MAX_BYTES) > MESSAGE_MAX_BYTES) return false;
   if (message.type === 'storage:recover' || message.type === 'settings:pending' || message.type === 'update:check') return onlyKeys(message, ['type']);
+  if (message.type === 'tab:keep') return onlyKeys(message, ['type', 'keep']) && typeof message.keep === 'boolean';
   if (message.type === 'storage:mutate') {
     if (!onlyKeys(message, ['type', 'key', 'mutation', 'generation', 'baseRevisions'])) return false;
     if (WATCHED_KEY.test(message.key)) return onlyKeys(message.mutation, ['watched']) && HfwWatched.validWatchedOperation(message.mutation.watched);
@@ -1121,13 +1122,14 @@ function validFilename(name) {
 // place, and persist() writes them early when a step mustn't be lost if the worker stops.
 // Records a worker Chrome stopped and started again must still find, kept in storage.session (in
 // memory where there's none) and changed one at a time. Each save drops records older than
-// keptFor and all but the newest `kept`.
-function sessionRecords(key, { keptFor, kept }) {
+// keptFor and all but the newest `kept`, newest by `at`, since names that are numbers (tab ids)
+// list in number order. area 'local' keeps them past an update too.
+function sessionRecords(key, { keptFor, kept, area = 'session' }) {
   let tail = Promise.resolve();
   let inMemory = {};
   return (change) => {
     const run = tail.then(async () => {
-      const session = chrome.storage.session;
+      const session = chrome.storage[area];
       let records = inMemory;
       if (session?.get) {
         const { [key]: saved } = await session.get(key);
@@ -1135,7 +1137,8 @@ function sessionRecords(key, { keptFor, kept }) {
       }
       const persist = async () => {
         const now = Date.now();
-        const names = Object.keys(records);
+        const at = (name) => Number(records[name]?.at) || 0;
+        const names = Object.keys(records).sort((a, b) => at(a) - at(b));
         names.forEach((name, index) => {
           if (!(now - records[name]?.at < keptFor) || index < names.length - kept) delete records[name];
         });
@@ -1359,6 +1362,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     }
   }).catch(() => {});
   changeOpens(async (records) => {
+    delete records[tabId];
+  }).catch(() => {});
+  changeKeptTabs(async (records) => {
     delete records[tabId];
   }).catch(() => {});
 });
@@ -1598,11 +1604,96 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 resumeUpdateSchedule();
 
+// Keep your place keeps its tab from Memory Saver while it's on (tabs.update's autoDiscardable,
+// which needs no permission) and lets it go when it's off or the page is left. A closed tab takes
+// the setting with it. False where the browser has no such setting or the tab is gone, and for a
+// page that's still being prerendered, which isn't the tab's page yet. True only once the tab
+// Chrome hands back says so.
+// Each kept tab is recorded with the page (documentId, none in Firefox) that kept it, so a page
+// let go late can't undo the hold of the page that came after it. The records are saved in
+// storage.local, since the tab stays kept when the extension is updated, reloaded or turned off
+// and on (live, Chrome 156, for a reload), and the old pages can't let go after that.
+const KEPT_TABS_KEY = 'hushfacebookWeb.keptTabs';
+const KEPT_SESSION_KEY = 'hushfacebookWeb.keptTabsSession';
+const changeKeptTabs = sessionRecords(KEPT_TABS_KEY, { keptFor: Infinity, kept: 64, area: 'local' });
+const WORKER_STARTED = Date.now();
+async function keepTab(sender, keep) {
+  if (sender.documentLifecycle === 'prerender') return false;
+  const tabId = sender.tab.id;
+  const page = sender.documentId ?? null;
+  const apply = async () => {
+    try {
+      const tab = await chrome.tabs.update(tabId, { autoDiscardable: !keep });
+      return tab?.autoDiscardable === !keep;
+    } catch {
+      return false; // No such setting in this browser, or the tab is gone.
+    }
+  };
+  // skipped: a let-go that met a newer page's hold, which changes nothing. answer: what the
+  // browser said, once it was asked.
+  let skipped = false;
+  let answer;
+  return changeKeptTabs(async (records, persist) => {
+    if (!keep && records[tabId] && records[tabId].document !== page) {
+      skipped = true;
+      return true;
+    }
+    if (keep) {
+      records[tabId] = { document: page, at: Date.now() };
+      await persist();
+    } else {
+      delete records[tabId];
+    }
+    answer = await apply();
+    if (keep && !answer) delete records[tabId];
+    return answer;
+  }).catch((error) => {
+    // Past either of those only the last save failed, so the answer stands: a newer page's hold
+    // isn't undone and a hold the browser made isn't reported as lost. Before them, a let-go
+    // whose records can't be read or saved still lets go. A page leaving won't ask again, and a
+    // tab Memory Saver may discard is the browser's own default.
+    if (skipped) return true;
+    if (answer !== undefined) return answer;
+    if (keep) throw error;
+    return apply();
+  });
+}
+
+// storage.session is emptied whenever the extension is updated, reloaded or turned off and on,
+// and when the browser starts again, so a worker that finds no mark there is the first since,
+// and lets go of every tab kept before it started. Ids from before a browser start may be other
+// tabs by now, which the browser has discardable already. The mark goes first, so a worker
+// stopped partway leaves the rest for the next such start rather than letting go of tabs kept
+// since.
+async function releaseEarlierKeeps() {
+  const session = chrome.storage.session;
+  if (!session?.get) return;
+  const { [KEPT_SESSION_KEY]: marked } = await session.get(KEPT_SESSION_KEY);
+  if (marked) return;
+  await session.set({ [KEPT_SESSION_KEY]: true });
+  const { [KEPT_TABS_KEY]: saved } = await chrome.storage.local.get(KEPT_TABS_KEY);
+  if (!isStorageRecord(saved) || !Object.keys(saved).length) return;
+  await changeKeptTabs(async (records) => {
+    const earlier = Object.keys(records).filter((id) => !(records[id]?.at >= WORKER_STARTED));
+    await Promise.all(earlier.map((id) => chrome.tabs.update(Number(id), { autoDiscardable: true }).catch(() => {})));
+    for (const id of earlier) delete records[id];
+  });
+}
+releaseEarlierKeeps().catch(() => {});
+
+// A page being left sends its let-go after the tab has moved on, from a frame that isn't the top
+// one any more (Chrome 156: a new frameId, and documentLifecycle 'cached' on its way into the
+// back/forward cache or 'pending_deletion' otherwise). Letting go of its tab is all such a page
+// may ask.
+const LEAVING = new Set(['cached', 'pending_deletion']);
+const leavingTopFrame = (sender, message) => message?.type === 'tab:keep' && message.keep === false
+  && LEAVING.has(sender.documentLifecycle) && trustedSender({ ...sender, frameId: 0 });
+
 // Only Facebook's top frame talks to the worker, with a known request shape, at a bounded rate.
 // The isolated script checks the same things first; this holds even if a page gets past it.
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (!sender?.tab) return false;
-  if (!trustedSender(sender)) {
+  if (!trustedSender(sender) && !leavingTopFrame(sender, message)) {
     respond({ ok: false, error: 'that page cannot ask the extension for this' });
     return false;
   }
@@ -1628,6 +1719,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
             ? pendingOpen(sender.tab.id)
             : message?.type === 'update:check'
               ? checkForUpdateNow()
+            : message?.type === 'tab:keep'
+              ? keepTab(sender, message.keep)
       : null;
   if (!task) return false;
   task.then(

@@ -24,6 +24,10 @@
 // exports once Facebook's own code has run it and never asks for it (afterModuleRuns). Asked for
 // early it threw and left Feeds on the splash screen (live 2026-10-11). The route check reads
 // nothing, so asking for it is safe, and Facebook only runs it once you've been away long enough.
+//
+// Memory Saver (Chrome, Brave, Edge) can discard a tab left in the background, and coming back
+// to it loads the whole page again from the top, which nothing in the page can stop. So in the
+// extension, while the switch is on, the tab is kept from it (holdTab).
 
 import { afterModuleRuns, whenModule } from '../../core/modules.js';
 
@@ -76,6 +80,62 @@ export function facebookLimits(exports) {
   return `away ${read('FEED_STALE_TIMEOUT')}, hidden ${read('FEED_VISIBILITY_TIMEOUT')}, after a post closes ${read('FEED_STALE_PUSH_VIEW_TIMEOUT')}`;
 }
 
+// Asks the extension (keepTab) to keep this tab from Memory Saver while the switch is on, and to
+// let it go when the switch goes off or the page is left, for the back/forward cache too. A page
+// back from that cache asks again. A page Chrome is prerendering isn't in a tab of its own yet, so
+// it waits until it's shown. A closed tab takes the setting with it. status() is what Diagnostics
+// shows.
+export function holdTab({ win, doc, enabled, keepTab, log, changed }) {
+  // What the extension was last asked for, or null once an ask failed, when nobody knows.
+  let kept = false;
+  let asked = 0;
+  let waiting = false;
+  let left = false;
+  let status = 'switch off';
+  const keep = (want = enabled()) => {
+    if (want === kept) {
+      if (!want) status = 'switch off';
+      return;
+    }
+    if (want && doc?.prerendering) {
+      if (!waiting) {
+        waiting = true;
+        status = 'waiting for the page to be shown';
+        doc.addEventListener('prerenderingchange', () => {
+          waiting = false;
+          keep();
+        }, { once: true });
+      }
+      return;
+    }
+    kept = want;
+    const ask = ++asked;
+    keepTab(want).then((done) => {
+      if (ask !== asked) return;
+      status = !want ? 'switch off' : done === true ? 'kept' : 'not supported by this browser';
+      changed?.();
+    }, (error) => {
+      if (ask !== asked) return;
+      // Asked again on the next change, whichever way it goes. A let-go sent as the page went
+      // into the back/forward cache loses its answer that way, which is no fault.
+      kept = null;
+      if (left) return;
+      status = "couldn't reach the extension";
+      log?.warn("Keep your place in the feed couldn't ask the browser to keep this tab from Memory Saver.", error);
+      changed?.();
+    });
+  };
+  win.addEventListener('pagehide', () => {
+    left = true;
+    keep(false);
+  });
+  win.addEventListener('pageshow', (event) => {
+    left = false;
+    if (event?.persisted) keep();
+  });
+  return { keep, status: () => status };
+}
+
 export default {
   id: 'keepFeedPlace',
   section: 'reading',
@@ -85,7 +145,7 @@ export default {
   default: false,
   needsPage: true,
 
-  setup({ win, settings, enabled, diagnostics, log, markUnavailable }) {
+  setup({ win, doc, settings, enabled, diagnostics, log, markUnavailable, keepTab }) {
     const state = { home: WAITING, pages: WAITING, limits: WAITING };
     let started = false;
     const start = () => {
@@ -116,5 +176,12 @@ export default {
     diagnostics?.add('Return refresh on Home', () => (started ? state.home : 'switch off'), shareable);
     diagnostics?.add("Facebook's refresh limits on Home", () => (started ? state.limits : 'switch off'), shareable);
     diagnostics?.add('Return to Home from other pages', () => (started ? state.pages : 'switch off'), shareable);
+    // The userscript has no tab to keep.
+    if (keepTab) {
+      const tab = holdTab({ win, doc, enabled, keepTab, log, changed: () => diagnostics?.changed() });
+      tab.keep();
+      settings?.subscribe(() => tab.keep());
+      diagnostics?.add('Tab kept from Memory Saver', tab.status, shareable);
+    }
   },
 };

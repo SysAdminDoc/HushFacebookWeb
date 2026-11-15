@@ -443,3 +443,195 @@ test('the switch starts off, sits with the feed and needs the page', () => {
   assert.equal(keepFeedPlace.needsPage, true);
   assert.equal(keepFeedPlace.android, 'Block background-return feed refresh');
 });
+
+// The extension's half: keepTab stands for the worker (tabs.update's autoDiscardable), answering
+// with answer(keep). keepTab null is the userscript.
+const TAB_ROW = 'Tab kept from Memory Saver';
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+function withTab({ on = false, prerendering = false, answer = async () => true, keepTab } = {}) {
+  const fb = page();
+  const switchState = { on };
+  const subscribers = [];
+  const rows = new Map();
+  const asked = [];
+  const warnings = [];
+  const lifecycle = { pagehide: [], pageshow: [] };
+  const shown = [];
+  let changes = 0;
+  const listen = fb.win.addEventListener;
+  fb.win.addEventListener = (type, fn, options) => (type in lifecycle ? lifecycle[type].push(fn) : listen(type, fn, options));
+  const doc = {
+    prerendering,
+    addEventListener: (type, fn, options) => type === 'prerenderingchange' && options?.once && shown.push(fn),
+  };
+  keepFeedPlace.setup({
+    win: fb.win,
+    doc,
+    settings: { subscribe: (fn) => subscribers.push(fn) },
+    enabled: () => switchState.on,
+    diagnostics: {
+      add: (name, read) => rows.set(name, read),
+      changed: () => changes++,
+    },
+    log: { warn: (message) => warnings.push(message), error: (message) => warnings.push(message) },
+    markUnavailable() {},
+    keepTab: keepTab === undefined ? (keep) => (asked.push(keep), answer(keep)) : keepTab,
+  });
+  return {
+    asked,
+    warnings,
+    rows,
+    shown,
+    changes: () => changes,
+    row: () => rows.get(TAB_ROW)(),
+    turn(value) {
+      switchState.on = value;
+      for (const fn of subscribers) fn();
+    },
+    leave: (persisted) => lifecycle.pagehide.forEach((fn) => fn({ persisted })),
+    back: (persisted) => lifecycle.pageshow.forEach((fn) => fn({ persisted })),
+    show() {
+      doc.prerendering = false;
+      shown.splice(0).forEach((fn) => fn());
+    },
+  };
+}
+
+test('in the extension the tab is kept from Memory Saver while the switch is on, and let go when it goes off or the page is left', async () => {
+  const run = withTab();
+  assert.deepEqual(run.asked, [], 'nothing is asked with the switch off');
+  assert.equal(run.row(), 'switch off');
+  run.turn(true);
+  assert.deepEqual(run.asked, [true]);
+  await settle();
+  assert.equal(run.row(), 'kept');
+  assert.equal(run.changes(), 1, 'Diagnostics hears of it');
+  run.turn(true);
+  assert.deepEqual(run.asked, [true], 'another setting changing asks nothing');
+  run.turn(false);
+  await settle();
+  assert.deepEqual(run.asked, [true, false]);
+  assert.equal(run.row(), 'switch off');
+  run.turn(true);
+  run.leave(false);
+  assert.deepEqual(run.asked, [true, false, true, false], 'a page left lets the tab go');
+  assert.deepEqual(run.warnings, []);
+  assert.equal(withTab({ on: true }).asked[0], true, 'a page that starts with the switch on asks at once');
+});
+
+test('a page kept for Back lets the tab go on the way out and keeps it again on the way back', async () => {
+  const run = withTab({ on: true });
+  await settle();
+  run.leave(true);
+  assert.deepEqual(run.asked, [true, false]);
+  run.back(false);
+  assert.deepEqual(run.asked, [true, false], 'a first showing is no return');
+  run.back(true);
+  assert.deepEqual(run.asked, [true, false, true]);
+  run.turn(false);
+  run.leave(true);
+  run.back(true);
+  assert.deepEqual(run.asked, [true, false, true, false], 'with the switch off there is nothing to keep');
+});
+
+test("a browser without the setting is shown as such, and an ask the extension didn't answer is made again", async () => {
+  const older = withTab({ on: true, answer: async () => false });
+  await settle();
+  assert.equal(older.row(), 'not supported by this browser');
+  older.turn(true);
+  assert.deepEqual(older.asked, [true], 'and it is not asked again on every change');
+  const odd = withTab({ on: true, answer: async () => 'yes' });
+  await settle();
+  assert.equal(odd.row(), 'not supported by this browser', 'only a plain true counts');
+
+  let fail = true;
+  const lost = withTab({ on: true, answer: async () => (fail ? Promise.reject(new Error('the extension did not answer')) : true) });
+  await settle();
+  assert.equal(lost.row(), "couldn't reach the extension");
+  assert.equal(lost.warnings.length, 1);
+  assert.equal(lost.changes(), 1);
+  fail = false;
+  lost.turn(true);
+  await settle();
+  assert.deepEqual(lost.asked, [true, true]);
+  assert.equal(lost.row(), 'kept');
+
+  // A let-go that may or may not have landed is sent again too, so the tab is never left kept.
+  fail = true;
+  lost.turn(false);
+  await settle();
+  fail = false;
+  lost.turn(false);
+  await settle();
+  assert.deepEqual(lost.asked, [true, true, false, false]);
+  assert.equal(lost.row(), 'switch off');
+});
+
+test("a late answer or failure for an older ask never covers the newest one, and a let-go lost on the way out isn't reported", async () => {
+  const answers = [];
+  const run = withTab({ on: true, answer: () => new Promise((resolve, reject) => answers.push({ resolve, reject })) });
+  run.turn(false);
+  answers[1].resolve(true);
+  await settle();
+  answers[0].resolve(true);
+  await settle();
+  assert.deepEqual(run.asked, [true, false]);
+  assert.equal(run.row(), 'switch off');
+
+  run.turn(true);
+  run.turn(false);
+  answers[3].resolve(true);
+  await settle();
+  answers[2].reject(new Error('the extension did not answer'));
+  await settle();
+  assert.equal(run.row(), 'switch off');
+  assert.deepEqual(run.warnings, []);
+
+  run.turn(true);
+  answers[4].resolve(true);
+  await settle();
+  run.leave(true);
+  answers[5].reject(new Error('The page keeping the extension port is moved into back/forward cache, so the message channel is closed.'));
+  await settle();
+  assert.deepEqual(run.warnings, []);
+  run.back(true);
+  assert.deepEqual(run.asked, [true, false, true, false, true, false, true]);
+});
+
+test("back from the back/forward cache, an ask the extension doesn't answer is reported again", async () => {
+  const answers = [];
+  const run = withTab({ on: true, answer: () => new Promise((resolve, reject) => answers.push({ resolve, reject })) });
+  answers[0].resolve(true);
+  await settle();
+  run.leave(true);
+  answers[1].reject(new Error('The page keeping the extension port is moved into back/forward cache, so the message channel is closed.'));
+  await settle();
+  run.back(true);
+  answers[2].reject(new Error('the extension did not answer'));
+  await settle();
+  assert.equal(run.row(), "couldn't reach the extension");
+  assert.equal(run.warnings.length, 1);
+});
+
+test('a page Chrome is prerendering waits until it is shown before keeping the tab', () => {
+  const run = withTab({ on: true, prerendering: true });
+  run.turn(true);
+  assert.deepEqual(run.asked, []);
+  assert.equal(run.shown.length, 1, 'it waits once');
+  assert.equal(run.row(), 'waiting for the page to be shown');
+  run.show();
+  assert.deepEqual(run.asked, [true]);
+
+  const dropped = withTab({ on: true, prerendering: true });
+  dropped.turn(false);
+  assert.equal(dropped.row(), 'switch off');
+  dropped.show();
+  assert.deepEqual(dropped.asked, [], 'switched off before it was shown');
+});
+
+test('the userscript has no tab to keep and shows no row for it', () => {
+  const run = withTab({ on: true, keepTab: null });
+  assert.equal(run.rows.has(TAB_ROW), false);
+  run.leave(false);
+  assert.deepEqual(run.asked, []);
+});

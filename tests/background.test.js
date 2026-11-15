@@ -24,16 +24,20 @@ const deferred = () => {
 // release: what GitHub answers. A release object, an Error (offline), { status, headers } (an
 // error status), { body } (that text as the answer), { stallBody } (the body's reader), or a
 // function of the fetch options that gives one of those. alarmSet false stands for the update alarm Chrome dropped.
-function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null, readError = null, badgeError = null, alarmSet = true, items = new Map(), finishes = 'in_progress', scheme = 'chrome-extension' } = {}) {
+// discardError: what tabs.update throws when it's given autoDiscardable (a browser without it).
+function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null, readError = null, badgeError = null, alarmSet = true, items = new Map(), finishes = 'in_progress', scheme = 'chrome-extension', discardError = null, gone = [], hold = null } = {}) {
   const data = structuredClone(saved);
   // badge: the button everywhere; tabButton: [tabId, badge or title] for one tab.
-  const calls = { fetch: 0, badge: [], tabButton: [], alarms: [], created: [], activated: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [], erased: [] };
-  const listeners = { updated: [], downloadChanged: [], messages: [], storageChanged: [], removed: [], alarm: [] };
+  const calls = { fetch: 0, badge: [], tabButton: [], alarms: [], created: [], activated: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [], erased: [], discardable: [] };
+  const listeners = { updated: [], downloadChanged: [], messages: [], storageChanged: [], removed: [], alarm: [], installed: [], startup: [] };
   const tellStorage = (changes) => queueMicrotask(() => (
     listeners.storageChanged.forEach((listener) => listener(changes, 'local'))
   ));
   const chrome = {
-    runtime: { id: 'hfw', getManifest: () => ({ version }), getURL: (path) => `${scheme}://hfw/${path}`, onMessage: { addListener: (fn) => listeners.messages.push(fn) } },
+    runtime: {
+      id: 'hfw', getManifest: () => ({ version }), getURL: (path) => `${scheme}://hfw/${path}`, onMessage: { addListener: (fn) => listeners.messages.push(fn) },
+      onInstalled: { addListener: (fn) => listeners.installed.push(fn) }, onStartup: { addListener: (fn) => listeners.startup.push(fn) },
+    },
     storage: { local: {
       get: async (keys) => {
         if (readError) throw readError;
@@ -80,7 +84,19 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
     tabs: {
       query: async () => Object.keys(tabs).map((id) => ({ id: Number(id) })),
       create: async ({ url }) => (calls.created.push(url), { id: 99 }),
-      update: async (id, { active }) => void (active && calls.activated.push(id)),
+      // The tab Chrome hands back. discardError 'ignored' stands for a browser that takes the
+      // property and does nothing with it. gone: tab ids that are closed. hold: a promise the
+      // answer waits on.
+      update: async (id, { active, autoDiscardable }) => {
+        if (active) calls.activated.push(id);
+        if (autoDiscardable === undefined) return { id };
+        if (discardError === 'ignored') return { id };
+        if (discardError) throw discardError;
+        if (gone.includes(id)) throw new Error(`No tab with id: ${id}.`);
+        calls.discardable.push([id, autoDiscardable]);
+        if (hold) await hold;
+        return { id, autoDiscardable };
+      },
       reload: async (id) => void calls.reloaded.push(id),
       sendMessage: async (id, message, options) => {
         calls.sent.push([id, message.type]);
@@ -1877,6 +1893,7 @@ test('the worker answers only the isolated script in a Facebook top frame', asyn
 });
 
 const OPENS_KEY = 'hushfacebookWeb.pendingOpens';
+const KEPT_TABS_KEY = 'hushfacebookWeb.keptTabs';
 const OPEN_FAILED = "HushFacebook Web settings didn't open in this tab. Reload Facebook, then click again.";
 // The tabs the toolbar button is waiting on, as storage.session has them.
 const pending = (current) => Object.keys(current.session[OPENS_KEY] ?? {}).map(Number);
@@ -1968,6 +1985,189 @@ test('the wait ends on the alarm, and a page that asks too late lights the "!" a
   assert.equal(await late.context.openSettings({ id: 4, index: 0, url: 'https://www.facebook.com/' }), 'reloaded', 'an old record is no reason to wait');
 });
 
+test('Keep your place keeps its own tab from Memory Saver and lets it go, where the browser can', async () => {
+  // The answer comes from the worker's own realm, so it's compared field by field.
+  const keep = async (w, value, sender = topFrame(5)) => {
+    const answer = await ask(w, { type: 'tab:keep', keep: value }, sender);
+    return [answer.ok, answer.result];
+  };
+  const current = worker();
+  assert.deepEqual(await keep(current, true), [true, true]);
+  assert.deepEqual(await keep(current, false), [true, true]);
+  assert.deepEqual(current.calls.discardable, [[5, false], [5, true]]);
+  assert.deepEqual(await keep(current, true, { ...topFrame(6), frameId: 2, documentLifecycle: 'prerender' }), [true, false], 'a prerendered page is not the tab yet');
+  assert.deepEqual(current.calls.discardable, [[5, false], [5, true]]);
+  assert.equal(current.listeners.updated.length, 0, 'and nothing listens to every tab for it');
+
+  const older = worker({ discardError: new TypeError('Unexpected property "autoDiscardable"') });
+  assert.deepEqual(await keep(older, true), [true, false], 'a browser without the setting is told no, not an error');
+  assert.deepEqual(await keep(worker({ discardError: 'ignored' }), true), [true, false], 'and so is one that takes it and does nothing');
+});
+
+test("a page left for another site can let go of its tab, and a late let-go never undoes the next page's hold", async () => {
+  const keep = async (w, value, sender) => {
+    const answer = await ask(w, { type: 'tab:keep', keep: value }, sender);
+    return [answer.ok, answer.result];
+  };
+  const page = (documentId, more = {}) => ({ ...topFrame(5), documentId, ...more });
+  // How Chrome 156 describes a page whose tab has already moved on to another site.
+  const leaving = (documentId, documentLifecycle = 'pending_deletion') => page(documentId, { frameId: 6, documentLifecycle });
+  const current = worker();
+  assert.deepEqual(await keep(current, true, page('a')), [true, true]);
+  assert.deepEqual(await keep(current, false, leaving('a')), [true, true]);
+  assert.deepEqual(current.calls.discardable, [[5, false], [5, true]]);
+  assert.deepEqual(await keep(current, true, page('a')), [true, true]);
+  assert.deepEqual(await keep(current, false, leaving('a', 'cached')), [true, true], 'so can one on its way into the back/forward cache');
+  assert.deepEqual(current.calls.discardable, [[5, false], [5, true], [5, false], [5, true]]);
+  current.calls.discardable.splice(2);
+  assert.equal((await ask(current, { type: 'tab:keep', keep: false }, leaving('a', 'active'))).ok, false, 'a frame that is not leaving gets nothing');
+  assert.equal((await ask(current, { type: 'tab:keep', keep: true }, leaving('a'))).ok, false, 'a page on its way out cannot keep the tab');
+  assert.equal((await ask(current, { type: 'storage:recover' }, leaving('a'))).ok, false, 'or ask for anything else');
+  assert.equal((await ask(current, { type: 'tab:keep', keep: false }, { ...leaving('a'), url: 'https://evil.example/', origin: 'https://evil.example' })).ok, false);
+
+  assert.deepEqual(await keep(current, true, page('a')), [true, true]);
+  assert.deepEqual(await keep(current, true, page('b')), [true, true]);
+  assert.deepEqual(await keep(current, false, leaving('a')), [true, true], 'the page before is told it is let go');
+  assert.deepEqual(current.calls.discardable, [[5, false], [5, true], [5, false], [5, false]], 'and the tab stays kept for the page after it');
+  assert.deepEqual(await keep(current, false, page('b')), [true, true]);
+  assert.deepEqual(current.calls.discardable.at(-1), [5, true]);
+
+  const letGo = current.calls.discardable.length;
+  assert.deepEqual(await keep(current, false, leaving('c')), [true, true]);
+  assert.equal(current.calls.discardable.length, letGo + 1, 'once let go, the tab has no page holding it');
+  assert.deepEqual(current.calls.discardable.at(-1), [5, true]);
+  const unsupported = worker({ discardError: new TypeError('Unexpected property "autoDiscardable"') });
+  assert.deepEqual(await keep(unsupported, true, page('a')), [true, false]);
+  assert.deepEqual(await keep(unsupported, false, leaving('b')), [true, false], "a hold that never took isn't anyone's to guard");
+  assert.deepEqual(await keep(current, true, page('b')), [true, true]);
+  current.listeners.removed.forEach((fn) => fn(5));
+  const before = current.calls.discardable.length;
+  assert.deepEqual(await keep(current, false, leaving('c')), [true, true]);
+  assert.equal(current.calls.discardable.length, before + 1, 'a closed tab is forgotten, so its id is free for the next tab');
+});
+
+test("a let-go that arrives while the next page's hold is still on its way waits for it, and loses", async () => {
+  const page = (documentId, more = {}) => ({ ...topFrame(5), documentId, ...more });
+  const current = worker();
+  await ask(current, { type: 'tab:keep', keep: true }, page('a'));
+  const next = ask(current, { type: 'tab:keep', keep: true }, page('b'));
+  const late = ask(current, { type: 'tab:keep', keep: false }, page('a', { frameId: 6, documentLifecycle: 'pending_deletion' }));
+  assert.deepEqual([(await next).result, (await late).result], [true, true]);
+  assert.deepEqual(current.calls.discardable, [[5, false], [5, false]]);
+});
+
+const KEPT_SESSION_KEY = 'hushfacebookWeb.keptTabsSession';
+
+test('a kept tab is remembered while the worker stops and starts, and the first worker after an update, reload or restart lets it go', async () => {
+  const page = (documentId, more = {}) => ({ ...topFrame(5), documentId, ...more });
+  const first = worker();
+  await settle();
+  assert.deepEqual(first.session, { [KEPT_SESSION_KEY]: true }, 'the first worker marks the session');
+  assert.equal(KEPT_TABS_KEY in first.data, false, 'and with nothing kept, writes nothing');
+  assert.equal((await ask(first, { type: 'tab:keep', keep: true }, page('b'))).result, true);
+  assert.deepEqual(Object.keys(first.data[KEPT_TABS_KEY]), ['5']);
+  // Made a day before the worker restarts, so only the session mark can keep it.
+  first.data[KEPT_TABS_KEY][5].at -= DAY;
+
+  // Chrome stopped the worker and started it again: same session, same holds.
+  const restarted = worker({ saved: first.data, session: { ...first.session } });
+  await settle();
+  assert.equal((await ask(restarted, { type: 'tab:keep', keep: false }, page('a', { frameId: 6, documentLifecycle: 'pending_deletion' }))).result, true);
+  assert.deepEqual(restarted.calls.discardable, [], "a page let go late still can't undo the hold once the worker has stopped and started");
+
+  // Updated, reloaded, turned off and on, or a browser started again: storage.session is empty,
+  // the old pages can't ask any more, so the new worker lets their tabs go.
+  const old = { [KEPT_TABS_KEY]: { 5: { document: 'b', at: Date.now() - DAY }, 6: { document: 'c', at: Date.now() - DAY } } };
+  const updated = worker({ saved: old, gone: [6] });
+  await settle();
+  assert.deepEqual(updated.calls.discardable, [[5, true]], 'tab 6 is closed by now');
+  assert.deepEqual(Object.keys(updated.data[KEPT_TABS_KEY]), [], 'a closed tab is cleared with the rest');
+  assert.deepEqual(updated.session, { [KEPT_SESSION_KEY]: true });
+
+  // A page that kept its tab once this worker had started keeps it, even when its ask came first.
+  const quick = worker({ saved: old });
+  assert.equal((await ask(quick, { type: 'tab:keep', keep: true }, { ...page('d'), tab: { id: 8 } })).result, true);
+  await settle();
+  assert.deepEqual(Object.keys(quick.data[KEPT_TABS_KEY]), ['8']);
+  assert.deepEqual(quick.calls.discardable.filter(([id]) => id === 8), [[8, false]]);
+
+  // The records go only once the browser has the tabs back.
+  let open;
+  const slow = worker({ saved: old, hold: new Promise((resolve) => { open = resolve; }) });
+  await settle();
+  assert.deepEqual(slow.calls.discardable, [[5, true], [6, true]]);
+  assert.deepEqual(Object.keys(slow.data[KEPT_TABS_KEY]), ['5', '6'], 'nothing is cleared while the browser is still being asked');
+  open();
+  await settle();
+  assert.deepEqual(Object.keys(slow.data[KEPT_TABS_KEY]), []);
+});
+
+test('a hold is saved before the browser is asked, and the newest holds stay when there are too many', async () => {
+  const page = (id) => ({ ...topFrame(id), documentId: `d${id}` });
+  const marked = { [KEPT_SESSION_KEY]: true };
+  let open;
+  const current = worker({ session: marked, hold: new Promise((resolve) => { open = resolve; }) });
+  const asked = ask(current, { type: 'tab:keep', keep: true }, page(5));
+  await settle();
+  assert.deepEqual(Object.keys(current.data[KEPT_TABS_KEY]), ['5'], 'a worker stopped mid-ask still knows the tab may be kept');
+  open();
+  assert.equal((await asked).result, true);
+
+  // Kept a day ago in this browser session, and still kept.
+  const busy = worker({ session: marked, saved: { [KEPT_TABS_KEY]: { 9: { document: 'x', at: Date.now() - DAY } } } });
+  for (let id = 100; id < 163; id++) assert.equal((await ask(busy, { type: 'tab:keep', keep: true }, page(id))).result, true);
+  assert.equal(Object.keys(busy.data[KEPT_TABS_KEY]).length, 64);
+  assert.equal('9' in busy.data[KEPT_TABS_KEY], true, 'an old hold stays while there is room');
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  assert.equal((await ask(busy, { type: 'tab:keep', keep: true }, page(1))).result, true);
+  const ids = Object.keys(busy.data[KEPT_TABS_KEY]);
+  assert.equal(ids.length, 64);
+  assert.equal(ids.includes('1'), true, 'the newest hold stays, whatever its tab id');
+  assert.equal(ids.includes('9'), false, 'the oldest goes');
+});
+
+test("a let-go whose records can't be read still lets the tab go", async () => {
+  const current = worker({ session: { [KEPT_SESSION_KEY]: true }, readError: new Error('storage is broken') });
+  const leaving = { ...topFrame(5), documentId: 'a', frameId: 6, documentLifecycle: 'pending_deletion' };
+  assert.equal((await ask(current, { type: 'tab:keep', keep: false }, leaving)).result, true);
+  assert.deepEqual(current.calls.discardable, [[5, true]]);
+  assert.equal((await ask(current, { type: 'tab:keep', keep: true }, { ...topFrame(5), documentId: 'b' })).ok, false, 'a hold that cannot be recorded is not made');
+  assert.deepEqual(current.calls.discardable, [[5, true]]);
+});
+
+test('a save that fails after the browser has answered, or after a newer hold wins, changes nothing', async () => {
+  const page = (documentId, more = {}) => ({ ...topFrame(5), documentId, ...more });
+  const marked = { [KEPT_SESSION_KEY]: true };
+  const full = async () => { throw new Error('QUOTA_BYTES quota exceeded'); };
+
+  // A late let-go meets the next page's hold while saves fail: the hold stays.
+  const current = worker({ session: { ...marked } });
+  assert.equal((await ask(current, { type: 'tab:keep', keep: true }, page('b'))).result, true);
+  current.chrome.storage.local.set = full;
+  const late = await ask(current, { type: 'tab:keep', keep: false }, page('a', { frameId: 6, documentLifecycle: 'pending_deletion' }));
+  assert.equal(late.ok, true);
+  assert.equal(late.result, true);
+  assert.deepEqual(current.calls.discardable, [[5, false]], "the next page's hold isn't undone");
+
+  // A hold the browser made, where only the save after it failed, is kept and said so.
+  let open;
+  const kept = worker({ session: { ...marked }, hold: new Promise((resolve) => { open = resolve; }) });
+  const asked = ask(kept, { type: 'tab:keep', keep: true }, page('c'));
+  await settle();
+  assert.deepEqual(kept.calls.discardable, [[5, false]]);
+  kept.chrome.storage.local.set = full;
+  open();
+  const answer = await asked;
+  assert.equal(answer.ok, true, 'not reported as lost');
+  assert.equal(answer.result, true);
+  assert.deepEqual(Object.keys(kept.data[KEPT_TABS_KEY]), ['5'], 'saved before the browser was asked');
+
+  // A hold whose first save fails is never asked for.
+  const refused = worker({ session: { ...marked }, writeError: new Error('QUOTA_BYTES quota exceeded') });
+  assert.equal((await ask(refused, { type: 'tab:keep', keep: true }, page('d'))).ok, false);
+  assert.deepEqual(refused.calls.discardable, []);
+});
+
 test('the worker refuses request shapes, keys and file names it does not know', async () => {
   const current = worker({ saved: { settings: { alpha: true }, other: 'x' } });
   for (const message of [
@@ -1976,6 +2176,9 @@ test('the worker refuses request shapes, keys and file names it does not know', 
     { type: 'storage:recover', extra: true },
     { type: 'settings:pending', tab: 2 },
     { type: 'update:check', force: true },
+    { type: 'tab:keep' },
+    { type: 'tab:keep', keep: 'yes' },
+    { type: 'tab:keep', keep: true, tab: 2 },
     { type: 'storage:mutate', key: 'hushfacebookWeb.storageRevisions', mutation: { set: {} } },
     { type: 'storage:mutate', key: 'other', mutation: { set: {} } },
     { type: 'storage:mutate', key: 'settings', mutation: { set: { alpha: { nested: true } } } },

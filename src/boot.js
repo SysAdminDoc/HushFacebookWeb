@@ -224,6 +224,8 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     });
   }
 
+  // What only the extension can do: its own update check, and keeping the tab from Memory Saver.
+  const host = storage.kind === 'extension' ? extensionHost() : null;
   if (!tabPaused) {
     startFeatures({
       features, net, settings, log, unavailable, networkUnavailable: networkFailed ? 'network' : 'page',
@@ -239,6 +241,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
         log,
         toast,
         openSettings,
+        keepTab: host?.keepTab ?? null,
       }),
       changed: () => panel?.refresh(),
     });
@@ -254,7 +257,6 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
 
   // The extension can't update itself, so General says how its release check went, and a newer
   // release gets one toast.
-  const host = storage.kind === 'extension' ? extensionHost() : null;
   const update = host ? () => updateStatus(storage, version) : null;
   if (update) {
     storage.onChange(UPDATE_KEY, () => panel?.refresh());

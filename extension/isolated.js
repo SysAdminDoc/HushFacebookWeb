@@ -672,17 +672,20 @@ const handlers = {
   download: ({ url, name, key }) => askWorker({ type: 'download', url, name, key }),
   'download:cancel': ({ key }) => askWorker({ type: 'download:cancel', key }),
   'update:check': () => askWorker({ type: 'update:check' }),
+  'tab:keep': ({ keep }) => askWorker({ type: 'tab:keep', keep }, { again: false }),
 };
 
 // Chrome stops an idle worker, and one stopped in the middle of an answer leaves the message
 // with none, so it's asked once more. A download's key makes the second ask find the download the
 // first one started instead of starting another, and a second update check waits out the first
-// one's cooldown.
-async function askWorker(message) {
+// one's cooldown. A tab hold is asked once: a let-go sent as the page goes into the back/forward
+// cache loses its answer, and sent again on the way back it would land after the page's new ask.
+async function askWorker(message, { again = true } = {}) {
   let answer;
   try {
     answer = await chrome.runtime.sendMessage(message);
-  } catch {
+  } catch (error) {
+    if (!again) throw error;
     answer = await chrome.runtime.sendMessage(message);
   }
   if (!answer?.ok) throw new Error(answer?.error || 'the browser could not save it');
@@ -723,6 +726,7 @@ async function onRequest(event) {
     if (type.startsWith('storage:') && !validStorageRequest(type, body)) throw new Error('that storage request is not allowed');
     if (type.startsWith('download') && !validDownloadRequest(type, body)) throw new Error('that download request is not allowed');
     if (type === 'update:check' && !(storageAccess.kind === 'facebook' && onlyKeys(body, []))) throw new Error('that update request is not allowed');
+    if (type === 'tab:keep' && !(storageAccess.kind === 'facebook' && onlyKeys(body, ['keep']) && typeof body.keep === 'boolean')) throw new Error('that tab request is not allowed');
     activeRequests.add(id);
     const result = await handler(body);
     if (type.startsWith('storage:') && !matchesCapturedAccount()) throw new Error('that storage request is not allowed');
@@ -743,6 +747,9 @@ document.addEventListener(HELLO_MAIN, (event) => {
   // and the page script skips those.
   const forwardStorageChange = async (changes) => {
     if (!matchesCapturedAccount()) return;
+    // A change to none of this page's keys (the worker's own records) needs no read and has
+    // nothing to say.
+    if (Object.keys(changes).every((key) => key !== STORAGE_REVISIONS_KEY && !storageAccess.values.has(key))) return;
     // Normal windows' activity events carry no private-tab data and need no storage read.
     if (memoryOnlyActivity && Object.keys(changes).every((key) => key !== STORAGE_REVISIONS_KEY && !persistentKeys.includes(key))) return;
     let currentSnapshot;

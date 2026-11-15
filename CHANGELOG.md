@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.30 (2026-11-15, unreleased)
+
+* Keep your place in the feed now also keeps the tab safe from Memory Saver in the extension. Chrome, Brave and Edge can throw out a tab that sits in the background for a while, and coming back to it loads Facebook again from the top, which nothing in the page can stop. With the switch on, the browser is asked to leave the Facebook tab alone. Turn the switch off, leave Facebook or close the tab and it's back to normal, and a page you come back to with Back asks again. Updating, reloading or turning the extension off and on lets go too, until the page is loaded again. Diagnostics shows it in a new row, Tab kept from Memory Saver. A browser without that setting just skips it, and the userscript can't reach the tab at all, so nothing changes there. The extension doesn't ask for any new permission.
+
 ## v0.0.29 (2026-11-15, unreleased)
 
 * Filter Marketplace listings can now show only listings from the places you name. Write one per line, a city and state like "Austin, TX" or just a state like "TX", and listings from anywhere else go, whatever Facebook's own location setting lets through. US states and Canadian provinces and territories work written out in full too (French names included). Case, extra spaces, accents and dots don't matter, and a country or ZIP code on the end ("Toronto, ON, Canada", "Austin, TX 78701") is fine. A listing that doesn't say its city and state stays. It covers search, Today's picks and the home feed, and the next page still loads as you scroll. When ten pages in a row lose every listing to the filter, Marketplace stops loading more, since Facebook would otherwise keep fetching one empty page after another.

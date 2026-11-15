@@ -1558,6 +1558,50 @@ test('a transient storage read failure retries the same callback without waiting
   assert.equal(storage.status().state, 'ready');
 });
 
+test("a change to the worker's own records, which the page can't see, isn't read or passed on", async () => {
+  const win = page();
+  const record = revisions('stable-generation', 5, { settings: 5 });
+  const chrome = fakeChrome({ settings: { current: true }, [STORAGE_REVISIONS_KEY]: record });
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  await new Promise((resolve) => storage.whenReady(resolve));
+  const before = chrome.reads.length;
+  chrome.emitStorageChange({ 'hushfacebookWeb.keptTabs': { newValue: { 5: { document: 'a', at: 1 } } } });
+  await settle();
+  assert.equal(chrome.reads.length, before);
+
+  chrome.data.settings = { fresh: true };
+  chrome.emitStorageChange({ settings: { oldValue: { current: true }, newValue: { fresh: true } } });
+  await settle();
+  assert.ok(chrome.reads.length > before, "a change to the page's own keys is still read");
+  assert.deepEqual(storage.get('settings'), { fresh: true });
+
+  // One change can carry both, and the page's part still arrives.
+  chrome.data.settings = { both: true };
+  chrome.emitStorageChange({
+    'hushfacebookWeb.keptTabs': { newValue: { 6: { document: 'b', at: 2 } } },
+    settings: { oldValue: { fresh: true }, newValue: { both: true } },
+  });
+  await settle();
+  assert.deepEqual(storage.get('settings'), { both: true });
+});
+
+test("the release check's record, which only the worker writes, still reaches the page when it changes", async () => {
+  const win = page();
+  const record = revisions('stable-generation', 5, { settings: 5 });
+  const first = { current: '0.0.2', latest: '0.0.3', url: null, newer: true, checkedAt: 5, triedAt: 6, state: 'offline', failures: 1, nextAt: 7, checking: null };
+  const chrome = fakeChrome({ settings: { current: true }, [STORAGE_REVISIONS_KEY]: record, extensionUpdate: first });
+  await startIsolated(win, chrome);
+  const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
+  await new Promise((resolve) => storage.whenReady(resolve));
+  assert.equal(storage.get('extensionUpdate')?.latest, '0.0.3');
+  const next = { ...first, latest: '0.0.4', checkedAt: 8 };
+  chrome.data.extensionUpdate = next;
+  chrome.emitStorageChange({ extensionUpdate: { oldValue: first, newValue: next } });
+  await settle();
+  assert.equal(storage.get('extensionUpdate')?.latest, '0.0.4');
+});
+
 test('an unverifiable storage callback reports an error without replacing confirmed data', async () => {
   const win = page();
   const record = revisions('stable-generation', 5, { settings: 5 });
@@ -1973,6 +2017,39 @@ test('Check now reaches the worker as a bare request and brings its answer back'
   assert.deepEqual(checks(), [], 'nothing extra rides along');
   assert.deepEqual((await forged.send('update:check')).result, { asked: false, nextAt: 5 });
   assert.deepEqual(checks(), [{ type: 'update:check' }]);
+});
+
+test('Keep your place asks the worker to keep its tab with a yes or no and nothing else', async () => {
+  const win = page();
+  const chrome = fakeChrome({}, { download: (message) => ({ ok: true, result: message.type === 'tab:keep' ? true : null }) });
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+  const asks = () => chrome.sent.filter((message) => message.type === 'tab:keep');
+  for (const payload of [undefined, {}, { keep: 'yes' }, { keep: 1 }, { keep: true, tab: 2 }]) {
+    await refused(forged.send('tab:keep', payload), /not allowed/, JSON.stringify(payload));
+  }
+  assert.deepEqual(asks(), [], 'nothing reaches the worker');
+  assert.equal((await forged.send('tab:keep', { keep: true })).result, true);
+  assert.equal((await forged.send('tab:keep', { keep: false })).result, true);
+  assert.deepEqual(asks(), [{ type: 'tab:keep', keep: true }, { type: 'tab:keep', keep: false }]);
+});
+
+test("a tab ask the worker drops isn't sent again, so it can't land after a newer one", async () => {
+  const win = page();
+  const chrome = fakeChrome({}, { download: () => ({ ok: true, result: true }) });
+  const send = chrome.runtime.sendMessage;
+  let tries = 0;
+  chrome.runtime.sendMessage = async (message) => {
+    if (message.type === 'tab:keep') tries++;
+    if (message.type === 'tab:keep' && tries === 1) throw new Error('The page keeping the extension port is moved into back/forward cache, so the message channel is closed.');
+    return send(message);
+  };
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+  await refused(forged.send('tab:keep', { keep: false }), /back\/forward cache/);
+  assert.equal(tries, 1);
+  assert.equal((await forged.send('tab:keep', { keep: true })).result, true);
+  assert.equal(tries, 2);
 });
 
 test("the page reads the release check's record as the worker saves it now and as it used to, and nothing else under that key", async () => {
@@ -2929,6 +3006,7 @@ test('a game frame sees only the game ads switch, and cannot change it', async (
   await refused(forged.send('storage:mutate', { key: 'settings', mutation: { set: { beta: false } } }), /not allowed/);
   await refused(forged.send('download', { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', key: '0f8e2a52-6a51-4c39-9d3b-0e9c3b0d6a11' }), /not allowed/);
   await refused(forged.send('update:check'), /not allowed/, 'nor ask for an update check');
+  await refused(forged.send('tab:keep', { keep: true }), /not allowed/, 'nor keep the tab from Memory Saver');
 });
 
 test('oversize, duplicate, piled-up and flooding requests are turned away', async () => {

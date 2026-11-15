@@ -58,6 +58,9 @@ export function extensionHost({ log } = {}) {
       // { asked, nextAt }: asked is false when the last check was too recent or GitHub asked
       // for a pause, which nextAt ends.
       checkForUpdate: () => bridge.request('update:check', undefined, { timeout: 30000 }),
+      // Keeps this tab from the browser's Memory Saver, or lets it go. True once done, false
+      // where the browser has no such setting.
+      keepTab: (keep) => bridge.request('tab:keep', { keep }),
     };
   }
   return host;
