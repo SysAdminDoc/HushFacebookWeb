@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.32 (2026-11-15, unreleased)
+
+* In the userscript, the error log could say a change to your seen posts or video settings wasn't saved when it had been. It happened when you switched Facebook accounts right after the change. Now it's only logged when a save really fails.
+
 ## v0.0.31 (2026-11-15, unreleased)
 
 * Screen readers should hear notices more reliably. An error notice sat inside the polite area that reads ordinary notices aloud, and some screen readers read a notice built like that twice. Errors and ordinary notices now each have their own area, and both are on the page before the first notice comes. A notice that shows up right as the page loads, or as settings open or close, appears at once but goes into its area a moment later, so it's read out instead of missed. On screen it looks the same, except an error now sits below the other notices in its stack.

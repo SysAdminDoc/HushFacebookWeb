@@ -297,7 +297,8 @@ export function createGmActivityRegister({
         pending.settled = true;
         collapseRaw(key);
         // Keep this cache-only epoch hidden until an actual later value replaces it.
-        log?.error('An ordinary activity change could not be saved', error);
+        // A save that landed and only then met a changed account was saved, so it isn't logged as lost.
+        if (!pending.acknowledged) log?.error('An ordinary activity change could not be saved', error);
         throw error;
       }
     })();

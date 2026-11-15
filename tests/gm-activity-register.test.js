@@ -583,3 +583,33 @@ test('record and byte limits refuse further rare repairs without compacting orde
     assert.equal(fresh(backend).read(SPEED), 2);
   }
 });
+
+test('an ordinary save that landed is not logged as unsaved when the account changes right after it', async () => {
+  const data = new Map();
+  const errors = [];
+  let ok = true;
+  let n = 0;
+  const register = createGmActivityRegister({
+    get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    list: () => [...data.keys()],
+    async set(key, value) { data.set(key, structuredClone(value)); ok = false; },
+    async remove(key) { data.delete(key); },
+    uuid: () => `id${++n}`,
+    log: { error: (message) => errors.push(message), warn() {} },
+  });
+  const saved = register.set(SPEED, 1.5, { allowed: () => ok });
+  await assert.rejects(saved, { code: 'ACTIVITY_ACCOUNT_CHANGED' });
+  assert.equal(data.get(SPEED)?.value, 1.5, 'the value was written');
+  assert.deepEqual(errors, []);
+
+  ok = true;
+  const failing = createGmActivityRegister({
+    get: () => undefined, list: () => [],
+    async set() { throw new Error('manager unavailable'); },
+    async remove() {},
+    uuid: () => `id${++n}`,
+    log: { error: (message) => errors.push(message), warn() {} },
+  });
+  await assert.rejects(failing.set(SPEED, 2), /manager unavailable/);
+  assert.deepEqual(errors, ['An ordinary activity change could not be saved']);
+});
