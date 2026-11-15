@@ -789,6 +789,144 @@ test("another tab's worker change before the load doesn't drop this tab's queued
   assert.deepEqual(storage.get('settings'), { old: true, other: true });
 });
 
+test("after a change this tab couldn't read, a snapshot outranks its queued write", async () => {
+  for (const write of ['set', 'remove']) {
+    const key = write === 'set' ? 'keepSpeed.rate' : 'resumeVideos.positions';
+    const newer = write === 'set' ? 3 : { 1234567890: { t: 90, d: 500, at: 2 } };
+    const saved = { [key]: write === 'set' ? 1 : { 1234567890: { t: 60, d: 500, at: 1 } } };
+    const firstLoad = deferred();
+    let loads = 0;
+    let push;
+    const storage = createBridgeStorage({
+      on(name, listener) { if (name === 'storage') push = listener; },
+      async request(type, payload) {
+        if (type === 'storage:load') {
+          if (++loads === 1) await firstLoad.promise;
+          return structuredClone(saved);
+        }
+        if (type === 'storage:set') saved[payload.key] = payload.value;
+        if (type === 'storage:remove') delete saved[payload.key];
+      },
+    }, { log: { error() {} } });
+    const outcome = write === 'set' ? storage.set(key, 2) : assert.rejects(storage.remove(key), /changed before/);
+    // Another tab changes it, and this tab can't read that change.
+    saved[key] = newer;
+    push({}, { error: 'read failed' });
+    firstLoad.resolve();
+    await settle();
+    // A worker change elsewhere repeats every stored key, this one with the other tab's value.
+    push({ [key]: newer, other: 1 }, { snapshot: true, revisions: {}, barriers: {} });
+    assert.equal(await storage.retry(), true, write);
+    await settle();
+    assert.deepEqual(saved[key], newer, `${write}: the queued write isn't sent over it`);
+    assert.deepEqual(storage.get(key), newer, write);
+    assert.equal(storage.status().state, 'ready', write);
+    await outcome;
+  }
+});
+
+test('Retry sends a failed write again when the key only heard its old value meanwhile', async () => {
+  const key = 'resumeVideos.positions';
+  const old = { 1234567890: { t: 60, d: 500, at: 1 } };
+  const mine = { 1234567890: { t: 90, d: 500, at: 2 } };
+  for (const heard of ['snapshot repeat', 'echo of an earlier write']) {
+    const saved = { [key]: old };
+    const sent = [];
+    const answer = deferred();
+    let failRemove = true;
+    let push;
+    const storage = createBridgeStorage({
+      on(name, listener) { if (name === 'storage') push = listener; },
+      async request(type, payload) {
+        if (type === 'storage:load') return structuredClone(saved);
+        sent.push(type);
+        if (type === 'storage:set') {
+          saved[payload.key] = payload.value;
+          return;
+        }
+        if (failRemove) {
+          await answer.promise;
+          throw new Error('storage unavailable');
+        }
+        delete saved[payload.key];
+      },
+    }, { log: { error() {} } });
+    await new Promise((resolve) => storage.whenReady(resolve));
+    await settle();
+    if (heard === 'echo of an earlier write') {
+      storage.set(key, mine);
+      await settle();
+    }
+    const stored = structuredClone(saved[key]);
+    const removing = assert.rejects(storage.remove(key), /storage unavailable/);
+    if (heard === 'snapshot repeat') push({ [key]: stored, other: 1 }, { snapshot: true, revisions: {}, barriers: {} });
+    else push({ [key]: stored }, {});
+    answer.resolve();
+    await removing;
+    assert.deepEqual(storage.get(key), stored, `${heard}: the page shows what is saved`);
+    assert.equal(storage.status().state, 'error', heard);
+    failRemove = false;
+    assert.equal(await storage.retry(), true, heard);
+    assert.equal(sent.filter((type) => type === 'storage:remove').length, 2, `${heard}: Retry sends the remove again`);
+    assert.equal(Object.hasOwn(saved, key), false, heard);
+    assert.equal(storage.get(key, 'removed'), 'removed', heard);
+    assert.equal(storage.status().state, 'ready', heard);
+  }
+});
+
+test("a bridge that throws right away doesn't leave the write counted as on its way", async () => {
+  const key = 'keepSpeed.rate';
+  const saved = { [key]: 1 };
+  let push;
+  let throwNow = true;
+  const storage = createBridgeStorage({
+    on(name, listener) { if (name === 'storage') push = listener; },
+    request(type, payload) {
+      if (type === 'storage:load') return Promise.resolve(structuredClone(saved));
+      if (throwNow) throw new Error('bridge unavailable');
+      saved[payload.key] = payload.value;
+      return Promise.resolve();
+    },
+  }, { log: { error() {} } });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  assert.doesNotThrow(() => storage.set(key, 2));
+  await settle();
+  throwNow = false;
+  // Another tab's change this tab can't read. The reload then finds it.
+  saved[key] = 3;
+  push({}, { error: 'read failed' });
+  assert.equal(await storage.retry(), true);
+  assert.equal(storage.get(key), 3, 'the write that never left is not kept over the saved value');
+});
+
+test("a write made while the first load was failing survives Retry's load and is sent", async () => {
+  const key = 'keepSpeed.rate';
+  const saved = { [key]: 1 };
+  let loads = 0;
+  const storage = createBridgeStorage({
+    on() {},
+    request(type, payload) {
+      if (type === 'storage:load') {
+        return ++loads === 1 ? Promise.reject(new Error('bridge unavailable')) : Promise.resolve(structuredClone(saved));
+      }
+      saved[payload.key] = payload.value;
+      return Promise.resolve();
+    },
+  }, { log: { error() {} } });
+  const told = [];
+  const atReady = [];
+  storage.onChange(key, (value, { source }) => told.push(`${value} ${source}`));
+  storage.whenReady(() => atReady.push(storage.get(key)));
+  await settle();
+  storage.set(key, 2);
+  assert.equal(await storage.retry(), true);
+  await settle();
+  assert.deepEqual(atReady, [2]);
+  assert.deepEqual(told, [], 'the older saved value is never shown');
+  assert.equal(saved[key], 2);
+  assert.equal(storage.get(key), 2);
+});
+
 test('seen posts recorded before load merge with saved history before the queued write is sent', async () => {
   const win = page();
   const load = deferred();

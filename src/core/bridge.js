@@ -178,6 +178,9 @@ export function createBridgeStorage(bridge, { log } = {}) {
   // reload can tell a write the saved copy already holds from one it may not.
   const lastWrite = new Map();
   const unanswered = new Map();
+  // How many storage failures had happened when this tab last wrote each key. One since then
+  // may have hidden another tab's change to it.
+  const failureAtWrite = new Map();
   let writeCount = 0;
   const queuedWrites = new Map();
   const confirmedWrites = new Map();
@@ -239,10 +242,20 @@ export function createBridgeStorage(bridge, { log } = {}) {
     log?.error('The extension was reloaded or updated, so this page has to be reloaded to save anything', error);
     setStatus('error', error);
   };
-  const request = (type, payload) => bridge.request(type, payload).catch((error) => {
-    noteReloaded(error);
-    throw error;
-  });
+  const request = (type, payload) => {
+    let answer;
+    // A bridge that throws right away fails the same way as one that rejects, so callers'
+    // bookkeeping (unanswered counts, queued sends) always gets its answer.
+    try {
+      answer = Promise.resolve(bridge.request(type, payload));
+    } catch (error) {
+      answer = Promise.reject(error);
+    }
+    return answer.catch((error) => {
+      noteReloaded(error);
+      throw error;
+    });
+  };
   const finish = () => {
     loaded = true;
     finishing = true;
@@ -267,11 +280,14 @@ export function createBridgeStorage(bridge, { log } = {}) {
     const startedAt = revision;
     const startedEpoch = revisionEpoch;
     const startedFailureRevision = storageFailureRevision;
-    // This tab's value stands for a key it wrote after the read began, or whose write was still
-    // unanswered then. One answered before it is in the saved copy, or something newer is.
+    // This tab's value stands for a key it wrote after the read began, whose write was still
+    // unanswered then, or whose write is still queued to go once this load is done. One answered
+    // before it is in the saved copy, or something newer is.
     const startedWrites = writeCount;
     const unansweredAtStart = new Set(unanswered.keys());
-    const keepsLocal = (key) => written.has(key) && (unansweredAtStart.has(key) || (lastWrite.get(key) ?? 0) > startedWrites);
+    const keepsLocal = (key) => written.has(key) && (
+      queuedWrites.has(key) || unansweredAtStart.has(key) || (lastWrite.get(key) ?? 0) > startedWrites
+    );
     loadPending = true;
     setStatus('loading');
     loadPromise = request('storage:load').then((saved) => {
@@ -403,9 +419,11 @@ export function createBridgeStorage(bridge, { log } = {}) {
       const barrier = meta?.barriers?.[key];
       // A snapshot repeats every stored key after a worker change. One it carries with no
       // revision may not have changed at all, so before the load it doesn't outrank this tab's
-      // own write. Another tab's real change to it arrives in a push of its own first.
+      // own write. Another tab's real change to it arrives in a push of its own first, unless a
+      // storage failure since the write hid that push, and then the snapshot is all there is.
       if (
         meta?.snapshot && (!loaded || loadPending) && written.has(key)
+        && failureAtWrite.get(key) === storageFailureRevision
         && !Number.isSafeInteger(accepted) && !Number.isSafeInteger(barrier)
       ) continue;
       if (Number.isSafeInteger(accepted) && accepted >= 0) {
@@ -486,9 +504,14 @@ export function createBridgeStorage(bridge, { log } = {}) {
     } catch (error) {
       log?.error("Saved activity couldn't be changed in the extension", error);
       if (confirmedWrites.get(key) === operation) {
-        if (directVersions.get(key) === version && (keyEvents.get(key) ?? 0) === events) {
+        const previous = !operation.loaded && before === undefined ? copy(pageLoadData.get(key)) : before;
+        // A push while this was on its way that left the key at its old value (a snapshot
+        // repeating it, or the echo of an earlier write of this tab's) brought nothing newer.
+        if (
+          directVersions.get(key) === version
+          && ((keyEvents.get(key) ?? 0) === events || same(data.get(key), previous))
+        ) {
           operation.failed = true;
-          const previous = !operation.loaded && before === undefined ? copy(pageLoadData.get(key)) : before;
           if (previous === undefined) data.delete(key);
           else data.set(key, previous);
           written.delete(key);
@@ -547,6 +570,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
     confirmedWrites.set(key, operation);
     written.add(key);
     lastWrite.set(key, ++writeCount);
+    failureAtWrite.set(key, storageFailureRevision);
     if (value === undefined) data.delete(key);
     else data.set(key, copy(value));
     persist(key, type, payload, operation);
@@ -661,6 +685,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       supersedeWrite(key);
       written.add(key);
       lastWrite.set(key, ++writeCount);
+      failureAtWrite.set(key, storageFailureRevision);
       if (stored === undefined) data.delete(key);
       else data.set(key, stored);
       persist(key, 'storage:set', { key, value: stored ?? null });

@@ -10,6 +10,8 @@
 * In the extension, Retry after a storage error kept this tab's own older value for anything it had saved before, like the playback speed, even when another tab had changed it since. It now takes the saved value unless this tab's change is still on its way.
 * In the extension, a speed, volume or other change made in the first moment after a page opened could be lost when another tab changed a setting at the same time.
 * In the extension, Retry after a failed clear or restore could write it over a newer change another tab had made in the meantime. The newer change stays now.
+* In the extension, Retry after a failed clear (like Forget every spot) sometimes did nothing at all, leaving the list in place, when the page had only heard the old list again while the clear was on its way. Retry sends the clear again now.
+* In the extension, a change made while the page was still loading could be saved over another tab's newer one when a storage error hid that tab's change. A change made after the first load failed went the other way: the page showed the older saved value even though yours was the one saved. Both now end with the page showing what's saved.
 
 ## v0.0.47 (2026-11-15, unreleased)
 
