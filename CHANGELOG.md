@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.34 (2026-11-15, unreleased)
+
+* Clean up Reels now shows a reel's name and caption when you Tab into the reel, the same as when you point at it, so you can see which button you're on. Away from Reels it no longer looks for reel parts every time the page grows, which saves work on a long feed.
+
 ## v0.0.33 (2026-11-15, unreleased)
 
 * Show seen posts in this tab now keeps its little marker out of sight while Facebook checks how much browser storage it's using, like the script's other markers already did. A tab where you'd turned it on before this update keeps showing seen posts.

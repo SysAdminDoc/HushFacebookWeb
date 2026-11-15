@@ -112,7 +112,7 @@ test('headings in a box that holds a video and other headings are not a reel', (
 test('the CSS hides the Follow button and fades the block until the reel is pointed at, each by its own choice', () => {
   const both = CLEAN_REELS_CSS(() => true);
   assert.match(both, new RegExp(`\\[${MARK}="follow"\\] \\{ display: none !important; \\}`));
-  assert.match(both, new RegExp(`\\[${MARK}="player"\\]:not\\(:hover\\) \\[${MARK}="overlay"\\] \\{ opacity: 0 !important; \\}`));
+  assert.match(both, new RegExp(`\\[${MARK}="player"\\]:not\\(:hover\\):not\\(:has\\(:focus-visible\\)\\) \\[${MARK}="overlay"\\] \\{ opacity: 0 !important; \\}`), 'keyboard focus inside the reel shows the block too');
   assert.match(both, /^@media \(hover: hover\) \{\n[^@]*opacity: 0[^@]*\n\}$/m, 'only where something can hover, so a touch screen keeps the caption');
   assert.match(both, new RegExp(`\\[${MARK}="audio"\\] \\{ display: none !important; \\}`));
   assert.doesNotMatch(CLEAN_REELS_CSS((key) => key === 'cleanUpReels.follow'), /opacity|audio/);
@@ -142,6 +142,41 @@ test('a reel that comes in later is marked once the page settles, and nothing wi
   assert.equal(timers.length, 0);
   cleaner.sync();
   assert.deepEqual(marked(doc), {});
+});
+
+test('away from reels a growing page is never searched, and coming back to a reel marks it', async () => {
+  const doc = page('<div id="host"></div>');
+  const timers = [];
+  let onReels = false;
+  let looked = 0;
+  const counted = (element) => { looked++; return styleOf(element); };
+  const cleaner = createReelCleaner({ doc, enabled: () => true, styleOf: counted, onReels: () => onReels, setTimer: (fn) => timers.push(fn) });
+  cleaner.start();
+  doc.getElementById('host').innerHTML = REEL();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(timers.length, 0, 'nothing scheduled off a reel page');
+  cleaner.sync();
+  assert.equal(looked, 0);
+  assert.deepEqual(marked(doc), {});
+  onReels = true;
+  cleaner.schedule();
+  timers.shift()();
+  assert.equal(cleaner.marked(), 4);
+});
+
+test('the feature follows the route: a reel page is tidied, a feed is left alone', async () => {
+  const listeners = [];
+  let type = 'home';
+  const router = { current: () => ({ type }), subscribe: (fn) => listeners.push(fn) };
+  const doc = page(REEL());
+  const rows = {};
+  cleanUpReels.setup({ doc, win: doc.defaultView, settings: null, diagnostics: { add: (name, read) => { rows[name] = read; } }, enabled: () => true, router });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(rows['Reel parts tidied'](), '0', 'nothing on Home');
+  type = 'reel';
+  listeners.forEach((fn) => fn({ type }));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.notEqual(rows['Reel parts tidied'](), '0', 'the reel is tidied once the page is one');
 });
 
 test('the switch starts off, sits with Reels and works without the page', () => {

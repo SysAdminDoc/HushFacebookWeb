@@ -20,8 +20,10 @@ const DELAY = 150;
 export const CLEAN_REELS_CSS = (get) => [
   get('cleanUpReels.follow') ? `[${MARK}="follow"] { display: none !important; }` : '',
   get('cleanUpReels.audio') ? `[${MARK}="audio"] { display: none !important; }` : '',
-  // Only where there's a pointer to hover with. On a touch screen the caption stays.
-  get('cleanUpReels.caption') ? `@media (hover: hover) {\n[${MARK}="overlay"] { transition: opacity 0.2s ease; }\n[${MARK}="player"]:not(:hover) [${MARK}="overlay"] { opacity: 0 !important; }\n}` : '',
+  // Only where there's a pointer to hover with. On a touch screen the caption stays. Keyboard focus
+  // inside the reel shows it too, so a keyboard user can see the button Tab lands on. Only the
+  // keyboard's (:focus-visible), so a click on See more doesn't keep it up once the pointer goes.
+  get('cleanUpReels.caption') ? `@media (hover: hover) {\n[${MARK}="overlay"] { transition: opacity 0.2s ease; }\n[${MARK}="player"]:not(:hover):not(:has(:focus-visible)) [${MARK}="overlay"] { opacity: 0 !important; }\n}` : '',
 ].filter(Boolean).join('\n');
 
 const clean = (text) => (text ?? '').replace(/\s+/g, ' ').trim();
@@ -107,12 +109,15 @@ export function markReels(doc, styleOf) {
   return marked;
 }
 
-export function createReelCleaner({ doc, enabled, styleOf, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
+// onReels says whether the page is a reel's. Anywhere else nothing is looked at, so a long feed
+// isn't searched for reel headings every time it grows.
+export function createReelCleaner({ doc, enabled, styleOf, onReels = () => true, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
   let timer = null;
   let marked = 0;
+  const wanted = () => enabled() && onReels();
   const sync = () => {
     timer = null;
-    if (enabled()) marked += markReels(doc, styleOf);
+    if (wanted()) marked += markReels(doc, styleOf);
   };
   const schedule = () => {
     timer ??= setTimer(sync, DELAY);
@@ -121,7 +126,7 @@ export function createReelCleaner({ doc, enabled, styleOf, setTimer = (fn, ms) =
     start() {
       const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
       new Observer(() => {
-        if (enabled()) schedule();
+        if (wanted()) schedule();
       }).observe(doc.body, { childList: true, subtree: true });
       sync();
     },
@@ -145,13 +150,16 @@ export default {
   ],
   css: CLEAN_REELS_CSS,
 
-  setup({ doc, win, settings, diagnostics, enabled }) {
+  setup({ doc, win, settings, diagnostics, enabled, router }) {
     const view = win ?? doc.defaultView;
     const styleOf = (element) => view.getComputedStyle(element);
-    const cleaner = createReelCleaner({ doc, enabled, styleOf });
+    // The reel viewer lives at /reel/ and /reels/. Without a router (a paused tab) it looks everywhere.
+    const onReels = () => !router || router.current()?.type === 'reel';
+    const cleaner = createReelCleaner({ doc, enabled, styleOf, onReels });
     const begin = () => cleaner.start();
     whenBodyReady(begin, doc);
     settings?.subscribe(() => cleaner.schedule());
+    router?.subscribe?.(() => cleaner.schedule());
     diagnostics?.add('Reel parts tidied', () => String(cleaner.marked()));
   },
 };
