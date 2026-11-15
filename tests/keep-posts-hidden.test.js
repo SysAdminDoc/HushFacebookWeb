@@ -137,7 +137,7 @@ test("the X hides the post, keeps it for the next load, and Facebook's handlers 
   // The feed loads again: post 1 is hidden from the start, post 2 isn't.
   const again = page(post(2) + post(1));
   const next = setup(again.win, { storage });
-  assert.equal(note(next.doc, 1), 'Hidden: Dismissed. Show');
+  assert.equal(note(next.doc, 1), 'Hidden: Same photo or video as a post you hid. Show');
   assert.equal(note(next.doc, 2), null);
   assert.equal(next.rows()['Hidden posts kept away'], '1 hidden on the page');
   next.posts.stop();
@@ -228,13 +228,13 @@ test('Undo brings the post back and forgets only what its X added', () => {
   const { win, heard } = page(post(1, { photo: false, extra: '<a href="/photo/?fbid=77777777&set=a.1">x</a>' }) + post(2));
   // Post 1 was already hidden by its words, so only post 2 has an X to press.
   const { doc, posts, toasts, rows } = setup(win, { storage });
-  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  assert.equal(note(doc, 1), 'Hidden: Starts the same as a post you hid. Show');
   press(win, xOf(doc, 2));
   assert.deepEqual(heard, []);
   assert.equal(rows()['Hidden posts remembered'], '4');
   toasts[0].action.run();
   assert.equal(note(doc, 2), null);
-  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show', 'a post hidden on an earlier visit stays hidden');
+  assert.equal(note(doc, 1), 'Hidden: Starts the same as a post you hid. Show', 'a post hidden on an earlier visit stays hidden');
   assert.deepEqual(storage.get(HIDDEN_KEY), { 'm:99999999': 10, [keysOf(1)[1]]: 20 });
   assert.equal(rows()['Hidden posts remembered'], '2');
   // Pressed again after the Undo, it hides again.
@@ -255,7 +255,37 @@ test("Undo keeps a key another post's X added, and the post sharing it stays hid
   press(win, xOf(doc, 2));
   toasts[1].action.run();
   assert.deepEqual(storage.get(HIDDEN_KEY), { 'm:44444444': 70, [textKey(words(1))]: 70 });
-  assert.equal(note(doc, 2), 'Hidden: Dismissed. Show', 'the photo post 1 hid is still hidden');
+  assert.equal(note(doc, 2), 'Hidden: Same photo or video as a post you hid. Show', 'the photo post 1 hid is still hidden');
+  posts.stop();
+});
+
+test('a post hidden for matching one you hid says what matched, the one you pressed says Dismissed, and each counts once', () => {
+  const short = { photo: false, text: 'Nice one' };
+  const link = share('Ten places to eat downtown');
+  const earlier = page(post(9, { ...short, extra: link }));
+  const storage = sharedStorage({ [HIDDEN_KEY]: {
+    'm:44444444': 10,
+    [textKey(words(2))]: 10,
+    [wordsKey(postOf(earlier.win.document, 9), 'Pat Example')]: 10,
+  } });
+  const { win } = page(post(1, { photo: false, extra: '<a href="/photo/?fbid=44444444&set=a.1">pic</a>' })
+    + post(2, { photo: false })
+    + post(3, { ...short, extra: link })
+    + post(4)
+    + post(5, { photo: false, extra: '<a href="/photo/?fbid=55555554&set=a.1">pic</a>' }));
+  const { doc, posts, rows, flip } = setup(win, { storage });
+  assert.equal(note(doc, 1), 'Hidden: Same photo or video as a post you hid. Show');
+  assert.equal(note(doc, 2), 'Hidden: Starts the same as a post you hid. Show');
+  assert.equal(note(doc, 3), 'Hidden: Same poster and words as a post you hid. Show');
+  assert.equal(rows()['Hidden posts kept away'], '3 hidden on the page');
+  press(win, xOf(doc, 4));
+  assert.equal(note(doc, 4), 'Hidden: Dismissed. Show');
+  // Post 5 shows post 4's photo. The next look at the page finds it, and only it is new.
+  flip(false);
+  flip(true);
+  assert.equal(note(doc, 4), 'Hidden: Dismissed. Show', 'the one you pressed');
+  assert.equal(note(doc, 5), 'Hidden: Same photo or video as a post you hid. Show');
+  assert.equal(rows()['Hidden posts kept away'], '4 hidden on the page');
   posts.stop();
 });
 
@@ -302,7 +332,7 @@ test('a post you hid is only hidden on Home and in the groups feed', () => {
     const storage = sharedStorage({ [HIDDEN_KEY]: { [keysOf(1)[0]]: 10 } });
     const { win } = page(post(1), href);
     const { doc, posts } = setup(win, { storage, href });
-    assert.equal(note(doc, 1), href.endsWith('/groups/feed/') ? 'Hidden: Dismissed. Show' : null, href);
+    assert.equal(note(doc, 1), href.endsWith('/groups/feed/') ? 'Hidden: Same photo or video as a post you hid. Show' : null, href);
     posts.stop();
   }
 });
@@ -328,7 +358,7 @@ test('a link shared with a few words is remembered by who posted it, its words a
     + post(4, { text: 'Nice one', extra: share('Ten places to eat downtown') })
     + post(1, { ...short, extra: share('Ten places to eat downtown') }));
   const next = setup(again.win, { storage });
-  assert.equal(note(next.doc, 1), 'Hidden: Dismissed. Show');
+  assert.equal(note(next.doc, 1), 'Hidden: Same poster and words as a post you hid. Show');
   for (const n of [2, 3, 4]) assert.equal(note(next.doc, n), null, `post ${n}`);
   next.posts.stop();
 });
@@ -359,7 +389,7 @@ test('a post with nothing to know it by is hidden until the page loads again', (
   button('Forget posts you hid').run();
   storage.remote(HIDDEN_KEY, { [keysOf(2)[0]]: 10 });
   assert.equal(note(doc, 1), null);
-  assert.equal(note(doc, 2), 'Hidden: Dismissed. Show');
+  assert.equal(note(doc, 2), 'Hidden: Same photo or video as a post you hid. Show');
   posts.stop();
 
   const again = page(bare());
@@ -423,11 +453,11 @@ test('switching it off shows the posts, on hides them again, and Forget posts yo
   const storage = sharedStorage({ [HIDDEN_KEY]: { [keysOf(1)[0]]: 10 } });
   const { win } = page(post(1) + post(2));
   const { doc, posts, flip, button, rows, toasts } = setup(win, { storage });
-  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  assert.equal(note(doc, 1), 'Hidden: Same photo or video as a post you hid. Show');
   flip(false);
   assert.equal(note(doc, 1), null);
   flip(true);
-  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  assert.equal(note(doc, 1), 'Hidden: Same photo or video as a post you hid. Show');
   button('Forget posts you hid').run();
   assert.equal(note(doc, 1), null);
   assert.deepEqual(storage.get(HIDDEN_KEY), {});
@@ -456,7 +486,7 @@ test("another tab's X hides the post here, and another tab forgetting the list s
   const { win } = page(post(1) + post(2));
   const { doc, posts } = setup(win, { storage });
   storage.remote(HIDDEN_KEY, { [keysOf(2)[0]]: 10 });
-  assert.equal(note(doc, 2), 'Hidden: Dismissed. Show');
+  assert.equal(note(doc, 2), 'Hidden: Same photo or video as a post you hid. Show');
   storage.remote(HIDDEN_KEY, {});
   assert.equal(note(doc, 2), null);
   posts.stop();
@@ -480,7 +510,7 @@ test('in page mode the data rule drops hidden stories from Home, keeps the ones 
   const inline = { transport: 'json-parse', method: '', url: '', host: '', path: '', friendlyName: '' };
   const drawn = JSON.stringify({ data: { viewer: { news_feed: { edges: [{ node: story('s1', '99887766'), cursor: 'c1' }] } } }, extensions: { is_final: false } });
   assert.equal(transformDocumentLine(drawn, [rule], inline), drawn);
-  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  assert.equal(note(doc, 1), 'Hidden: Same photo or video as a post you hid. Show');
   assert.equal(rows()['Hidden posts kept away'], '1 taken out of the data, 1 hidden on the page');
   // The same story in inline data the server didn't draw is taken out.
   const streamed = JSON.stringify({ data: { viewer: { news_feed: { edges: [{ node: story('s1', '99887766'), cursor: 'c1' }] } } } });
@@ -525,7 +555,7 @@ test("an X pressed before the extension's storage loads goes on top of the saved
   assert.equal(note(doc, 2), null);
   storage.load();
   assert.deepEqual(storage.get(HIDDEN_KEY), { 'm:77777777': 10, ...Object.fromEntries(keysOf(1).map((k) => [k, 50])) });
-  assert.equal(note(doc, 2), 'Hidden: Dismissed. Show', 'the saved list hides its post once it loads');
+  assert.equal(note(doc, 2), 'Hidden: Same photo or video as a post you hid. Show', 'the saved list hides its post once it loads');
   assert.equal(rows()['Hidden posts remembered'], '3');
   posts.stop();
 });
@@ -537,7 +567,7 @@ test("each account keeps its own list, and the page signing in as someone else l
   const activity = createActivityStorage({ storage: base, account: A, currentAccount: () => signedIn.account, log: { warn() {}, error() {}, info() {} } });
   const { win, heard } = page(post(1) + post(2) + post(3) + post(4, { photo: false, text: '' }));
   const { doc, posts, toasts, flip } = setup(win, { storage: activity.storage });
-  assert.equal(note(doc, 1), 'Hidden: Dismissed. Show');
+  assert.equal(note(doc, 1), 'Hidden: Same photo or video as a post you hid. Show');
   assert.equal(note(doc, 2), null, "the other account's list isn't read");
   press(win, xOf(doc, 3));
   press(win, xOf(doc, 4));

@@ -50,6 +50,12 @@ const KEEPABLE = /^(?:m:\d{6,32}|t:[0-9a-z]{2,14})$/;
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const MATCHED_BY = { m: 'same photo or video', t: 'same text', w: 'same poster and words' };
 const matchedBy = (key) => MATCHED_BY[key[0]];
+// The note on a post hidden for matching one you hid, so it doesn't read like the one you pressed.
+const LIKE = {
+  m: 'Same photo or video as a post you hid',
+  t: 'Starts the same as a post you hid',
+  w: 'Same poster and words as a post you hid',
+};
 
 // What a post is remembered by: its photo or video and its first words (core/seen-keys.js), or
 // for a post with none of those, who posted it with its words and its link's title.
@@ -130,6 +136,9 @@ export default {
     let hidden = 0;
     // Posts hidden with their X during this visit, so a held key or a second press does nothing.
     const dismissed = new WeakSet();
+    // Posts counted as kept away, so the switch coming back on or another tab's change doesn't
+    // count them again.
+    const counted = new WeakSet();
     // Kept hidden while they're on the page: the ones with nothing to remember them by, and the
     // ones whose X went on to Facebook, which draws its own card in them.
     const held = new Set();
@@ -175,7 +184,9 @@ export default {
         // Not one you hid, or not filled in yet: look again on the next retry.
         const key = keysOf(element).find(isKept);
         if (key === undefined) return false;
-        if (hider.hide(element, REASON, undefined, matchedBy(key)) && !dismissed.has(element)) {
+        const pressed = dismissed.has(element);
+        if (hider.hide(element, REASON, undefined, matchedBy(key), pressed ? REASON : LIKE[key[0]]) && !pressed && !counted.has(element)) {
+          counted.add(element);
           hidden++;
           changed();
         }
