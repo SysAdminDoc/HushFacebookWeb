@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.28 (2026-11-15, unreleased)
+
+* Saved photos no longer carry Facebook's ID. Facebook writes a code starting with FBMD into the photos it serves (the IPTC Special Instructions field), and it ended up in your downloads untouched. Now a photo is fetched first and saved without it. Only the ID and the small block Facebook keeps it in come out, and the picture itself isn't touched. If the photo can't be fetched that way, it's saved the old way, ID and all, so this never costs you a save. Checked on 2026-11-15 against a photo Facebook served: 134 bytes smaller, no FBMD left, and it opens the same. In Tampermonkey a photo usually no longer brings up the tab asking to allow downloads, since it only goes through the manager's download when that fetch fails.
+
 ## v0.0.27 (2026-11-15, unreleased)
 
 * A re: line with a made-up \p{...} name could hide every post. Names that happen to be built into JavaScript, like re:\P{constructor}, got past the check and matched anything, so the line hid the whole feed until the pause for lines that match nearly every post kicked in, and Keep hiding turned it right back on. Others, like re:\p{toString}, were skipped as "isn't a valid pattern", which doesn't say what's wrong. Both are skipped now as "uses an unknown \p{...} name", in Hide posts by words and in Filter Marketplace listings, which reads the same list. Real names like \p{Greek} work as before. The regex library this runs on (RE2JS) moved to 2.10.0 for the fix, which makes the script about 1.4 KiB bigger.

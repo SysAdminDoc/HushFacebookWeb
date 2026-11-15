@@ -6,13 +6,20 @@
 // through GM_xmlhttpRequest when the manager has it, since Facebook's servers don't let the
 // page itself read their files, and through fetch otherwise.
 //
+// A JPEG goes the other way round: fetched and saved through the link first, so the ID Facebook
+// writes into its photos comes out on the way (jpeg-meta.js). The manager saves it as served
+// only when that fetch fails. Facebook's photo server lets facebook.com read its files
+// (Access-Control-Allow-Origin, checked 2026-11-15), so the extension's fetch gets them.
+//
 // A video Facebook only streams comes as two parts, its picture and its sound. Both are
 // fetched the same way, joined into one MP4 (mp4-merge.js) and saved through the link.
 
+import { withoutFacebookId } from './jpeg-meta.js';
 import { mergeTracks } from './mp4-merge.js';
 
 // A long HD video on a slow connection takes minutes, and the limit covers the whole transfer.
 const TIMEOUT = 600000;
+const JPEG = /\.jpe?g$/i;
 export const MAX_JOIN_BYTES = 750e6;
 const RESERVED = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*']);
 
@@ -294,20 +301,45 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
       saveThroughLink(new (win.Blob ?? Blob)(pieces, { type: 'video/mp4' }), name, doc, container);
       return 'link';
     }
+    // A JPEG is fetched and saved through the link first, so Facebook's ID can come out of it
+    // on the way (jpeg-meta.js). If the fetch fails, the manager saves it as served.
+    let fetchFailed = null;
+    if (JPEG.test(name)) {
+      try {
+        return await fetchAndLink(true);
+      } catch (error) {
+        if (over) return undefined;
+        if (error.cancelled || !api.download) throw error;
+        fetchFailed = error;
+      }
+    }
     if (api.download) {
       try {
         await attempt(viaManager(api.download, url, name, deadline));
         return 'manager';
       } catch (error) {
         if (over) return undefined;
-        // Cancelled in the browser means no, and a final error stands. Anything else, fetch it instead.
+        // Cancelled in the browser means no, and a final error stands. Anything else, fetch it
+        // instead, unless that's what already failed: then its reason, which reads plainer than
+        // a manager's code, is the one to show.
         if (error.cancelled) throw cancelledError(error);
         if (error.final) throw error;
+        if (fetchFailed) throw fetchFailed;
       }
     }
-    const blob = await attempt(fetchBlob(url, { request: api.request, win, timeout: deadline }));
+    return fetchAndLink(false);
+  };
+  const fetchAndLink = async (clean) => {
+    const served = await attempt(fetchBlob(url, { request: api.request, win, timeout: deadline, type: clean ? 'arraybuffer' : 'blob' }));
     if (over) return undefined;
-    saveThroughLink(blob, name, doc, container);
+    let file = served;
+    if (clean) {
+      // A manager may hand back a Blob whatever type was asked for.
+      const buffer = typeof served?.arrayBuffer === 'function' ? await served.arrayBuffer() : served;
+      if (over) return undefined;
+      file = new (win.Blob ?? Blob)([withoutFacebookId(new Uint8Array(buffer))], { type: 'image/jpeg' });
+    }
+    saveThroughLink(file, name, doc, container);
     return 'link';
   };
   run().then((how) => settle(null, how), (error) => settle(error));

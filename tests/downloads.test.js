@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { fixtureLines, parseLine } from './helpers/fixtures.js';
+import { FACEBOOK_ID, ascii, iptc, jpeg, photoshop, resource, segment } from './helpers/jpeg.js';
 import { boxes, text, trackFile } from './helpers/mp4.js';
 import { extensionOf, fileName, saveFile, startSave } from '../src/core/download.js';
 import { createMediaIndex, MEDIA_MARKERS, photoFile, videoFiles } from '../src/core/media-index.js';
@@ -565,6 +566,76 @@ test("the manager's download is tried first, and a fetched copy is saved when it
   await assert.rejects(saveFile({ url: 'https://v.example.invalid/a.mp4', name: 'g.mp4', api: stopped, doc: fakeDoc() }),
     (error) => error.message === "Facebook's server stopped sending it (SERVER_CONTENT_LENGTH_MISMATCH)" && !error.cancelled);
   assert.deepEqual(fetched, [], 'a final error starts no fallback');
+});
+
+test("a JPEG is fetched and saved without Facebook's ID, and the manager saves it as served only when that fetch fails", async (t) => {
+  const made = [];
+  const createObjectURL = URL.createObjectURL;
+  URL.createObjectURL = (blob) => (made.push(blob), 'blob:x');
+  t.after(() => { URL.createObjectURL = createObjectURL; });
+  const url = 'https://scontent.example.invalid/v/1_n.jpg?stp=dst-jpg_tt6';
+  const app13 = segment(0xed, photoshop(resource(0x0404, [...iptc(2, 40, FACEBOOK_ID), 0])));
+  const served = jpeg(segment(0xe0, ascii('JFIF\0')), app13, segment(0xdb, [0, 1, 2, 3]));
+  const bytesOf = async (blob) => new Uint8Array(await blob.arrayBuffer());
+  const managed = [];
+  const manager = (options) => (managed.push(options.name), options.onload(), {});
+
+  // Through the manager's request (Tampermonkey), and through the page's fetch (the extension).
+  const asked = [];
+  const viaRequest = { download: manager, request: (options) => (asked.push([options.url, options.responseType]), options.onload({ status: 200, response: served.slice().buffer }), {}) };
+  const doc = fakeDoc();
+  assert.equal(await saveFile({ url, name: 'Pat photo 1.jpg', api: viaRequest, doc }), 'link');
+  assert.deepEqual(asked, [[url, 'arraybuffer']]);
+  const viaFetch = { fetch: async (address, options) => (asked.push([address, options.credentials]), new Response(served.slice())) };
+  assert.equal(await saveFile({ url, name: 'Pat photo 2.jpg', api: { download: manager }, doc, win: viaFetch }), 'link');
+  assert.deepEqual(asked.at(-1), [url, 'omit']);
+  assert.deepEqual(doc.clicks, ['Pat photo 1.jpg', 'Pat photo 2.jpg']);
+  assert.deepEqual(managed, [], 'the manager is not used when the fetch works');
+  for (const blob of made) {
+    assert.equal(blob.type, 'image/jpeg');
+    const saved = await bytesOf(blob);
+    assert.equal(Buffer.from(saved).includes('FBMD'), false);
+    assert.equal(saved.length, served.length - app13.length);
+  }
+
+  // A served file that isn't what it says is saved as it came.
+  made.length = 0;
+  const odd = new TextEncoder().encode('not a jpeg FBMD');
+  await saveFile({ url, name: 'odd.jpg', api: { request: (options) => (options.onload({ status: 200, response: odd.slice().buffer }), {}) }, doc: fakeDoc() });
+  assert.deepEqual([...await bytesOf(made[0])], [...odd]);
+
+  // The fetch fails: the manager saves it as served, and no second fetch follows.
+  let fetches = 0;
+  const refused = (options) => (fetches++, options.onload({ status: 403, response: null }), {});
+  assert.equal(await saveFile({ url, name: 'b.jpg', api: { download: manager, request: refused }, doc: fakeDoc() }), 'manager');
+  assert.deepEqual(managed, ['b.jpg']);
+  const failing = { download: (options) => options.onerror({ error: 'not_whitelisted' }), request: refused };
+  await assert.rejects(saveFile({ url, name: 'c.jpg', api: failing, doc: fakeDoc() }), /^Error: the server answered 403$/, "the fetch's reason, not the manager's code");
+  const stopped = { download: (options) => options.onerror({ error: "Facebook's server stopped sending it (SERVER_FAILED)", final: true }), request: refused };
+  await assert.rejects(saveFile({ url, name: 'd.jpg', api: stopped, doc: fakeDoc() }), /stopped sending it/, "the browser's final reason stands");
+  const cancelled = { download: (options) => options.onerror({ error: 'not_succeeded', details: 'USER_CANCELED' }), request: refused };
+  await assert.rejects(saveFile({ url, name: 'e.jpg', api: cancelled, doc: fakeDoc() }), (error) => error.cancelled === true);
+  assert.equal(fetches, 4, 'one fetch for each save');
+  await assert.rejects(saveFile({ url, name: 'f.jpg', api: { request: refused }, doc: fakeDoc() }), /answered 403/, 'no manager, no save');
+
+  // Other kinds keep the manager first. A throw from inside a try is caught by the save, so these
+  // count calls rather than failing from in there.
+  managed.length = 0;
+  const unfetched = { download: manager, request: () => (fetches++, {}) };
+  assert.equal(await saveFile({ url: 'https://scontent.example.invalid/v/1_n.png', name: 'g.png', api: unfetched, doc: fakeDoc() }), 'manager');
+  assert.deepEqual(managed, ['g.png']);
+  assert.equal(fetches, 5, 'a PNG the manager saved is never fetched');
+
+  // A cancel while the JPEG is coming in stops it and starts nothing else.
+  const aborted = [];
+  let started = 0;
+  const slow = { download: () => (started++, {}), request: () => ({ abort: () => aborted.push('request') }) };
+  const save = startSave({ url, name: 'h.jpg', api: slow, doc: fakeDoc() });
+  save.cancel();
+  await assert.rejects(save.done, (error) => error.cancelled === true);
+  await nextTurn();
+  assert.deepEqual(aborted, ['request']);
+  assert.equal(started, 0, 'a cancel starts no manager download');
 });
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
@@ -1362,12 +1433,18 @@ test('a save still going after a moment says so, and its Cancel stops the transf
   const toasts = [];
   const aborted = [];
   let finish = null;
+  // The photo's own fetch fails at once, so the manager has the slow transfer.
+  let fetches = 0;
   const api = {
     download: ({ onload }) => {
       finish = onload;
       return { abort: () => aborted.push('download') };
     },
-    request: () => assert.fail('a cancel started a fallback'),
+    request: ({ onerror }) => {
+      fetches++;
+      onerror();
+      return {};
+    },
   };
   downloadPhotos.setup({
     win, doc, api, net: { transformResponses: (rule) => rules.push(rule) }, router: { current: () => ({ href: win.location.href }) },
@@ -1386,6 +1463,7 @@ test('a save still going after a moment says so, and its Cancel stops the transf
   t.mock.timers.enable({ apis: ['setTimeout'] });
 
   const slow = shared.run(found, doc.body);
+  await nextTurn();
   t.mock.timers.tick(1499);
   assert.deepEqual(toasts, []);
   t.mock.timers.tick(1);
@@ -1404,11 +1482,13 @@ test('a save still going after a moment says so, and its Cancel stops the transf
   // One that finishes after the notice is up clears it and says Saved.
   toasts.length = 0;
   const later = shared.run(found, doc.body);
+  await nextTurn();
   t.mock.timers.tick(5000);
   finish();
   await later;
   assert.equal(toasts[0].dismissed, true);
   assert.deepEqual(toasts.map((entry) => entry.message), ['Saving Pat Example photo 9999999.jpg', 'Saved Pat Example photo 9999999.jpg']);
+  assert.equal(fetches, 2, 'one fetch for each save, and none after the cancel');
 });
 
 // The panel turns every error-level entry into a notice of its own, so a save that already
