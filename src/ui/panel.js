@@ -25,6 +25,8 @@ import { panelCss } from './styles.js';
 
 const ALWAYS_OPENS = TARGET === 'extension' ? "The extension's toolbar button" : "Your userscript manager's menu";
 const ERROR_TOAST_GAP_MS = 15000;
+// How long a toast live region sits in the page, after it goes in or moves, before it is heard.
+export const REGION_SETTLE_MS = 500;
 const KOFI_URL = 'https://ko-fi.com/X8K126YVER';
 const RELOAD_MARKER_KEY = 'hfw:settings-reload';
 const RELOAD_MARKER_MAX_AGE_MS = 90_000;
@@ -135,10 +137,42 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (sameAs(settings.get, previous) || (!sameAs(settingValue, after) && !sameAs(settingValue, previous))) resetUndo = null;
   };
 
-  const toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
+  // Each stack holds two live regions that are there from the start, since a region made with its
+  // first notice may not be heard. Errors go to the assertive one. A role=alert inside a polite
+  // region is two regions in one, which some screen readers speak twice. The third box is silent:
+  // see settle() below.
+  const liveRegions = (box) => {
+    const polite = h('div', { class: 'toast-live', 'aria-live': 'polite' });
+    const assertive = h('div', { class: 'toast-live', 'aria-live': 'assertive' });
+    const waiting = h('div', { class: 'toast-wait' });
+    box.append(polite, assertive, waiting);
+    return { box, polite, assertive, waiting };
+  };
+  const toasts = liveRegions(h('div', { class: 'toasts' }));
   // Small notices, about something just done on the page, sit in the bottom-left corner, off the
   // feed.
-  const corner = h('div', { class: 'toasts corner', 'aria-live': 'polite' });
+  const corner = liveRegions(h('div', { class: 'toasts corner' }));
+  // A region is heard only for what's added once it has settled in the page, and moving it (into
+  // the dialog and back) can start it over. A notice that comes right then, like the startup error
+  // or the ones waiting for the page's body, shows at once in the silent box and goes into its
+  // region a moment later, which is a change the screen reader hears.
+  let settled = false;
+  let settleTimer = null;
+  const held = new Map();
+  const settle = () => {
+    settled = false;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      settled = true;
+      for (const [el, region] of held) if (el.isConnected) region.append(el);
+      held.clear();
+    }, REGION_SETTLE_MS);
+  };
+  const moveStacks = (parent) => {
+    if (toasts.box.parentNode === parent && corner.box.parentNode === parent) return;
+    parent.append(toasts.box, corner.box);
+    settle();
+  };
   // The gear in Facebook's top bar (launcher-place.js says where).
   const launcher = h('button', { class: 'launcher', type: 'button', onclick: () => open() }, icon(GEAR_ICON));
   const nav = h('nav');
@@ -191,15 +225,16 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   dialog.addEventListener('close', () => {
     newDots.finish();
     announceSearch('');
-    root.append(toasts, corner);
+    moveStacks(root);
     if (opener?.isConnected && !opener.hidden && opener !== document.body && opener !== document.documentElement) opener.focus({ preventScroll: true });
     else if (!launcher.hidden) launcher.focus({ preventScroll: true });
     opener = null;
   });
   const fileInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onchange: importSettings });
   dialog.append(fileInput);
-  root.append(launcher, dialog, toasts, corner);
+  root.append(launcher, dialog, toasts.box, corner.box);
   document.body.append(host);
+  settle();
   const launcherSpot = trackLauncherSpot({ button: launcher, host, doc: document, router: environment.router });
 
   // The language chosen under General, for the panel and every toast after it. The parts drawn
@@ -248,11 +283,17 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // buttons share one box, so a narrow window wraps them together under the message.
   // small: a one-line notice in the bottom corner, for something just done on the page.
   function toast(message, { tone = 'info', action, actions = action ? [action] : [], duration, small = false } = {}) {
-    const el = h('div', { class: `toast ${tone}${small ? ' small' : ''}`, role: tone === 'error' ? 'alert' : null },
+    const el = h('div', { class: `toast ${tone}${small ? ' small' : ''}` },
       h('span', { text: typeof message === 'function' ? message() : message }),
       actions.length ? h('div', { class: 'actions' },
         ...actions.map((entry) => h('button', { type: 'button', text: t(entry.label), onclick: () => { if (!entry.keep) el.remove(); entry.run(); } }))) : null);
-    (small ? corner : toasts).append(el);
+    const stack = small ? corner : toasts;
+    const region = stack[tone === 'error' ? 'assertive' : 'polite'];
+    if (settled) region.append(el);
+    else {
+      stack.waiting.append(el);
+      held.set(el, region);
+    }
     // A notice the pointer is over, or that holds focus, stays until both move off it, then
     // gets its full time again.
     let hovered = false;
@@ -1181,7 +1222,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       newDots.start();
     }
     render();
-    dialog.append(toasts, corner);
+    moveStacks(dialog);
     if (!dialog.open) dialog.showModal();
     revealCurrentPage();
     if (pageId && pageId !== sectionId && !query) main.querySelector(`[data-group="${CSS.escape(sectionId)}"]`)?.scrollIntoView?.({ block: 'start' });

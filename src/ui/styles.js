@@ -212,7 +212,11 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .log .warn { color: var(--peach); }
 .log .error { color: var(--red); }
 .empty { margin: 12px 0 0; padding: 20px 22px; border: 1px solid var(--border); border-radius: 8px; color: var(--subtext); background: var(--surface0); font-size: 14px; }
-.toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); z-index: 2147483002; display: grid; gap: 8px; justify-items: center; }
+.toasts { --toast-gap: 8px; position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); z-index: 2147483002; display: grid; justify-items: center; }
+/* A stack's two live regions (errors last) and its silent box read as one list: the gap sits between notices, never
+   under an empty region. */
+.toast-live, .toast-wait { display: grid; gap: var(--toast-gap); justify-items: inherit; min-width: 0; max-width: 100%; }
+:is(.toast-live, .toast-wait):not(:empty) ~ :is(.toast-live, .toast-wait):not(:empty) { margin-top: var(--toast-gap); }
 .toast { display: flex; align-items: center; gap: 8px 16px; max-width: 100%; padding: 14px 18px; border-radius: 8px; background: var(--surface0); border: 1px solid var(--surface1); box-shadow: 0 10px 30px #0005; font-size: 14px; overflow-wrap: anywhere; flex-wrap: wrap; animation: rise 0.18s ease-out; }
 .toast span { min-width: 0; flex: 1 1 12em; }
 .toast .actions { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; margin-inline-start: auto; }
@@ -220,7 +224,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .toast button { flex: none; min-height: 32px; border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 4px; }
 /* The corner notices sit in the bottom-left corner, off the feed, one short line each, and make
    room for the gear when it's down there too. */
-.toasts.corner { left: 12px; bottom: 14px; transform: none; max-width: calc(100vw - 24px); gap: 6px; justify-items: start; }
+.toasts.corner { --toast-gap: 6px; left: 12px; bottom: 14px; transform: none; max-width: calc(100vw - 24px); justify-items: start; }
 .root:has(> .launcher[data-place="corner"]:not([hidden])) .toasts.corner { left: 60px; max-width: calc(100vw - 72px); }
 .toast.small { gap: 4px 10px; padding: 5px 8px 5px 12px; font-size: 13px; box-shadow: 0 4px 14px #0004; }
 .toast.small span { flex: 0 1 auto; }

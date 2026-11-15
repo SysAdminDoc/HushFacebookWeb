@@ -16,7 +16,7 @@ import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js
 import { features as allFeatures } from '../src/features/index.js';
 import { PAGES, SECTIONS } from '../src/features/sections.js';
 import { startFeatures } from '../src/core/start-features.js';
-import { mountPanel } from '../src/ui/panel.js';
+import { mountPanel, REGION_SETTLE_MS } from '../src/ui/panel.js';
 import { SEEN_SETTINGS_KEY } from '../src/ui/new-dots.js';
 import { QUICK_SETUPS } from '../src/ui/quick-setups.js';
 import menuEntry from '../src/features/menu/menu-entry.js';
@@ -1380,15 +1380,74 @@ test('a notice for something still running stays until it is dismissed, and its 
   timed.dismiss();
 });
 
+test('notices go into live regions that were there first, and an error is never a region inside one', async () => {
+  const { shadow, panel } = setup();
+  const settled = () => new Promise((resolve) => setTimeout(resolve, REGION_SETTLE_MS + 50));
+  const regions = (stack) => [...shadow.querySelectorAll(`${stack} > .toast-live`)].map((region) => region.getAttribute('aria-live'));
+  const where = (text) => {
+    const notice = [...shadow.querySelectorAll('.toast')].find((el) => el.textContent === text);
+    return `${notice.closest('.toasts').classList.contains('corner') ? 'corner' : 'middle'} ${notice.parentElement.getAttribute('aria-live') ?? 'waiting'}`;
+  };
+  // Before any notice, so the first one is heard.
+  assert.deepEqual(regions('.toasts:not(.corner)'), ['polite', 'assertive']);
+  assert.deepEqual(regions('.toasts.corner'), ['polite', 'assertive']);
+  assert.ok(!shadow.querySelector('.toasts').hasAttribute('aria-live'), 'the stack itself is no region');
+  assert.ok(![...shadow.querySelectorAll('.toast-wait')].some((box) => box.hasAttribute('aria-live') || box.hasAttribute('role')), 'the waiting box is silent');
+
+  // Right after the panel goes in, a notice shows at once and goes into its region a moment later.
+  panel.toast("Couldn't start Hide Reels", { tone: 'error', duration: Infinity });
+  panel.toast('Kept for this tab', { small: true, duration: Infinity });
+  assert.equal(where("Couldn't start Hide Reels"), 'middle waiting', 'shown before its region is heard');
+  assert.equal(where('Kept for this tab'), 'corner waiting');
+  await settled();
+  assert.equal(where("Couldn't start Hide Reels"), 'middle assertive');
+  assert.equal(where('Kept for this tab'), 'corner polite');
+
+  // Once settled, a notice goes straight in.
+  panel.toast('Saved Pat photo.jpg', { duration: Infinity });
+  panel.toast("Couldn't save your change. Try again", { tone: 'error', duration: Infinity });
+  panel.toast('Post hidden', { small: true, duration: Infinity });
+  panel.toast("Couldn't hide that post", { small: true, tone: 'error', duration: Infinity });
+  assert.equal(where('Saved Pat photo.jpg'), 'middle polite');
+  assert.equal(where("Couldn't save your change. Try again"), 'middle assertive');
+  assert.equal(where('Post hidden'), 'corner polite');
+  assert.equal(where("Couldn't hide that post"), 'corner assertive');
+  for (const notice of shadow.querySelectorAll('.toast')) {
+    assert.ok(!notice.hasAttribute('role'), notice.textContent);
+    assert.ok(!notice.parentElement.parentElement.closest('[aria-live], [role="alert"], [role="status"], [role="log"]'), `${notice.textContent} is in one region only`);
+  }
+
+  // Opening settings carries both stacks, regions and all, into the dialog, where they settle again.
+  panel.open('general');
+  assert.deepEqual(regions('dialog .toasts:not(.corner)'), ['polite', 'assertive']);
+  assert.equal(where("Couldn't save your change. Try again"), 'middle assertive');
+  panel.toast('Settings saved', { duration: Infinity });
+  assert.equal(where('Settings saved'), 'middle waiting');
+  await settled();
+  assert.equal(where('Settings saved'), 'middle polite');
+  // Opened again while open, nothing moves, so a notice is heard straight away.
+  panel.open('general');
+  panel.toast('Copied', { duration: Infinity });
+  assert.equal(where('Copied'), 'middle polite');
+  panel.close();
+  assert.ok(!shadow.querySelector('dialog .toast-live'));
+  assert.deepEqual(regions('.toasts.corner'), ['polite', 'assertive']);
+  // A notice dismissed while it waits isn't put back.
+  const gone = panel.toast('Undone', { duration: Infinity });
+  gone.dismiss();
+  await settled();
+  assert.ok(![...shadow.querySelectorAll('.toast')].some((el) => el.textContent === 'Undone'));
+});
+
 test('a small notice sits in the bottom-left corner and goes at its own time', () => {
   const { shadow, panel } = setup();
   mock.timers.enable({ apis: ['setTimeout'] });
   cleanups.push(() => mock.timers.reset());
   const ran = [];
   panel.toast('Post hidden', { small: true, duration: 2500, action: { label: 'Undo', run: () => ran.push('undo') } });
-  const notice = shadow.querySelector('.toasts.corner > .toast.small');
+  const notice = shadow.querySelector('.toasts.corner .toast.small');
   assert.equal(notice.textContent, 'Post hiddenUndo');
-  assert.equal(shadow.querySelector('.toasts:not(.corner) > .toast'), null, 'not in the middle of the page');
+  assert.equal(shadow.querySelector('.toasts:not(.corner) .toast'), null, 'not in the middle of the page');
   mock.timers.tick(2499);
   assert.ok(notice.isConnected);
   mock.timers.tick(1);
@@ -1402,10 +1461,10 @@ test('a small notice sits in the bottom-left corner and goes at its own time', (
   // Open settings, the corner moves into the dialog so it shows above it, and back on close.
   panel.open('general');
   panel.toast('Post hidden', { small: true, duration: 2500 });
-  assert.equal(Boolean(shadow.querySelector('dialog .toasts.corner > .toast.small')), true);
+  assert.equal(Boolean(shadow.querySelector('dialog .toasts.corner .toast.small')), true);
   panel.close();
   assert.equal(Boolean(shadow.querySelector('dialog .toasts.corner')), false);
-  assert.equal(Boolean(shadow.querySelector('.toasts.corner > .toast.small')), true);
+  assert.equal(Boolean(shadow.querySelector('.toasts.corner .toast.small')), true);
 });
 
 test('a failed Undo keeps the earlier choices until a retry saves them', async () => {

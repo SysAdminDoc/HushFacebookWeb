@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.31 (2026-11-15, unreleased)
+
+* Screen readers should hear notices more reliably. An error notice sat inside the polite area that reads ordinary notices aloud, and some screen readers read a notice built like that twice. Errors and ordinary notices now each have their own area, and both are on the page before the first notice comes. A notice that shows up right as the page loads, or as settings open or close, appears at once but goes into its area a moment later, so it's read out instead of missed. On screen it looks the same, except an error now sits below the other notices in its stack.
+
 ## v0.0.30 (2026-11-15, unreleased)
 
 * Keep your place in the feed now also keeps the tab safe from Memory Saver in the extension. Chrome, Brave and Edge can throw out a tab that sits in the background for a while, and coming back to it loads Facebook again from the top, which nothing in the page can stop. With the switch on, the browser is asked to leave the Facebook tab alone. Turn the switch off, leave Facebook or close the tab and it's back to normal, and a page you come back to with Back asks again. Updating, reloading or turning the extension off and on lets go too, until the page is loaded again. Diagnostics shows it in a new row, Tab kept from Memory Saver. A browser without that setting just skips it, and the userscript can't reach the tab at all, so nothing changes there. The extension doesn't ask for any new permission.
