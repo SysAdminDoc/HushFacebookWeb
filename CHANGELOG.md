@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.39 (2026-11-15, unreleased)
+
+* The release script's publish step can be run again when its check of the uploaded files fails. It used to see its own new tag and ask for a version bump, so a release whose check hit a network hiccup couldn't be finished.
+
 ## v0.0.38 (2026-11-15, unreleased)
 
 * Marketplace could stutter on a long scroll of results with a lot of listings filtered out. Each hidden card made the script look through the whole results grid again, every time the page changed. It now finds all the cards in one quick pass.

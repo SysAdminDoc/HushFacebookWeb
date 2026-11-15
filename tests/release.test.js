@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { ASSETS, EXTENSION_ZIP, NODE_BASELINE, PUBLISHED, RELEASE_WALK, STAGES, SUMS_FILE, bannerVersion, changelogSection, liveCommand, nodeVersionProblem, parseSums, record, refusal, servedProblems, sha256, sumsText, testCommand } from '../scripts/lib/release.mjs';
+import { ASSETS, EXTENSION_ZIP, NODE_BASELINE, PUBLISHED, RELEASE_WALK, STAGES, SUMS_FILE, bannerVersion, changelogSection, liveCommand, nodeVersionProblem, parseSums, publishAction, record, refusal, remoteTagCommit, servedProblems, sha256, sumsText, testCommand } from '../scripts/lib/release.mjs';
 import { renderMetaBlock } from '../scripts/meta.mjs';
 import { zip } from '../scripts/zip.mjs';
 
@@ -56,6 +56,36 @@ test('running a stage again forgets the ones after it', () => {
 test('unknown stages are refused by name', () => {
   assert.match(refusal('deploy', null, head), /no "deploy" stage\. Stages: preflight, build, notes, publish, live/);
   assert.deepEqual(STAGES, ['preflight', 'build', 'notes', 'publish']);
+});
+
+test('publish run again after its release went up checks it again instead of asking for a bump', () => {
+  const other = 'b'.repeat(40);
+  assert.deepEqual(publishAction(head, { here: null, origin: null, released: false }), { action: 'create' });
+  // A release with no tag anywhere is a draft, which isn't out.
+  assert.deepEqual(publishAction(head, { here: null, origin: null, released: true }), { action: 'create' });
+  // gh release create put the release up and a check of what GitHub serves failed, before the
+  // tag was fetched here.
+  assert.deepEqual(publishAction(head, { here: null, origin: head.commit, released: true }), { action: 'verify' });
+  assert.deepEqual(publishAction(head, { here: head.commit, origin: head.commit, released: true }), { action: 'verify' });
+  // A tag at this commit with no release on it gets one, since gh puts a release on a tag that's there.
+  assert.deepEqual(publishAction(head, { here: head.commit, origin: null, released: false }), { action: 'create' });
+  assert.deepEqual(publishAction(head, { here: null, origin: head.commit, released: false }), { action: 'create' });
+  for (const tags of [{ here: other, origin: null }, { here: null, origin: other }, { here: head.commit, origin: other }, { here: other, origin: head.commit }]) {
+    const result = publishAction(head, { ...tags, released: true });
+    assert.equal(result.action, undefined, JSON.stringify(tags));
+    assert.equal(result.refuse, 'v1.2.3 is already tagged at bbbbbbb, not at this commit. Bump the version first.');
+  }
+});
+
+test("a tag's commit on origin is its peeled one when the tag is annotated", () => {
+  // git ls-remote --tags origin refs/tags/<tag> 'refs/tags/<tag>^{}' on this repo, 2026-11-15:
+  // v0.0.1 is annotated, and the tags gh release create made are not.
+  const annotated = '68d198534054f297691c2490b4da00b6a36d1889\trefs/tags/v0.0.1\nd6ca6345238f4058ad6763fa695e49a5031fe7dc\trefs/tags/v0.0.1^{}';
+  assert.equal(remoteTagCommit(annotated, 'v0.0.1'), 'd6ca6345238f4058ad6763fa695e49a5031fe7dc');
+  assert.equal(remoteTagCommit(annotated.split('\n').reverse().join('\r\n'), 'v0.0.1'), 'd6ca6345238f4058ad6763fa695e49a5031fe7dc');
+  assert.equal(remoteTagCommit('9fb8edf34b5bf85d505e486ea5c9a35e79025182\trefs/tags/v0.0.21\n', 'v0.0.21'), '9fb8edf34b5bf85d505e486ea5c9a35e79025182');
+  assert.equal(remoteTagCommit('9fb8edf34b5bf85d505e486ea5c9a35e79025182\trefs/tags/v0.0.21\n', 'v0.0.2'), null);
+  assert.equal(remoteTagCommit('', 'v0.0.21'), null);
 });
 
 test('release notes are the whole CHANGELOG section for the version', () => {

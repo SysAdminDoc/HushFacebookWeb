@@ -143,6 +143,30 @@ function zippedVersion(packed) {
   }
 }
 
+// The commit refs/tags/<tag> points at in `git ls-remote` output asked for the tag and its ^{}
+// line, or null. An annotated tag's own line names the tag object, so its ^{} line wins.
+export function remoteTagCommit(lines, tag) {
+  let commit = null;
+  for (const line of lines.split(/\r?\n/)) {
+    const [sha, ref] = line.trim().split(/\s+/);
+    if (ref === `refs/tags/${tag}^{}`) return sha;
+    if (ref === `refs/tags/${tag}`) commit = sha;
+  }
+  return commit;
+}
+
+// What the publish stage does about the version's tag: { action: 'create' or 'verify' }, or
+// { refuse: why }. here and origin are the commits the tag points at in this clone and on origin,
+// or null. released says GitHub has a release on the tag. A tag at this commit with a release on
+// it is an earlier run of this stage that got as far as gh release create and then failed a
+// check, so this run checks what GitHub serves again. A tag anywhere else means the version is out.
+export function publishAction(head, { here, origin, released }) {
+  for (const commit of [here, origin]) {
+    if (commit && commit !== head.commit) return { refuse: `v${head.version} is already tagged at ${commit.slice(0, 7)}, not at this commit. Bump the version first.` };
+  }
+  return { action: (here || origin) && released ? 'verify' : 'create' };
+}
+
 // What's wrong with the files a published release serves, against the sums and version the
 // build stage recorded. served maps each asset name to the bytes downloaded back, or to
 // undefined when nothing came down. An empty list means GitHub serves exactly the build.

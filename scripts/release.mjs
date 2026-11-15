@@ -6,7 +6,8 @@
 //   npm run release -- --stage live        the release walk of the build on Facebook, through the build queue
 //   npm run release -- --stage publish     needs notes and live, then gh release create and checks what GitHub serves
 //
-// Add --dry-run to publish to see the gh command without creating anything. Live runs the
+// Add --dry-run to publish to see the gh command without creating anything. Publish run again
+// after a check failed finds its own release at this commit and only checks again. Live runs the
 // RELEASE_WALK scenarios unless HFW_ONLY names others, and --full runs every one. State lives in
 // .release/state.json and is tied to the version and commit, so a new commit starts over.
 
@@ -16,7 +17,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ASSETS, LIVE_BUDGET_MS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, liveCommand, nodeVersionProblem, record, refusal, servedProblems, sha256, sumsText, testCommand } from './lib/release.mjs';
+import { ASSETS, LIVE_BUDGET_MS, NOTES_FILE, PUBLISHED, SUMS_FILE, bannerVersion, changelogSection, isStage, liveCommand, nodeVersionProblem, publishAction, record, refusal, remoteTagCommit, servedProblems, sha256, sumsText, testCommand } from './lib/release.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DIST = path.join(ROOT, 'dist');
@@ -169,7 +170,6 @@ async function live(head, state, { full }) {
 
 async function publish(head, state, { dryRun }) {
   requireCleanMain();
-  requireUnreleased(head);
   exec('git', ['fetch', '--quiet', 'origin', 'main']);
   if (git('rev-parse', 'origin/main') !== head.commit) throw new Refused('Push main first. GitHub tags the release at the commit that was built.');
   await requireBuildUnchanged(state);
@@ -177,14 +177,22 @@ async function publish(head, state, { dryRun }) {
   if (sha256(await readFile(notesPath, 'utf8')) !== state.stages.notes.hash) throw new Refused(`dist/${NOTES_FILE} changed since the notes stage. Run --stage notes again.`);
   console.log(`Live check for this build: ${state.stages.live.out}`);
 
+  const here = exec('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${head.tag}^{commit}`], { allowFail: true }).out || null;
+  const origin = remoteTagCommit(exec('git', ['ls-remote', '--tags', 'origin', `refs/tags/${head.tag}`, `refs/tags/${head.tag}^{}`]).out, head.tag);
+  const released = Boolean(here || origin) && exec('gh', ['release', 'view', head.tag, '--repo', head.repo, '--json', 'tagName'], { allowFail: true }).status === 0;
+  const { refuse, action } = publishAction(head, { here, origin, released });
+  if (refuse) throw new Refused(refuse);
+  if (action === 'verify') console.log(`\n${head.tag} is already up at this commit, from an earlier run of this stage. Checking what GitHub serves again.`);
+
   // gh runs from the repo root, so short relative paths keep the printed command readable.
   const files = [...PUBLISHED, SUMS_FILE].map((name) => `dist/${name}`);
   const args = ['release', 'create', head.tag, ...files, '--title', head.tag, '--notes-file', `dist/${NOTES_FILE}`, '--target', head.commit, '--repo', head.repo];
   if (dryRun) {
-    console.log(`\nDry run. This would run:\ngh ${args.map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg)).join(' ')}`);
+    if (action === 'create') console.log(`\nDry run. This would run:\ngh ${args.map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg)).join(' ')}`);
+    else console.log('\nDry run. This would only check what GitHub serves.');
     return null;
   }
-  exec('gh', args);
+  if (action === 'create') exec('gh', args);
 
   const names = [...PUBLISHED, SUMS_FILE];
   const listed = JSON.parse(exec('gh', ['release', 'view', head.tag, '--repo', head.repo, '--json', 'assets']).out).assets.map((asset) => asset.name);
