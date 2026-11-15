@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.22 (2026-11-14, unreleased)
 
 * With Tap to play on, pressing play on a voice message in a chat did nothing. A voice message plays through a sound that's never drawn on the page, so there was nothing for the tap to land on and the start was refused like any autoplay. Now a sound with nothing on the page starts when it comes within two seconds of a press on a button (a click or tap, or Enter or Space). Videos still wait for a tap on the video itself, and a sound that starts on its own still waits.
 * Diagnostics has a new row, Space under the Stories row. Some people see a big empty gap between Home's Stories row and the first post. On Home this row measures that gap, and when it's bigger than usual it lists the blocks taking up the room by their size, padding, links, pictures and whether they hold a post, without copying any of the words on the page. Copy report includes it, so a report shows what's sitting there.
