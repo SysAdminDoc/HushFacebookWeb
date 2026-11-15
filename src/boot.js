@@ -15,6 +15,7 @@ import { LOAD_WAIT_MS, readTabPause, setTabPause, watchFeedLoads } from './core/
 import { installNetworkHooks } from './core/net/hooks.js';
 import { createRouter } from './core/route.js';
 import { startFeatures } from './core/start-features.js';
+import { toolbarCount } from './core/toolbar-count.js';
 import { accountFromCookie, createSettings } from './core/settings.js';
 import { createGmStorage, keepsSettings, UNKEPT_SETTINGS } from './core/storage.js';
 import { keepOutOfStorageReport } from './core/storage-report.js';
@@ -228,8 +229,20 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     });
   }
 
-  // What only the extension can do: its own update check, and keeping the tab from Memory Saver.
+  // What only the extension can do: its own update check, keeping the tab from Memory Saver, and
+  // the hidden count on its toolbar button, which is what Overview's card adds up.
   const host = storage.kind === 'extension' ? extensionHost() : null;
+  if (host) {
+    const badge = toolbarCount({
+      win, doc, log,
+      send: host.showCount,
+      count: () => Object.values(hider?.counts() ?? {}).reduce((sum, value) => sum + value, 0) + diagnostics.dropped(),
+      enabled: () => !tabPaused && settings.get('paused') !== true && settings.get('ui.toolbarCount') !== false,
+    });
+    hider?.subscribe(badge.changed);
+    diagnostics.subscribe(badge.changed);
+    settings.subscribe(badge.changed);
+  }
   if (!tabPaused) {
     startFeatures({
       features, net, settings, log, unavailable, networkUnavailable: networkFailed ? 'network' : 'page',

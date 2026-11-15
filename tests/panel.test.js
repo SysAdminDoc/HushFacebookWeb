@@ -2036,6 +2036,26 @@ test('General says how a failed check went, never that you have the newest relea
   assert.equal(shadow.querySelector('[data-key="update:check"]'), null, 'no Check now without the extension to ask');
 });
 
+test("the toolbar count's switch is in General in the extension only, and search finds it", () => {
+  const plain = setup();
+  plain.panel.open('general');
+  assert.equal(plain.shadow.querySelector('[data-key="ui.toolbarCount"]'), null, 'the userscript has no toolbar button of its own');
+
+  const { shadow, panel, win, settings } = setup({ update: () => checkStatus() });
+  panel.open('general');
+  const toggle = shadow.querySelector('[data-key="ui.toolbarCount"]');
+  assert.equal(toggle.checked, true, 'on until it is turned off');
+  assert.match(describedText(shadow, toggle)[0], /^How many posts were hidden in this tab, on the extension's button in the browser toolbar\./);
+  const search = shadow.querySelector('[data-key="search"]');
+  search.value = 'badge';
+  search.dispatchEvent(new win.Event('input', { bubbles: true }));
+  const found = shadow.querySelector('.result [data-key="ui.toolbarCount"]');
+  assert.ok(found, 'search finds it');
+  found.checked = false;
+  found.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(settings.get('ui.toolbarCount'), false);
+});
+
 test('Check now asks the extension and says why when it was too soon or GitHub asked for a pause', async () => {
   const answers = [];
   let answer = { asked: true, nextAt: null };

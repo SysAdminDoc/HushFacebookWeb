@@ -62,6 +62,8 @@ export function extensionHost({ log } = {}) {
       // Keeps this tab from the browser's Memory Saver, or lets it go. True once done, false
       // where the browser has no such setting.
       keepTab: (keep) => bridge.request('tab:keep', { keep }),
+      // The hidden count on this tab's toolbar button (toolbar-count.js). 0 takes it off.
+      showCount: (count) => bridge.request('badge:count', { count }),
     };
   }
   return host;

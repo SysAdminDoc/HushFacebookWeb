@@ -734,6 +734,7 @@ const handlers = {
   },
   'update:check': () => askWorker({ type: 'update:check' }),
   'tab:keep': ({ keep }) => askWorker({ type: 'tab:keep', keep }, { again: false }),
+  'badge:count': ({ count }) => askWorker({ type: 'badge:count', count }),
 };
 
 // Chrome stops an idle worker, and one stopped in the middle of an answer leaves the message
@@ -788,6 +789,7 @@ async function onRequest(event) {
     if (type.startsWith('download') && !validDownloadRequest(type, body)) throw new Error('that download request is not allowed');
     if (type === 'update:check' && !(storageAccess.kind === 'facebook' && onlyKeys(body, []))) throw new Error('that update request is not allowed');
     if (type === 'tab:keep' && !(storageAccess.kind === 'facebook' && onlyKeys(body, ['keep']) && typeof body.keep === 'boolean')) throw new Error('that tab request is not allowed');
+    if (type === 'badge:count' && !(storageAccess.kind === 'facebook' && onlyKeys(body, ['count']) && Number.isSafeInteger(body.count) && body.count >= 0)) throw new Error('that toolbar request is not allowed');
     activeRequests.add(id);
     const result = await handler(body);
     if (type.startsWith('storage:') && !matchesCapturedAccount()) throw new Error('that storage request is not allowed');

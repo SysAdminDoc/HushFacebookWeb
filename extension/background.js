@@ -166,6 +166,7 @@ function validWorkerRequest(message) {
   if (!isStorageRecord(message) || utf8Bytes(message, MESSAGE_MAX_BYTES) > MESSAGE_MAX_BYTES) return false;
   if (message.type === 'storage:recover' || message.type === 'settings:pending' || message.type === 'update:check') return onlyKeys(message, ['type']);
   if (message.type === 'tab:keep') return onlyKeys(message, ['type', 'keep']) && typeof message.keep === 'boolean';
+  if (message.type === 'badge:count') return onlyKeys(message, ['type', 'count']) && Number.isSafeInteger(message.count) && message.count >= 0;
   if (message.type === 'storage:mutate') {
     if (!onlyKeys(message, ['type', 'key', 'mutation', 'generation', 'baseRevisions'])) return false;
     if (WATCHED_KEY.test(message.key)) return onlyKeys(message.mutation, ['watched']) && HfwWatched.validWatchedOperation(message.mutation.watched);
@@ -1315,13 +1316,65 @@ function armOpenAlarm(records) {
   return ends.length ? chrome.alarms.create(OPEN_ALARM, { when: Math.min(...ends) + 1000 }) : undefined;
 }
 
-// The button for one tab: a "!" and why, or back to how it is everywhere else.
-function showOpenFailed(tabId, failed) {
-  const title = failed ? OPEN_FAILED : chrome.runtime.getManifest().action?.default_title ?? 'HushFacebook Web settings';
-  return Promise.allSettled([
-    (async () => chrome.action.setBadgeText({ tabId, text: failed ? '!' : null }))(),
-    (async () => chrome.action.setTitle({ tabId, title }))(),
+// What the toolbar button says on one Facebook tab, the first that applies: "!" when the settings
+// didn't open there, NEW for a newer release (the text every tab shares, so the tab sets none of
+// its own), then how many posts were hidden on its page, 999+ past 999. Saved in storage.session
+// by tab id as { failed, count, document, at }, document being the page (documentId, none in
+// Firefox) that sent the count, so a page left late can't take the count of the page after it
+// off the button. Chrome forgets a tab's badge when the tab closes, and so does this.
+const BADGES_KEY = 'hushfacebookWeb.tabBadges';
+const UPDATE_COLOR = '#9D70EB';
+const FAILED_COLOR = '#DA0018';
+const COUNT_COLOR = '#5F6368';
+const changeBadges = sessionRecords(BADGES_KEY, { keptFor: Infinity, kept: 128 });
+const countText = (count) => (count > 999 ? '999+' : count > 0 ? String(count) : null);
+
+async function newerShown() {
+  try {
+    return await chrome.action.getBadgeText({}) === 'NEW';
+  } catch {
+    return false;
+  }
+}
+
+// A tab with no text of its own shows NEW when there is one, in NEW's color.
+async function paintBadge(tabId, record) {
+  const failed = record?.failed === true;
+  const text = failed ? '!' : record?.count > 0 && !(await newerShown()) ? countText(record.count) : null;
+  const color = failed ? FAILED_COLOR : text ? COUNT_COLOR : UPDATE_COLOR;
+  await Promise.allSettled([
+    (async () => chrome.action.setBadgeText({ tabId, text }))(),
+    (async () => chrome.action.setBadgeBackgroundColor({ tabId, color }))(),
   ]);
+}
+
+// A badge whose record can't be read or saved is still painted, without the count.
+function changeBadge(tabId, change) {
+  return changeBadges(async (records) => {
+    const record = change(records[tabId]);
+    if (record === null) return false;
+    records[tabId] = { ...record, at: Date.now() };
+    await paintBadge(tabId, records[tabId]);
+    return true;
+  });
+}
+
+// The button for one tab: a "!" and why, or back to how it is everywhere else.
+async function showOpenFailed(tabId, failed) {
+  const title = failed ? OPEN_FAILED : chrome.runtime.getManifest().action?.default_title ?? 'HushFacebook Web settings';
+  await changeBadge(tabId, (record) => ({ ...record, failed })).catch(() => paintBadge(tabId, { failed }));
+  await (async () => chrome.action.setTitle({ tabId, title }))().catch(() => {});
+}
+
+// A page's hidden count. A page Chrome is prerendering isn't the tab's page yet, and one being
+// left only takes its own count off, never the count of the page that came after it.
+function showCount(sender, count) {
+  if (sender.documentLifecycle === 'prerender') return false;
+  const page = sender.documentId ?? null;
+  const leaving = LEAVING.has(sender.documentLifecycle);
+  return changeBadge(sender.tab.id, (record) => (
+    leaving && record && record.document !== page ? null : { ...record, document: page, count }
+  ));
 }
 
 function rememberOpen(tabId, opener) {
@@ -1382,6 +1435,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     delete records[tabId];
   }).catch(() => {});
   changeKeptTabs(async (records) => {
+    delete records[tabId];
+  }).catch(() => {});
+  changeBadges(async (records) => {
     delete records[tabId];
   }).catch(() => {});
 });
@@ -1552,10 +1608,14 @@ async function saveUpdate(record) {
 async function showUpdateBadge(record) {
   try {
     await chrome.action.setBadgeText({ text: record.newer ? 'NEW' : '' });
-    if (record.newer) await chrome.action.setBadgeBackgroundColor({ color: '#9D70EB' });
+    if (record.newer) await chrome.action.setBadgeBackgroundColor({ color: UPDATE_COLOR });
   } catch {
     // The badge is a hint. General shows the same record.
   }
+  // A tab's hidden count gives way to NEW, and comes back once it's gone.
+  await changeBadges(async (records) => {
+    await Promise.all(Object.keys(records).map((tabId) => paintBadge(Number(tabId), records[tabId])));
+  }).catch(() => {});
 }
 
 async function armUpdateAlarm(when, now) {
@@ -1703,8 +1763,9 @@ releaseEarlierKeeps().catch(() => {});
 // back/forward cache or 'pending_deletion' otherwise). Letting go of its tab is all such a page
 // may ask.
 const LEAVING = new Set(['cached', 'pending_deletion']);
-const leavingTopFrame = (sender, message) => message?.type === 'tab:keep' && message.keep === false
-  && LEAVING.has(sender.documentLifecycle) && trustedSender({ ...sender, frameId: 0 });
+const leavingTopFrame = (sender, message) => (
+  (message?.type === 'tab:keep' && message.keep === false) || (message?.type === 'badge:count' && message.count === 0)
+) && LEAVING.has(sender.documentLifecycle) && trustedSender({ ...sender, frameId: 0 });
 
 // Only Facebook's top frame talks to the worker, with a known request shape, at a bounded rate.
 // The isolated script checks the same things first; this holds even if a page gets past it.
@@ -1738,6 +1799,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
               ? checkForUpdateNow()
             : message?.type === 'tab:keep'
               ? keepTab(sender, message.keep)
+            : message?.type === 'badge:count'
+              ? Promise.resolve(showCount(sender, message.count))
       : null;
   if (!task) return false;
   task.then(

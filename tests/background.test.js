@@ -28,7 +28,7 @@ const deferred = () => {
 function worker({ version = '0.0.4', saved = {}, session = {}, release = null, tabs = {}, writeError = null, readError = null, badgeError = null, alarmSet = true, items = new Map(), finishes = 'in_progress', scheme = 'chrome-extension', discardError = null, gone = [], hold = null } = {}) {
   const data = structuredClone(saved);
   // badge: the button everywhere; tabButton: [tabId, badge or title] for one tab.
-  const calls = { fetch: 0, badge: [], tabButton: [], alarms: [], created: [], activated: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [], erased: [], discardable: [] };
+  const calls = { fetch: 0, badge: [], tabButton: [], alarms: [], created: [], activated: [], reloaded: [], sent: [], downloads: [], told: [], cancelled: [], erased: [], discardable: [], tabColor: [] };
   const listeners = { updated: [], downloadChanged: [], messages: [], storageChanged: [], removed: [], alarm: [], installed: [], startup: [] };
   const tellStorage = (changes) => queueMicrotask(() => (
     listeners.storageChanged.forEach((listener) => listener(changes, 'local'))
@@ -74,7 +74,9 @@ function worker({ version = '0.0.4', saved = {}, session = {}, release = null, t
         else calls.tabButton.push([tabId, text]);
       },
       setTitle: async ({ tabId, title }) => void calls.tabButton.push([tabId, title]),
-      setBadgeBackgroundColor: async () => {},
+      setBadgeBackgroundColor: async ({ tabId, color }) => void (tabId !== undefined && calls.tabColor.push([tabId, color])),
+      // The text every tab shares, which is all the worker reads.
+      getBadgeText: async ({ tabId }) => (tabId === undefined ? calls.badge.at(-1) ?? '' : undefined),
     },
     alarms: {
       onAlarm: { addListener: (fn) => listeners.alarm.push(fn) },
@@ -2015,6 +2017,88 @@ test('the wait ends on the alarm, and a page that asks too late lights the "!" a
   assert.equal(await pendingAsk(late, topFrame(4)), false);
   assert.deepEqual(late.calls.tabButton, [[4, '!'], [4, OPEN_FAILED]]);
   assert.equal(await late.context.openSettings({ id: 4, index: 0, url: 'https://www.facebook.com/' }), 'reloaded', 'an old record is no reason to wait');
+});
+
+// What one tab's button says now: its last badge text, titles left out.
+const tabText = (current, tabId) => current.calls.tabButton
+  .filter(([id, value]) => id === tabId && !(typeof value === 'string' && value.startsWith('HushFacebook Web'))).at(-1)?.[1];
+const tabColor = (current, tabId) => current.calls.tabColor.filter(([id]) => id === tabId).at(-1)?.[1];
+const showCount = (current, count, sender = topFrame(5)) => ask(current, { type: 'badge:count', count }, sender);
+
+test("a Facebook tab's button shows how many posts were hidden there, 999+ past 999, and nothing at 0", async () => {
+  const current = worker();
+  assert.equal((await showCount(current, 3)).ok, true);
+  assert.equal(tabText(current, 5), '3');
+  assert.equal(tabColor(current, 5), '#5F6368');
+  await showCount(current, 999);
+  assert.equal(tabText(current, 5), '999');
+  await showCount(current, 1000);
+  assert.equal(tabText(current, 5), '999+', 'four characters at most');
+  await showCount(current, 4, topFrame(6));
+  assert.equal(tabText(current, 6), '4');
+  await showCount(current, 0);
+  assert.equal(tabText(current, 5), null, 'back to what every tab shows');
+  assert.equal(tabText(current, 6), '4', 'each tab its own');
+  assert.deepEqual(current.calls.badge, [], 'the button elsewhere keeps its badge');
+
+  for (const message of [{ type: 'badge:count' }, { type: 'badge:count', count: -1 }, { type: 'badge:count', count: 1.5 }, { type: 'badge:count', count: '2' }, { type: 'badge:count', count: 2, tab: 6 }]) {
+    assert.equal((await ask(current, message, topFrame(6))).ok, false, JSON.stringify(message));
+  }
+  assert.equal(tabText(current, 6), '4');
+  const prerendered = await showCount(current, 8, { ...topFrame(7), frameId: 2, documentLifecycle: 'prerender' });
+  assert.equal(prerendered.result, false, 'a prerendered page is not the tab yet');
+  assert.equal(tabText(current, 7), undefined);
+  assert.equal((await showCount(current, 2, topFrame(8, 'https://example.com/'))).ok, false, 'only Facebook');
+
+  // A closed tab's count goes with it.
+  current.listeners.removed.forEach((fn) => fn(6));
+  await settle();
+  assert.deepEqual(Object.keys(current.session['hushfacebookWeb.tabBadges']), ['5']);
+});
+
+test('"!" and NEW come before the count, and the count comes back once they go', async () => {
+  // A tab whose settings never opened keeps its "!", and a click puts its count back.
+  const failed = worker({ session: { [OPENS_KEY]: { 5: { at: Date.now() - 61 * 1000 } } }, tabs: { 5: true } });
+  await failed.context.sweepOpens();
+  assert.equal(tabText(failed, 5), '!');
+  await showCount(failed, 12);
+  assert.equal(tabText(failed, 5), '!');
+  assert.equal(await failed.context.openSettings({ id: 5, index: 0, url: 'https://www.facebook.com/' }), 'opened');
+  assert.equal(tabText(failed, 5), '12');
+  assert.deepEqual(failed.calls.tabButton.at(-1), [5, 'HushFacebook Web settings']);
+
+  // NEW is the text every tab shares, so a tab with a count sets none while it shows.
+  const newer = worker({ release: { tag_name: 'v0.0.10' } });
+  await showCount(newer, 3);
+  await showCount(newer, 4, topFrame(6));
+  await newer.context.checkForUpdate(1000);
+  assert.deepEqual(newer.calls.badge, ['NEW']);
+  assert.equal(tabText(newer, 5), null);
+  assert.equal(tabText(newer, 6), null);
+  assert.equal(tabColor(newer, 5), '#9D70EB', "in NEW's color");
+  await showCount(newer, 5);
+  assert.equal(tabText(newer, 5), null, 'a count that comes in later waits too');
+  newer.setRelease({ tag_name: 'v0.0.4' });
+  await newer.context.checkForUpdate(1000 + DAY);
+  assert.deepEqual(newer.calls.badge, ['NEW', '']);
+  assert.equal(tabText(newer, 5), '5');
+  assert.equal(tabText(newer, 6), '4');
+});
+
+test("a page being left takes only its own count off the button, never the next page's", async () => {
+  const current = worker();
+  const first = { ...topFrame(5), documentId: 'first' };
+  await showCount(current, 9, first);
+  // The next page in the tab sends before the page it replaced is gone.
+  await showCount(current, 2, { ...topFrame(5), documentId: 'second' });
+  const leaving = { ...first, frameId: 3, documentLifecycle: 'pending_deletion' };
+  assert.equal((await showCount(current, 0, leaving)).result, false);
+  assert.equal(tabText(current, 5), '2');
+  // Gone to another site: the page left is the tab's last, so its count comes off.
+  await showCount(current, 7, { ...topFrame(6), documentId: 'third' });
+  assert.equal((await showCount(current, 0, { ...topFrame(6), documentId: 'third', frameId: 4, documentLifecycle: 'cached' })).result, true);
+  assert.equal(tabText(current, 6), null);
+  assert.equal((await showCount(current, 3, { ...topFrame(6), documentId: 'third', frameId: 4, documentLifecycle: 'cached' })).ok, false, 'a page being left can only take it off');
 });
 
 test('Keep your place keeps its own tab from Memory Saver and lets it go, where the browser can', async () => {

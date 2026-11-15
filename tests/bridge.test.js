@@ -2616,6 +2616,21 @@ test('Keep your place asks the worker to keep its tab with a yes or no and nothi
   assert.deepEqual(asks(), [{ type: 'tab:keep', keep: true }, { type: 'tab:keep', keep: false }]);
 });
 
+test('the toolbar count reaches the worker as a whole number and nothing else', async () => {
+  const win = page();
+  const chrome = fakeChrome({}, { download: (message) => ({ ok: true, result: message.type === 'badge:count' ? true : null }) });
+  await startIsolated(win, chrome);
+  const forged = forgedChannel(win);
+  const counts = () => chrome.sent.filter((message) => message.type === 'badge:count');
+  for (const payload of [undefined, {}, { count: -1 }, { count: 1.5 }, { count: '3' }, { count: Number.MAX_SAFE_INTEGER + 1 }, { count: 3, tab: 2 }]) {
+    await refused(forged.send('badge:count', payload), /not allowed/, JSON.stringify(payload));
+  }
+  assert.deepEqual(counts(), [], 'nothing reaches the worker');
+  assert.equal((await forged.send('badge:count', { count: 12 })).result, true);
+  assert.equal((await forged.send('badge:count', { count: 0 })).result, true);
+  assert.deepEqual(counts(), [{ type: 'badge:count', count: 12 }, { type: 'badge:count', count: 0 }]);
+});
+
 test("a tab ask the worker drops isn't sent again, so it can't land after a newer one", async () => {
   const win = page();
   const chrome = fakeChrome({}, { download: () => ({ ok: true, result: true }) });
@@ -3589,6 +3604,7 @@ test('a game frame sees only the game ads switch, and cannot change it', async (
   await refused(forged.send('download', { url: 'https://scontent.xx.fbcdn.net/v/a.jpg', name: 'a.jpg', key: '0f8e2a52-6a51-4c39-9d3b-0e9c3b0d6a11' }), /not allowed/);
   await refused(forged.send('update:check'), /not allowed/, 'nor ask for an update check');
   await refused(forged.send('tab:keep', { keep: true }), /not allowed/, 'nor keep the tab from Memory Saver');
+  await refused(forged.send('badge:count', { count: 1 }), /not allowed/, 'nor set the toolbar count');
 });
 
 test('oversize, duplicate, piled-up and flooding requests are turned away', async () => {
