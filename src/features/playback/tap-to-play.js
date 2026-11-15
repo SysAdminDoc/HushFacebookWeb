@@ -22,8 +22,17 @@
 //
 // A start counts for the file the element was playing then, not for the element. Facebook
 // reuses one video element for another video, and that next video waits like any other.
+//
+// Sound with no box on the page has nowhere for a press to land. A voice message in a chat
+// plays through an <audio> with no controls, which the browser never draws, or through one
+// that isn't on the page at all, so its play button sits somewhere else (#14). That kind
+// starts when a button was just pressed: a click or tap on it, or Enter or Space on it.
 
 const NEARBY_LEVELS = 4;
+const CONTROL = 'button, [role="button"]';
+const PRESS_KEYS = new Set(['Enter', ' ']);
+// How soon after the press a sound with no box has to start.
+export const UNSEEN_PRESS_MS = 2000;
 export const VIEWER_INPUT_MS = 5000;
 export const VIEWER_OPEN_MS = 15000;
 
@@ -53,6 +62,16 @@ function isNear(media, target) {
   }
   return false;
 }
+
+// Whether the browser draws the element: on the page, with a width and a height.
+export function hasBox(media) {
+  if (media.isConnected === false) return false;
+  const rect = media.getBoundingClientRect();
+  return rect.right - rect.left > 0 && rect.bottom - rect.top > 0;
+}
+
+// Whether a press went to a button: a pointer, or a key that presses one.
+export const pressedControl = (press) => (press.key === undefined || PRESS_KEYS.has(press.key)) && Boolean(press.target?.closest?.(CONTROL));
 
 export default {
   id: 'tapToPlay',
@@ -84,12 +103,12 @@ export default {
     const listen = { capture: true, passive: true };
     win.addEventListener('pointerdown', (event) => {
       if (!event.isTrusted) return;
-      lastPress = { point: { x: event.clientX, y: event.clientY } };
+      lastPress = { point: { x: event.clientX, y: event.clientY }, target: event.target, at: now() };
       lastInput = now();
     }, listen);
     win.addEventListener('keydown', (event) => {
       if (!event.isTrusted) return;
-      lastPress = { target: event.target };
+      lastPress = { target: event.target, key: String(event.key ?? ''), at: now() };
       lastInput = now();
     }, listen);
     win.addEventListener('wheel', (event) => {
@@ -98,6 +117,7 @@ export default {
 
     const aimedAt = (media) => {
       if (!lastPress) return false;
+      if (!hasBox(media)) return now() - lastPress.at <= UNSEEN_PRESS_MS && pressedControl(lastPress);
       if (lastPress.point) return pointInside(media.getBoundingClientRect(), lastPress.point);
       return isNear(media, lastPress.target);
     };

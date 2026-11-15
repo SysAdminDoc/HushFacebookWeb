@@ -57,7 +57,9 @@ const scenarios = [
   { id: 'hidden-note', fixture: 'hiddenNote', screenshot: true },
   { id: 'post-dates', fixture: 'postDates', screenshot: true },
   { id: 'stories-gap', fixture: 'storiesGap', viewport: { width: 1000, height: 1000 } },
+  { id: 'voice-clip', fixture: 'voiceClip' },
 ];
+const DRIVEN = { panel, voiceClip };
 // HFW_BROWSER_ONLY=id,id runs just those scenarios.
 const only = process.env.HFW_BROWSER_ONLY?.split(',').filter(Boolean) ?? [];
 const chosen = only.length ? scenarios.filter((scenario) => only.includes(scenario.id)) : scenarios;
@@ -108,6 +110,29 @@ async function panel(page, engine) {
   return { searchFocus: landed.focused, undoFocus: undone.focused, restored: true };
 }
 
+// Tap to play with a chat's voice message (#14), clicked and keyed for real.
+async function voiceClip(page) {
+  const { box } = await page.evaluate(() => window.hfwBrowserFixture.prepareVoiceClip());
+  assert.equal(box, 0, 'An <audio> with no controls got a box');
+  const settled = async (name) => {
+    await page.waitForFunction((key) => !['waiting', undefined].includes(window.hfwBrowserFixture.voiceClipState()[key]), name);
+    return (await page.evaluate(() => window.hfwBrowserFixture.voiceClipState()))[name];
+  };
+  assert.equal(await settled('unprompted'), 'NotAllowedError', 'A sound started with no press');
+  await page.click('#clip-text');
+  assert.equal(await settled('text'), 'NotAllowedError', 'A click on words started a sound');
+  await page.click('#clip-detached');
+  assert.equal(await settled('detached'), 'played', 'The play button did not play a sound that is off the page');
+  await page.click('#clip-tagged');
+  assert.equal(await settled('tagged'), 'played', 'The play button did not play an <audio> with no controls');
+  await page.focus('#clip-key');
+  await page.keyboard.press('Enter');
+  assert.equal(await settled('key'), 'played', 'Enter on the play button did not play');
+  await page.click('#clip-elsewhere');
+  assert.equal(await settled('video'), 'NotAllowedError', 'A button away from a video started it');
+  return page.evaluate(() => window.hfwBrowserFixture.voiceClipState());
+}
+
 async function run() {
   for (const engine of [chromium, firefox]) {
     const name = engine.name();
@@ -131,8 +156,8 @@ async function run() {
             page.on('pageerror', (error) => errors.push(error.message));
             await page.goto(origin, { waitUntil: 'load', timeout: 5000 });
             await page.waitForFunction(() => Boolean(window.hfwBrowserFixture));
-            const detail = scenario.fixture === 'panel'
-              ? await panel(page, name)
+            const detail = DRIVEN[scenario.fixture]
+              ? await DRIVEN[scenario.fixture](page, name)
               : await page.evaluate(({ fixture, ...options }) => window.hfwBrowserFixture[fixture](options), scenario);
             assert.deepEqual(errors, [], `${name} ${scenario.id} raised a page error`);
             if (scenario.screenshot) await page.screenshot({ path: join(output, `${name}-${scenario.id}.png`), animations: 'disabled' });

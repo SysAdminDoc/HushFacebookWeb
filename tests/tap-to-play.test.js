@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import tapToPlay, { VIEWER_INPUT_MS, VIEWER_OPEN_MS, isViewer, pointInside, sameResource, shouldAllowPlay } from '../src/features/playback/tap-to-play.js';
+import tapToPlay, { UNSEEN_PRESS_MS, VIEWER_INPUT_MS, VIEWER_OPEN_MS, hasBox, isViewer, pointInside, sameResource, shouldAllowPlay } from '../src/features/playback/tap-to-play.js';
 
 const REFUSED = { name: 'NotAllowedError' };
 
@@ -183,6 +183,47 @@ test('a key pressed on a control next to the video starts it', async () => {
   listeners.keydown({ isTrusted: true, target: button });
   await video.play();
   assert.equal(video.plays, 1);
+});
+
+test('a voice message with no box on the page plays from the button just pressed (#14)', async () => {
+  const { FakeMedia, listeners, activation, clock } = harness({ route: { type: 'messages', path: '/messages/t/1/' } });
+  const button = { closest: (selector) => (selector.includes('[role="button"]') ? button : null) };
+  const text = { closest: () => null };
+  // An <audio> with no controls, which the browser never draws, and one not on the page.
+  const unseen = () => {
+    const audio = new FakeMedia('blob:voice');
+    audio.getBoundingClientRect = () => ({ left: 0, top: 0, right: 0, bottom: 0 });
+    return audio;
+  };
+  const detached = () => Object.assign(new FakeMedia('blob:voice'), { isConnected: false });
+  await assert.rejects(unseen().play(), REFUSED);
+
+  activation.isActive = true;
+  // A press at the page's corner is inside a zero box, but it wasn't on a button.
+  listeners.pointerdown({ isTrusted: true, clientX: 0, clientY: 0, target: text });
+  await assert.rejects(unseen().play(), REFUSED);
+  listeners.pointerdown({ isTrusted: false, clientX: 300, clientY: 400, target: button });
+  await assert.rejects(detached().play(), REFUSED);
+
+  listeners.pointerdown({ isTrusted: true, clientX: 300, clientY: 400, target: button });
+  const clip = unseen();
+  await clip.play();
+  assert.equal(clip.plays, 1);
+  await detached().play();
+  // A sound starting long after the press waits, and so does one after Tab moved off a button.
+  clock.now += UNSEEN_PRESS_MS + 1;
+  await assert.rejects(detached().play(), REFUSED);
+  listeners.keydown({ isTrusted: true, target: button, key: 'Tab' });
+  await assert.rejects(detached().play(), REFUSED);
+  listeners.keydown({ isTrusted: true, target: button, key: 'Enter' });
+  await detached().play();
+  listeners.keydown({ isTrusted: true, target: button, key: ' ' });
+  await unseen().play();
+
+  // A video on the page still needs the press inside its box, even from a button.
+  listeners.pointerdown({ isTrusted: true, clientX: 300, clientY: 400, target: button });
+  await assert.rejects(new FakeMedia('blob:feed').play(), REFUSED);
+  assert.equal(hasBox({ isConnected: true, getBoundingClientRect: () => ({ left: 5, top: 5, right: 6, bottom: 6 }) }), true);
 });
 
 const pressOnVideo = (listeners, activation) => {
