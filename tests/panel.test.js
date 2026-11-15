@@ -353,6 +353,72 @@ test('a Quick setup with nothing left to change says so instead of counting zero
   assert.ok(!last().querySelector('button'));
 });
 
+test('a Quick setup that changes nothing offers no Undo while another choice is still waiting to save', async () => {
+  const data = new Map();
+  const mutations = [];
+  const storage = {
+    kind: 'extension',
+    get: (key, fallback) => (data.has(key) ? structuredClone(data.get(key)) : fallback),
+    set: (key, value) => void data.set(key, structuredClone(value)),
+    remove: (key) => void data.delete(key),
+    mutate(key, mutation) {
+      let resolve;
+      let reject;
+      const promise = new Promise((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+      mutations.push({
+        accept() {
+          const next = applyObjectMutation(data.get(key), mutation);
+          data.set(key, structuredClone(next));
+          resolve(structuredClone(next));
+        },
+        reject,
+      });
+      return promise;
+    },
+    onChange() {},
+  };
+  const { win, shadow, panel, settings } = setup({ storage, migrations: [], features: allFeatures });
+  const last = () => shadow.querySelector('.toast:last-child');
+  panel.open('overview');
+  shadow.querySelector('[data-key="quick:privacy"]').click();
+  mutations[0].accept();
+  await tick();
+  assert.match(last().querySelector('span').textContent, /^Changed \d+ settings\.$/);
+
+  panel.open('general');
+  const input = shadow.querySelector('[data-key="ui.hiddenNote"]');
+  input.checked = true;
+  input.dispatchEvent(new win.Event('change'));
+  mutations[1].reject(new Error('Extension context disconnected'));
+  await tick();
+  assert.equal(settings.get('ui.hiddenNote'), false);
+  assert.ok(shadow.querySelector('[data-key="save-recovery"]'));
+
+  panel.open('overview');
+  shadow.querySelector('[data-key="quick:privacy"]').click();
+  await tick();
+  assert.equal(last().querySelector('span').textContent, 'Nothing to change. Those settings were already on.');
+  assert.ok(!last().querySelector('button'));
+  assert.equal(mutations.length, 2);
+});
+
+test('Back to defaults that only clears a typed value says the settings are back to their defaults', () => {
+  const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];
+  const { win, shadow, panel } = setup({ features });
+  panel.open('feed');
+  const input = shadow.querySelector('[data-key="demo.days"]');
+  input.value = '99';
+  input.dispatchEvent(new win.Event('change'));
+  panel.open('overview');
+  shadow.querySelector('[data-key="quick:defaults"]').click();
+  const last = shadow.querySelector('.toast:last-child');
+  assert.equal(last.querySelector('span').textContent, 'Settings are back to their defaults.');
+  assert.ok(!last.querySelector('button'));
+});
+
 test('Back to defaults clears invalid drafts even when saved settings already use their defaults', () => {
   const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];
   const { win, shadow, panel, settings } = setup({ features });

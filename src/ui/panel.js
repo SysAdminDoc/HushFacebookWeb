@@ -595,16 +595,21 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         if (dialog.open) render();
       };
       const succeeded = (changed) => {
+        // Typed values Back to defaults throws away are a change the person can see.
+        const clearedDrafts = id === 'defaults' && drafts.size > 0;
         if (id === 'defaults') {
           drafts.clear();
           fieldErrors.clear();
           render();
         }
-        const undo = rememberUndo(previous, { kind: 'quick', focusKey: key });
+        // A Quick setup that found its switches already on wrote nothing, so it has nothing to undo,
+        // even while a failed save leaves another choice showing that isn't saved yet.
+        const undo = (changed || id === 'defaults') && rememberUndo(previous, { kind: 'quick', focusKey: key });
         if (dialog.open) render();
-        const message = changed
-          ? plural(changed, 'Changed {count} setting.', 'Changed {count} settings.')
-          : t(id === 'defaults' ? 'Nothing to change. Your settings were already at their defaults.' : 'Nothing to change. Those settings were already on.');
+        let message;
+        if (changed) message = plural(changed, 'Changed {count} setting.', 'Changed {count} settings.');
+        else if (undo || clearedDrafts) message = t('Settings are back to their defaults.');
+        else message = t(id === 'defaults' ? 'Nothing to change. Your settings were already at their defaults.' : 'Nothing to change. Those settings were already on.');
         if (undo) offerUndo(message);
         else toast(message);
       };
