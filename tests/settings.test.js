@@ -4,8 +4,11 @@ import { setLanguage } from '../src/core/i18n.js';
 import { createLog } from '../src/core/log.js';
 import {
   accountFromCookie, accountTag, buildSchema, claimFor, createSettings, EXPORT_SCHEMA, isValid,
-  legacyAccountTag, legacyStorageKeyFor, olderThan, storageKeyFor,
+  legacyAccountTag, legacyStorageKeyFor, MIGRATIONS, olderThan, storageKeyFor,
 } from '../src/core/settings.js';
+
+// A record that has run every change there is.
+const ALL_MIGRATIONS = MIGRATIONS.map((migration) => migration.id);
 import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
 import { buildDiagnosticReport } from '../src/ui/diagnostic-report.js';
 import { applyQuickSetup } from '../src/ui/quick-setups.js';
@@ -1022,7 +1025,7 @@ test('an upgrade from v0.0.2 copies the old record to one account and keeps it f
   assert.equal(first.get('beta.words'), 'crypto');
   assert.equal(first.get('alpha'), true, 'and not the shared ones');
   assert.deepEqual(storage.dump()[storageKeyFor(a)], { beta: true, 'beta.words': 'crypto' });
-  assert.deepEqual(storage.dump()[`${storageKeyFor(a)}.migrated`], ['split-ad-switch'], 'the claim stays out of its receipt');
+  assert.deepEqual(storage.dump()[`${storageKeyFor(a)}.migrated`], ALL_MIGRATIONS, 'the claim stays out of its receipt');
   assert.deepEqual(storage.dump()[legacy], { beta: true, 'beta.words': 'crypto' }, 'the old record stays for going back');
   assert.deepEqual(storage.dump()[`${legacy}.migrated`], ['split-ad-switch', claimFor(a)]);
 
@@ -1046,7 +1049,7 @@ test('an upgrade from v0.0.2 copies the old record to one account and keeps it f
   // The account that took it can take it again if its own record goes missing.
   storage.remove(storageKeyFor(a));
   assert.equal(createSettings({ storage, features, account: a, log }).get('beta.words'), 'crypto');
-  assert.deepEqual(storage.dump()[`${storageKeyFor(a)}.migrated`], ['split-ad-switch'], 'its own claim stays out of its receipt too');
+  assert.deepEqual(storage.dump()[`${storageKeyFor(a)}.migrated`], ALL_MIGRATIONS, 'its own claim stays out of its receipt too');
 
   // The migrations the old record already had count, not the shared ones, so none runs on it twice.
   const flip = [{ id: 'flip-beta', run: (raw) => { if (Object.hasOwn(raw, 'beta')) raw.beta = !raw.beta; } }];
@@ -1094,7 +1097,7 @@ test('the old ad switch turned off carries over to search and Marketplace once',
   assert.equal(settings.get('hideSponsoredSearch'), false);
   assert.equal(settings.get('hideSponsoredMarketplace'), false);
   assert.deepEqual(storage.dump().settings, { hideSponsoredPosts: false, hideSponsoredSearch: false, hideSponsoredMarketplace: false });
-  assert.deepEqual(storage.dump()['settings.migrated'], ['split-ad-switch']);
+  assert.deepEqual(storage.dump()['settings.migrated'], ALL_MIGRATIONS);
   // Turning search back on sticks: the change doesn't run a second time.
   settings.set('hideSponsoredSearch', true);
   const again = createSettings({ storage, features: adSwitches });
@@ -1108,7 +1111,7 @@ test('the ad switch change leaves people who had it on, and new installs, alone 
   const fresh = createMemoryStorage();
   const settings = createSettings({ storage: fresh, features: adSwitches });
   assert.equal(fresh.dump().settings, undefined, 'nothing is written for someone with no settings');
-  assert.deepEqual(fresh.dump()['settings.migrated'], ['split-ad-switch']);
+  assert.deepEqual(fresh.dump()['settings.migrated'], ALL_MIGRATIONS);
   // Feed ads switched off later, by hand, is just that one switch.
   settings.set('hideSponsoredPosts', false);
   const later = createSettings({ storage: fresh, features: adSwitches });
@@ -1135,7 +1138,7 @@ test('each account runs the ad switch change once, and a copy of migrated shared
   const old = createMemoryStorage({ [ownKey]: { hideSponsoredPosts: false } });
   const second = createSettings({ storage: old, features: adSwitches, account: '615000000000018' });
   assert.equal(second.get('hideSponsoredSearch'), false);
-  assert.deepEqual(old.dump()[`${ownKey}.migrated`], ['split-ad-switch']);
+  assert.deepEqual(old.dump()[`${ownKey}.migrated`], ALL_MIGRATIONS);
 });
 
 test('an account inherits a shared migration record even when every shared setting is at its default', () => {
@@ -1147,7 +1150,7 @@ test('an account inherits a shared migration record even when every shared setti
   const second = createSettings({ storage, features: adSwitches, account });
   assert.equal(second.get('hideSponsoredSearch'), true);
   assert.equal(second.get('hideSponsoredMarketplace'), true);
-  assert.deepEqual(storage.dump()[`${accountKey}.migrated`], ['split-ad-switch']);
+  assert.deepEqual(storage.dump()[`${accountKey}.migrated`], ALL_MIGRATIONS);
 });
 
 test('importing a v0.0.1 export gets the ad switch change, a newer export does not', () => {
@@ -1161,6 +1164,51 @@ test('importing a v0.0.1 export gets the ad switch change, a newer export does n
   const plain = createSettings({ storage: createMemoryStorage(), features: adSwitches });
   plain.importJson('{"hideSponsoredPosts":false}');
   assert.equal(plain.get('hideSponsoredSearch'), true, 'a bare settings object has no version to go by');
+});
+
+const peopleSwitches = [
+  { id: 'hideSuggestedPosts', title: 'Hide suggested posts', default: true },
+  { id: 'hidePeopleYouMayKnow', title: 'Hide People you may know', default: true, options: [{ key: 'friendsPages', type: 'toggle', default: false }] },
+];
+
+test('Hide suggested posts switched off before 0.0.23 keeps People you may know showing, once (#16)', () => {
+  const storage = createMemoryStorage({ settings: { hideSuggestedPosts: false, 'hideSuggestedPosts.friendsPages': true } });
+  const settings = createSettings({ storage, features: peopleSwitches });
+  assert.equal(settings.get('hidePeopleYouMayKnow'), false);
+  assert.equal(settings.get('hidePeopleYouMayKnow.friendsPages'), true, 'the Friends page option moves with its value');
+  assert.deepEqual(storage.dump().settings, { hideSuggestedPosts: false, hidePeopleYouMayKnow: false, 'hidePeopleYouMayKnow.friendsPages': true });
+  assert.ok(storage.dump()['settings.migrated'].includes('split-people-switch'));
+  // Switching the rows back off later sticks: the change doesn't run again.
+  settings.set('hidePeopleYouMayKnow', true);
+  assert.equal(createSettings({ storage, features: peopleSwitches }).get('hidePeopleYouMayKnow'), true);
+});
+
+test('the People you may know change leaves people who had suggestions hidden, and new installs, on the defaults (#16)', () => {
+  const kept = createMemoryStorage({ settings: { hideSuggestedPosts: true } });
+  const settings = createSettings({ storage: kept, features: peopleSwitches });
+  assert.equal(settings.get('hidePeopleYouMayKnow'), true);
+  assert.equal(settings.get('hidePeopleYouMayKnow.friendsPages'), false);
+  const fresh = createMemoryStorage();
+  assert.equal(createSettings({ storage: fresh, features: peopleSwitches }).get('hidePeopleYouMayKnow'), true);
+  assert.equal(fresh.dump().settings, undefined, 'nothing is written for someone with no settings');
+  // An explicit choice on the new switch wins over the old one.
+  const chosen = createMemoryStorage({ settings: { hideSuggestedPosts: false, hidePeopleYouMayKnow: true, 'hideSuggestedPosts.friendsPages': true, 'hidePeopleYouMayKnow.friendsPages': false } });
+  const mine = createSettings({ storage: chosen, features: peopleSwitches });
+  assert.equal(mine.get('hidePeopleYouMayKnow'), true);
+  assert.equal(mine.get('hidePeopleYouMayKnow.friendsPages'), false);
+  assert.equal(Object.hasOwn(chosen.dump().settings, 'hideSuggestedPosts.friendsPages'), false, 'the old option key is gone');
+});
+
+test('importing a 0.0.22 export gets the People you may know change, a 0.0.23 one does not (#16)', () => {
+  const exported = (version) => JSON.stringify({ app: 'HushFacebook Web', schema: 1, version, settings: { hideSuggestedPosts: false, 'hideSuggestedPosts.friendsPages': true } });
+  const old = createSettings({ storage: createMemoryStorage(), features: peopleSwitches });
+  old.importJson(exported('0.0.22'));
+  assert.equal(old.get('hidePeopleYouMayKnow'), false);
+  assert.equal(old.get('hidePeopleYouMayKnow.friendsPages'), true);
+  const newer = createSettings({ storage: createMemoryStorage(), features: peopleSwitches });
+  newer.importJson(exported('0.0.23'));
+  assert.equal(newer.get('hidePeopleYouMayKnow'), true);
+  assert.equal(newer.get('hidePeopleYouMayKnow.friendsPages'), false);
 });
 
 test('olderThan compares release numbers and refuses anything else', () => {
@@ -1190,7 +1238,7 @@ test('a malformed stored migration receipt is treated as empty', () => {
   for (const receipt of ['junk', [7]]) {
     const storage = createMemoryStorage({ settings: { hideSponsoredPosts: false }, 'settings.migrated': receipt });
     assert.equal(createSettings({ storage, features: adSwitches }).get('hideSponsoredSearch'), false);
-    assert.deepEqual(storage.dump()['settings.migrated'], ['split-ad-switch']);
+    assert.deepEqual(storage.dump()['settings.migrated'], ALL_MIGRATIONS);
   }
 });
 

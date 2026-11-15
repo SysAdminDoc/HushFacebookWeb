@@ -404,7 +404,8 @@ test('suggested posts go only on Home and the groups feed, never in search or on
     return kept(doc);
   };
   const query = (friendlyName) => ({ transport: 'xhr', path: '/api/graphql/', friendlyName });
-  const gone = ['friend', null, null, null, null];
+  // People you may know has its own switch (#16), so this one leaves that row in.
+  const gone = ['friend', null, null, 'pymk', null];
   const untouched = ['friend', 'suggested', 'suggested', 'pymk', 'groups'];
   assert.deepEqual(run(query('CometNewsFeedPaginationQuery')), gone);
   assert.deepEqual(run(query('GroupsCometCrossGroupFeedPaginationQuery')), gone);
@@ -417,9 +418,25 @@ test('suggested posts go only on Home and the groups feed, never in search or on
     route.current = parseRoute(`https://www.facebook.com${href}`);
     assert.equal(run(inline)[1], expected, href);
   }
-  assert.deepEqual(fired.slice(0, 4), ['follow_button', 'group_join', 'people_you_may_know', 'group_suggestions']);
+  assert.deepEqual(fired.slice(0, 3), ['follow_button', 'group_join', 'group_suggestions']);
   assert.equal(inScope({ scope: FEEDS }, inline, null), false, 'no router, no inline pruning');
   assert.equal(inScope({}, query('anything'), null), true, 'a row without a scope runs everywhere');
+});
+
+test('People you may know goes on its own switch, on Home and the groups feed only, and takes nothing else (#16)', () => {
+  const answer = () => ({ data: { viewer: { news_feed: { edges: [edge2026('friend'), SAMPLES.follow_button(), SAMPLES.people_you_may_know(), SAMPLES.group_suggestions()] } } } });
+  const fired = [];
+  const people = adRule('hidePeopleYouMayKnow', () => true, (ids) => fired.push(...ids));
+  const run = (friendlyName) => {
+    const doc = answer();
+    people.transform(doc, { transport: 'xhr', path: '/api/graphql/', friendlyName });
+    return doc.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null);
+  };
+  assert.deepEqual(run('CometNewsFeedPaginationQuery'), ['friend', 'suggested', null, 'groups']);
+  assert.deepEqual(run('GroupsCometCrossGroupFeedPaginationQuery'), ['friend', 'suggested', null, 'groups']);
+  assert.deepEqual(run('SearchCometResultsPaginatedResultsQuery'), ['friend', 'suggested', 'pymk', 'groups']);
+  assert.deepEqual(fired, ['people_you_may_know', 'people_you_may_know']);
+  assert.equal(adRule('hidePeopleYouMayKnow', () => false, null).enabled(), false, 'the switch gates the rule');
 });
 
 test("a friend sharing a suggested Page's post is not a suggestion", () => {

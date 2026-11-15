@@ -259,14 +259,14 @@ test('the suggested post in the captured Home page goes, the rest of the page st
 });
 
 // Captured 2026-10-21: each row came as the first edge of a feed page.
-for (const [name, id, typename] of [
-  ['CometNewsFeedPaginationQuery-pymk.jsonl', 'people_you_may_know', 'PaginatedPeopleYouMayKnowFeedUnit'],
-  ['CometNewsFeedPaginationQuery-group-suggestions.jsonl', 'group_suggestions', 'GroupsYouShouldJoinFeedUnit'],
+for (const [name, id, typename, feature, other] of [
+  ['CometNewsFeedPaginationQuery-pymk.jsonl', 'people_you_may_know', 'PaginatedPeopleYouMayKnowFeedUnit', 'hidePeopleYouMayKnow', 'hideSuggestedPosts'],
+  ['CometNewsFeedPaginationQuery-group-suggestions.jsonl', 'group_suggestions', 'GroupsYouShouldJoinFeedUnit', 'hideSuggestedPosts', 'hidePeopleYouMayKnow'],
 ]) {
   test(`the ${id} row in a captured Home page goes, and its edge keeps the cursor`, async () => {
     const [line] = await fixtureLines(name);
     const fired = [];
-    const suggested = adRule('hideSuggestedPosts', () => true, (ids) => fired.push(...ids), { route: () => parseRoute('https://www.facebook.com/') });
+    const suggested = adRule(feature, () => true, (ids) => fired.push(...ids), { route: () => parseRoute('https://www.facebook.com/') });
     const ctx = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
     const before = parseLine(line).data.viewer.news_feed.edges;
     assert.equal(before[0].node.__typename, typename);
@@ -277,6 +277,8 @@ for (const [name, id, typename] of [
     assert.deepEqual(fired, [id]);
     const search = { ...ctx, friendlyName: 'SearchCometResultsPaginatedResultsQuery' };
     assert.equal(transformDocumentLine(line, [suggested], search), line, 'not outside the feeds');
+    const otherRule = adRule(other, () => true, null, { route: () => parseRoute('https://www.facebook.com/') });
+    assert.equal(transformDocumentLine(line, [otherRule], ctx), line, `${other} leaves it alone`);
   });
 }
 

@@ -312,16 +312,17 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   return {
     // Hides a post found by the post tracker. reason is what Diagnostics counts
     // ("Sponsored", "Filter"); detail narrows it in the note ("Filter: cats"). signal says
-    // what matched, for the decision list only, when detail doesn't already say it.
+    // what matched, for the decision list only, when detail doesn't already say it. name is
+    // what the note calls a reason whose one word wouldn't read on its own ("People").
     // Returns false when the post can't be marked, the person chose to see it or opened it in a
     // dialog.
-    hide(element, reason, detail, signal) {
+    hide(element, reason, detail, signal, name = reason) {
       const marker = markFor(element);
       if (!marker) return false;
       watchRecycling();
       const reasons = marker.hasAttribute(MARK) ? reasonsOf(marker) : new Map();
       const fresh = !reasons.has(reason);
-      reasons.set(reason, detail ? `${reason}: ${detail}` : reason);
+      reasons.set(reason, detail ? `${name}: ${detail}` : name);
       labels.set(marker, reasons);
       write(marker, reasons);
       marks.add(marker);

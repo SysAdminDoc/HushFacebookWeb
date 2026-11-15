@@ -72,6 +72,20 @@ export const MIGRATIONS = [
       }
     },
   },
+  {
+    // Through 0.0.22 Hide suggested posts also hid People you may know (#16). Someone who had it
+    // off keeps seeing those rows now that they have a switch of their own, and the Friends page
+    // option moves over with its value.
+    id: 'split-people-switch',
+    before: '0.0.23',
+    run(raw) {
+      if (raw.hideSuggestedPosts === false && !Object.hasOwn(raw, 'hidePeopleYouMayKnow')) raw.hidePeopleYouMayKnow = false;
+      const old = 'hideSuggestedPosts.friendsPages';
+      if (!Object.hasOwn(raw, old)) return;
+      if (!Object.hasOwn(raw, 'hidePeopleYouMayKnow.friendsPages')) raw['hidePeopleYouMayKnow.friendsPages'] = raw[old];
+      delete raw[old];
+    },
+  },
 ];
 
 // Only text is a version: a backup's {"toString": null} can't even be turned into text.

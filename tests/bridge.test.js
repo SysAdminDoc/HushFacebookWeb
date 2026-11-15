@@ -29,11 +29,14 @@ import { MAX_OPENED, OPENED_KEY } from '../src/features/marketplace/filter-marke
 import { HIDDEN_KEY, MAX_HIDDEN } from '../src/features/feed/keep-posts-hidden.js';
 import { PICK_KEY } from '../src/features/notifications/keep-filter.js';
 import { textKey } from '../src/core/seen-keys.js';
-import { buildSchema, claimFor, createSettings, legacyStorageKeyFor, storageKeyFor } from '../src/core/settings.js';
+import { buildSchema, claimFor, createSettings, legacyStorageKeyFor, MIGRATIONS, storageKeyFor } from '../src/core/settings.js';
 import { createSeenStore, SEEN_KEY } from '../src/core/seen-store.js';
 import { applySeenOperation, seenClearKey } from '../src/core/seen.js';
 import { applyObjectMutation, createGmStorage } from '../src/core/storage.js';
 import { features } from '../src/features/index.js';
+
+// A record that has run every change there is.
+const ALL_MIGRATIONS = MIGRATIONS.map((migration) => migration.id);
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 const deferred = () => {
@@ -2328,7 +2331,7 @@ test('pre-load Reset Undo excludes migration fields completed by another tab', a
 
   assert.deepEqual(previous, { hideSponsoredPosts: false });
   assert.deepEqual(chrome.data.settings, {});
-  assert.deepEqual(chrome.data['settings.migrated'], ['split-ad-switch']);
+  assert.deepEqual(chrome.data['settings.migrated'], ALL_MIGRATIONS);
 });
 
 test('pre-load Reset Undo rederives a pending migration after its source changes', async () => {
@@ -2360,7 +2363,7 @@ test('pre-load Reset Undo rederives a pending migration after its source changes
 
   assert.deepEqual(previous, {});
   assert.deepEqual(chrome.data.settings, {});
-  assert.deepEqual(chrome.data['settings.migrated'], ['split-ad-switch']);
+  assert.deepEqual(chrome.data['settings.migrated'], ALL_MIGRATIONS);
   assert.equal(chrome.sent.filter((message) => message.type === 'storage:migrate').length, 2);
 });
 
@@ -2413,8 +2416,8 @@ test('a new account inherits the shared migration record when it writes before s
   assert.deepEqual(copied.mutation.set, { hideSponsoredPosts: false });
   assert.deepEqual(copied.mutation.remove, []);
   assert.equal(Object.hasOwn(copied.mutation.guard, 'hideSponsoredPosts'), false, 'the explicit draft is unconditional');
-  assert.deepEqual(copied.receipt, ['split-ad-switch']);
-  assert.deepEqual(chrome.data[`${accountKey}.migrated`], ['split-ad-switch']);
+  assert.deepEqual(copied.receipt, ALL_MIGRATIONS);
+  assert.deepEqual(chrome.data[`${accountKey}.migrated`], ALL_MIGRATIONS);
 });
 
 test('a first-seen account snapshots inherited defaults through the worker', async () => {

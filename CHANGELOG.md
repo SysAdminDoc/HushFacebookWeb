@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.23 (2026-11-14, unreleased)
+
+* People you may know has its own switch now, Hide People you may know, on to start. Until now Hide suggested posts took those rows out along with the suggested posts, so there was no way to keep one and lose the other. The option that hides the block on the Friends page and profiles moved to the new switch with whatever you had it set to. If you had Hide suggested posts off, the new switch starts off too, so nothing you see changes until you flip it.
+
 ## v0.0.22 (2026-11-14, unreleased)
 
 * With Tap to play on, pressing play on a voice message in a chat did nothing. A voice message plays through a sound that's never drawn on the page, so there was nothing for the tap to land on and the start was refused like any autoplay. Now a sound with nothing on the page starts when it comes within two seconds of a press on a button (a click or tap, or Enter or Space). Videos still wait for a tap on the video itself, and a sound that starts on its own still waits.

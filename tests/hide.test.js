@@ -73,6 +73,19 @@ test('the note names the detail when there is one', () => {
   assert.equal(element.firstElementChild.getAttribute(NOTE), 'Hidden: Filter: cats. Show');
 });
 
+test('a reason can go by a longer name in the note and keep its one word in the mark', () => {
+  const win = page(feed(post(1), post(2)));
+  const [first, second] = win.document.querySelectorAll('[aria-posinset]');
+  const hider = createHider({ doc: win.document });
+  hider.hide(first, 'People', undefined, undefined, 'People you may know');
+  assert.equal(first.firstElementChild.getAttribute(MARK), 'People');
+  assert.equal(first.firstElementChild.getAttribute(NOTE), 'Hidden: People you may know. Show');
+  hider.hide(second, 'Suggested');
+  hider.showAll('People');
+  assert.equal(hider.isHidden(first), false, 'its own Show all brings it back');
+  assert.equal(hider.isHidden(second), true, 'and leaves the other reason alone');
+});
+
 test('a post with nothing inside it is left alone', () => {
   const win = page(feed('<div aria-posinset="1"></div>'));
   const element = win.document.querySelector('[aria-posinset]');

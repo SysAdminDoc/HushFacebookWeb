@@ -120,16 +120,18 @@ test('the page hides the post at the drawn place, on the feed it loaded with onl
     listeners.get('post/add')({ element: post });
   };
   const hidden = [];
-  const hider = { hide: (post, reason) => hidden.push([post.id, reason]) > 0 };
+  const names = [];
+  const hider = { hide: (post, reason, detail, signal, name) => names.push(name) && hidden.push([post.id, reason]) > 0 };
   let route = GROUPS;
   const signals = [];
-  const onDrawn = hideDrawnPosts({ posts, hider, router: { current: () => route }, enabled: () => true, reason: 'Suggested', onHide: (signal) => signals.push(signal), schedule: () => 0, cancel: () => {} });
+  const onDrawn = hideDrawnPosts({ posts, hider, router: { current: () => route }, enabled: () => true, reason: 'People', name: 'People you may know', onHide: (signal) => signals.push(signal), schedule: () => 0, cancel: () => {} });
 
   add(1, 'first');
   add(2, 'second');
   assert.equal(hidden.length, 0, 'nothing before the data says which');
   onDrawn([{ place: 1, signal: 'people_you_may_know', posters: [] }]);
-  assert.deepEqual(hidden, [['first', 'Suggested']]);
+  assert.deepEqual(hidden, [['first', 'People']]);
+  assert.deepEqual(names, ['People you may know'], 'the note gets the long name');
   assert.deepEqual(signals, ['people_you_may_know']);
 
   route = { type: 'home', path: '/', href: 'https://www.facebook.com/' };

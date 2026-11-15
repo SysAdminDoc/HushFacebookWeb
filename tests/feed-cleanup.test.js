@@ -97,7 +97,7 @@ test('in page mode the data rule is added, scoped to the feeds', () => {
   assert.equal(rules.length, 2);
   assert.deepEqual(rules[0].markers.sort(), [
     '"CometFeedStoryFollowButtonStrategy"', '"ENGAGEMENT"', '"ENGAGEMENT_QP"', '"GroupJoinForumAction"', '"GroupsYouShouldJoinFeedUnit"',
-    '"PaginatedPeopleYouMayKnowFeedUnit"', '"cat_sensitive":{"enc":"',
+    '"cat_sensitive":{"enc":"',
   ]);
   assert.equal(rules[1].observe, true, 'the groups rule only reads');
   assert.deepEqual(rules[1].markers, ['"GroupJoinForumAction"']);

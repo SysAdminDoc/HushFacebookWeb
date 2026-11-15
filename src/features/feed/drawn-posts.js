@@ -31,7 +31,7 @@ export function drawnHere(element, posters) {
   return names.some((name) => keys.has(nameKey(name)));
 }
 
-export function hideDrawnPosts({ posts, hider, router, settings, enabled, reason, onHide, schedule, cancel }) {
+export function hideDrawnPosts({ posts, hider, router, settings, enabled, reason, name, onHide, schedule, cancel }) {
   if (!posts || !hider || !router) return undefined;
   const places = new Map();
   let loaded = null;
@@ -49,7 +49,7 @@ export function hideDrawnPosts({ posts, hider, router, settings, enabled, reason
       if (!drawn) return true;
       const here = drawnHere(element, drawn.posters);
       if (here === null) return false;
-      if (here && hider.hide(element, reason)) onHide?.(drawn.signal);
+      if (here && hider.hide(element, reason, undefined, undefined, name)) onHide?.(drawn.signal);
       return true;
     },
   });

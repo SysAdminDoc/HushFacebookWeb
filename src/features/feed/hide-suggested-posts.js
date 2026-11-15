@@ -5,17 +5,14 @@
 // feeds, since search results and a Page's own timeline carry the same buttons. The page
 // check hides one that gets drawn anyway, by the Follow or Join button after the author's
 // name (live 2026-10-11: h4 > ... > div[role=button] > span "Follow"), English first.
-// The People you may know and group suggestion rows go by data only (rows
-// people_you_may_know and group_suggestions); content mode has no page check for them yet.
+// The group suggestion row goes by data only (row group_suggestions); content mode has no page
+// check for it yet. People you may know has a switch of its own (hide-people-you-may-know.js).
 // A post from a group you're in that Facebook files as ORGANIC keeps its Join button now and
 // then. The data rows leave it, and ownGroupsRule passes its group to the page check, which
 // leaves a post whose heading links to that group. Feed posts carry no post id at rest, so
 // the group it links to is what the two layers share. The groups are never in Diagnostics.
-// The friendsPages option hides People you may know on the Friends page and profiles too, on
-// the page (pymk-boxes.js).
 
 import { adRule, FEEDS, groupInHref, ownGroupsRule } from './ad-markers.js';
-import { PYMK_CSS, watchPymk } from './pymk-boxes.js';
 import { CANDIDATE_SELECTOR } from '../../core/dom/posts.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { normalizeText, visibleText } from '../../core/dom/visible-text.js';
@@ -55,32 +52,16 @@ export default {
   section: 'feed',
   android: 'Hide suggested and promoted posts',
   title: 'Hide suggested posts',
-  description: "Hides posts from Pages, people and groups you don't follow that Facebook mixes into Home and your groups feed, plus the People you may know and group suggestion rows on Home.",
+  description: "Hides posts from Pages, people and groups you don't follow that Facebook mixes into Home and your groups feed, plus the group suggestion rows on Home. People you may know has its own switch.",
   default: true,
-  options: [
-    { key: 'friendsPages', type: 'toggle', label: 'Also hide People you may know on the Friends page and profiles', default: false },
-  ],
-  css: (get) => (get('hideSuggestedPosts.friendsPages') ? PYMK_CSS : ''),
 
-  setup({ doc, net, router, posts, hider, settings, diagnostics, enabled, option }) {
+  setup({ net, router, posts, hider, settings, diagnostics, enabled }) {
     const data = new Map();
     const page = new Map();
     const ownGroups = new Set();
     const own = { data: 0, page: 0 };
     const changed = () => diagnostics?.changed();
     const route = () => router?.current();
-
-    if (doc && router) {
-      let blocks = 0;
-      const pymk = watchPymk({ doc, route, active: () => enabled() && option('friendsPages') === true, onHidden: () => {
-        blocks++;
-        changed();
-      } });
-      settings?.subscribe(() => pymk.check());
-      // In content mode the route can catch up after Facebook has drawn the page.
-      router.subscribe?.(() => pymk.check());
-      diagnostics?.add('People you may know blocks hidden on Friends pages and profiles', () => (option('friendsPages') === true ? String(blocks) : 'Off'));
-    }
 
     if (net) {
       // A suggestion Facebook drew on the server stays in the data and is hidden on the page.

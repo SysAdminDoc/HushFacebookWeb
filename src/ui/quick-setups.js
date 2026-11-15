@@ -8,6 +8,7 @@ export const QUICK_SETUPS = Object.freeze([
     keys: Object.freeze([
       'hideSponsoredPosts',
       'hideSuggestedPosts',
+      'hidePeopleYouMayKnow',
       'hideReelsInFeed',
       'hideStoriesTray',
       'hideAiPosts',

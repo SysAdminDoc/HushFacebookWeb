@@ -36,7 +36,7 @@
 //                           edges and the page check is told their groups (ownGroupsRule)
 //   ENGAGEMENT              Hide suggested posts (Facebook's suggestions, with or without a
 //                           Follow or Join button)
-//   ENGAGEMENT_QP           Hide suggested posts (the People you may know and group rows)
+//   ENGAGEMENT_QP           Hide suggested posts (the group rows) and Hide People you may know
 //   SPONSORED               Hide sponsored posts
 //   FB_SHORTS               Hide reels in the feed, by its own row (the row of reels)
 //   PROMOTION, HIGH_VALUE_PROMOTION, FRIENDLY_FEED_PROMOTION
@@ -338,7 +338,7 @@ export const AD_MARKERS = [
   // first row that matches names the drop.
   {
     id: 'people_you_may_know',
-    feature: 'hideSuggestedPosts',
+    feature: 'hidePeopleYouMayKnow',
     surface: 'news feed (the People you may know row)',
     seen: '2026-10-21: 6 in two Home scrolls, each the first edge of a feed page, titled "People you may know" with 7 people; none in 84 units on 2026-10-11 or 140 posts on 2026-10-22',
     text: [`"${PYMK_TYPENAME}"`],
@@ -383,7 +383,8 @@ export const AD_MARKERS = [
     seen: "2026-10-22: 269 hashed ENGAGEMENT stories in 250 Home answers, 267 with a Follow or Join button and 2 people's photo posts with neither; ENGAGEMENT_QP plain on every People you may know and group suggestions row",
     text: [HASHED, '"ENGAGEMENT"', '"ENGAGEMENT_QP"'],
     scope: FEEDS,
-    match: (edge, node) => isObject(node) && SUGGESTED.has(feedCategory(edge)),
+    // People you may know carries ENGAGEMENT_QP too, and has a switch of its own.
+    match: (edge, node) => isObject(node) && node.__typename !== PYMK_TYPENAME && SUGGESTED.has(feedCategory(edge)),
     action: 'drop-node',
   },
   {

@@ -8,6 +8,7 @@ import { testWindow } from './helpers/dom.js';
 import { fixtureLines } from './helpers/fixtures.js';
 import { parseRoute } from '../src/core/route.js';
 import { renderFeatureCss } from '../src/core/style.js';
+import hidePeopleYouMayKnow from '../src/features/feed/hide-people-you-may-know.js';
 import hideSuggestedPosts from '../src/features/feed/hide-suggested-posts.js';
 import { PYMK_CSS, PYMK_MARK, pymkBoxes, seeAllLink, watchPymk } from '../src/features/feed/pymk-boxes.js';
 
@@ -187,12 +188,12 @@ test('the block is marked when the route catches up after Facebook drew the page
   let current = parseRoute('https://www.facebook.com/');
   const routeListeners = [];
   const router = { current: () => current, subscribe: (fn) => routeListeners.push(fn) };
-  const values = { hideSuggestedPosts: true, 'hideSuggestedPosts.friendsPages': true };
+  const values = { hidePeopleYouMayKnow: true, 'hidePeopleYouMayKnow.friendsPages': true };
   const rows = new Map();
   const diagnostics = { add: (label, read) => rows.set(label, read), changed: () => {} };
   const settings = { get: (key) => values[key], enabled: (id) => values[id] === true, subscribe: () => {} };
-  hideSuggestedPosts.setup({ doc, router, settings, diagnostics, enabled: () => true, option: (key) => values[`hideSuggestedPosts.${key}`] });
-  const count = () => [...rows].find(([label]) => /People you may know/.test(label))?.[1]();
+  hidePeopleYouMayKnow.setup({ doc, router, settings, diagnostics, enabled: () => true, option: (key) => values[`hidePeopleYouMayKnow.${key}`] });
+  const count = () => [...rows].find(([label]) => /People you may know blocks/.test(label))?.[1]();
 
   doc.getElementById('slot').innerHTML = captured.friends;
   await tick();
@@ -235,29 +236,31 @@ test("a See all link in a post, Home's own row or anywhere off the Friends pages
 });
 
 test('the option is off to start, its CSS only counts on the Friends pages and profiles, and switching it on marks the block', async () => {
-  const option = hideSuggestedPosts.options.find((o) => o.key === 'friendsPages');
+  const option = hidePeopleYouMayKnow.options.find((o) => o.key === 'friendsPages');
   assert.equal(option?.default, false);
-  const values = { hideSuggestedPosts: true, 'hideSuggestedPosts.friendsPages': false };
+  assert.equal(hidePeopleYouMayKnow.default, true);
+  assert.ok(!hideSuggestedPosts.options?.some((o) => o.key === 'friendsPages'), 'the option moved off Hide suggested posts (#16)');
+  const values = { hidePeopleYouMayKnow: true, 'hidePeopleYouMayKnow.friendsPages': false };
   const listeners = [];
   const settings = {
     get: (key) => values[key],
     enabled: (id) => values[id] === true,
     subscribe: (fn) => listeners.push(fn),
   };
-  assert.ok(!renderFeatureCss([hideSuggestedPosts], settings).includes(PYMK_MARK), 'no rule while the option is off');
+  assert.ok(!renderFeatureCss([hidePeopleYouMayKnow], settings).includes(PYMK_MARK), 'no rule while the option is off');
 
   const win = page('friends');
   const doc = win.document;
   const router = { current: () => parseRoute(win.location.href) };
-  hideSuggestedPosts.setup({ doc, router, settings, enabled: () => settings.enabled('hideSuggestedPosts'), option: (key) => values[`hideSuggestedPosts.${key}`] });
+  hidePeopleYouMayKnow.setup({ doc, router, settings, enabled: () => settings.enabled('hidePeopleYouMayKnow'), option: (key) => values[`hidePeopleYouMayKnow.${key}`] });
   await tick();
   assert.ok(!doc.querySelector(`[${PYMK_MARK}]`), 'nothing marked while off');
 
-  values['hideSuggestedPosts.friendsPages'] = true;
+  values['hidePeopleYouMayKnow.friendsPages'] = true;
   for (const fn of listeners) fn();
   await tick();
   assert.ok(doc.querySelector(`[role="main"] > [${PYMK_MARK}]`), 'marked once on');
-  const css = renderFeatureCss([hideSuggestedPosts], settings);
+  const css = renderFeatureCss([hidePeopleYouMayKnow], settings);
   const style = doc.createElement('style');
   style.textContent = css;
   doc.head.append(style);
