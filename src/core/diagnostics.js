@@ -16,6 +16,8 @@
 // shows only in the panel, under the feature's own switch, and never goes in Copy report.
 
 export const DECISIONS = 50;
+// Post ids already counted as taken out of Facebook's data, so a post sent again counts once.
+const DROPPED_IDS = 5000;
 
 // FNV-1a, six characters. The same post always gets the same tag under the same salt.
 export function postTag(id, salt = '') {
@@ -33,6 +35,8 @@ export function createDiagnostics({ now = () => Date.now() } = {}) {
   const statuses = new Map();
   const listeners = new Set();
   const decisions = [];
+  const droppedIds = new Set();
+  let dropped = 0;
 
   function changed() {
     for (const listener of listeners) {
@@ -82,11 +86,19 @@ export function createDiagnostics({ now = () => Date.now() } = {}) {
     },
     hasStatus: (featureId) => statuses.has(featureId),
     // layer: 'data' when it came out of Facebook's data, 'page' when it was hidden on the page.
-    decide({ post, rule, signal, detail, layer }) {
+    // A data decision counts a post taken out before it was drawn, once per post, unless drop is
+    // false (a decision about the data that took nothing out).
+    decide({ post, rule, signal, detail, layer, drop = true }) {
       const text = (value) => (value === null || value === undefined ? '' : String(value));
+      const id = post === null || post === undefined || post === '' ? null : String(post);
+      if (layer === 'data' && drop !== false && (id === null || !droppedIds.has(id))) {
+        dropped++;
+        if (id !== null) droppedIds.add(id);
+        if (droppedIds.size > DROPPED_IDS) droppedIds.delete(droppedIds.values().next().value);
+      }
       decisions.push({
         time: new Date(now()).toISOString().slice(11, 19),
-        id: post === null || post === undefined || post === '' ? null : String(post),
+        id,
         post: postTag(post),
         rule: String(rule),
         signal: text(signal),
@@ -98,6 +110,8 @@ export function createDiagnostics({ now = () => Date.now() } = {}) {
     },
     // Oldest first.
     decisions: () => decisions.map((decision) => ({ ...decision })),
+    // Posts taken out of Facebook's data before they were drawn, since the page loaded.
+    dropped: () => dropped,
     changed,
     subscribe(listener) {
       listeners.add(listener);

@@ -518,7 +518,7 @@ export default {
         later(stage, () => {
           if (fetched && seen) pages.set(ctx, { seen: pageSeen, taken: pageTaken });
           if (info) emptyPages = stop ? 0 : empty ? emptyPages + 1 : pageTaken < pageSeen ? 0 : emptyPages;
-          if (stop) diagnostics?.decide({ post: null, rule: 'Filtered listing', signal: 'no more pages', layer: 'data' });
+          if (stop) diagnostics?.decide({ post: null, rule: 'Filtered listing', signal: 'no more pages', layer: 'data', drop: false });
           for (const listing of kept) remember(listing);
           for (const reason of taken) count(reason);
           for (const decision of decisions) diagnostics?.decide(decision);

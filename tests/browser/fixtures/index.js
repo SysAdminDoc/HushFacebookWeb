@@ -6,6 +6,7 @@ export { boundedDownload } from './download.js';
 export { activeDots } from './active-dots.js';
 export { widerFeed } from './wider-feed.js';
 export { hiddenNote } from './hidden-note.js';
+export { overviewHidden } from './overview-hidden.js';
 export { postDates } from './post-dates.js';
 export { storiesGap } from './stories-gap.js';
 export { prepareVoiceClip, voiceClipState } from './voice-clip.js';

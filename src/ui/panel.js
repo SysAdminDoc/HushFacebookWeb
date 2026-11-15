@@ -47,6 +47,23 @@ const GENERAL_GROUPS = [
 // The rows of that first group that also lead Overview: a Quick setup's Undo, saving or loading
 // trouble, and a newer release.
 const OVERVIEW_ATTENTION = ['storage-recovery', 'save-recovery', 'reset-undo', 'update'];
+// Plain words for the reasons the hider counts (src/core/dom/hide.js), on Overview. A reason
+// missing here shows as the hider names it.
+const REASON_WORDS = {
+  Filter: 'Your filters',
+  Repeat: 'Shown again',
+  Seen: 'Already seen',
+  Dismissed: 'Hidden by you before',
+  People: 'People you may know',
+  Promotion: 'Promotions',
+  Suggested: 'Suggested for you',
+  Sponsored: 'Ads',
+  Reels: 'Reels',
+  'AI-labeled': 'Labeled as AI',
+};
+const reasonWords = (reason) => (Object.hasOwn(REASON_WORDS, reason) ? t(REASON_WORDS[reason]) : reason);
+// How many reasons Overview names under its hidden count, the most common first.
+const TOP_REASONS = 3;
 // Why a feature isn't running, by the reason startFeatures recorded: on its card, then
 // shorter in Diagnostics.
 const UNAVAILABLE_NOTES = {
@@ -680,10 +697,48 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('span', { class: `tile-count${on ? ' some' : ''}`, text: t('{on} of {total} on', { on, total: list.length }) })));
   }
 
+  // What the script hid on this page since it loaded, so its work shows without a note on every
+  // post. Show them shows every post still hidden, notes on or off, as a note's Show hidden does.
+  function hiddenCard() {
+    const counts = Object.entries(hider?.counts() ?? {}).sort((a, b) => b[1] - a[1]);
+    const total = counts.reduce((sum, [, count]) => sum + count, 0);
+    const dropped = diagnostics?.dropped?.() ?? 0;
+    const showing = hider?.hiddenNow?.() ?? 0;
+    return h('div', { class: 'card hidden-count', tabindex: '-1', dataset: { key: 'overview-hidden' } },
+      h('div', { class: 'title', text: total || dropped ? t('Hidden on this page: {count}', { count: total }) : t('Nothing hidden on this page yet') }),
+      counts.length ? h('div', { class: 'desc', text: counts.slice(0, TOP_REASONS).map(([reason, count]) => t('{reason}: {count}', { reason: reasonWords(reason), count })).join(', ') }) : null,
+      dropped ? h('div', { class: 'desc', text: t('Removed before they showed: {count}', { count: dropped }) }) : null,
+      showing ? h('div', { class: 'actions' },
+        h('button', { class: 'button', type: 'button', text: t('Show them'), dataset: { key: 'overview-hidden:show' }, onclick: showHidden })) : null);
+  }
+
+  function showHidden() {
+    const shown = hider?.revealEvery?.() ?? 0;
+    toast(plural(shown, 'Showing {count} hidden post again', 'Showing {count} hidden posts again'));
+  }
+
+  // The hidden count keeps up while Overview is open, redrawn in place so focus stays put.
+  let hiddenQueued = false;
+  const refreshHiddenCard = () => {
+    if (!dialog.open || current !== 'overview' || hiddenQueued) return;
+    hiddenQueued = true;
+    requestAnimationFrame(() => {
+      hiddenQueued = false;
+      const node = root.querySelector('[data-key="overview-hidden"]');
+      if (!node || !dialog.open) return;
+      const active = shadow.activeElement;
+      const focusedKey = node.contains(active) ? active.dataset.key : null;
+      const next = hiddenCard();
+      node.replaceWith(next);
+      if (focusedKey) (next.querySelector(`[data-key="${CSS.escape(focusedKey)}"]`) ?? next).focus({ preventScroll: true });
+    });
+  };
+
   function overviewView() {
     const attention = generalRows().filter((row) => row.group === 'attention' && OVERVIEW_ATTENTION.includes(row.id));
     return [
       attention.length ? groupBlock('overview-attention', null, attention.map((row) => row.render())) : null,
+      groupBlock('overview-hidden', null, [hiddenCard()]),
       groupBlock('quick-setups', t('Quick setups'), [setupTiles()], { description: t(QUICK_SETUPS_NOTE), tiles: true }),
       groupBlock('pages', t('Pages'), featurePages.map(pageTile), { tiles: true }),
     ].filter(Boolean);
@@ -1408,6 +1463,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   });
   hider?.subscribe(refreshDiagnostics);
   diagnostics?.subscribe(refreshDiagnostics);
+  hider?.subscribe(refreshHiddenCard);
+  diagnostics?.subscribe(refreshHiddenCard);
   environment.storage?.onStatus?.(() => {
     if (extensionReloaded(environment.storage)) {
       announceReload();

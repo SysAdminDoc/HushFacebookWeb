@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Overview now starts with how many posts were hidden on the page and the most common reasons, in plain words, plus a separate count of posts removed before Facebook drew them. The numbers keep up while settings are open. Show them brings back every post hidden on the page, like Show hidden on a note, and works with notes off too.
 * Back to normal speed, Forget my volume and Open Notifications on All again said they worked even when the change couldn't be saved. They now wait for the save, and a failed one offers Try again.
 * After the extension is updated or reloaded, a Facebook tab that was already open now says so the first time it can't save something, with a Reload button. Before, it kept hiding posts but quietly dropped every change you made in it. The settings panel shows the same notice in place of Retry. A save that was already on its way when the update landed ends up under that notice too, while problems the update didn't cause, like a copy the clipboard refused, still show their own message.
 * Saving a video whose picture and sound come as separate files could write a file that won't play when one of them had a second movie header, or listed samples outside its fragments. Those saves now stop with "the video and its sound didn't fit together" instead of handing you a broken file.

@@ -261,19 +261,30 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     else release();
   }
 
+  // The marks this hider set that still hide a post on the page.
+  const shownMarks = () => [...doc.querySelectorAll(`[${MARK}]`)].filter((marker) => marks.has(marker) && marker.parentElement);
+
   // Shows every post this hider has hidden on the page, for the rest of the visit. Posts that
-  // load later are still hidden. Focus on the Show hidden pressed goes into its own post.
+  // load later are still hidden. focusOn(mark) says which post focus goes into. Returns how many.
+  function revealMarks(focusOn = () => false) {
+    const shown = shownMarks();
+    for (const marker of shown) reveal(marker, focusOn(marker));
+    if (shown.length) notify();
+    return shown.length;
+  }
+
+  // Focus on the Show hidden pressed goes into its own post.
   function revealAll(button) {
     const owner = button.parentElement;
     const focused = doc.activeElement === button;
-    for (const marker of doc.querySelectorAll(`[${MARK}]`)) {
-      if (marks.has(marker) && marker.parentElement) reveal(marker, marker === owner && focused);
-    }
+    revealMarks((marker) => marker === owner && focused);
   }
 
   function press(target) {
-    if (isNote(target)) reveal(target);
-    else revealAll(target);
+    if (isNote(target)) {
+      reveal(target);
+      notify();
+    } else revealAll(target);
   }
 
   const isButton = (target) => isNote(target) || showAllOf(target) !== null;
@@ -367,6 +378,10 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     counts: () => Object.fromEntries(counts),
     // Posts hidden since the page loaded, comments left out.
     hiddenPosts: () => postsHidden,
+    // Posts and comments hidden on the page right now, and a way to show them all, as Show
+    // hidden at the end of a note does, notes on or off. Listeners hear both change.
+    hiddenNow: () => shownMarks().length,
+    revealEvery: () => revealMarks(),
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

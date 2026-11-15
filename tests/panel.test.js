@@ -44,7 +44,7 @@ function lendGlobals(win) {
   });
 }
 
-function setup({ features = [], actions = null, unavailable = new Map(), storage = createMemoryStorage(), update, environment = {}, beforeMount, migrations, tabPaused } = {}) {
+function setup({ features = [], actions = null, unavailable = new Map(), storage = createMemoryStorage(), update, environment = {}, beforeMount, migrations, tabPaused, notesShown } = {}) {
   const win = testWindow('https://www.facebook.com/');
   cleanups.push(() => win.happyDOM.close());
   lendGlobals(win);
@@ -60,7 +60,7 @@ function setup({ features = [], actions = null, unavailable = new Map(), storage
   const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
   const settings = createSettings({ storage, features, log, migrations, tabPaused });
   beforeMount?.(settings);
-  const hider = createHider({ doc: win.document, log });
+  const hider = createHider({ doc: win.document, log, notesShown });
   const diagnostics = createDiagnostics();
   const panel = mountPanel({
     settings, features, log, hider, diagnostics, actions, unavailable,
@@ -84,6 +84,51 @@ test('Diagnostics shows hidden posts per reason and keeps up while it is open', 
   hider.hide(post, 'Sponsored');
   await tick();
   assert.equal(hiddenRow(shadow), 'Sponsored 1');
+});
+
+test('Overview says what was hidden on the page, keeps up while open, and Show them brings every post back', async () => {
+  const { win, shadow, panel, hider, diagnostics } = setup({ notesShown: () => false });
+  const feed = win.document.querySelector('.feed');
+  feed.innerHTML = [1, 2, 3, 4].map((n) => `<div aria-posinset="${n}"><div>Post ${n}</div></div>`).join('');
+  const posts = [...feed.children];
+  const card = () => shadow.querySelector('[data-key="overview-hidden"]');
+  const lines = () => [...card().querySelectorAll('.title, .desc')].map((line) => line.textContent);
+  const showThem = () => card().querySelector('[data-key="overview-hidden:show"]');
+  panel.open('overview');
+  assert.deepEqual(lines(), ['Nothing hidden on this page yet']);
+  assert.equal(showThem(), null, 'nothing to show');
+  const group = card().closest('[data-group]');
+  assert.equal(group.dataset.group, 'overview-hidden');
+  assert.ok(shadow.querySelector('main [data-group]') === group, 'it leads Overview when nothing needs attention');
+
+  hider.hide(posts[0], 'Filter', 'cats');
+  hider.hide(posts[1], 'Filter', 'dogs');
+  hider.hide(posts[2], 'Sponsored');
+  diagnostics.decide({ post: 'UzpfSTEyMw', rule: 'Sponsored', signal: 'th_dat_spo', layer: 'data' });
+  diagnostics.decide({ post: 'UzpfSTEyMw', rule: 'Sponsored', signal: 'th_dat_spo', layer: 'data' });
+  diagnostics.decide({ post: null, rule: 'Filtered listing', signal: 'no more pages', layer: 'data', drop: false });
+  await tick();
+  assert.deepEqual(lines(), ['Hidden on this page: 3', 'Your filters: 2, Ads: 1', 'Removed before they showed: 1'], 'a post sent twice counts once');
+
+  // Notes off: nothing on the page says where the posts went, and Show them still works.
+  const hiddenNow = () => posts.filter((post) => hider.isHidden(post)).length;
+  assert.equal(hiddenNow(), 3);
+  showThem().focus();
+  showThem().click();
+  await tick();
+  assert.equal(hiddenNow(), 0);
+  assert.ok(posts.slice(0, 3).every((post) => hider.isRevealed(post)), 'shown for the rest of the visit');
+  assert.equal(hider.hide(posts[0], 'Filter', 'cats'), false, 'and not hidden again');
+  assert.ok(shadow.activeElement === card(), 'focus stays on the card once its button goes');
+  assert.equal(showThem(), null);
+  assert.deepEqual(lines(), ['Hidden on this page: 3', 'Your filters: 2, Ads: 1', 'Removed before they showed: 1']);
+  assert.ok([...shadow.querySelectorAll('.toast')].some((toast) => toast.textContent.includes('Showing 3 hidden posts again')));
+
+  // A post that loads later is hidden as usual, and Show them comes back for it.
+  hider.hide(posts[3], 'Seen');
+  await tick();
+  assert.deepEqual(lines().slice(0, 2), ['Hidden on this page: 4', 'Your filters: 2, Ads: 1, Already seen: 1']);
+  assert.ok(showThem());
 });
 
 test('the copied report carries the hidden counts', async () => {
@@ -222,7 +267,8 @@ test('settings open on Overview: Quick setups, then a tile per page that counts 
   const { shadow, panel, settings } = setup({ features: allFeatures });
   panel.open();
   assert.equal(shadow.querySelector('#hfw-section-title').textContent, 'Overview');
-  assert.deepEqual([...shadow.querySelectorAll('main [data-group]')].map((group) => group.dataset.group), ['quick-setups', 'pages']);
+  // What the page hid leads Overview, then Quick setups and the pages.
+  assert.deepEqual([...shadow.querySelectorAll('main [data-group]')].map((group) => group.dataset.group), ['overview-hidden', 'quick-setups', 'pages']);
   assert.deepEqual([...shadow.querySelectorAll('main [data-key^="go:"]')].map((tile) => tile.dataset.key), PAGES.map((page) => `go:${page.id}`));
   const onVideo = allFeatures.filter((feature) => SECTIONS.find((section) => section.id === feature.section).page === 'video');
   const count = () => shadow.querySelector('[data-key="go:video"] .tile-count').textContent;

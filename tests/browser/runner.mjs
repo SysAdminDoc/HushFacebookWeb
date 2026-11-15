@@ -55,6 +55,7 @@ const scenarios = [
   { id: 'active-dots', fixture: 'activeDots', screenshot: true },
   { id: 'wider-feed', fixture: 'widerFeed', screenshot: true, viewport: { width: 1600, height: 1000 } },
   { id: 'hidden-note', fixture: 'hiddenNote', screenshot: true },
+  { id: 'overview-hidden', fixture: 'overviewHidden', screenshot: true },
   { id: 'post-dates', fixture: 'postDates', screenshot: true },
   { id: 'stories-gap', fixture: 'storiesGap', viewport: { width: 1000, height: 1000 } },
   { id: 'voice-clip', fixture: 'voiceClip' },
