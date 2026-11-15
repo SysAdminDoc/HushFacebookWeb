@@ -16,13 +16,14 @@ function page(backend, label, { now = () => 100, uuid } = {}) {
   const calls = [];
   const timers = [];
   let sequence = 0;
-  const controls = { rejectProposal: 0, rejectRaw: 0, rejectPulse: false, rejectCleanup: false, allow: true, hold: null };
+  const controls = { rejectProposal: 0, rejectRaw: 0, rejectPulse: false, rejectCleanup: false, allow: true, hold: null, holdRaw: null };
   const register = createGmActivityRegister({
     get(key, fallback) { calls.push(['get', key]); return cache.has(key) ? structuredClone(cache.get(key)) : fallback; },
     list() { calls.push(['list']); return [...cache.keys()]; },
     async set(key, value) {
       calls.push(['set', key, structuredClone(value)]);
       cache.set(key, structuredClone(value)); // The manager mutates its local cache before acknowledgement.
+      if (controls.holdRaw && key === SPEED) await controls.holdRaw;
       if (key.includes('#activity:') && controls.rejectProposal-- > 0) throw new Error('manager unavailable');
       if (key === SPEED && controls.rejectRaw-- > 0) throw new Error('manager unavailable');
       if (key === gmActivityPulseKey(SPEED) && controls.rejectPulse) throw new Error('pulse unavailable');
@@ -152,6 +153,76 @@ test('a repair retry after this page saved a newer ordinary value says so, and a
   assert.equal(await p.register.write(SPEED, 1.5), 1.5);
   assert.equal(fresh(backend).read(SPEED), 1.5);
   assert.equal(backend.get(SPEED).value, 2, 'the ordinary value stays as the seed');
+});
+
+// A save of this page's that hasn't landed yet is hidden from the epoch, since it may still fail.
+const held = () => {
+  let release;
+  const hold = new Promise((resolve) => { release = resolve; });
+  return { hold, release };
+};
+
+test("a repair waits for this page's own newer value still on its way, and goes ahead when that save fails", async () => {
+  const backend = new Map([[SPEED, 1.25]]);
+  const p = page(backend, 'a');
+  p.controls.rejectProposal = 1;
+  p.controls.rejectCleanup = true;
+  const repairing = p.register.write(SPEED, 1.5);
+  await tick();
+  const raw = held();
+  p.controls.holdRaw = raw.hold;
+  const newer = p.register.set(SPEED, 2);
+  await p.next(); // The retry comes due while that save is unanswered.
+  assert.equal(physicalWrites(p).length, 1, 'no record goes in while the epoch may still change');
+  p.controls.holdRaw = null;
+  raw.release();
+  await newer;
+  await tick();
+  await assert.rejects(repairing, { code: 'ACTIVITY_SUPERSEDED' });
+  assert.equal(physicalWrites(p).length, 1);
+  assert.equal(fresh(backend).read(SPEED), 2);
+
+  // The same with a save that then fails: the epoch stays, so the repair lands.
+  const other = new Map([[SPEED, 1.25]]);
+  const q = page(other, 'b');
+  const failing = held();
+  q.controls.holdRaw = failing.hold;
+  q.controls.rejectRaw = 1;
+  const lost = q.register.set(SPEED, 2);
+  const repair = q.register.write(SPEED, 1.5);
+  await tick();
+  assert.equal(physicalWrites(q).length, 0);
+  q.controls.holdRaw = null;
+  failing.release();
+  await assert.rejects(lost, /manager unavailable/);
+  assert.equal(await repair, 1.5);
+  assert.equal(fresh(other).read(SPEED), 1.5);
+});
+
+test("a newer value this page saves while a repair's record is on its way supersedes the repair", async () => {
+  for (const order of ['newer lands first', 'record lands first']) {
+    const backend = new Map([[SPEED, 1.25]]);
+    const p = page(backend, order.split(' ')[0]);
+    const record = held();
+    p.controls.hold = record.hold;
+    const repairing = p.register.write(SPEED, 1.5);
+    await tick();
+    assert.equal(physicalWrites(p).length, 1);
+    const raw = held();
+    if (order === 'record lands first') p.controls.holdRaw = raw.hold;
+    const newer = p.register.set(SPEED, 2);
+    if (order === 'newer lands first') await newer;
+    p.controls.hold = null;
+    record.release();
+    await tick();
+    p.controls.holdRaw = null;
+    raw.release();
+    await newer;
+    await tick();
+    await assert.rejects(repairing, { code: 'ACTIVITY_SUPERSEDED' }, order);
+    assert.equal(fresh(backend).read(SPEED), 2, order);
+    assert.equal(p.timers.length, 0, `${order}: and it isn't retried`);
+  }
 });
 
 test('concurrent different-value repairs remain recoverable instead of choosing a clock or UUID winner', async () => {

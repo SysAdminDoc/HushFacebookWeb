@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.43 (2026-11-15, unreleased)
+
+* In the userscript, Add to this account and the Undo after Delete them could still report success when a playing video saved its spot at the same moment. They now wait to see whether that newer save lands first, and say the change was replaced when it does.
+
 ## v0.0.42 (2026-11-15, unreleased)
 
 * Filter Marketplace could leave a listing on screen when Facebook drew one results column inside another. The quicker card search from 0.0.38 stopped counting at the inner column, so the box around that listing looked like it held only one. It counts across the whole page again.

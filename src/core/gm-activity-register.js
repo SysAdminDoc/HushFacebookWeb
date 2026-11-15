@@ -60,6 +60,8 @@ export function createGmActivityRegister({
   const unconfirmed = new Set();
   const jobs = new Map();
   const rawWrites = new Map();
+  // Each key's ordinary writes from this page that haven't settled yet.
+  const landing = new Map();
   const listeners = new Map();
   const checkKey = (key) => { if (!gmActivityRegisterKey(key)) throw new TypeError('This key does not hold activity'); };
   const allowed = (job) => {
@@ -94,6 +96,12 @@ export function createGmActivityRegister({
     const raw = get(key, undefined);
     const pending = rawWrites.get(key);
     return pending && fingerprint(raw) === fingerprint(pending.value) ? copy(previousRaw(pending)) : raw;
+  };
+  // An ordinary value from this page is hidden from the epoch until it lands, and opens a new
+  // epoch when it does. Null when none is on its way, or a promise for when all have settled.
+  const settled = (key) => {
+    const flying = landing.get(key);
+    return flying?.size ? Promise.all(flying).then(() => settled(key)) : null;
   };
 
   function snapshot(key) {
@@ -242,6 +250,10 @@ export function createGmActivityRegister({
       let name;
       let acknowledged = false;
       try {
+        // A record written while this page's newer value is on its way would sit in the epoch
+        // that value ends, so it waits to see whether that value lands.
+        const waiting = settled(job.key);
+        if (waiting) await waiting;
         requireAllowed(job);
         if (jobs.get(job.key) !== job) throw superseded();
         const state = snapshot(job.key);
@@ -259,6 +271,14 @@ export function createGmActivityRegister({
         unconfirmed.delete(name);
         requireAllowed(job);
         if (jobs.get(job.key) !== job) throw superseded();
+        // The same for a value this page started saving while the record was on its way.
+        const after = settled(job.key);
+        if (after) {
+          await after;
+          requireAllowed(job);
+          if (jobs.get(job.key) !== job) throw superseded();
+        }
+        if (snapshot(job.key).seed !== job.operation.seed) throw superseded();
         await pulse(job.key, job);
         requireAllowed(job);
         const current = refresh(job.key, 'ack');
@@ -309,6 +329,14 @@ export function createGmActivityRegister({
       }
     })();
     void saved.catch(() => {});
+    const done = saved.then(() => {}, () => {});
+    if (!landing.has(key)) landing.set(key, new Set());
+    landing.get(key).add(done);
+    void done.then(() => {
+      const flying = landing.get(key);
+      flying?.delete(done);
+      if (flying && !flying.size) landing.delete(key);
+    });
     return saved;
   }
 
