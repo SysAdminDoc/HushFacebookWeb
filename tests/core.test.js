@@ -21,6 +21,22 @@ test('the log keeps a bounded buffer and tells subscribers', () => {
   assert.deepEqual(printed, ['[HushFacebook Web] one']);
 });
 
+test('logging a detail that throws when read still logs, and tells subscribers', () => {
+  const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
+  const heard = [];
+  log.subscribe((entry, detail) => heard.push([entry.message, detail === undefined]));
+  const badName = Object.defineProperty(new Error('x'), 'name', { get() { throw new Error('name'); } });
+  const { proxy, revoke } = Proxy.revocable({}, {});
+  revoke();
+  const badCode = { get code() { throw new Error('code'); } };
+  for (const [message, detail] of [['bad name', badName], ['revoked', proxy], ['bad code', badCode]]) {
+    assert.doesNotThrow(() => log.error(message, detail), message);
+  }
+  assert.deepEqual(heard.map(([message]) => message), ['bad name', 'revoked', 'bad code']);
+  for (const entry of log.entries()) assert.equal(typeof entry.detail, 'string', entry.message);
+  assert.equal(log.entries()[1].detail, 'an unreadable object');
+});
+
 test('feature CSS covers only features that are on, and nothing while paused', () => {
   const features = [
     { id: 'a', title: 'A', default: true, css: '.a{}' },

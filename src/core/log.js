@@ -43,12 +43,18 @@ function codeOf(detail) {
   return typeof name === 'string' && /^[A-Z][A-Za-z]{0,39}$/.test(name) ? name : typeof detail;
 }
 
+// Never throws: what the page hands over can have getters that throw, or be a revoked proxy,
+// and logging it must not take down whatever was reporting the failure.
 function describe(detail) {
-  if (detail instanceof Error) return `${detail.name}: ${detail.message}${detail.stack ? `\n${detail.stack}` : ''}`;
-  if (typeof detail === 'string') return detail;
   try {
+    if (detail instanceof Error) return `${detail.name}: ${detail.message}${detail.stack ? `\n${detail.stack}` : ''}`;
+    if (typeof detail === 'string') return detail;
     return JSON.stringify(detail);
   } catch {
-    return String(detail);
+    try {
+      return String(detail);
+    } catch {
+      return `an unreadable ${typeof detail}`;
+    }
   }
 }
