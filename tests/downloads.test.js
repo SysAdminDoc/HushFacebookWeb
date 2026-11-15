@@ -1705,13 +1705,53 @@ test('a save the extension reload stopped goes to the reload notice, and a reaso
     assert.deepEqual(toasts, [["Couldn't save it: the download stopped.", 'error']]);
   }
 
-  // Nothing thrown at all still ends as a failed save, not a saved one.
+  // An object dressed up as an error, or a real error naming an address, shows no reason either.
+  const dressed = Object.assign(Object.create(Error.prototype), { message: 'blocked by https://scontent.xx.fbcdn.net/v/Pat.jpg' });
+  const tagged = { message: 'blocked by https://scontent.xx.fbcdn.net/v/Pat.jpg', [Symbol.toStringTag]: 'Error' };
+  for (const thrown of [dressed, tagged, new Error('could not reach scontent.xx.fbcdn.net'), new Error('see www.example.org')]) {
+    toasts.length = 0;
+    api.request = () => {
+      throw thrown;
+    };
+    await save();
+    assert.deepEqual(toasts, [["Couldn't save it: the download stopped.", 'error']]);
+  }
+
+  // A full stop followed by something unseen still gets only the sentence's own.
   toasts.length = 0;
-  logged.length = 0;
   api.request = () => {
-    throw null;
+    throw new Error(`it failed.${String.fromCharCode(0x200b)} `);
   };
   await save();
-  assert.deepEqual(toasts, [["Couldn't save it: the download stopped.", 'error']]);
-  assert.deepEqual(logged.map(([level]) => level), ['warn']);
+  assert.deepEqual(toasts, [["Couldn't save it: it failed.", 'error']]);
+
+  // Nothing thrown at all, or something empty, still ends as a failed save, not a saved one.
+  for (const thrown of [null, undefined, '', 0, false]) {
+    toasts.length = 0;
+    logged.length = 0;
+    api.request = () => {
+      throw thrown;
+    };
+    await save();
+    assert.deepEqual(toasts, [["Couldn't save it: the download stopped.", 'error']], `thrown ${String(thrown)}`);
+    assert.deepEqual(logged.map(([level]) => level), ['warn']);
+  }
+});
+
+test('a save whose every try throws something empty fails, and the fetch that failed is not run again', async () => {
+  for (const thrown of [null, '', 0, false]) {
+    let fetches = 0;
+    const api = {
+      request: () => {
+        fetches++;
+        throw thrown;
+      },
+      download: ({ onerror }) => {
+        onerror({ error: 'not_succeeded' });
+        return {};
+      },
+    };
+    await assert.rejects(startSave({ url: 'https://scontent.xx.fbcdn.net/v/p.jpg', name: 'p.jpg', api, doc: fakeDoc() }).done, (error) => error instanceof Error, `thrown ${String(thrown)}`);
+    assert.equal(fetches, 1, `thrown ${String(thrown)}: the fetch ran ${fetches} times`);
+  }
 });

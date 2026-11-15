@@ -62,6 +62,9 @@ export function extensionOf(url, fallback) {
 // A manager's error fields can be text or an object (the browser's own error, say).
 const describe = (value) => (value && typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''));
 const cancelledError = (cause) => Object.assign(new Error('you cancelled it', cause ? { cause } : undefined), { cancelled: true });
+// Whatever a try threw, as something that reads as a failure: a thrown '', 0, null or the like
+// would otherwise end the save as if it had worked.
+const failure = (thrown) => thrown || new Error('the download stopped');
 
 // Each try hands back how to stop it: the abort() of the manager's handle, or of the fetch's
 // AbortController. Managers don't all keep to the timeout they're given (an anonymous
@@ -311,9 +314,10 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
     if (JPEG.test(name)) {
       try {
         return await fetchAndLink(true);
-      } catch (error) {
+      } catch (thrown) {
         if (over) return undefined;
-        if (error?.cancelled || !api.download) throw error;
+        const error = failure(thrown);
+        if (error.cancelled || !api.download) throw error;
         fetchFailed = error;
       }
     }
@@ -321,24 +325,26 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
       try {
         await attempt(viaManager(api.download, url, name, deadline));
         return 'manager';
-      } catch (error) {
+      } catch (thrown) {
         if (over) return undefined;
+        const error = failure(thrown);
         // Cancelled in the browser means no, and a final error stands. Anything else, fetch it
         // instead, unless that's what already failed: then its reason, which reads plainer than
         // a manager's code, is the one to show.
-        if (error?.cancelled) throw cancelledError(error);
-        if (error?.final) throw error;
+        if (error.cancelled) throw cancelledError(error);
+        if (error.final) throw error;
         // A manager that's gone because the extension was reloaded says why a fetch that fails
         // too failed: a reload of the page fixes both.
-        if (error?.code === EXTENSION_RELOADED) managerFailed = error;
+        if (error.code === EXTENSION_RELOADED) managerFailed = error;
         if (fetchFailed) throw managerFailed ?? fetchFailed;
       }
     }
     if (!managerFailed) return fetchAndLink(false);
     try {
       return await fetchAndLink(false);
-    } catch (error) {
-      if (over || error?.cancelled) throw error;
+    } catch (thrown) {
+      const error = failure(thrown);
+      if (over || error.cancelled) throw error;
       throw managerFailed;
     }
   };
@@ -355,8 +361,7 @@ export function startSave({ url, parts = null, name, api = {}, doc = globalThis.
     saveThroughLink(file, name, doc, container);
     return 'link';
   };
-  // Something thrown that isn't an error still ends the save as failed, never as saved.
-  run().then((how) => settle(null, how), (error) => settle(error ?? new Error('the download stopped')));
+  run().then((how) => settle(null, how), (error) => settle(failure(error)));
   return { done, cancel: () => settle(cancelledError()) };
 }
 

@@ -14,6 +14,14 @@ const instances = new WeakMap();
 const NOTICE_AFTER = 1500;
 // An error from another realm (a manager's sandbox, say) fails instanceof, so its tag counts too.
 const isError = (value) => value instanceof Error || Object.prototype.toString.call(value) === '[object Error]';
+// A reason that names an address could carry the poster's name, whatever threw it.
+const ADDRESS = /[a-z][a-z\d+.-]*:\/\/|www\.|\.(?:com|net|org)\b/i;
+// Its own full stop and anything unseen after it (spaces, zero-width marks) go, since the
+// sentence it goes into has one. Empty when there's nothing safe to show.
+const reasonOf = (error) => {
+  const message = isError(error) && typeof error.message === 'string' ? error.message : '';
+  return message && !ADDRESS.test(message) ? t(message).replace(/[.\s\p{Cf}]+$/u, '') : '';
+};
 
 export const QUALITY_OPTION = {
   key: 'quality', type: 'select', label: 'Video quality', default: 'best',
@@ -86,11 +94,10 @@ function create({ win, doc, net, router, diagnostics, log, toast, api = gmApi() 
         return;
       }
       // A warning, since the panel gives every error a notice of its own and this one already
-      // says why. The reason's own full stop goes, since the sentence has one. Only a real
-      // error's own message is shown: anything else thrown could hold an address.
+      // says why. Only a real error's own message is shown, and never one with an address in
+      // it (reasonOf).
       log?.warn("Couldn't save a photo or video", error);
-      const message = isError(error) && typeof error.message === 'string' ? t(error.message).replace(/[.\s]+$/, '') : '';
-      toast?.(t("Couldn't save it: {reason}.", { reason: message || t('the download stopped') }), { tone: 'error' });
+      toast?.(t("Couldn't save it: {reason}.", { reason: reasonOf(error) || t('the download stopped') }), { tone: 'error' });
     } finally {
       clearTimeout(later);
       notice?.dismiss?.();
