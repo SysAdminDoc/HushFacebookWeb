@@ -899,6 +899,167 @@ test("a bridge that throws right away doesn't leave the write counted as on its 
   assert.equal(storage.get(key), 3, 'the write that never left is not kept over the saved value');
 });
 
+test('a write the bridge refuses right away is answered before a load in the same moment starts', async () => {
+  const key = 'keepSpeed.rate';
+  const saved = { [key]: 1 };
+  let push;
+  let throwNow = true;
+  const storage = createBridgeStorage({
+    on(name, listener) { if (name === 'storage') push = listener; },
+    request(type, payload) {
+      if (type === 'storage:load') return Promise.resolve(structuredClone(saved));
+      if (throwNow) throw new Error('bridge unavailable');
+      saved[payload.key] = payload.value;
+      return Promise.resolve();
+    },
+  }, { log: { error() {} } });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  await settle();
+  storage.set(key, 2);
+  throwNow = false;
+  // Another tab's change this tab can't read, and Retry, all before any promise settles.
+  saved[key] = 3;
+  push({}, { error: 'read failed' });
+  const retried = storage.retry();
+  assert.equal(await retried, true);
+  assert.equal(storage.get(key), 3, 'the write that never left is not kept over the saved value');
+  assert.equal(saved[key], 3);
+});
+
+// Each case: this tab's write of `key` waits for the first load, another tab saves 3 meanwhile,
+// and the page hears `pushes` before the load and Retry.
+const queuedWriteRace = async ({ write, pushes }) => {
+  const key = 'keepSpeed.rate';
+  const saved = { [key]: 1 };
+  const firstLoad = deferred();
+  let loads = 0;
+  let push;
+  const storage = createBridgeStorage({
+    on(name, listener) { if (name === 'storage') push = listener; },
+    async request(type, payload) {
+      if (type === 'storage:load') {
+        if (++loads === 1) await firstLoad.promise;
+        return structuredClone(saved);
+      }
+      if (type === 'storage:set') saved[payload.key] = payload.value;
+      if (type === 'storage:remove') delete saved[payload.key];
+    },
+  }, { log: { error() {} } });
+  const outcome = write === 'set' ? (storage.set(key, 2), Promise.resolve('sent')) : storage.remove(key).then(() => 'sent', (error) => error.message);
+  saved[key] = 3;
+  for (const [changes, meta] of pushes(key)) push(changes, meta);
+  firstLoad.resolve();
+  await settle();
+  assert.equal(await storage.retry(), true);
+  await settle();
+  return { saved, storage, key, outcome: await outcome };
+};
+
+test("a storage failure about another key doesn't stop this tab's queued write", async () => {
+  for (const write of ['set', 'remove']) {
+    const { saved, storage, key, outcome } = await queuedWriteRace({
+      write,
+      pushes: (key) => [
+        [{}, { error: 'read failed', keys: ['settings'] }],
+        // A snapshot repeating the key with no revision doesn't outrank the write.
+        [{ [key]: 1, settings: {} }, { snapshot: true, revisions: {}, barriers: {} }],
+      ],
+    });
+    assert.equal(outcome, 'sent', write);
+    assert.equal(saved[key], write === 'set' ? 2 : undefined, `${write}: the write is sent`);
+    assert.equal(storage.get(key, 'removed'), write === 'set' ? 2 : 'removed', write);
+    assert.equal(storage.status().state, 'ready', write);
+  }
+});
+
+test("a storage failure about the key after a snapshot repeat leaves the saved value standing", async () => {
+  for (const write of ['set', 'remove']) {
+    const { saved, storage, key, outcome } = await queuedWriteRace({
+      write,
+      pushes: (key) => [
+        // The repeat comes first and doesn't outrank the write, then the failure that may have
+        // hidden the other tab's change to this key.
+        [{ [key]: 3, settings: {} }, { snapshot: true, revisions: {}, barriers: {} }],
+        [{}, { error: 'read failed', keys: [key] }],
+      ],
+    });
+    assert.equal(saved[key], 3, `${write}: the queued write isn't sent over it`);
+    assert.equal(storage.get(key), 3, write);
+    assert.equal(storage.status().state, 'ready', write);
+    if (write === 'remove') assert.match(outcome, /changed before/);
+  }
+});
+
+test("a storage failure about the key keeps a failed save from going again on Retry", async () => {
+  const key = 'resumeVideos.positions';
+  const old = { 1234567890: { t: 60, d: 500, at: 1 } };
+  const newer = { 1234567890: { t: 90, d: 500, at: 2 } };
+  for (const [when, about] of [['on its way', key], ['after it failed', key], ['on its way', 'settings']]) {
+    const label = `${when}, about ${about}`;
+    const saved = { [key]: old };
+    const sent = [];
+    const answer = deferred();
+    let failRemove = true;
+    let push;
+    const storage = createBridgeStorage({
+      on(name, listener) { if (name === 'storage') push = listener; },
+      async request(type, payload) {
+        if (type === 'storage:load') return structuredClone(saved);
+        sent.push(type);
+        if (failRemove) {
+          await answer.promise;
+          throw new Error('storage unavailable');
+        }
+        delete saved[payload.key];
+      },
+    }, { log: { error() {} } });
+    await new Promise((resolve) => storage.whenReady(resolve));
+    await settle();
+    const removing = assert.rejects(storage.remove(key), /storage unavailable/);
+    // Another tab saves a newer value, and this tab can't read that change.
+    saved[key] = newer;
+    if (when === 'on its way') push({}, { error: 'read failed', keys: [about] });
+    answer.resolve();
+    await removing;
+    if (when === 'after it failed') push({}, { error: 'read failed', keys: [about] });
+    assert.deepEqual(storage.get(key), old, `${label}: the failed remove is rolled back`);
+    failRemove = false;
+    assert.equal(await storage.retry(), true, label);
+    if (about === key) {
+      assert.equal(sent.length, 1, `${label}: Retry doesn't send the remove again`);
+      assert.deepEqual(saved[key], newer, label);
+      assert.deepEqual(storage.get(key), newer, `${label}: Retry's read shows the other tab's value`);
+    } else {
+      assert.equal(sent.length, 2, `${label}: a failure about another key leaves Retry sending it`);
+      assert.equal(Object.hasOwn(saved, key), false, label);
+    }
+    assert.equal(storage.status().state, 'ready', label);
+  }
+});
+
+test("the extension says which of the page's keys a change it couldn't read was for", async () => {
+  const win = page();
+  const record = revisions('stable-generation', 5, { settings: 5 });
+  const chrome = fakeChrome({ settings: { current: true }, [STORAGE_REVISIONS_KEY]: record });
+  await startIsolated(win, chrome);
+  const bridge = connectBridge({ doc: win.document, win, secret: randomUUID() });
+  const failures = [];
+  bridge.on('storage', (changes, meta) => { if (meta && Object.hasOwn(meta, 'error')) failures.push(meta); });
+  const storage = createBridgeStorage(bridge);
+  await new Promise((resolve) => storage.whenReady(resolve));
+
+  chrome.storage.local.get = async () => { throw new Error('storage unavailable'); };
+  chrome.emitStorageChange({
+    settings: { oldValue: { current: true }, newValue: { fresh: true } },
+    'hushfacebookWeb.keptTabs': { newValue: { 5: { document: 'a', at: 1 } } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  assert.equal(failures.length, 1);
+  assert.deepEqual([...failures[0].keys], ['settings'], "only the page's own key");
+  assert.equal(storage.status().state, 'error');
+});
+
 test('a save still on its way when the extension goes away fails as the reload once the tab knows', async () => {
   let stall;
   const logged = [];

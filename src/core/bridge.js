@@ -178,9 +178,14 @@ export function createBridgeStorage(bridge, { log } = {}) {
   // reload can tell a write the saved copy already holds from one it may not.
   const lastWrite = new Map();
   const unanswered = new Map();
-  // How many storage failures had happened when this tab last wrote each key. One since then
-  // may have hidden another tab's change to it.
+  // Storage failures that may have hidden another tab's change: per key when the failure said
+  // which keys it was reading, and for every key when it couldn't. failureAtWrite keeps the
+  // count for each key when this tab last wrote it, so a later one shows.
+  const keyFailures = new Map();
+  let keylessFailures = 0;
+  const failuresFor = (key) => keylessFailures + (keyFailures.get(key) ?? 0);
   const failureAtWrite = new Map();
+  const hiddenSinceWrite = (key) => failureAtWrite.has(key) && failureAtWrite.get(key) !== failuresFor(key);
   let writeCount = 0;
   const queuedWrites = new Map();
   const confirmedWrites = new Map();
@@ -242,13 +247,14 @@ export function createBridgeStorage(bridge, { log } = {}) {
     log?.error('The extension was reloaded or updated, so this page has to be reloaded to save anything', error);
     setStatus('error', error);
   };
-  const request = (type, payload) => {
+  const request = (type, payload, thrown) => {
     let answer;
     // A bridge that throws right away fails the same way as one that rejects, so callers'
-    // bookkeeping (unanswered counts, queued sends) always gets its answer.
+    // bookkeeping (unanswered counts, queued sends) always gets its answer. thrown hears it at once.
     try {
       answer = Promise.resolve(bridge.request(type, payload));
     } catch (error) {
+      thrown?.();
       answer = Promise.reject(error);
     }
     return answer.catch((error) => {
@@ -335,6 +341,15 @@ export function createBridgeStorage(bridge, { log } = {}) {
         if (Number.isSafeInteger(change.barrier) && savedRevision !== null) return change.barrier >= savedRevision;
         return true;
       };
+      // A queued write made before a failure that may have hidden another tab's change to its
+      // key isn't sent over what this read found. The read's value shows instead.
+      for (const [key, queued] of queuedWrites) {
+        if (!hiddenSinceWrite(key) || newerRemote(key)) continue;
+        queued.confirmed?.reject(new Error('Saved activity changed before it could be updated'));
+        if (queued.confirmed) confirmedWrites.delete(key);
+        queuedWrites.delete(key);
+        written.delete(key);
+      }
       pageLoadData.clear();
       for (const [key, value] of snapshot) pageLoadData.set(key, copy(value));
       for (const [key, change] of remoteChanges) {
@@ -376,6 +391,9 @@ export function createBridgeStorage(bridge, { log } = {}) {
   bridge.on('storage', (changes, meta) => {
     if (meta && Object.hasOwn(meta, 'error')) {
       storageFailureRevision++;
+      const keys = Array.isArray(meta.keys) ? meta.keys.filter((key) => typeof key === 'string').slice(0, 1024) : [];
+      if (keys.length) for (const key of new Set(keys)) keyFailures.set(key, (keyFailures.get(key) ?? 0) + 1);
+      else keylessFailures++;
       const error = new Error(String(meta.error) || 'the browser could not verify a storage change');
       log?.error("A storage change couldn't be verified", error);
       setStatus('error', error);
@@ -425,8 +443,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       // own write. Another tab's real change to it arrives in a push of its own first, unless a
       // storage failure since the write hid that push, and then the snapshot is all there is.
       if (
-        meta?.snapshot && (!loaded || loadPending) && written.has(key)
-        && failureAtWrite.get(key) === storageFailureRevision
+        meta?.snapshot && (!loaded || loadPending) && written.has(key) && !hiddenSinceWrite(key)
         && !Number.isSafeInteger(accepted) && !Number.isSafeInteger(barrier)
       ) continue;
       if (Number.isSafeInteger(accepted) && accepted >= 0) {
@@ -480,12 +497,17 @@ export function createBridgeStorage(bridge, { log } = {}) {
 
   const send = (key, type, payload) => {
     unanswered.set(key, (unanswered.get(key) ?? 0) + 1);
+    let waiting = true;
     const answered = () => {
+      if (!waiting) return;
+      waiting = false;
       const left = (unanswered.get(key) ?? 1) - 1;
       if (left > 0) unanswered.set(key, left);
       else unanswered.delete(key);
     };
-    return request(type, payload).finally(answered);
+    // A bridge that throws right away answered already, so a load started in the same moment
+    // doesn't count the write as on its way.
+    return request(type, payload, answered).finally(answered);
   };
   const sendConfirmed = async (operation) => {
     const { key, version } = operation;
@@ -514,7 +536,10 @@ export function createBridgeStorage(bridge, { log } = {}) {
           directVersions.get(key) === version
           && ((keyEvents.get(key) ?? 0) === events || same(data.get(key), previous))
         ) {
-          operation.failed = true;
+          // Kept for Retry, unless a storage failure since the write may have hidden something
+          // newer. Then Retry's read decides instead of sending it again.
+          operation.failed = !hiddenSinceWrite(key);
+          if (!operation.failed) confirmedWrites.delete(key);
           if (previous === undefined) data.delete(key);
           else data.set(key, previous);
           written.delete(key);
@@ -546,7 +571,14 @@ export function createBridgeStorage(bridge, { log } = {}) {
     writeRetry = (async () => {
       setStatus('loading');
       for (const operation of failed) {
-        if (confirmedWrites.get(operation.key) === operation && !await sendConfirmed(operation)) return false;
+        if (confirmedWrites.get(operation.key) !== operation) continue;
+        // A storage failure since it failed may have hidden another tab's change, so the read
+        // below decides instead of sending it again.
+        if (hiddenSinceWrite(operation.key)) {
+          confirmedWrites.delete(operation.key);
+          continue;
+        }
+        if (!await sendConfirmed(operation)) return false;
       }
       // Read the authoritative snapshot after recovery, including other tabs' newer writes.
       setStatus('error', lastError);
@@ -573,7 +605,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
     confirmedWrites.set(key, operation);
     written.add(key);
     lastWrite.set(key, ++writeCount);
-    failureAtWrite.set(key, storageFailureRevision);
+    failureAtWrite.set(key, failuresFor(key));
     if (value === undefined) data.delete(key);
     else data.set(key, copy(value));
     persist(key, type, payload, operation);
@@ -688,7 +720,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       supersedeWrite(key);
       written.add(key);
       lastWrite.set(key, ++writeCount);
-      failureAtWrite.set(key, storageFailureRevision);
+      failureAtWrite.set(key, failuresFor(key));
       if (stored === undefined) data.delete(key);
       else data.set(key, stored);
       persist(key, 'storage:set', { key, value: stored ?? null });

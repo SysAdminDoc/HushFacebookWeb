@@ -769,10 +769,12 @@ document.addEventListener(HELLO_MAIN, (event) => {
       if (!matchesCapturedAccount()) return;
     } catch (error) {
       const detail = String(error?.message ?? error ?? '') || 'the browser could not verify a storage change';
+      // Which of this page's keys the change was for, so the page only doubts those.
+      const keys = Object.keys(changes).filter((key) => storageAccess.values.has(key));
       toMain({
         push: 'storage',
         data: {},
-        meta: { error: detail },
+        meta: { error: detail, keys },
       });
       return;
     }
@@ -867,7 +869,7 @@ document.addEventListener(HELLO_MAIN, (event) => {
         toMain({
           push: 'storage',
           data: {},
-          meta: { error: String(error?.message ?? error) },
+          meta: { error: String(error?.message ?? error), keys: Object.keys(data) },
         });
       }
     }
