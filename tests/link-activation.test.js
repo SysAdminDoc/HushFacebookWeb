@@ -60,3 +60,26 @@ test('Sanitize alone keeps the redirect whole, so its u and h stay together', ()
   assert.equal(doc.getElementById('out').getAttribute('href'), SHIM);
   assert.deepEqual(heard, ['click:out']);
 });
+
+test('a press on the words inside a link cleans that link', () => {
+  const { doc, heard, press } = page();
+  const out = doc.getElementById('out');
+  out.setAttribute('href', SHIM);
+  out.innerHTML = '<span id="words">example.com</span>';
+  press('words', 'mousedown');
+  assert.equal(out.getAttribute('href'), 'https://example.com/a?x=1');
+  assert.deepEqual(heard, []);
+});
+
+test('a single address copied through the clipboard loses its tracking tags while Sanitize is on', async () => {
+  const win = testWindow('https://www.facebook.com/');
+  const copied = [];
+  Object.defineProperty(win.navigator, 'clipboard', { value: { writeText: async (text) => copied.push(text) }, configurable: true });
+  let on = true;
+  sanitizeLinks.setup({ win, net: null, enabled: () => on });
+  await win.navigator.clipboard.writeText('https://www.facebook.com/reel/1?mibextid=abc');
+  await win.navigator.clipboard.writeText('see https://www.facebook.com/reel/1?mibextid=abc');
+  on = false;
+  await win.navigator.clipboard.writeText('https://www.facebook.com/reel/1?mibextid=abc');
+  assert.deepEqual(copied, ['https://www.facebook.com/reel/1', 'see https://www.facebook.com/reel/1?mibextid=abc', 'https://www.facebook.com/reel/1?mibextid=abc']);
+});
