@@ -36,13 +36,13 @@ test('only the last 50 decisions are kept, oldest first, each telling listeners'
   assert.equal(kept[0].signal, 'w7');
   assert.equal(kept.at(-1).signal, `w${DECISIONS + 6}`);
   assert.equal(heard, DECISIONS + 7);
-  assert.equal(decisionLine(kept[0]), `18:24:05 data ${postTag('p7')} Filter: w7`);
+  assert.equal(decisionLine(kept[0]), `18:24:05 Removed before it showed, ${postTag('p7')}, Filter: w7`);
   // A copy each time, so nobody edits the list from outside.
   kept[0].rule = 'changed';
   assert.equal(diagnostics.decisions()[0].rule, 'Filter');
   // Anything that isn't data counts as the page, and a missing signal is left off the line.
   diagnostics.decide({ post: 'x', rule: 'Seen' });
-  assert.equal(decisionLine(diagnostics.decisions().at(-1)), `18:24:05 page ${postTag('x')} Seen`);
+  assert.equal(decisionLine(diagnostics.decisions().at(-1)), `18:24:05 Hidden on the page, ${postTag('x')}, Seen`);
 });
 
 test('the hider reports each new reason on a post once, with its signal or detail', () => {

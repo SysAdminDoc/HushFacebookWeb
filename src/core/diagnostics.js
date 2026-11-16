@@ -132,5 +132,7 @@ export function createDiagnostics({ now = () => Date.now() } = {}) {
 // apart so the detail never reaches Copy report.
 export const hideListener = (diagnostics, idOf) => ({ element, reason, detail, signal }) => diagnostics.decide({ post: idOf(element).id, rule: reason, signal, detail, layer: 'page' });
 
-// One line per decision, for the panel.
-export const decisionLine = ({ time, layer, post, rule, signal, detail }) => `${time} ${layer.padEnd(4)} ${post} ${rule}${signal || detail ? `: ${signal || detail}` : ''}`;
+// One line per decision, for the panel. It says in words where the post was hidden, and Copy
+// report keeps the short data and page tags.
+const LAYER_WORDS = { data: 'Removed before it showed', page: 'Hidden on the page' };
+export const decisionLine = ({ time, layer, post, rule, signal, detail }) => `${time} ${LAYER_WORDS[layer] ?? LAYER_WORDS.page}, ${post}, ${rule}${signal || detail ? `: ${signal || detail}` : ''}`;

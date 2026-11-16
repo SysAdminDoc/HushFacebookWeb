@@ -238,6 +238,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .diagnostic-group .empty { margin-top: 20px; padding: 0; border: 0; background: transparent; font-size: 16px; }
 .diagnostic-group:last-child { border-bottom: 0; }
 .log { font: 12px/1.6 ui-monospace, "Cascadia Code", Consolas, monospace; background: var(--crust); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log > div { padding-inline-start: 2ch; text-indent: -2ch; }
 .log .warn { color: var(--peach); }
 .log .error { color: var(--red); }
 .empty { margin: 12px 0 0; padding: 20px 22px; border: 1px solid var(--border); border-radius: 8px; color: var(--subtext); background: var(--surface0); font-size: 14px; }

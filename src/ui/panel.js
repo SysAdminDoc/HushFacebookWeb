@@ -1121,7 +1121,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   const featureRows = () => diagnostics?.rows() ?? [];
   const decisions = () => diagnostics?.decisions?.() ?? [];
 
-  // The values, the hide decisions and the log stay in English, as Copy report has them.
+  // The values, the hide decisions and the log stay in English, as Copy report has them. A
+  // decision line names where the post was hidden in words, where the report has a tag.
   function diagnosticsView() {
     const entries = log.entries().slice(-150);
     const blocked = features.filter((feature) => unavailable.has(feature.id))
@@ -1140,7 +1141,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       h('div', { class: 'actions' }, actionButton('copy-report', 'Copy report', copyReport, { primary: true, busyLabel: 'Copying...' }))),
       h('section', { class: 'diagnostic-group' },
       h('h3', { class: 'subheading', text: t('Why posts were hidden') }),
-      h('p', { class: 'desc', text: t("The last 50, newest first. data means it came out of Facebook's data before it was drawn, page means it was hidden on the page. Each post has a short tag instead of its id.") }),
+      h('p', { class: 'desc', text: t('The last 50, newest first. Each post has a short tag instead of its id.') }),
       decisions().length
         ? h('div', { class: 'log', dir: 'ltr' }, decisions().slice().reverse().map((decision) => h('div', { text: decisionLine(decision) })))
         : h('p', { class: 'empty', text: t('Nothing hidden yet.') })),
