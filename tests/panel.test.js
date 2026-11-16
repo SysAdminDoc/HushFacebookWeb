@@ -375,7 +375,7 @@ test('a Quick setup shows its Undo on Overview, and General has it too', async (
   assert.ok(shadow.querySelector('[data-key="reset:undo"]'));
 });
 
-test('Quick setups report their changed count and Back to defaults raises Reload when needed', () => {
+test('Quick setups report their changed count and Reset to defaults raises Reload when needed', () => {
   const quiet = QUICK_SETUPS.find((setup) => setup.id === 'quiet');
   const privacy = QUICK_SETUPS.find((setup) => setup.id === 'privacy');
   const first = setup({ features: allFeatures });
@@ -504,7 +504,19 @@ test('a Quick setup that changes nothing offers no Undo while another choice is 
   assert.equal(mutations.length, 2);
 });
 
-test('Back to defaults that only clears a typed value says the settings are back to their defaults', () => {
+test('Reset to defaults goes by one name on Overview and in General, and a screen reader hears it once', () => {
+  const { shadow, panel } = setup({ features: allFeatures });
+  const button = (key) => shadow.querySelector(`[data-key="${key}"]`);
+  panel.open('overview');
+  assert.equal(shadow.querySelector('#hfw-setup-defaults').textContent, 'Reset to defaults');
+  assert.equal(button('quick:defaults').textContent, 'Reset');
+  assert.equal(labelledText(shadow, button('quick:defaults')), 'Reset to defaults');
+  assert.equal(labelledText(shadow, button('quick:quiet')), 'Turn on Quiet', 'the other tiles still read with their name');
+  panel.open('general');
+  assert.equal(button('reset').textContent, 'Reset to defaults');
+});
+
+test('Reset to defaults that only clears a typed value says the settings are back to their defaults', () => {
   const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];
   const { win, shadow, panel } = setup({ features });
   panel.open('feed');
@@ -518,7 +530,7 @@ test('Back to defaults that only clears a typed value says the settings are back
   assert.ok(!last.querySelector('button'));
 });
 
-test('Back to defaults clears invalid drafts even when saved settings already use their defaults', () => {
+test('Reset to defaults clears invalid drafts even when saved settings already use their defaults', () => {
   const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];
   const { win, shadow, panel, settings } = setup({ features });
   panel.open('feed');
@@ -2220,6 +2232,8 @@ test("General's switches and backup actions come up by their own words, and the 
     ['restore from a file', 'backup-restore', 'restore'],
     ['Reset', 'backup-restore', 'reset'],
     ['Reset', 'quick-setups', 'quick:defaults'],
+    ['reset to defaults', 'backup-restore', 'reset'],
+    ['reset to defaults', 'quick-setups', 'quick:defaults'],
     ['back up restore', 'backup-restore', 'backup'],
   ]) {
     find(query);

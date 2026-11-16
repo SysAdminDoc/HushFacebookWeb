@@ -47,7 +47,7 @@ test('Quiet and Privacy turn on their switches without changing unrelated choice
   assert.equal(settings.get('forceDarkMode'), true);
 });
 
-test('Back to defaults resets every changed setting and reports the count', () => {
+test('Reset to defaults resets every changed setting and reports the count', () => {
   const settings = createSettings({ storage: createMemoryStorage(), features });
   settings.set('paused', true);
   settings.set('forceDarkMode', true);
@@ -59,7 +59,7 @@ test('Back to defaults resets every changed setting and reports the count', () =
   assert.throws(() => applyQuickSetup(settings, 'missing'), /Unknown Quick setup/);
 });
 
-test('Back to defaults clears a rejected acknowledged draft when committed values are defaults', async () => {
+test('Reset to defaults clears a rejected acknowledged draft when committed values are defaults', async () => {
   const acknowledged = acknowledgedStorage();
   const settings = createSettings({ storage: acknowledged.storage, features: [{ id: 'alpha', title: 'Alpha', default: false }], migrations: [] });
   const saving = settings.set('alpha', true);

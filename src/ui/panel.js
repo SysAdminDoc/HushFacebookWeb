@@ -731,7 +731,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         if (dialog.open) render();
       };
       const succeeded = (changed) => {
-        // Typed values Back to defaults throws away are a change the person can see.
+        // Typed values Reset to defaults throws away are a change the person can see.
         const clearedDrafts = id === 'defaults' && drafts.size > 0;
         if (id === 'defaults') {
           drafts.clear();
@@ -765,7 +765,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     });
   }
 
-  // How much of a Quick setup is already on, or for Back to defaults how much it would change.
+  // How much of a Quick setup is already on, or for Reset to defaults how much it would change.
   function setupStatus(setup) {
     if (setup.reset) {
       const changed = [...settings.schema].filter(([key, spec]) => !KEPT_ON_RESET.includes(key) && JSON.stringify(settingValue(key)) !== JSON.stringify(spec.default)).length;
@@ -776,7 +776,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return on === keys.length ? t('All on') : t('{on} of {total} on', { on, total: keys.length });
   }
 
-  // One tile per Quick setup. The button reads with its tile's name: Turn on, Quiet.
+  // One tile per Quick setup. The button reads with its tile's name: Turn on, Quiet. Reset's tile
+  // is named for what it does, Reset to defaults as in General, so that name alone is the button's.
   function setupTiles() {
     return h('div', { class: 'setup-tiles', dataset: { key: 'quick-setups' } }, QUICK_SETUPS.map((setup) => {
       const key = `quick:${setup.id}`;
@@ -787,7 +788,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         h('div', { class: 'tile-foot' },
           h('span', { class: 'tile-count', text: setupStatus(setup) }),
           h('button', {
-            class: `button${setup.reset ? '' : ' primary'}`, type: 'button', id: ids.button, 'aria-labelledby': `${ids.button} ${ids.title}`,
+            class: `button${setup.reset ? '' : ' primary'}`, type: 'button', id: ids.button, 'aria-labelledby': setup.reset ? ids.title : `${ids.button} ${ids.title}`,
             text: t(pending.has(key) ? 'Waiting...' : setup.reset ? 'Reset' : 'Turn on'), dataset: { key },
             disabled: bulkChangePending(), 'aria-busy': pending.has(key) ? 'true' : null,
             onclick: () => applySetup(setup.id),
@@ -1107,7 +1108,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // Overview's own row for search, as a General row is.
   const overviewRows = () => [{
     id: 'quick-setups', section: 'overview', title: 'Quick setups', description: QUICK_SETUPS_NOTE,
-    options: QUICK_SETUPS.map((setup) => ({ label: setup.label, focusKey: `quick:${setup.id}`, keywords: setup.reset ? ['reset'] : [] })),
+    options: QUICK_SETUPS.map((setup) => ({ label: setup.label, focusKey: `quick:${setup.id}` })),
     focusKey: 'quick:quiet', render: quickSetupsCard,
   }];
 
