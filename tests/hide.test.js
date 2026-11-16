@@ -1294,6 +1294,38 @@ test('with the real post tracker, an element reused for another story and hidden
   }
 });
 
+test('with the real post tracker, an element reused and hidden before the tracker heard, then taken off the page before it looked, comes back hidden only when the story it shows is', async () => {
+  // As above, but the tracker next hears of it leaving, and then back as the story it shows.
+  for (const [how, blip] of [['as drawn', async () => {}], ...Object.entries(BLIPS)]) {
+    for (const hiddenBefore of [true, false]) {
+      for (const again of [true, false]) {
+        for (const order of LISTEN_ORDERS) {
+          const s = adFeed(order, (hider, { element }) => {
+            if (again && element.textContent.includes('Spam')) hider.hide(element, 'Filter');
+          });
+          const where = `${how}, ${hiddenBefore ? 'hidden' : 'not hidden'} before, ${again ? 'hidden again' : 'not hidden again'} ${order}`;
+          const before = hiddenBefore ? { Sponsored: 1 } : {};
+          if (hiddenBefore) s.hider.hide(s.first, 'Sponsored');
+          await blip(s);
+          if (hiddenBefore) s.hider.hide(s.first, 'Sponsored');
+          s.first.querySelector('.text').textContent = 'Spam';
+          s.link('/other/posts/pfbid0Fourth');
+          s.hider.hide(s.first, 'Filter');
+          await s.leave();
+          assert.deepEqual(s.counts(), before, `${where}, away`);
+          await s.back();
+          assert.deepEqual(s.counts(), again ? { ...before, Filter: 1 } : before, where);
+          assert.equal(s.hider.hiddenPosts() - s.seeded, (hiddenBefore ? 1 : 0) + (again ? 1 : 0), where);
+          assert.equal(s.hider.isHidden(s.first), again, where);
+          assert.equal(s.mark(), again ? 'Filter' : null, where);
+          assert.equal(s.heard.at(-1), s.hider.hiddenNow() - s.seeded, `${where}: the last news is what's hidden`);
+          s.posts.stop();
+        }
+      }
+    }
+  }
+});
+
 test('with the real post tracker, a post settled at a hide as one story and reused for another before the tracker heard either counts that one on its own', async () => {
   const spam = '/someone/posts/pfbid0Spam';
   const other = '/other/posts/pfbid0Other';

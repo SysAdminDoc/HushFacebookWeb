@@ -387,8 +387,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   }
 
   // Whether the tracker knows a post as a story its links no longer name. It reports it reused
-  // when it next looks, which takes this hide's mark off, and the story it shows counts once a
-  // feature hides it there.
+  // when it next looks, or gone if it left first, and either takes this hide's mark off. The story
+  // it shows counts once a feature hides it there.
   const stale = (element, id) => {
     const known = id === null ? null : posts?.idOf?.(element) ?? null;
     return known !== null && !sameStory(element, known);
@@ -447,6 +447,10 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
             leftWith.set(element, { id: story, had: new Set(marker ? reasonsOf(marker).keys() : []), since: new Set() });
             uncounted = claim(element, story) || uncounted;
           }
+          // Hidden and never counted, it was reused and hidden before the tracker heard (stale()).
+          // Its mark comes off as a reuse report would take it, and the story it shows counts once
+          // a feature hides it again.
+          else clear(element);
         }
         if (marked) departed.add(element);
       }
