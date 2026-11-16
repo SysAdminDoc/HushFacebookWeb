@@ -66,6 +66,7 @@ test("the link goes after the seller's name, not after the picture or Seller det
   assert.equal(view.getAttribute('href'), '/profile.php?id=100000000000001');
   assert.equal(boxOf(view) === found[0].link.parentElement, true, "on the name's own box");
   assert.equal(view.previousElementSibling.localName, 'slot', 'after the slot that shows the name');
+  assert.equal(view.getAttribute('data-hushfacebook-web'), 'seller-profile', "marked as the script's own, so Hide parts won't take it for Facebook's");
   assert.equal(links.added(), 1);
   // Facebook's own links are left as they were.
   assert.equal(doc.querySelectorAll('a[href*="/marketplace/profile/"]').length, 3);

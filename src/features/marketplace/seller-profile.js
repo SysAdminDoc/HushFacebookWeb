@@ -131,6 +131,8 @@ export function addProfileLink(doc, { id, link }) {
   }
   const view = doc.createElement('a');
   view.setAttribute(MARK, id);
+  // The script's own, like its other elements, so Hide parts doesn't take it for Facebook's.
+  view.setAttribute('data-hushfacebook-web', 'seller-profile');
   view.setAttribute('href', profileUrl(id));
   view.setAttribute('role', 'link');
   view.textContent = LABEL;

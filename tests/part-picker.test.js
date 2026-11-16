@@ -309,4 +309,17 @@ test("a pick on something of the script's own on the page says so", () => {
   doc.getElementById('birthdays-title').append(word);
   fire(word, 'click');
   assert.deepEqual(picker.state(), { state: 'picked', line: null, refused: 'ours' });
+
+  // A link of the script's own in a shadow root on Facebook's box, as View profile on a seller.
+  button('again').click();
+  const box = doc.getElementById('birthdays');
+  const inside = box.attachShadow({ mode: 'open' });
+  const link = doc.createElement('a');
+  link.setAttribute('data-hushfacebook-web', 'seller-profile');
+  link.setAttribute('href', '/profile.php?id=1');
+  link.textContent = 'View profile';
+  inside.append(doc.createElement('slot'), link);
+  fire(link, 'click');
+  assert.deepEqual(picker.state(), { state: 'picked', line: null, refused: 'ours' });
+  assert.match(text(), /HushFacebook Web's own/);
 });
