@@ -213,6 +213,14 @@ const isSideAdUnit = (value) => isObject(value) && value.__typename === SIDE_AD_
 const FRIEND_REQUESTS_TYPENAME = 'FriendingRequestsSideFeedUnit';
 const isFriendRequestsUnit = (value) => isObject(value) && value.__typename === FRIEND_REQUESTS_TYPENAME;
 
+// Home's right column: the inline answer on a fresh load and the one when Home is drawn again
+// (CLAUDE.md, 2026-10-21). Hide Friend requests on Home stays to these, so no other page's
+// answer loses a request. The box drawn from anything else is still hidden on the page.
+export const HOME_RIGHT_COLUMN = {
+  queries: /^(?:CometRightSideHeaderCardsQuery|CometHomeRightSideEgoRefetchQuery)$/,
+  routes: (route) => route?.type === 'home',
+};
+
 // The story an edge draws: its node in a feed, or the story behind a search result.
 const storyOf = (edge, node) => (isObject(node) && node.__typename === 'Story'
   ? node
@@ -294,6 +302,7 @@ export const AD_MARKERS = [
     feature: 'hideFriendRequestsColumn',
     surface: "Home's right column (Friend requests)",
     seen: '2026-10-21: inline CometRightSideHeaderCardsQuery data on Home, the box with its request in viewer.side_feed.nodes and a bare one after the ad unit in viewer.auxColumnUnits.nodes',
+    scope: HOME_RIGHT_COLUMN,
     text: [`"${FRIEND_REQUESTS_TYPENAME}"`],
     kind: 'object',
     match: (value) => Array.isArray(value.nodes) && value.nodes.some(isFriendRequestsUnit),

@@ -20,7 +20,7 @@ export default {
   keywords: ['friend requests', 'right column', 'sidebar'],
   css: () => FRIEND_REQUESTS_CSS,
 
-  setup({ doc, net, settings, diagnostics, enabled }) {
+  setup({ doc, net, router, settings, diagnostics, enabled }) {
     const changed = () => diagnostics?.changed();
     let data = 0;
     let page = 0;
@@ -28,13 +28,18 @@ export default {
       net.transformResponses(adRule('hideFriendRequestsColumn', enabled, () => {
         data++;
         changed();
-      }));
+      }, { route: () => router?.current() }));
     }
-    const column = doc ? watchColumnBoxes({ doc, enabled, find: friendRequestsBoxes, mark: FRIEND_REQUESTS_MARK, onBox: () => {
+    // Only on Home: elsewhere nothing is marked or counted, and a mark from Home stays, hiding
+    // nothing until Home shows again.
+    const onHome = () => doc.documentElement?.dataset.hfwRoute === 'home';
+    const column = doc ? watchColumnBoxes({ doc, enabled: () => enabled() && onHome(), find: friendRequestsBoxes, mark: FRIEND_REQUESTS_MARK, onBox: () => {
       page++;
       changed();
     } }) : null;
     settings?.subscribe(() => column?.check());
+    // Back on Home, a column Facebook kept from before gets checked without waiting for it to change.
+    router?.subscribe(() => column?.check());
     // Counts only, so Copy report can carry them.
     diagnostics?.add('Friend requests taken out of the data', () => (net ? String(data) : "Off: the script can't reach the page's data"), { shareable: true });
     diagnostics?.add('Friend requests boxes hidden on the page', () => String(page), { shareable: true });

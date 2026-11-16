@@ -134,7 +134,7 @@ test("Friend requests leaves Facebook's inline data under its own switch, and on
     const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/' } };
     const net = installNetworkHooks({ win, log: { error: () => {}, warn() {}, info() {}, debug() {} } });
     const fired = [];
-    net.transformResponses(adRule('hideFriendRequestsColumn', () => on, (ids) => fired.push(...ids)));
+    net.transformResponses(adRule('hideFriendRequestsColumn', () => on, (ids) => fired.push(...ids), { route: () => ({ type: 'home' }) }));
     const after = win.JSON.parse(line);
     if (on) {
       assert.deepEqual(lists(after), { side_feed: [], auxColumnUnits: ['AdsSideFeedUnit'] });

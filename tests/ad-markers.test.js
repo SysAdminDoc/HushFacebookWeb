@@ -153,15 +153,23 @@ test('Friend requests leaves both lists under its own switch, and every other bo
   column.nodes.unshift({ __typename: 'BirthdaysSideFeedUnit' });
   const answer = { data: { viewer: { side_feed: SAMPLES.FriendingRequestsSideFeedUnit(), auxColumnUnits: column } }, extensions: { is_final: true } };
   const line = JSON.stringify(answer);
-  const friends = adRule('hideFriendRequestsColumn', () => true);
+  let route = { type: 'home' };
+  const friends = adRule('hideFriendRequestsColumn', () => true, undefined, { route: () => route });
   assert.equal(rulesFor(line, [friends]).length, 1, 'the line gets past the prefilter');
-  for (const ctx of [{ transport: 'json-parse', friendlyName: '' }, { transport: 'fetch', path: '/api/graphql/', friendlyName: 'CometHomeRightSideEgoRefetchQuery' }]) {
+  const fetched = (friendlyName) => ({ transport: 'fetch', path: '/api/graphql/', friendlyName });
+  for (const ctx of [{ transport: 'json-parse', friendlyName: '' }, fetched('CometRightSideHeaderCardsQuery'), fetched('CometHomeRightSideEgoRefetchQuery')]) {
     const out = JSON.parse(transformDocumentLine(line, [friends], ctx));
-    assert.deepEqual(out.data.viewer.side_feed.nodes, [], ctx.transport);
+    assert.deepEqual(out.data.viewer.side_feed.nodes, [], ctx.friendlyName || ctx.transport);
     assert.deepEqual(out.data.viewer.auxColumnUnits.nodes.map((unit) => unit.__typename), ['BirthdaysSideFeedUnit', 'AdsSideFeedUnit'], ctx.transport);
   }
+  // Only Home's right column: another answer, or inline data on another page, keeps it.
+  assert.equal(transformDocumentLine(line, [friends], fetched('FriendingCometRootContentQuery')), line, 'another answer');
+  route = { type: 'friends' };
+  assert.equal(transformDocumentLine(line, [friends], { transport: 'json-parse', friendlyName: '' }), line, 'inline on the Friends page');
+  assert.equal(transformDocumentLine(line, [adRule('hideFriendRequestsColumn', () => true)], { transport: 'json-parse', friendlyName: '' }), line, 'inline, with no page known');
+  route = { type: 'home' };
   // With Hide sponsored posts too, each takes only its own box.
-  const both = JSON.parse(transformDocumentLine(line, [adRule('hideSponsoredPosts', () => true), friends]));
+  const both = JSON.parse(transformDocumentLine(line, [adRule('hideSponsoredPosts', () => true), friends], { transport: 'json-parse', friendlyName: '' }));
   assert.deepEqual(both.data.viewer.auxColumnUnits.nodes.map((unit) => unit.__typename), ['BirthdaysSideFeedUnit']);
   assert.deepEqual(both.data.viewer.side_feed.nodes, []);
   assert.equal(transformDocumentLine(line, [adRule('hideSponsoredPosts', () => true)]).includes('"highlighted_requests"'), true, 'Hide sponsored posts alone leaves it');

@@ -10,6 +10,7 @@ import { renderFeatureCss } from '../src/core/style.js';
 import hideSponsoredPosts from '../src/features/feed/hide-sponsored-posts.js';
 import hideFriendRequestsColumn from '../src/features/feed/hide-friend-requests-column.js';
 import { COLUMN_AD_MARK, columnAdBoxes, FRIEND_REQUESTS_MARK, friendRequestsBoxes, watchColumnAds } from '../src/features/feed/sponsored-column.js';
+import { transformDocumentLine } from '../src/core/net/payload.js';
 
 const windows = [];
 afterEach(async () => {
@@ -200,19 +201,96 @@ test('Friend requests is the whole block under its heading, found by its links, 
   assert.equal(box === bare.querySelector('.friends'), true, 'the climb stops short of a block linking elsewhere');
 });
 
-test("a box linking past the Friends pages, or never to Friend requests, isn't Friend requests", () => {
+test("a box linking past the Friends pages and people, or never to Friend requests, isn't Friend requests", () => {
   assert.equal(friendRequestsBoxes(page(sponsoredBox() + birthdays + contacts + suggestions).document).length, 0);
-  // A request row that links to the person's profile stops the climb at the heading's own block,
-  // which has no request in it.
-  const profile = friendRequests.replace('/friends/requests/?profile_id=1', '/profile.php?id=1');
-  assert.equal(friendRequestsBoxes(page(profile).document).length, 0);
+  // Its request links to the person, but nothing in it goes to Friend requests.
+  const noRequestsLink = friendRequests.replace('/friends/requests/?profile_id=1', '/profile.php?id=1');
+  assert.equal(friendRequestsBoxes(page(noRequestsLink).document).length, 0);
   const main = `<div role="main">${friendRequests}</div>`;
   assert.equal(friendRequestsBoxes(page(contacts, main).document).length, 0, 'the Friends page draws its requests in role=main');
+  // A side column inside a dialog isn't the page's.
+  const dialog = `<div role="main">Feed</div><div role="dialog"><div role="complementary">${friendRequests}</div></div>`;
+  assert.equal(friendRequestsBoxes(page('', dialog).document).length, 0, 'in a dialog');
+  // A link to one of Facebook's own pages, or out through l.php, isn't a person.
+  for (const href of ['/marketplace/', '/watch', '/groups/feed/', '/home.php', 'https://l.facebook.com/l.php?u=x', '/profile.php', '/help']) {
+    assert.equal(friendRequestsBoxes(page(profileRequests(request(href)) + birthdays).document)[0]?.querySelector('.request') ? 'took the row' : 'left it', 'left it', href);
+  }
+});
+
+// A request as the box's data draws it (each request's user.url, captured 2026-10-21): the
+// picture and the name go to the person, with Confirm and Delete beside them. The box links to
+// Friend requests too (seen live by another extension, which finds the box by that link).
+const request = (href = '/some.person', name = '<span>A Friend</span>') => `
+    <div class="request"><a role="link" href="${href}" aria-label="A Friend"><svg></svg></a>
+      <div><a role="link" href="${href}">${name}</a><span>3 mutual friends</span></div>
+      <div role="button" aria-label="Confirm">Confirm</div><div role="button" aria-label="Delete">Delete</div></div>`;
+const profileRequests = (rows = request(), seeAll = '/friends/requests/') => `
+  <div class="friends"><div>
+    <div><h3><span><span>Friend requests</span></span></h3><a role="link" href="${seeAll}">See all</a></div>
+    ${rows}
+  </div></div>`;
+const hasRow = (box) => Boolean(box?.querySelector('.request'));
+
+test("requests that link to the person are part of the box, Confirm and Delete included, and the boxes around it stay", () => {
+  for (const href of ['/some.person', 'https://www.facebook.com/some.person?__tn__=R', '/profile.php?id=1', '/people/A-Friend/1/']) {
+    const doc = page(sponsoredBox() + profileRequests(request(href)) + birthdays + contacts).document;
+    const boxes = friendRequestsBoxes(doc);
+    assert.equal(boxes.length, 1, href);
+    assert.equal(boxes[0] === doc.querySelector('.friends'), true, `${href}: the whole box and nothing past it`);
+    assert.equal(hasRow(boxes[0]), true, `${href}: the request goes with it`);
+  }
+  // Two requests and a See more button with nothing but its own words.
+  const more = page(profileRequests(`${request()}${request('/another.person')}<div class="more"><div role="button">See more</div></div>`) + birthdays).document;
+  const [box] = friendRequestsBoxes(more);
+  assert.equal(box === more.querySelector('.friends'), true, 'the whole box');
+  assert.equal(Boolean(box.querySelector('.more')), true, 'See more goes with it');
+});
+
+test("a person's name drawn as a heading doesn't split the box", () => {
+  const named = [
+    request('/some.person', '<span role="heading" aria-level="4">A Friend</span>'),
+    `<div class="request"><h4><a href="/profile.php?id=1">A Friend</a></h4><div role="button" aria-label="Confirm">Confirm</div></div>`,
+    // A name heading in a request that also links to Friend requests isn't a box of its own.
+    `<div class="request"><a href="/friends/requests/?profile_id=1"><span role="heading">A Friend</span></a><a href="/some.person"><svg></svg></a></div>`,
+  ];
+  for (const row of named) {
+    const doc = page(profileRequests(row) + birthdays + contacts).document;
+    const boxes = friendRequestsBoxes(doc);
+    assert.equal(boxes.length, 1);
+    assert.equal(boxes[0] === doc.querySelector('.friends'), true, 'the whole box');
+    assert.equal(hasRow(boxes[0]), true);
+  }
+  // A heading of another box still stops it, even beside a person's link.
+  const doc = page(`<div class="both">${profileRequests()}<div><h3>Birthdays</h3><span>Today</span></div></div>`).document;
+  assert.equal(friendRequestsBoxes(doc)[0] === doc.querySelector('.friends'), true);
+});
+
+test('a block beside the box with words and buttons of its own and no link stays out of it', () => {
+  const chats = '<div class="chats"><span>Group conversations</span><div role="button" aria-label="Create new group"><svg></svg></div></div>';
+  const buttonRows = '<div class="people"><span>Contacts</span><div role="button">A Friend</div><div role="button">B Friend</div></div>';
+  for (const beside of [chats, buttonRows]) {
+    const doc = page(profileRequests() + beside).document;
+    const [box] = friendRequestsBoxes(doc);
+    assert.equal(box === doc.querySelector('.friends'), true, 'the climb stops short of it');
+  }
+  // A divider with nothing in it is no reason to stop, and nor are words with no button, like a count.
+  const divided = page(`<div class="pair">${profileRequests()}<div class="divider"></div></div>`).document;
+  assert.equal(friendRequestsBoxes(divided)[0]?.contains(divided.querySelector('.divider')), true);
+  const counted = page(profileRequests().replace('</h3>', '</h3><span>2</span>') + birthdays).document;
+  assert.equal(friendRequestsBoxes(counted)[0] === counted.querySelector('.friends'), true);
+});
+
+test('a side column inside another one gives one box, not two', () => {
+  for (const box of [friendRequests, profileRequests()]) {
+    const doc = page(`<div role="complementary" class="inner">${box}</div>${birthdays}`).document;
+    assert.equal(friendRequestsBoxes(doc).length, 1);
+  }
 });
 
 test('Hide Friend requests on Home marks the box in content mode, counts it, and hides it only on Home while on', async () => {
   const win = page(sponsoredBox() + friendRequests + contacts);
   const doc = win.document;
+  doc.documentElement.dataset.hfwRoute = 'home';
   const diagnostics = createDiagnostics();
   let on = true;
   const listeners = [];
@@ -239,18 +317,94 @@ test('Hide Friend requests on Home marks the box in content mode, counts it, and
   on = false;
   doc.querySelector('.friends').removeAttribute(FRIEND_REQUESTS_MARK);
   listeners[0]();
-  assert.equal(doc.querySelector(`[${FRIEND_REQUESTS_MARK}]`), null, 'nothing is marked while the switch is off');
+  assert.equal(Boolean(doc.querySelector(`[${FRIEND_REQUESTS_MARK}]`)), false, 'nothing is marked while the switch is off');
   on = true;
   listeners[0]();
   assert.equal(doc.querySelector('.friends').hasAttribute(FRIEND_REQUESTS_MARK), true, 'and the box is marked again when it comes back on');
   await tick();
 });
 
+test('off Home nothing is marked or counted, and back on Home the column is checked at once', async () => {
+  const win = page(sponsoredBox() + profileRequests() + contacts);
+  const doc = win.document;
+  doc.documentElement.dataset.hfwRoute = 'groups';
+  const diagnostics = createDiagnostics();
+  const routed = [];
+  hideFriendRequestsColumn.setup({ doc, net: null, diagnostics, router: { subscribe: (fn) => routed.push(fn), current: () => null }, settings: { subscribe() {} }, enabled: () => true });
+  const rows = () => Object.fromEntries(diagnostics.rows().map(({ label, value }) => [label, value]));
+  assert.equal(Boolean(doc.querySelector(`[${FRIEND_REQUESTS_MARK}]`)), false, 'not marked on the groups feed');
+  doc.querySelector('.boxes').append(doc.createElement('div'));
+  await Promise.resolve();
+  assert.equal(Boolean(doc.querySelector(`[${FRIEND_REQUESTS_MARK}]`)), false, 'nor when the column changes there');
+  assert.equal(rows()['Friend requests boxes hidden on the page'], '0');
+
+  // Facebook kept the column, so nothing in it changes on the way back.
+  doc.documentElement.dataset.hfwRoute = 'home';
+  assert.equal(routed.length, 1, 'the page change is heard');
+  routed[0]();
+  assert.equal(doc.querySelector('.friends').hasAttribute(FRIEND_REQUESTS_MARK), true);
+  assert.equal(rows()['Friend requests boxes hidden on the page'], '1');
+
+  // Off Home again, the mark stays (the CSS hides it only on Home), and coming back counts nothing new.
+  doc.documentElement.dataset.hfwRoute = 'groups';
+  routed[0]();
+  assert.equal(doc.querySelector('.friends').hasAttribute(FRIEND_REQUESTS_MARK), true);
+  doc.documentElement.dataset.hfwRoute = 'home';
+  routed[0]();
+  assert.equal(rows()['Friend requests boxes hidden on the page'], '1');
+  await tick();
+});
+
+test('a box that narrows as the column fills in is the same box, counted once', async () => {
+  const win = page(profileRequests());
+  const doc = win.document;
+  doc.documentElement.dataset.hfwRoute = 'home';
+  const diagnostics = createDiagnostics();
+  hideFriendRequestsColumn.setup({ doc, net: null, diagnostics, settings: { subscribe() {} }, enabled: () => true });
+  const rows = () => Object.fromEntries(diagnostics.rows().map(({ label, value }) => [label, value]));
+  const outer = doc.querySelector(`[${FRIEND_REQUESTS_MARK}]`);
+  assert.equal(Boolean(outer?.contains(doc.querySelector('.friends'))), true, 'alone, the box is the largest block short of the column');
+  assert.equal(rows()['Friend requests boxes hidden on the page'], '1');
+
+  // Contacts load beside it.
+  doc.querySelector('.boxes').insertAdjacentHTML('beforeend', contacts);
+  await Promise.resolve();
+  assert.equal(doc.querySelector('.friends').hasAttribute(FRIEND_REQUESTS_MARK), true, 'the mark moves in to the box');
+  assert.equal(outer.hasAttribute(FRIEND_REQUESTS_MARK), false, 'and off the block that now holds contacts');
+  assert.equal(rows()['Friend requests boxes hidden on the page'], '1', 'still one box');
+
+  await tick();
+});
+
+test('a box that widens when the box beside it goes is the same box, counted once', async () => {
+  const win = page(profileRequests() + contacts);
+  const doc = win.document;
+  doc.documentElement.dataset.hfwRoute = 'home';
+  const diagnostics = createDiagnostics();
+  hideFriendRequestsColumn.setup({ doc, net: null, diagnostics, settings: { subscribe() {} }, enabled: () => true });
+  const rows = () => Object.fromEntries(diagnostics.rows().map(({ label, value }) => [label, value]));
+  assert.equal(doc.querySelector('.friends').hasAttribute(FRIEND_REQUESTS_MARK), true);
+  doc.querySelector('.contacts').remove();
+  await Promise.resolve();
+  const wider = doc.querySelector(`[${FRIEND_REQUESTS_MARK}]`);
+  assert.equal(Boolean(wider?.contains(doc.querySelector('.friends'))) && !wider.matches('.friends'), true, 'the mark moves out to a block it never heard of');
+  assert.equal(rows()['Friend requests boxes hidden on the page'], '1', 'still one box');
+  await tick();
+});
+
 test('in page mode Hide Friend requests on Home also takes the box out of the data', () => {
   const doc = page(friendRequests).document;
+  doc.documentElement.dataset.hfwRoute = 'home';
   const rules = [];
-  hideFriendRequestsColumn.setup({ doc, net: { transformResponses: (rule) => rules.push(rule) }, diagnostics: createDiagnostics(), settings: { subscribe() {} }, enabled: () => true });
+  let route = { type: 'home' };
+  hideFriendRequestsColumn.setup({ doc, net: { transformResponses: (rule) => rules.push(rule) }, router: { current: () => route, subscribe() {} }, diagnostics: createDiagnostics(), settings: { subscribe() {} }, enabled: () => true });
   assert.deepEqual(rules.map((rule) => rule.id), ['hideFriendRequestsColumn']);
+  // Inline data, on Home only: the rule asks the router which page this is.
+  const line = JSON.stringify({ data: { viewer: { side_feed: { nodes: [{ __typename: 'FriendingRequestsSideFeedUnit' }] } } } });
+  const inline = { transport: 'json-parse', friendlyName: '' };
+  assert.equal(transformDocumentLine(line, rules, inline).includes('FriendingRequestsSideFeedUnit'), false, 'on Home');
+  route = { type: 'groups' };
+  assert.equal(transformDocumentLine(line, rules, inline), line, 'elsewhere');
   // Alone in the column, the box is the largest block around it short of the column.
   const box = doc.querySelector(`[${FRIEND_REQUESTS_MARK}]`);
   assert.equal(Boolean(box?.contains(doc.querySelector('.friends'))), true, 'and the drawn box is hidden too');
