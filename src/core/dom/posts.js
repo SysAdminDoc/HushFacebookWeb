@@ -288,6 +288,9 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
     current: () => [...live.values()],
     // Whether the element is a post on the page as far as the tracker has heard.
     has: (element) => live.has(element),
+    // The story the tracker knows the element as, or null. It keeps one through a link that goes
+    // missing, until another story's link turns up.
+    idOf: (element) => live.get(element)?.id ?? null,
     // Stops watching and forgets every post. A later on() starts over and reports them again.
     stop() {
       observer?.disconnect();

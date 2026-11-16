@@ -95,6 +95,9 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   // draws again counts once, and by element, for posts whose id isn't known yet.
   const countedIds = new Set();
   const countedElements = new WeakSet();
+  // Posts counted while neither their link nor the tracker said which story they show, with the
+  // reason they counted under. The story a link names later takes that count (claim()).
+  const unsure = new WeakMap();
   // Counted posts Facebook took off the page: { id, had, since }, the id each showed as it first
   // left (null when its link hadn't filled in yet), the reasons it left hidden for, and the ones
   // features gave it since. React can
@@ -217,18 +220,24 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     return marker && !REPLACED.has(marker.tagName) ? marker : null;
   }
 
-  // A post counted while it was back before its link (count()) was the story its link names
-  // once it does: that story is counted now, and the count comes off when it had been already.
+  // A counted post turned out to show this story. One counted before its link said (count()) was
+  // that story all along: it's counted now, and the count comes off when it had been already.
   // Returns whether it came off.
-  function claim(left, story) {
-    if (left.counted === undefined || story === null) return false;
+  function claim(element, story) {
+    if (story === null) return false;
+    const reason = unsure.get(element);
+    if (reason === undefined) {
+      if (countedElements.has(element)) countedIds.add(story);
+      return false;
+    }
+    unsure.delete(element);
     if (!countedIds.has(story)) {
       countedIds.add(story);
       return false;
     }
-    const rest = (counts.get(left.counted) ?? 0) - 1;
-    if (rest > 0) counts.set(left.counted, rest);
-    else counts.delete(left.counted);
+    const rest = (counts.get(reason) ?? 0) - 1;
+    if (rest > 0) counts.set(reason, rest);
+    else counts.delete(reason);
     postsHidden--;
     return true;
   }
@@ -240,11 +249,11 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   // came off.
   function settle(element) {
     const left = leftWith.get(element);
-    if (!left || (left.id !== null && postIdOf(element).id === null)) return false;
+    if (!left || (left.id !== null && idNow(element) === null)) return false;
     leftWith.delete(element);
-    if (sameStory(element, left.id)) return claim(left, left.id);
+    if (sameStory(element, left.id)) return claim(element, left.id ?? storyOf(element));
     countedElements.delete(element);
-    const uncounted = claim(left, storyOf(element));
+    const uncounted = claim(element, storyOf(element));
     const marker = markOf(element);
     if (!marker) return uncounted;
     const reasons = reasonsOf(marker);
@@ -258,21 +267,29 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   }
 
   // A post gone again before its link said which story it showed: what it was hidden for on that
-  // visit says nothing about the next, and it goes back to the reasons it first left with.
+  // visit says nothing about the next, and it goes back to the reasons it first left with. A count
+  // from that visit is the story it left as, so another story it comes back as counts on its
+  // own. Returns whether a count came off.
   function forget(element, left) {
+    const uncounted = claim(element, left.id);
     left.since.clear();
     const marker = markOf(element);
-    if (!marker) return;
+    if (!marker) return uncounted;
     const reasons = reasonsOf(marker);
     const size = reasons.size;
     for (const reason of [...reasons.keys()]) if (!left.had.has(reason)) reasons.delete(reason);
     if (!reasons.size) clear(element);
     else if (reasons.size !== size) write(marker, reasons);
+    return uncounted;
   }
 
-  // The story a post shows, or null while its link hasn't said. A comment's links name the post
-  // it's on, so a comment has none of its own.
-  const storyOf = (element, id = null) => (isComment(element) ? null : id ?? postIdOf(element).id);
+  // The story a post's link names, or the one the tracker knows it as while the link is missing:
+  // put back before the tracker looked, it's still that story to the tracker until another
+  // story's link turns up, and the tracker then reports it reused.
+  const idNow = (element) => postIdOf(element).id ?? posts?.idOf?.(element) ?? null;
+  // The story a post shows, or null while nothing has said. A comment's links name the post it's
+  // on, so a comment has none of its own.
+  const storyOf = (element, id = null) => (isComment(element) ? null : id ?? idNow(element));
 
   // A post settle() left hidden as another story counts as that one, under the first reason a
   // feature gave it since. Returns whether it counted.
@@ -300,14 +317,14 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // Away, it isn't known which story it shows: it counts once it's back.
     if (left && !element.isConnected) return false;
     const comment = isComment(element);
-    const id = comment ? null : postIdOf(element).id;
+    const id = storyOf(element);
     const seen = countedElements.has(element) || (id !== null && countedIds.has(id));
     countedElements.add(element);
     if (id !== null) countedIds.add(id);
     if (seen) return false;
-    // Back before its link, it counts as the post on the page, and its link may never fill in.
-    // settle() gives the count to the story the link names, if it does.
-    if (left) left.counted = reason;
+    // Before its link, it counts as the post on the page, and its link may never fill in.
+    // claim() gives the count to the story the link names, if it does.
+    if (id === null && !comment) unsure.set(element, reason);
     counts.set(reason, (counts.get(reason) ?? 0) + 1);
     if (!comment) postsHidden++;
     return true;
@@ -323,6 +340,7 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       revealed.delete(element);
       // A post that leaves the page takes its mark along, and Overview's Show them hears it.
       const marked = markOf(element) !== null;
+      let uncounted = false;
       // Still on the page, it's been reused for another story, which counts on its own. Taken
       // off, it may come back as itself (settle()). Its link can fill in as it goes, too late for
       // the tracker to have heard. Known, that story counted, wherever Facebook draws it next.
@@ -338,24 +356,24 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
         if (left?.unheard) {
           left.unheard = false;
           left.id = storyOf(element, id);
-          if (left.id !== null && countedElements.has(element)) countedIds.add(left.id);
+          uncounted = claim(element, left.id);
         } else {
           if (left) {
-            settle(element);
+            uncounted = settle(element);
             countAs(element);
           }
           const still = leftWith.get(element);
-          if (still) forget(element, still);
+          if (still) uncounted = forget(element, still) || uncounted;
           else if (countedElements.has(element)) {
             const story = storyOf(element, id);
             const marker = markOf(element);
             leftWith.set(element, { id: story, had: new Set(marker ? reasonsOf(marker).keys() : []), since: new Set() });
-            if (story !== null) countedIds.add(story);
+            uncounted = claim(element, story) || uncounted;
           }
         }
         if (marked) departed.add(element);
       }
-      if (marked) notify();
+      if (marked || uncounted) notify();
     });
     // Back already showing another story, it loses the reasons no feature gave it again. Gone
     // that way, its mark's departure was the news. Still hidden, it counts as that story.
@@ -366,9 +384,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // story, it counts as that one, under a reason a feature gave it since. A post counted before
     // its link is that story, wherever Facebook draws it again, unless the link is a comment's.
     posts.on('post/update', ({ element, id = null }) => {
-      if (catchUp(element)) notify();
-      const story = storyOf(element, id);
-      if (story !== null && countedElements.has(element)) countedIds.add(story);
+      const news = catchUp(element);
+      if (claim(element, storyOf(element, id)) || news) notify();
     });
   }
 

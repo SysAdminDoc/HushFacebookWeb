@@ -254,6 +254,25 @@ test('an id that shows up late is an update, a different story in the same eleme
   tracker.stop();
 });
 
+test('idOf is the story the tracker knows an element as, kept while its link goes missing', async () => {
+  const win = page(feed('<div aria-posinset="1"><a href="#">2h</a><div>Text</div></div>'));
+  const tracker = createPostTracker({ doc: win.document });
+  tracker.on('post/add', () => {});
+  const element = win.document.querySelector('[aria-posinset]');
+  const link = element.querySelector('a');
+  assert.equal(tracker.idOf(element), null, 'no link yet');
+  link.setAttribute('href', '/a/posts/500');
+  await tick();
+  assert.equal(tracker.idOf(element), '500');
+  link.setAttribute('href', '#');
+  await tick();
+  assert.equal(tracker.idOf(element), '500', 'a missing link keeps the story');
+  element.remove();
+  await tick();
+  assert.equal(tracker.idOf(element), null, 'gone from the page');
+  tracker.stop();
+});
+
 test('nothing is written on the page, and only one observer watches it', async () => {
   const win = page(feed(post(1), post(2)));
   let observers = 0;
