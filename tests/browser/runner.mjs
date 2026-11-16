@@ -61,6 +61,11 @@ const scenarios = [
   { id: 'stuck-notice', fixture: 'stuckNotice', screenshot: true },
   { id: 'panel-forced-colors', fixture: 'panelForced', screenshot: true, forcedColors: 'active', viewport: { width: 1100, height: 760 } },
   { id: 'panel-reader', fixture: 'panelReader', viewport: { width: 1100, height: 760 } },
+  ...['light', 'dark'].flatMap((theme) => [
+    { id: `panel-${theme}-appearance`, fixture: 'panelPages', theme, view: 'appearance', screenshot: true, viewport: { width: 1100, height: 760 } },
+    { id: `panel-${theme}-diagnostics`, fixture: 'panelPages', theme, view: 'diagnostics', screenshot: true, viewport: { width: 1100, height: 760 } },
+    { id: `panel-${theme}-diagnostics-phone`, fixture: 'panelPages', theme, view: 'diagnostics', end: true, screenshot: true },
+  ]),
   { id: 'post-dates', fixture: 'postDates', screenshot: true },
   { id: 'stories-gap', fixture: 'storiesGap', viewport: { width: 1000, height: 1000 } },
   { id: 'voice-clip', fixture: 'voiceClip' },

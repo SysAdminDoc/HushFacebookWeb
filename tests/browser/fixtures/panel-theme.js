@@ -4,6 +4,7 @@ import { createLog } from '../../../src/core/log.js';
 import { createSettings } from '../../../src/core/settings.js';
 import { createMemoryStorage } from '../../../src/core/storage.js';
 import { features } from '../../../src/features/index.js';
+import { featureKeys, SEEN_SETTINGS_KEY } from '../../../src/ui/new-dots.js';
 import { mountPanel } from '../../../src/ui/panel.js';
 import { check } from './helpers.js';
 
@@ -111,4 +112,95 @@ export async function panelTheme({ theme }) {
   await frame();
   look(theme);
   return { base: getComputedStyle(dialog).backgroundColor, note: noteColor(own) };
+}
+
+// A color with its alpha, and one laid over another.
+const rgba = (color) => {
+  const [r, g, b, a = 1] = color.match(/[\d.]+/g).map(Number);
+  return [r, g, b, a];
+};
+const over = ([r, g, b, a], [br, bg, bb]) => [r * a + br * (1 - a), g * a + bg * (1 - a), b * a + bb * (1 - a), 1];
+const css = ([r, g, b]) => `rgb(${r}, ${g}, ${b})`;
+// What an element's words sit on: the backgrounds behind it, laid over each other down to the
+// first solid one.
+const behind = (element) => {
+  const layers = [];
+  for (let el = element; el; el = el.parentElement) {
+    const layer = rgba(getComputedStyle(el).backgroundColor);
+    if (layer[3] > 0) layers.push(layer);
+    if (layer[3] >= 1) break;
+  }
+  return layers.reverse().reduce((under, layer) => over(layer, under), [255, 255, 255, 1]);
+};
+
+// The panel's own pages on Facebook's light or dark mode: Appearance with what an update added
+// (new-dots) and an option open, or Diagnostics with hide decisions, warnings in the log and
+// the notice Copy report puts up. Every word that shows reads at 4.5:1 or better on what it
+// sits on (3:1 for large words), and nothing runs off sideways. end: scrolled to the bottom.
+export async function panelPages({ theme, view, end = false }) {
+  setTheme(theme);
+  const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
+  log.info('Feed posts found: 12');
+  log.warn('A post had no marker yet, checking again when it fills in');
+  log.error("Couldn't read a post's data", new Error('Unexpected end of JSON input'));
+  const storage = createMemoryStorage();
+  const unseen = ['amoledTheme', 'amoledTheme.lines', 'systemFont'];
+  storage.set(SEEN_SETTINGS_KEY, features.flatMap(featureKeys).filter((key) => !unseen.includes(key)));
+  const settings = createSettings({ storage, features, log });
+  settings.set('amoledTheme', true);
+  const diagnostics = createDiagnostics();
+  diagnostics.decide({ post: '1029384756', rule: 'Sponsored', signal: 'Sponsored label', layer: 'page' });
+  diagnostics.decide({ post: 'pfbid0abc', rule: 'Suggested for you', detail: 'header text', layer: 'data' });
+  diagnostics.decide({ post: null, rule: 'Reels', layer: 'page' });
+  let copied = null;
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { copied = text; } } });
+  let shadow;
+  const attach = HTMLElement.prototype.attachShadow;
+  HTMLElement.prototype.attachShadow = function (init) {
+    const found = attach.call(this, init);
+    if (this.dataset.hushfacebookWeb === 'ui') shadow = found;
+    return found;
+  };
+  const now = Date.now();
+  const panel = mountPanel({
+    settings, features, log, hider: createHider({ doc: document, log }), diagnostics, actions: null, unavailable: new Map([['hideFooterLinks', 'failed']]),
+    environment: {
+      version: __HFW_VERSION__, manager: 'Local fixture', managerVersion: '1', mode: 'page', pageAccess: 'page', storage,
+      update: () => ({ state: 'current', update: null, checking: false, checkedAt: now, triedAt: now, nextAt: now + 86400000 }),
+    },
+  });
+  HTMLElement.prototype.attachShadow = attach;
+  panel.open(view);
+  if (view === 'diagnostics') {
+    await panel.copyReport();
+    check(typeof copied === 'string' && copied.includes(__HFW_VERSION__), 'Copy report copied nothing');
+  } else panel.toast('Saved.');
+  await frame();
+  const toast = shadow.querySelector('.toast');
+  check(toast !== null, 'No notice showed');
+  await Promise.all(toast.getAnimations().map((animation) => animation.finished));
+  const main = shadow.querySelector('main');
+  if (end) main.scrollTop = main.scrollHeight;
+  await frame();
+
+  // Every element with words of its own that shows, outside a disabled control.
+  const faint = [];
+  let read = 0;
+  for (const el of shadow.querySelectorAll('*')) {
+    const words = [...el.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim());
+    const box = el.getBoundingClientRect();
+    if (!words || box.width <= 1 || box.height <= 1 || el.closest(':disabled') || getComputedStyle(el).visibility === 'hidden') continue;
+    const style = getComputedStyle(el);
+    const back = behind(el);
+    const ink = over(rgba(style.color), back);
+    const ratio = contrast(css(ink), css(back));
+    const size = parseFloat(style.fontSize);
+    const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
+    read++;
+    if (ratio < (large ? 3 : 4.5)) faint.push(`"${el.textContent.trim().slice(0, 40)}" ${ratio.toFixed(2)}:1`);
+  }
+  check(faint.length === 0, `Words that read faint in ${theme}: ${faint.join('; ')}`);
+  check(main.scrollWidth <= main.clientWidth + 1, `The ${view} page scrolls sideways`);
+  check(toast.getBoundingClientRect().right <= window.innerWidth + 0.5, 'The notice runs off the screen');
+  return { read, toast: toast.textContent, report: copied?.split('\n') ?? null };
 }
