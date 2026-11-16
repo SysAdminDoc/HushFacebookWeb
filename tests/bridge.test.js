@@ -605,6 +605,55 @@ test('a plain set the extension refuses rolls back, shows the error and goes aga
   assert.equal(storage.status().state, 'ready');
 });
 
+test("a Retry whose resend a newer write replaced doesn't leave the status loading", async () => {
+  const key = 'keepSpeed.rate';
+  const saved = { [key]: 1.5 };
+  const writes = [];
+  const storage = createBridgeStorage({
+    on() {},
+    request(type, payload) {
+      if (type === 'storage:load') return Promise.resolve(structuredClone(saved));
+      const answer = deferred();
+      writes.push({ value: payload.value, answer });
+      return answer.promise;
+    },
+  }, { log: { error() {} } });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  storage.set(key, 2);
+  writes[0].answer.reject(new Error('storage unavailable'));
+  await settle();
+  assert.equal(storage.status().state, 'error');
+  const retrying = storage.retry();
+  await settle();
+  // The page picks 3 while Retry's resend of 2 is on its way, and only 3 gets saved.
+  storage.set(key, 3);
+  assert.deepEqual(writes.map(({ value }) => value), [2, 2, 3]);
+  writes[1].answer.reject(new Error('storage unavailable'));
+  await settle();
+  saved[key] = 3;
+  writes[2].answer.resolve();
+  await settle();
+  assert.equal(storage.status().state, 'ready', 'the panel offers Retry or nothing, never an endless load');
+  assert.equal(await retrying, true);
+  assert.equal(storage.get(key), 3);
+
+  // When the newer write fails too, it's the error that shows, with Retry.
+  storage.set(key, 4);
+  writes[3].answer.reject(new Error('storage unavailable'));
+  await settle();
+  const retryingAgain = storage.retry();
+  await settle();
+  storage.set(key, 5);
+  assert.deepEqual(writes.map(({ value }) => value), [2, 2, 3, 4, 4, 5]);
+  writes[4].answer.reject(new Error('storage unavailable'));
+  await settle();
+  writes[5].answer.reject(new Error('storage unavailable'));
+  await settle();
+  await retryingAgain;
+  assert.equal(storage.status().state, 'error');
+  assert.equal(storage.get(key), 3, 'nothing after 3 was saved');
+});
+
 test('a confirmed set and then remove of one key end at what storage holds, whichever answer comes first', async () => {
   const key = 'keepSpeed.rate';
   // Storage applies writes in the order they were sent, so it holds the last one that worked,

@@ -576,7 +576,8 @@ export function createBridgeStorage(bridge, { log } = {}) {
       log?.error(operation.failure, error);
       const before = operation.previous;
       const previous = !operation.loaded && before === undefined ? copy(pageLoadData.get(key)) : before;
-      if (confirmedWrites.get(key) !== operation) failedUnder(operation, previous);
+      const replaced = confirmedWrites.get(key) !== operation;
+      if (replaced) failedUnder(operation, previous);
       else {
         // A push while this was on its way that left the key at its old value (a snapshot
         // repeating it, or the echo of an earlier write of this tab's) brought nothing newer.
@@ -602,7 +603,8 @@ export function createBridgeStorage(bridge, { log } = {}) {
         setStatus('error', error);
       }
       operation.reject(error);
-      return false;
+      // null when a newer write of the key had replaced it, since that one's answer decides.
+      return replaced ? null : false;
     }
   };
   const persist = (operation) => {
@@ -625,7 +627,9 @@ export function createBridgeStorage(bridge, { log } = {}) {
           confirmedWrites.delete(operation.key);
           continue;
         }
-        if (!await sendConfirmed(operation)) return false;
+        // A resend that a newer write replaced on its way failed under that one, which shows its
+        // own error if it fails too, so Retry goes on and reads storage like any other.
+        if (await sendConfirmed(operation) === false) return false;
       }
       // Read the authoritative snapshot after recovery, including other tabs' newer writes.
       setStatus('error', lastError);
