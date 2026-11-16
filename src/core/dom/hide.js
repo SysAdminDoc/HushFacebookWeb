@@ -237,6 +237,17 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     return false;
   }
 
+  // The story a post shows, or null while its link hasn't said. A comment's links name the post
+  // it's on, so a comment has none of its own.
+  const storyOf = (element, id = null) => (isComment(element) ? null : id ?? postIdOf(element).id);
+
+  // A post settle() left hidden as another story counts as that one, under the first reason a
+  // feature gave it since. Returns whether it counted.
+  const countAs = (element) => {
+    const marker = markOf(element);
+    return marker !== null && count(element, reasonsOf(marker).keys().next().value);
+  };
+
   // Counts a post the first time it's hidden. Returns whether it was new. A comment's links name
   // the post it's on, so a comment counts by its element alone.
   function count(element, reason) {
@@ -260,38 +271,50 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     watching = true;
     posts.on('post/remove', ({ element, id = null }) => {
       revealed.delete(element);
+      // A post that leaves the page takes its mark along, and Overview's Show them hears it.
+      const marked = markOf(element) !== null;
       // Still on the page, it's been reused for another story, which counts on its own. Taken
       // off, it may come back as itself (settle()). Its link can fill in as it goes, too late for
       // the tracker to have heard. Known, that story counted, wherever Facebook draws it next.
       if (element.isConnected) {
         countedElements.delete(element);
         leftWith.delete(element);
-      } else if (countedElements.has(element) && !leftWith.has(element)) {
-        const left = id ?? postIdOf(element).id;
-        leftWith.set(element, { id: left, since: new Set() });
-        if (left !== null) countedIds.add(left);
+        clear(element);
+      } else {
+        // Gone again while back before its link: a link that filled in as it went settles what it
+        // showed. Still unknown, what it was hidden for while back says nothing about what it
+        // shows next time.
+        const back = leftWith.has(element);
+        settle(element);
+        if (back) countAs(element);
+        const left = leftWith.get(element);
+        if (left) left.since.clear();
+        else if (countedElements.has(element)) {
+          const story = storyOf(element, id);
+          leftWith.set(element, { id: story, since: new Set() });
+          if (story !== null) countedIds.add(story);
+        }
+        if (marked) departed.add(element);
       }
-      // A post that leaves the page takes its mark along, and Overview's Show them hears it.
-      const marked = markOf(element) !== null;
-      if (element.isConnected) clear(element);
-      else if (marked) departed.add(element);
       if (marked) notify();
     });
     // Back already showing another story, it loses the reasons no feature gave it again. Gone
-    // that way, its mark's departure was the news.
+    // that way, its mark's departure was the news. Still hidden, it counts as that story.
     posts.on('post/add', ({ element }) => {
+      const back = leftWith.has(element);
       settle(element);
-      if (departed.delete(element) && markOf(element) !== null) notify();
+      const counted = back && countAs(element);
+      if ((departed.delete(element) && markOf(element) !== null) || counted) notify();
     });
     // A post back before its link is settled once the link fills in. Still hidden as another
     // story, it counts as that one, under a reason a feature gave it since. A post counted before
-    // its link is that story, wherever Facebook draws it again.
+    // its link is that story, wherever Facebook draws it again, unless the link is a comment's.
     posts.on('post/update', ({ element, id = null }) => {
       const back = leftWith.has(element);
       if (settle(element)) notify();
-      const marker = markOf(element);
-      if (back && marker && count(element, reasonsOf(marker).keys().next().value)) notify();
-      if (id !== null && countedElements.has(element)) countedIds.add(id);
+      if (back && countAs(element)) notify();
+      const story = storyOf(element, id);
+      if (story !== null && countedElements.has(element)) countedIds.add(story);
     });
   }
 
