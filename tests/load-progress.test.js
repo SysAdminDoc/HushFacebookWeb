@@ -92,6 +92,23 @@ test("finds the feed's first loading card, not one inside a post", () => {
   assert.ok(feedCard(doc) === null, "a post's own loader isn't the feed's");
 });
 
+// Home's Stories row as a full one has it (live 2026-11-16): a grid of card cells ending in a
+// loading card of its own for the stories it fetches next, scrolled out of sight to the right.
+const TRAY = '<div role="region" data-focus-target="stories_tray"><div role="grid"><div role="row"><div role="gridcell"><a href="/stories/1/">Story</a></div><div role="gridcell"><div id="tray" role="status" data-visualcompletion="loading-state"><div></div></div></div></div></div></div>';
+
+test("the Stories row's own loading card isn't the feed's, so the note never stretches the row (#13, #15)", async () => {
+  const { doc, answer, note, settle } = setup();
+  doc.querySelector('[role="main"]').insertAdjacentHTML('afterbegin', TRAY);
+  assert.equal(feedCard(doc)?.id, 'first');
+  answer(page(0, 2));
+  await settle();
+  assert.equal(note('tray'), null, 'a 110 px card with the line in it grew to 281 px live and took the row with it');
+  assert.equal(note(), 'Hid 2 posts so far. Getting more from Facebook');
+  // A row with no feed card under it yet still leaves its own alone.
+  for (const card of doc.querySelectorAll('[role="article"]')) card.remove();
+  assert.ok(feedCard(doc) === null, 'the Stories row has nothing to say about posts');
+});
+
 test('a post Facebook sends again counts once', async () => {
   const { answer, note, settle } = setup();
   answer(page(1, 2, ['ad', 'friend']));

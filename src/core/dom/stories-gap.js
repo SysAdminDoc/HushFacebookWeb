@@ -17,6 +17,10 @@
 // below its cards (its own padding) with defaults, every switch off, no script and the
 // reporter's settings. So the line also measures from where the cards end and names the deepest
 // boxes that reach past them, alike ones counted together.
+//
+// Found 2026-11-16: a full row ends in a loading card of its own, and Show progress while posts
+// load drew its line on that card instead of the feed's. The line wrapped 121 px tall in the
+// 110 px card and stretched the row (load-progress.js keeps to the feed's cards now).
 
 const TRAY = '[data-focus-target="stories_tray"]';
 // An account with no friends' stories gets a Create story card in place of the row.
@@ -47,10 +51,19 @@ export function firstDrawnPost(main) {
   return null;
 }
 
-// The marks this script put on a block or inside it, by name.
-function ourMarks(block) {
+// The blocks holding a block, up to the row it's in (none without one). A mark or a loading card
+// around a box counts as the box's: the progress line hung on the row's own loading card pushed
+// the boxes inside it down, and they were named with neither (#13 on 0.0.48).
+function around(block, row) {
+  const above = [];
+  for (let element = block.parentElement; row && element && element !== row; element = element.parentElement) above.push(element);
+  return above;
+}
+
+// The marks this script put on a block, inside it or around it in the row, by name.
+function ourMarks(block, above) {
   const names = new Set();
-  for (const element of [block, ...block.querySelectorAll('*')]) {
+  for (const element of [...above, block, ...block.querySelectorAll('*')]) {
     for (const { name } of element.attributes) {
       if (name.startsWith('data-hfw-')) names.add(name.slice('data-hfw-'.length));
     }
@@ -58,8 +71,10 @@ function ourMarks(block) {
   return [...names].sort();
 }
 
-// One block in the room, in the script's own words only.
-export function describeBlock(block, view) {
+// One block in the room, in the script's own words only. `row` is the Stories row a block inside
+// it is in, so what holds it there is read too.
+export function describeBlock(block, view, row = null) {
+  const above = around(block, row);
   const style = view.getComputedStyle(block);
   const role = block.getAttribute('role');
   const parts = [`${block.localName}${role ? ` ${role}` : ''} ${Math.round(boxOf(block).height)} px`];
@@ -75,10 +90,10 @@ export function describeBlock(block, view) {
   if (pictures) parts.push(`${pictures} pictures`);
   const letters = (block.innerText ?? '').replace(/\s/g, '').length;
   if (letters) parts.push(`${letters} letters`);
-  if (block.matches(LOADING) || block.querySelector(LOADING)) parts.push('loading card');
+  if (block.matches(LOADING) || block.querySelector(LOADING) || above.some((element) => element.matches(LOADING))) parts.push('loading card');
   const held = block.querySelector('[aria-posinset]');
   if (held) parts.push(boxOf(held).height > 0 ? 'holds a post' : 'holds a hidden post');
-  const marks = ourMarks(block);
+  const marks = ourMarks(block, above);
   if (marks.length) parts.push(`marked ${marks.join('/')}`);
   return parts.join(', ');
 }
@@ -128,7 +143,7 @@ export function measureRoomInRow(row, view) {
     else groups.push({ parent: element.parentElement, key, first: element, count: 1 });
   }
   groups.sort((a, b) => Math.min(a.count, 2) - Math.min(b.count, 2));
-  const blocks = groups.map(({ first, count }) => `${describeBlock(first, view)}${count > 1 ? `, and ${count - 1} more like it` : ''}`);
+  const blocks = groups.map(({ first, count }) => `${describeBlock(first, view, row)}${count > 1 ? `, and ${count - 1} more like it` : ''}`);
   return { room, blocks };
 }
 

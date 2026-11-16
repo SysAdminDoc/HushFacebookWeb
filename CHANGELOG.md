@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* With a full Stories row, Home could leave a big empty space under the stories. Show progress while posts load was drawing its line on the row's own loading card (the one at the far right that waits for more stories), and that stretched the whole row. The line now goes only on the feed's loading cards. That same card also made Home look stuck while it wasn't, so it no longer brings up the message that Home was still loading. The Space under the Stories row line in Diagnostics now names a loading card or a mark of the script's when it sits around a box in the row.
+
 ## v0.0.48 (2026-11-16)
 
 This release carries every change since 0.0.45, so 0.0.46 through 0.0.48. Two reports get something from it. 0.0.46 trims the share menu before Facebook draws it, for #9, and the Diagnostics line about the space under the Stories row now measures inside the row too, for #13.

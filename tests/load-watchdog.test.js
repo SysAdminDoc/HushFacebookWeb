@@ -245,6 +245,18 @@ test('Loading cards outside the feed column are not the feed', () => {
   assert.deepEqual(stuck, []);
 });
 
+test("The Stories row's own loading card isn't the feed loading (#15)", () => {
+  // A full Stories row keeps a loading card at its far end for the stories it fetches next. With
+  // the first posts hidden and only a row of reels in the first screen, it used to read as Home
+  // still loading.
+  const tray = '<div role="region" data-focus-target="stories_tray"><div role="grid"><div role="row"><div role="gridcell"><a href="/stories/1/">Story</a></div><div role="gridcell"><div role="status" data-visualcompletion="loading-state"></div></div></div></div></div>';
+  const { doc, stuck, elapse, loads } = harness({ html: `<div role="main">${tray}<div>${REEL_ROW}</div></div>` });
+  assert.equal(stillLoading(doc, { innerHeight: 800, scrollY: 0 }), false);
+  elapse();
+  assert.deepEqual(stuck, []);
+  assert.equal(loads.status(), 'Nothing was still loading');
+});
+
 test('A hidden loading card is not on screen', () => {
   const { doc, stuck, elapse } = harness();
   for (const card of doc.querySelectorAll('[role="status"]')) card.style.display = 'none';

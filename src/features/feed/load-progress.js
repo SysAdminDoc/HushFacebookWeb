@@ -24,7 +24,7 @@
 import { SKIP, walk } from '../../core/json-walk.js';
 import { plural } from '../../core/i18n.js';
 import { NOTE_COLORS } from '../../core/dom/note-colors.js';
-import { FEED_PAGES, feedKind, loadingSign, shown } from '../../core/load-watchdog.js';
+import { FEED_PAGES, feedKind, inCardRow, loadingSign, shown } from '../../core/load-watchdog.js';
 
 export const NOTE = 'data-hfw-loading';
 const CARDS = '[role="main"] [role="status"][data-visualcompletion="loading-state"]';
@@ -43,10 +43,12 @@ export function emptiedEdges(doc) {
 }
 
 // The first of Facebook's loading cards at the end of the feed, or null. A card inside a post is
-// that post's own (a video loading, or the post redrawn after its X), not the feed's.
+// that post's own (a video loading, or the post redrawn after its X), not the feed's. So is the
+// one a full Stories row keeps at its far end: the line drawn on that 110 px card wrapped into a
+// block 121 px tall and stretched the whole row, leaving empty room under the stories (#13, #15).
 export function feedCard(doc) {
   for (const card of doc.querySelectorAll(CARDS)) {
-    if (shown(card) && !card.closest('[aria-posinset]') && loadingSign(card)) return card;
+    if (shown(card) && !card.closest('[aria-posinset]') && !inCardRow(card) && loadingSign(card)) return card;
   }
   return null;
 }

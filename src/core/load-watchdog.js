@@ -86,6 +86,13 @@ export const loadingSign = (element) => {
   return true;
 };
 
+// A row of cards across the top of Home keeps a loading card of its own. A full Stories row ends
+// in one (a grid cell, scrolled out of sight to the right) for the stories it fetches next, and it
+// stays there after the feed has loaded (live 2026-11-16, #13 and #15). It says nothing about
+// posts. The feed's own cards sit in a role=article, never in a grid cell.
+const CARD_ROW = '[data-focus-target="stories_tray"], [role="gridcell"]';
+export const inCardRow = (element) => element.closest(CARD_ROW) !== null;
+
 // Facebook's splash screen still up, or one of its loading cards in the feed's first screen. A
 // feed that loaded keeps a card at its far end, below the posts, and once the reader is a screen
 // down the cards there are the next posts on their way.
@@ -120,7 +127,7 @@ function loadingState(doc, win) {
   });
   if (readable) return null;
   const elements = [...scope.querySelectorAll(LOADING)].filter((card) => {
-    if (!shown(card) || !loadingSign(card)) return false;
+    if (!shown(card) || !loadingSign(card) || inCardRow(card)) return false;
     const { top, bottom } = card.getBoundingClientRect();
     return top < win.innerHeight && bottom >= 0;
   });

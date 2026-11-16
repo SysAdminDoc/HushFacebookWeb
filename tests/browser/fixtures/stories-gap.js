@@ -6,7 +6,10 @@ import { check } from './helpers.js';
 
 const POST = (n) => `<div><div aria-posinset="${n}" style="background:#242526;border-radius:8px;padding:12px 16px;margin-bottom:12px">A post</div></div>`;
 const HIDDEN_POST = '<div style="min-height:118px"><div aria-posinset="1"><div data-hfw-hide="Suggested">A post</div></div></div>';
-const HIDE = '<style class="gap-style">.gap-home :has(> [data-hfw-hide]) { display: none !important; }</style>';
+// The progress line as 0.0.21 to 0.0.48 drew it on a loading card, at the height it wrapped to in
+// a 110 px Stories card live (2026-11-16).
+const HIDE = '<style class="gap-style">.gap-home :has(> [data-hfw-hide]) { display: none !important; } .gap-home [data-hfw-loading]::before { content: attr(data-hfw-loading); display: block; height: 121px; }</style>';
+const LOADING_CELL = '<div role="gridcell" style="width:110px"><div role="status" data-visualcompletion="loading-state" data-hfw-loading="Hid 2 posts so far"><div style="height:160px"></div></div></div>';
 
 // The row as drawn live on 2026-11-15: 8 px of padding around a flex row of card boxes, each
 // holding a 160 px card link. `extra` goes in the flex row after the cards; `tallLink` makes
@@ -58,6 +61,14 @@ export async function storiesGap() {
   lines.stretched = storiesGapLine(document, true);
   check(lines.stretched === '12 px, as usual. The row reaches 129 px below its cards: div 281 px; div gridcell 281 px, 1 links, 11 letters, and 2 more like it',
     `A tall box stretching the cards' boxes: ${lines.stretched}`);
+
+  // What it was (#13, #15): a full row's own loading card at its far end carried the progress
+  // line, which wrapped 121 px tall in the 110 px card. The box it pushed down names the mark
+  // and the card around it, where 0.0.48 read "div 160 px" with neither.
+  mount(page({ trayHtml: CARDS({ extra: LOADING_CELL }) }));
+  lines.loadingCell = storiesGapLine(document, true);
+  check(lines.loadingCell === '12 px, as usual. The row reaches 129 px below its cards: div 160 px, loading card, marked loading; div gridcell 281 px, 1 links, 11 letters, and 2 more like it',
+    `The row's loading card with the progress line on it: ${lines.loadingCell}`);
 
   // One card's own link stretched: the other two cards still say where the cards end.
   mount(page({ trayHtml: CARDS({ tallLink: 281 }) }));
