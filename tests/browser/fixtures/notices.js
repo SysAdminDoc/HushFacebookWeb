@@ -6,7 +6,7 @@ import { createSettings } from '../../../src/core/settings.js';
 import { createMemoryStorage } from '../../../src/core/storage.js';
 import { features } from '../../../src/features/index.js';
 import { featureKeys, SEEN_SETTINGS_KEY } from '../../../src/ui/new-dots.js';
-import { mountPanel } from '../../../src/ui/panel.js';
+import { mountPanel, REGION_SETTLE_MS } from '../../../src/ui/panel.js';
 import { check } from './helpers.js';
 
 const frame = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 50)));
@@ -19,13 +19,15 @@ const seenBox = (el) => {
   return box.width > 0 && box.height > 0;
 };
 
-// The panel on a page of its own, with `unseen` left off the list of settings already shown, so
-// it gets a new-dot. Returns the panel and its shadow root.
-function mount(unseen) {
+// The panel on a page of its own, with the `unseen` keys left off the list of settings already
+// shown, so they get a new-dot, and the `on` switches turned on. Returns the panel and its
+// shadow root.
+function mount(unseen = [], on = []) {
   const log = createLog({ sink: { info() {}, warn() {}, error() {} } });
   const storage = createMemoryStorage();
-  storage.set(SEEN_SETTINGS_KEY, features.flatMap(featureKeys).filter((key) => key !== unseen));
+  storage.set(SEEN_SETTINGS_KEY, features.flatMap(featureKeys).filter((key) => !unseen.includes(key)));
   const settings = createSettings({ storage, features, log });
+  for (const key of on) settings.set(key, true);
   let shadow;
   const attach = HTMLElement.prototype.attachShadow;
   HTMLElement.prototype.attachShadow = function (init) {
@@ -78,7 +80,7 @@ export async function stuckNotice() {
 // new-dots and a notice still show, in the system's colors.
 export async function panelForced() {
   check(matchMedia('(forced-colors: active)').matches, 'Forced colors are off');
-  const { panel, shadow } = mount('hideFriendRequestsColumn');
+  const { panel, shadow } = mount(['hideFriendRequestsColumn']);
   panel.open('feed');
   panel.toast('Saved.');
   await frame();
@@ -99,4 +101,26 @@ export async function panelForced() {
   check(toast !== null && view.getComputedStyle(toast).borderTopStyle === 'solid', 'The notice has no edge');
   await settled(toast);
   return { switches: switches.length, dots: dots.length };
+}
+
+// The panel on Appearance for a screen reader, with a new feature and a new option on it and a
+// notice up. The runner reads what the browser tells screen readers. A notice that comes as the
+// panel opens waits in a silent box until its live region has settled, so this waits for it to
+// move in.
+export async function panelReader() {
+  const { panel, shadow } = mount(['amoledTheme', 'amoledTheme.lines', 'systemFont'], ['amoledTheme']);
+  panel.open('appearance');
+  panel.toast('Saved.');
+  await frame();
+  const toast = shadow.querySelector('.toast');
+  check(toast !== null, 'No notice showed');
+  await settled(toast);
+  const until = Date.now() + REGION_SETTLE_MS + 1500;
+  while (!toast.parentElement.hasAttribute('aria-live') && Date.now() < until) await frame();
+  // The switches drawn beside a new-dot, by the name they carry.
+  const newSwitches = [...shadow.querySelectorAll('.switch')]
+    .filter((input) => (input.closest('.option-toggle') ?? input.closest('.row'))?.querySelector('.new-dot'))
+    .map((input) => input.getAttribute('aria-label'));
+  check(newSwitches.length === 3, `${newSwitches.length} switches have a new-dot`);
+  return { dots: shadow.querySelectorAll('.new-dot').length, newSwitches };
 }

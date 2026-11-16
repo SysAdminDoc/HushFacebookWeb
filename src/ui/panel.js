@@ -135,7 +135,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   let renderedDirection = null;
   let opener = null;
   const newDots = createNewDots({ storage: environment.storage, features, log });
-  const newDot = () => h('span', { class: 'new-dot' }, h('span', { class: 'visually-hidden', text: t('New') }));
+  // id: a switch beside the dot lists it in its aria-describedby, since the switch's name is its
+  // aria-label and the dot's hidden "New" would go unread on Tab.
+  const newDot = (id) => h('span', { class: 'new-dot', id }, h('span', { class: 'visually-hidden', text: t('New') }));
   const drafts = new Map();
   const openHelp = new Set(); // Rows whose More was clicked open, kept across redraws.
   // Rows a search opened and Less closed again. A redraw keeps them closed until the search
@@ -393,7 +395,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const key = `${feature.id}.${option.key}`;
     const value = drafts.get(key) ?? settingValue(key);
     const errorId = `hfw-error-${key}`;
-    const dot = dots && newDots.isNew(key) ? newDot() : null;
+    const dotId = dots && newDots.isNew(key) ? `hfw-${key}-new` : null;
+    const dot = dotId ? newDot(dotId) : null;
     const props = {
       dataset: { key }, 'aria-invalid': fieldErrors.has(key) ? 'true' : null,
       'aria-describedby': fieldErrors.has(key) ? errorId : null,
@@ -404,7 +407,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       fieldErrors.has(key) ? h('p', { class: 'field-error', id: errorId, role: 'alert', text: fieldErrors.get(key) }) : null);
     switch (option.type) {
       case 'toggle':
-        return h('label', { class: 'option-toggle' }, toggle(key, option.label), h('span', null, t(option.label), dot));
+        return h('label', { class: 'option-toggle' }, toggle(key, option.label, { describedBy: dotId }), h('span', null, t(option.label), dot));
       case 'select':
         return field(h('select', { ...props, onchange: (event) => apply(key, option.choices.find((choice) => String(choice.value) === event.target.value)?.value, event.target) },
             option.choices.map((choice) => h('option', { value: String(choice.value), selected: choice.value === value, text: t(choice.label) }))));
@@ -558,8 +561,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     const blocked = reason !== undefined;
     const on = settingValue(feature.id) === true;
     // Stable ids, so the switch reads its help, why it's unavailable and the reload note.
-    const ids = { desc: `hfw-${feature.id}-desc`, note: `hfw-${feature.id}-note`, reload: `hfw-${feature.id}-reload` };
-    const describedBy = [ids.desc, blocked ? ids.note : null, feature.reload ? ids.reload : null].filter(Boolean).join(' ');
+    const ids = { desc: `hfw-${feature.id}-desc`, note: `hfw-${feature.id}-note`, reload: `hfw-${feature.id}-reload`, dot: `hfw-${feature.id}-new` };
+    const isNew = dots && newDots.featureIsNew(feature);
+    const describedBy = [isNew ? ids.dot : null, ids.desc, blocked ? ids.note : null, feature.reload ? ids.reload : null].filter(Boolean).join(' ');
     const status = on && diagnostics?.hasStatus?.(feature.id) ? diagnostics.statusOf(feature.id) : undefined;
     // A hidden option is the feature's own store (the parts Hide parts of the page keeps), shown
     // as its list instead.
@@ -567,7 +571,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     return h('div', { class: `card${blocked ? ' unavailable' : ''}` },
       h('div', { class: 'row' },
         h('div', { class: 'text' },
-          h('div', { class: 'title' }, t(feature.title), dots && newDots.featureIsNew(feature) ? newDot() : null),
+          h('div', { class: 'title' }, t(feature.title), isNew ? newDot(ids.dot) : null),
           help(feature.id, feature.title, feature.description, { id: ids.desc }),
           blocked ? h('div', { class: 'note', id: ids.note, text: `${t(UNAVAILABLE_NOTES[reason] ?? UNAVAILABLE_NOTES.failed)}${on ? ` ${t('You can still turn it off.')}` : ''}` }) : null,
           feature.reload ? h('div', { class: 'note', id: ids.reload, text: t('Applies after Facebook reloads.') }) : null,

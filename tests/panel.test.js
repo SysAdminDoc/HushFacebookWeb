@@ -2666,6 +2666,23 @@ test("a new option on a switch that's on has its own dot, and the card has one t
   assert.equal(shadow.querySelectorAll('label:has([data-key="dotOn.size"]) .new-dot').length, 0, 'Size was there before');
 });
 
+// A switch's name is its aria-label, so the dot's hidden "New" beside it went unread on Tab
+// (Chromium's accessibility tree, panel-reader in tests/browser).
+test('a switch with a new-dot says New to a screen reader before what it does, until it has been seen', async () => {
+  const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotOn.size'] });
+  const { shadow, panel } = setup({ features: [DOT_ON], storage, environment: { storage } });
+  const heard = (key) => (shadow.querySelector(`.switch[data-key="${key}"]`).getAttribute('aria-describedby') ?? '')
+    .split(' ').filter(Boolean).map((id) => shadow.getElementById(id)?.textContent);
+  panel.open('feed');
+  assert.deepEqual(heard('dotOn'), ['New', 'A switch that starts on.']);
+  assert.deepEqual(heard('dotOn.quiet'), ['New']);
+  panel.close();
+  await tick();
+  panel.open('feed');
+  assert.deepEqual(heard('dotOn'), ['A switch that starts on.']);
+  assert.deepEqual(heard('dotOn.quiet'), []);
+});
+
 test('opening settings again while they are open keeps what was already shown', async () => {
   const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotFeed'] });
   const { shadow, panel } = setup({ features: [DOT_FEED, DOT_ADS], storage, environment: { storage } });

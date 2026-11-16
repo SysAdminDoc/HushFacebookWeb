@@ -30,6 +30,7 @@
 * In Trim the share menu, hiding the row of Messenger contacts could have taken the box you write in and the Share now button with it, if Facebook ever drew them in one block. It now stops at the row and its heading.
 * Holding the Facebook logo to open settings no longer gives up when your finger or mouse wobbles a pixel or two. It keeps going unless you move more than about 10 pixels, like a long press on a phone.
 * Why posts were hidden, in Diagnostics, says in words where each post went: "Removed before it showed" or "Hidden on the page", in place of the data and page tags its legend used to explain. Copy report keeps the short tags. A line too long for a phone screen now indents where it wraps, so each entry stands apart.
+* Screen readers now say "New" on a switch an update added, right after its name. Before, the blue dot beside it only said New when you read the page line by line, so moving through the switches with Tab skipped it.
 
 ## v0.0.47 (2026-11-15, unreleased)
 

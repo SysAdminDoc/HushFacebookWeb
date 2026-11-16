@@ -60,6 +60,7 @@ const scenarios = [
   ...['light', 'dark'].map((theme) => ({ id: `panel-${theme}`, fixture: 'panelTheme', theme, screenshot: true, viewport: { width: 1100, height: 760 } })),
   { id: 'stuck-notice', fixture: 'stuckNotice', screenshot: true },
   { id: 'panel-forced-colors', fixture: 'panelForced', screenshot: true, forcedColors: 'active', viewport: { width: 1100, height: 760 } },
+  { id: 'panel-reader', fixture: 'panelReader', viewport: { width: 1100, height: 760 } },
   { id: 'post-dates', fixture: 'postDates', screenshot: true },
   { id: 'stories-gap', fixture: 'storiesGap', viewport: { width: 1000, height: 1000 } },
   { id: 'voice-clip', fixture: 'voiceClip' },
@@ -67,7 +68,7 @@ const scenarios = [
   { id: 'seller-link', fixture: 'sellerLink', screenshot: true, viewport: { width: 600, height: 400 } },
   { id: 'hide-parts', fixture: 'hideParts', screenshot: true, viewport: { width: 1100, height: 760 } },
 ];
-const DRIVEN = { panel, voiceClip, messengerTap, sellerLink, hideParts };
+const DRIVEN = { panel, voiceClip, messengerTap, sellerLink, hideParts, panelReader };
 // HFW_BROWSER_ONLY=id,id runs just those scenarios.
 const only = process.env.HFW_BROWSER_ONLY?.split(',').filter(Boolean) ?? [];
 const chosen = only.length ? scenarios.filter((scenario) => only.includes(scenario.id)) : scenarios;
@@ -116,6 +117,54 @@ async function panel(page, engine) {
   await page.evaluate(() => window.hfwBrowserFixture.finishPanel());
   await page.waitForFunction(() => window.hfwBrowserFixture.panelState().openerFocused);
   return { searchFocus: landed.focused, undoFocus: undone.focused, restored: true };
+}
+
+// What a screen reader gets from the panel, read from Chromium's accessibility tree, which reaches
+// into the panel's closed shadow root where Playwright's locators can't. Every control has a name,
+// a switch beside a new-dot says it's new, and a notice sits in a live region. The tree goes to
+// chromium-panel-reader.txt. Firefox has no such tree to read here.
+const CONTROL_ROLES = new Set(['button', 'switch', 'checkbox', 'textbox', 'searchbox', 'combobox', 'link', 'radio', 'slider', 'spinbutton', 'tab', 'menuitem']);
+async function panelReader(page, engine) {
+  const drawn = await page.evaluate(() => window.hfwBrowserFixture.panelReader());
+  if (engine !== 'chromium') return drawn;
+  const cdp = await page.context().newCDPSession(page);
+  const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+  await cdp.detach();
+  const byId = new Map(nodes.map((node) => [node.nodeId, node]));
+  const text = (node, field) => String(node[field]?.value ?? '').trim();
+  const prop = (node, name) => node.properties?.find((entry) => entry.name === name)?.value?.value;
+  const lines = [];
+  const controls = [];
+  const walk = (node, depth) => {
+    if (!node.ignored) {
+      const role = text(node, 'role');
+      const states = ['checked', 'disabled', 'expanded', 'invalid', 'live'].map((name) => [name, prop(node, name)])
+        .filter(([, value]) => value !== undefined && value !== false && value !== 'false').map(([name, value]) => `${name}=${value}`);
+      const description = text(node, 'description');
+      lines.push(`${'  '.repeat(depth)}${role} "${text(node, 'name')}"${description ? ` (${description})` : ''}${states.length ? ` [${states.join(' ')}]` : ''}`);
+      if (CONTROL_ROLES.has(role)) controls.push(node);
+    }
+    for (const child of node.childIds ?? []) {
+      const next = byId.get(child);
+      if (next) walk(next, node.ignored ? depth : depth + 1);
+    }
+  };
+  const dialog = nodes.find((node) => text(node, 'role') === 'dialog');
+  assert.ok(dialog, 'The panel is no dialog to a screen reader');
+  assert.notEqual(text(dialog, 'name'), '', 'The panel has no name');
+  walk(dialog, 0);
+  await writeFile(join(output, `${engine}-panel-reader.txt`), `${lines.join('\n')}\n`);
+  assert.deepEqual(controls.filter((node) => !text(node, 'name')).map((node) => text(node, 'role')), [], 'A control has no name');
+  for (const label of drawn.newSwitches) {
+    const node = controls.find((entry) => text(entry, 'role') === 'switch' && text(entry, 'name').startsWith(label));
+    assert.ok(node, `No switch is named ${label}`);
+    assert.match(`${text(node, 'name')} ${text(node, 'description')}`, /\bNew\b/, `The switch for ${label} doesn't say it's new`);
+  }
+  let region = nodes.find((node) => text(node, 'role') === 'StaticText' && text(node, 'name') === 'Saved.');
+  assert.ok(region, 'The notice is not in the tree');
+  while (region && !['polite', 'assertive'].includes(prop(region, 'live'))) region = byId.get(region.parentId);
+  assert.ok(region, 'The notice is not in a live region');
+  return { ...drawn, controls: controls.length, lines: lines.length };
 }
 
 // Tap to play with a chat's voice message (#14), clicked and keyed for real.
