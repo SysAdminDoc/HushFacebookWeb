@@ -95,8 +95,9 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   // draws again counts once, and by element, for posts whose id isn't known yet.
   const countedIds = new Set();
   const countedElements = new WeakSet();
-  // Counted posts Facebook took off the page: { id, since }, the id each showed as it first left
-  // (null when its link hadn't filled in yet) and the reasons features gave it since. React can
+  // Counted posts Facebook took off the page: { id, had, since }, the id each showed as it first
+  // left (null when its link hadn't filled in yet), the reasons it left hidden for, and the ones
+  // features gave it since. React can
   // reuse an element it took off, so one it puts back is settled once its link says which story it
   // shows (settle). One back before its link stays the post it was until the link fills in.
   const leftWith = new WeakMap();
@@ -218,9 +219,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
 
   // Settles a post Facebook put back, once its link says which story it shows. The post it was
   // keeps everything. Another story counts on its own, and its mark keeps only the reasons
-  // features gave it since it came back, so one no feature hides is shown. Returns whether the
-  // mark came off. Runs from the hider's own listeners and from hide(), since features can hear
-  // the tracker first and hide it before the hider would.
+  // features gave it since it left, in the order they came, so one no feature hides is shown and
+  // the rest count under the first. Returns whether the mark came off.
   function settle(element) {
     const left = leftWith.get(element);
     if (!left || (left.id !== null && postIdOf(element).id === null)) return false;
@@ -230,11 +230,26 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     const marker = markOf(element);
     if (!marker) return false;
     const reasons = reasonsOf(marker);
-    const had = reasons.size;
-    for (const reason of [...reasons.keys()]) if (!left.since.has(reason)) reasons.delete(reason);
-    if (!reasons.size) return clear(element);
-    if (reasons.size !== had) write(marker, reasons);
+    const kept = new Map([...left.since].filter((reason) => reasons.has(reason)).map((reason) => [reason, reasons.get(reason)]));
+    if (!kept.size) return clear(element);
+    if ([...kept.keys()].join(' ') !== [...reasons.keys()].join(' ')) {
+      labels.set(marker, kept);
+      write(marker, kept);
+    }
     return false;
+  }
+
+  // A post gone again before its link said which story it showed: what it was hidden for on that
+  // visit says nothing about the next, and it goes back to the reasons it first left with.
+  function forget(element, left) {
+    left.since.clear();
+    const marker = markOf(element);
+    if (!marker) return;
+    const reasons = reasonsOf(marker);
+    const size = reasons.size;
+    for (const reason of [...reasons.keys()]) if (!left.had.has(reason)) reasons.delete(reason);
+    if (!reasons.size) clear(element);
+    else if (reasons.size !== size) write(marker, reasons);
   }
 
   // The story a post shows, or null while its link hasn't said. A comment's links name the post
@@ -248,12 +263,23 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     return marker !== null && count(element, reasonsOf(marker).keys().next().value);
   };
 
+  // What the hider does as a post comes back or its link fills in: settles it, counts it as the
+  // story it shows, and says whether listeners have news. Back with its mark, the mark is news,
+  // since its departure was. Back earlier, a mark coming off or a new count is. Runs from the
+  // hider's own listeners and from hide() and show(), since features can hear the tracker first
+  // and decide on the post before the hider would.
+  function catchUp(element) {
+    const back = leftWith.has(element);
+    const cleared = settle(element);
+    const counted = back && countAs(element);
+    return (departed.delete(element) ? markOf(element) !== null : cleared) || counted;
+  }
+
   // Counts a post the first time it's hidden. Returns whether it was new. A comment's links name
   // the post it's on, so a comment counts by its element alone.
   function count(element, reason) {
     const comment = isComment(element);
     const id = comment ? null : postIdOf(element).id;
-    settle(element);
     const seen = countedElements.has(element) || (id !== null && countedIds.has(id));
     countedElements.add(element);
     if (id !== null) countedIds.add(id);
@@ -282,16 +308,16 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
         clear(element);
       } else {
         // Gone again while back before its link: a link that filled in as it went settles what it
-        // showed. Still unknown, what it was hidden for while back says nothing about what it
-        // shows next time.
+        // showed. Still unknown, that visit is forgotten.
         const back = leftWith.has(element);
         settle(element);
         if (back) countAs(element);
         const left = leftWith.get(element);
-        if (left) left.since.clear();
+        if (left) forget(element, left);
         else if (countedElements.has(element)) {
           const story = storyOf(element, id);
-          leftWith.set(element, { id: story, since: new Set() });
+          const marker = markOf(element);
+          leftWith.set(element, { id: story, had: new Set(marker ? reasonsOf(marker).keys() : []), since: new Set() });
           if (story !== null) countedIds.add(story);
         }
         if (marked) departed.add(element);
@@ -301,18 +327,13 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // Back already showing another story, it loses the reasons no feature gave it again. Gone
     // that way, its mark's departure was the news. Still hidden, it counts as that story.
     posts.on('post/add', ({ element }) => {
-      const back = leftWith.has(element);
-      settle(element);
-      const counted = back && countAs(element);
-      if ((departed.delete(element) && markOf(element) !== null) || counted) notify();
+      if (catchUp(element)) notify();
     });
     // A post back before its link is settled once the link fills in. Still hidden as another
     // story, it counts as that one, under a reason a feature gave it since. A post counted before
     // its link is that story, wherever Facebook draws it again, unless the link is a comment's.
     posts.on('post/update', ({ element, id = null }) => {
-      const back = leftWith.has(element);
-      if (settle(element)) notify();
-      if (back && countAs(element)) notify();
+      if (catchUp(element)) notify();
       const story = storyOf(element, id);
       if (story !== null && countedElements.has(element)) countedIds.add(story);
     });
@@ -426,6 +447,9 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       const marker = markFor(element);
       if (!marker) return false;
       watchRecycling();
+      // Off the page, its link can still name the story it showed, so it's settled once it's back.
+      const away = !element.isConnected;
+      if (!away && catchUp(element)) notify();
       // A post back on the page keeps this reason whichever story it turns out to show.
       leftWith.get(element)?.since.add(reason);
       const marked = marker.hasAttribute(MARK);
@@ -435,6 +459,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       labels.set(marker, reasons);
       write(marker, reasons);
       marks.add(marker);
+      // Hidden off the page, it's hidden there again once it's back.
+      if (away) departed.add(element);
       // A post Facebook drew again counts once, but its new mark still changes what's hidden now.
       if (count(element, reason) || !marked) notify();
       if (fresh && onHide) {
@@ -449,6 +475,7 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // Shows the post again. With a reason, takes only that one off, for a post that no longer
     // fits it: one still hidden for another reason stays hidden, under that one.
     show(element, reason) {
+      if (element.isConnected && catchUp(element)) notify();
       const marker = markOf(element);
       if (!marker) return;
       if (reason === undefined ? clear(element) : unmark(marker, reason)) notify();

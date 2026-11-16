@@ -813,6 +813,159 @@ test('with the real post tracker, a post hidden while it was off the page, befor
   }
 });
 
+// An ad a feature hid for Sponsored and a plain post, for a post that leaves and comes back.
+// judge(hider, event) hears post/add, and post/update first with `updates`. heard holds what's
+// hidden on the page at each notification, and noted each reason onHide was told about.
+function adFeed(order, judge, { text = 'Ad one', updates = false } = {}) {
+  const drawn = (n, words, href) => `<div aria-posinset="${n}"><div><a href="${href}">2h</a><div class="text">${words}</div></div></div>`;
+  const win = page(feed(drawn(1, text, '/someone/posts/pfbid0First'), drawn(2, 'Plain', '/someone/posts/pfbid0Third')));
+  const posts = createPostTracker({ doc: win.document });
+  const noted = [];
+  const hider = createHider({ doc: win.document, posts, onHide: ({ reason }) => noted.push(reason) });
+  const [first, second] = win.document.querySelectorAll('[aria-posinset]');
+  const seeded = order === 'hider first' ? 1 : 0;
+  if (seeded) hider.hide(second, 'Seed');
+  const listen = (event) => judge(hider, event);
+  if (updates) posts.on('post/update', listen);
+  posts.on('post/add', listen);
+  const heard = [];
+  hider.subscribe(() => heard.push(hider.hiddenNow() - seeded));
+  const list = win.document.querySelector('.feed');
+  return {
+    posts,
+    hider,
+    first,
+    seeded,
+    heard,
+    noted,
+    mark: () => first.firstElementChild.getAttribute(MARK),
+    counts: () => Object.fromEntries(Object.entries(hider.counts()).filter(([reason]) => reason !== 'Seed')),
+    link: (href) => first.querySelector('a').setAttribute('href', href),
+    leave: async () => {
+      first.remove();
+      await tick();
+    },
+    back: async (words, href) => {
+      if (words !== undefined) first.querySelector('.text').textContent = words;
+      if (href !== undefined) first.querySelector('a').setAttribute('href', href);
+      list.append(first);
+      await tick();
+    },
+  };
+}
+
+test('with the real post tracker, a post gone again before its link loses what it was hidden for on that visit, even back as the story it was', async () => {
+  for (const order of LISTEN_ORDERS) {
+    const s = adFeed(order, (hider, { element, id }) => {
+      if (id === 'pfbid0First') hider.hide(element, 'Sponsored');
+      if (element.textContent.includes('Spam')) hider.hide(element, 'Filter');
+    });
+    await s.leave();
+    await s.back('Spam', '#');
+    assert.equal(s.mark(), 'Sponsored Filter', order);
+    await s.leave();
+    await s.back('Ad one', '/someone/posts/pfbid0First');
+    assert.equal(s.mark(), 'Sponsored', `${order}: the filter's reason went`);
+    s.hider.showAll('Sponsored');
+    assert.equal(s.hider.isHidden(s.first), false, `${order}: shown with ads`);
+    s.posts.stop();
+  }
+});
+
+test('with the real post tracker, a post hidden off the page while its link still names the story it was counts as the story it comes back as', async () => {
+  // A check that finished late hides it for another reason, or for the ad's again.
+  for (const reason of ['Filter', 'Sponsored']) {
+    for (const order of LISTEN_ORDERS) {
+      const s = adFeed(order, (hider, { element, id }) => {
+        if (id === 'pfbid0First') hider.hide(element, 'Sponsored');
+      });
+      await s.leave();
+      s.hider.hide(s.first, reason);
+      await s.back('Plain words', '/other/posts/pfbid0Fourth');
+      const where = `${reason} ${order}`;
+      assert.equal(s.mark(), reason, `${where}: hidden for what it was given since it left`);
+      assert.deepEqual(s.counts(), reason === 'Filter' ? { Sponsored: 1, Filter: 1 } : { Sponsored: 2 }, `${where}: counted as the story it showed`);
+      assert.equal(s.hider.hiddenPosts() - s.seeded, 2, where);
+      assert.equal(s.heard.at(-1), s.hider.hiddenNow() - s.seeded, `${where}: the last news is what's hidden`);
+      s.posts.stop();
+    }
+  }
+});
+
+test('with the real post tracker, listeners hear a post hidden while it was off the page come back hidden', async () => {
+  // The ad left hidden, or shown by a feature first, or a post nothing had hidden.
+  for (const was of ['hidden', 'shown', 'never hidden']) {
+    for (const order of LISTEN_ORDERS) {
+      const s = adFeed(order, (hider, { element, id }) => {
+        if (was !== 'never hidden' && id === 'pfbid0First') hider.hide(element, 'Sponsored');
+      });
+      if (was === 'shown') s.hider.show(s.first);
+      await s.leave();
+      s.hider.hide(s.first, 'Filter');
+      await s.back();
+      const where = `${was} ${order}`;
+      assert.equal(s.hider.hiddenNow() - s.seeded, 1, where);
+      assert.equal(s.heard.at(-1), 1, `${where}: the last news is what's hidden`);
+      s.posts.stop();
+    }
+  }
+});
+
+test('with the real post tracker, a post back as another story counts under the first reason a feature gave it since, its link late or not', async () => {
+  for (const late of [false, true]) {
+    for (const order of LISTEN_ORDERS) {
+      // It leaves hidden for the filter, and comes back hidden for the same two reasons in
+      // another order.
+      const s = adFeed(order, (hider, { element }) => {
+        if (element.textContent.includes('people')) hider.hide(element, 'People');
+        if (element.textContent.includes('Spam')) hider.hide(element, 'Filter');
+      }, { text: 'Spam' });
+      await s.leave();
+      await s.back('Spam people', late ? '#' : '/other/posts/pfbid0Fourth');
+      if (late) {
+        s.link('/other/posts/pfbid0Fourth');
+        await tick();
+      }
+      const where = `${late ? 'late' : 'at once'} ${order}`;
+      assert.equal(s.mark(), 'People Filter', where);
+      assert.deepEqual(s.counts(), { Filter: 1, People: 1 }, where);
+      s.posts.stop();
+    }
+  }
+});
+
+test('with the real post tracker, both listen orders tell the same when a feature decides on a post back as another story', async () => {
+  const ads = new Set(['pfbid0First', 'pfbid0Fourth']);
+  const cases = [
+    // Back with its link in, an ad hidden or another post a feature shows.
+    { name: 'an ad', to: 'pfbid0Fourth', mark: 'Sponsored', noted: 1 },
+    { name: 'a post the feature shows', to: 'pfbid0Plain', mark: null, noted: 0 },
+    // Back before its link, an ad the feature only knows once the link fills in.
+    { name: 'an ad known late', to: 'pfbid0Fourth', mark: 'Sponsored', noted: 1, updates: true },
+  ];
+  for (const { name, to, mark, noted, updates = false } of cases) {
+    const seen = {};
+    for (const order of LISTEN_ORDERS) {
+      const s = adFeed(order, (hider, { element, id }) => {
+        if (ads.has(id)) hider.hide(element, 'Sponsored');
+        else if (id === 'pfbid0Plain') hider.show(element);
+      }, { updates });
+      await s.leave();
+      const [heard, told] = [s.heard.length, s.noted.length];
+      if (updates) {
+        await s.back('Ad two', '#');
+        s.link(`/other/posts/${to}`);
+        await tick();
+      } else await s.back('Ad two', `/other/posts/${to}`);
+      seen[order] = { mark: s.mark(), counts: s.counts(), heard: s.heard.slice(heard), noted: s.noted.length - told };
+      assert.equal(seen[order].mark, mark, `${name} ${order}`);
+      assert.equal(seen[order].noted, noted, `${name} ${order}: onHide`);
+      s.posts.stop();
+    }
+    assert.deepEqual(seen['features first'], seen['hider first'], name);
+  }
+});
+
 test('with the real post tracker, an article counted before its link that turns out to be a comment leaves its post to count on its own', async () => {
   const article = (text) => `<div role="article"><div><a href="#">1h</a><div class="text">${text}</div></div></div>`;
   const story = (n, href) => `<div aria-posinset="${n}"><div><a href="${href}">2h</a><div class="text">Spam post</div></div></div>`;
