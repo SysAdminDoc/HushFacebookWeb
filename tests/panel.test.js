@@ -2236,6 +2236,7 @@ test("General's switches and backup actions come up by their own words, and the 
     ['reset to defaults', 'quick-setups', 'quick:defaults'],
     // Its name through 0.0.47, which used to land on Quiet's Turn on.
     ['back to defaults', 'quick-setups', 'quick:defaults'],
+    ['back to defaults', 'backup-restore', 'reset'],
     ['back up restore', 'backup-restore', 'backup'],
   ]) {
     find(query);

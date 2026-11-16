@@ -1089,7 +1089,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         options: [
           { label: 'Back up settings', focusKey: 'backup', keywords: ['backup', 'export'] },
           { label: 'Restore from a file', focusKey: 'restore', keywords: ['import', 'load'] },
-          { label: 'Reset to defaults', focusKey: 'reset' },
+          // The Overview tile's name through 0.0.47, so a search for it lands here too.
+          { label: 'Reset to defaults', focusKey: 'reset', keywords: ['back to defaults'] },
         ], focusKey: 'backup', render: backupCard },
       ...(update && !update.update ? [{ ...updateRow(update), group: 'about' }] : []),
       { id: 'report-problem', section: 'general', group: 'about', title: 'Report a problem', description: REPORT_NOTE, keywords: ['bug', 'issue'], render: reportProblemCard },
