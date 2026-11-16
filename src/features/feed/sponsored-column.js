@@ -139,20 +139,14 @@ function looseText(block) {
 
 const BUTTON = 'button, [role="button"]';
 
-// Its own words and buttons and no link: a title drawn as plain text over its buttons, like
-// Group conversations over Create, or Contacts over its Search button.
-const titleWithButtons = (block) => !linksIn(block).some(Boolean) && Boolean(block.querySelector(BUTTON)) && looseText(block);
-
 // Whether each person a block links to has a button of their own beside them, as each request
-// has Confirm and Delete. Beside a title with buttons, the nearest button is the title's, like
-// Contacts' Search over one contact, or another block's in a wrapper around both. In doubt the
-// block stays out of the box.
+// has Confirm and Delete.
 function buttonEach(block) {
   for (const a of realLinks(block)) {
     if (requestsLink(a.getAttribute('href'))?.kind !== 'person') continue;
     let row = a;
     while (row !== block && !row.querySelector(BUTTON)) row = row.parentElement;
-    if (!row.querySelector(BUTTON) || peopleIn(realLinks(row)) > 1 || [...row.children].some(titleWithButtons)) return false;
+    if (!row.querySelector(BUTTON) || peopleIn(realLinks(row)) > 1) return false;
   }
   return true;
 }
@@ -166,7 +160,7 @@ function buttonEach(block) {
 function somethingElse(block) {
   const kinds = linksIn(block);
   if (kinds.includes('person')) return !kinds.includes('requests') && !buttonEach(block);
-  return titleWithButtons(block);
+  return !kinds.some(Boolean) && Boolean(block.querySelector(BUTTON)) && looseText(block);
 }
 
 // Every Friend requests box in the page's own side columns: the largest block around a heading

@@ -287,6 +287,18 @@ test('a mutual friends link or a Remove link drawn as a button stays in the box,
     // Its words and buttons go with a link to Friend requests, so it's no title of its own.
     '<div class="request"><a href="/friends/requests/?profile_id=1">A Friend</a><span>3 mutual friends</span><div role="button" aria-label="Confirm">Confirm</div><div role="button" aria-label="Delete">Delete</div></div>',
   ];
+  // A request's own words can share a wrapper with its buttons, which looks just like a title
+  // over a Search button, so a plain-text title beside one person can't be told from them.
+  const avatar = '<a href="/some.person"><svg></svg></a>';
+  const name = '<a href="/some.person"><span>A Friend</span></a>';
+  const buttons = '<div role="button" aria-label="Confirm">Confirm</div><div role="button" aria-label="Delete">Delete</div>';
+  for (const inner of [
+    `${avatar}<div>${name}<div><span>3 mutual friends</span><div>${buttons}</div></div></div>`,
+    `<div>${name}<div><span>3 mutual friends</span><div>${buttons}</div></div></div>`,
+    `${avatar}<div><div>${name}<div><span>2w</span><div role="button" aria-label="More"></div></div></div><span>3 mutual friends</span><div>${buttons}</div></div>`,
+    `${avatar}<div>${name}<div><span>3 mutual friends</span><a href="#" role="button">Remove</a></div>${buttons}</div>`,
+    `${avatar}<div><span>A Friend</span><span>3 mutual friends</span>${buttons}</div>`,
+  ]) rows.push(`<div class="request">${inner}</div>`);
   for (const row of rows) {
     const doc = page(profileRequests(row) + birthdays + contacts).document;
     const boxes = friendRequestsBoxes(doc);
@@ -296,19 +308,13 @@ test('a mutual friends link or a Remove link drawn as a button stays in the box,
   }
 });
 
-test('a block beside the box linking to people or to Facebook pages with no buttons of their own, or People you may know, stays out', () => {
+test('a block beside the box linking to people or to Facebook pages with no buttons, or People you may know, stays out', () => {
   const beside = [
     '<div class="nb"><a href="/fundraisers/">Fundraisers</a></div>',
     '<div class="nb"><span>Birthdays</span><a href="/pat.example">Pat</a> has a birthday today</div>',
     '<div class="nb"><span>Contacts</span><a href="/pat.example">Pat</a><a href="/sam.example">Sam</a></div>',
     // One button for everyone in it, not one each the way a request has Confirm.
     '<div class="nb"><div><span>Contacts</span><div role="button" aria-label="Search"></div></div><a href="/pat.example">Pat</a><a href="/sam.example">Sam</a></div>',
-    // With one person in it, the Search button is still the title's, not theirs.
-    '<div class="nb"><div><span>Contacts</span><div role="button" aria-label="Search"></div></div><a href="/pat.example">Pat</a></div>',
-    // Birthdays with one person, in one block with another one's title and button.
-    `<div class="nb"><div><span>Birthdays</span><div><a href="/pat.example">Pat</a> has a birthday today</div></div>
-      <div><span>Group conversations</span><div role="button" aria-label="Create new group"><svg></svg></div></div></div>`,
-    '<div class="nb"><div><span>Birthdays</span><div><a href="/pat.example">Pat</a> has a birthday today</div></div><div><span>Your Pages</span><div role="button">Switch</div></div></div>',
     // Its heading links to the Friends pages, but to suggestions, not to Friend requests.
     `<div class="nb"><a href="/friends/suggestions/"><h3>People you may know</h3></a>
       <div><a href="/pat.example">Pat</a><div role="button">Add friend</div></div></div>`,
