@@ -38,16 +38,26 @@ const EDGE = 'body, [role="main"], [role="navigation"], [role="banner"], [role="
 // A See all link in these is the page's own menu or a post, not the block.
 const ELSEWHERE = '[role="navigation"], [role="banner"], [role="dialog"], [role="article"], [aria-posinset]';
 
-export function seeAllLink(a) {
+// A link to Facebook's friend suggestions page, as a URL, or null.
+function suggestionsUrl(a) {
   let url;
   try {
     url = new URL(a.getAttribute('href'), 'https://www.facebook.com/');
   } catch {
-    return false;
+    return null;
   }
   const host = url.hostname.toLowerCase();
-  return (host === 'facebook.com' || host.endsWith('.facebook.com')) && /^\/friends\/suggestions\/?$/.test(url.pathname) && !url.searchParams.has('profile_id');
+  return (host === 'facebook.com' || host.endsWith('.facebook.com')) && /^\/friends\/suggestions\/?$/.test(url.pathname) ? url : null;
 }
+
+export function seeAllLink(a) {
+  const url = suggestionsUrl(a);
+  return Boolean(url) && !url.searchParams.has('profile_id');
+}
+
+// Whose card a link opens, /friends/suggestions/?profile_id=..., or null. A card links its
+// picture and its name.
+export const cardPerson = (a) => suggestionsUrl(a)?.searchParams.get('profile_id') || null;
 
 const busy = (element) => element.matches(BUSY) || Boolean(element.querySelector(BUSY));
 

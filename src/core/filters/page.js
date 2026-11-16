@@ -100,8 +100,14 @@ export function authorsOf(post) {
 // its own. A feed row that isn't a post (People you may know, group suggestions) names nobody in
 // the data.
 export function isPost(post) {
+  return hasPostParts(post) || authorsOf(post).length > 0;
+}
+
+// A post's own header or text, the parts no row of people or groups has. Names in headings
+// don't count here, since the cards in a row of people might put their names in headings.
+export function hasPostParts(post) {
   const own = ownOf(post);
-  return own(HEADER).length > 0 || own(TEXT).length > 0 || authorsOf(post).length > 0;
+  return own(HEADER).length > 0 || own(TEXT).length > 0;
 }
 
 // A comment as Facebook drew it on 2026-11-04 (three Page post permalinks): a div[role=article]

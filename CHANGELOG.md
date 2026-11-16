@@ -3,6 +3,7 @@
 ## Unreleased
 
 * With a full Stories row, Home could leave a big empty space under the stories. Show progress while posts load was drawing its line on the row's own loading card (the one at the far right that waits for more stories), and that stretched the whole row. The line now goes only on the feed's loading cards. That same card also made Home look stuck while it wasn't, so it no longer brings up the message that Home was still loading. The Space under the Stories row line in Diagnostics now names a loading card or a mark of the script's when it sits around a box in the row.
+* The People you may know row could still show up between posts on Home. Hide People you may know now also finds the row on the page, by its See all link or its cards linking to Facebook's friend suggestions, so it goes in any language and in content mode too. In the page's data it's recognized by the code Facebook draws it with as well as by its type name, so a renamed row doesn't slip through.
 
 ## v0.0.48 (2026-11-16)
 

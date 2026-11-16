@@ -71,8 +71,19 @@ const LABEL_TYPENAME = 'CometStorySponsoredLabelStrategy';
 const FOLLOW_TYPENAME = 'CometFeedStoryFollowButtonStrategy';
 const JOIN_TYPENAME = 'GroupJoinForumAction';
 // Rows of people or groups Facebook puts between posts, each a feed edge of its own.
-const PYMK_TYPENAME = 'PaginatedPeopleYouMayKnowFeedUnit';
 const GROUPS_TYPENAME = 'GroupsYouShouldJoinFeedUnit';
+// The People you may know row came as a PaginatedPeopleYouMayKnowFeedUnit on 2026-10-21, and
+// named the code Facebook draws it with in a __module_component_ field of its own
+// (CometPYMKQPFeedUnitStrategy.react). #5's reporter still saw the row on 0.0.45 while their
+// reports counted none taken out by that typename, so either name will do: a typename with
+// PeopleYouMayKnow anywhere in it, or a component whose name starts CometPYMK.
+const PYMK_NAME = 'PeopleYouMayKnow';
+const PYMK_RENDERER = 'CometPYMK';
+export function isPymkUnit(node) {
+  if (!isRecord(node)) return false;
+  if (node.__typename.includes(PYMK_NAME)) return true;
+  return Object.keys(node).some((key) => key.startsWith('__module_component_') && typeof node[key]?.__dr === 'string' && node[key].__dr.startsWith(PYMK_RENDERER));
+}
 // Every story on Home carries a hashed category, so a row reading it lets every feed page past
 // the prefilter. Its plain names are added for the edges that carry one.
 const HASHED = '"cat_sensitive":{"enc":"';
@@ -394,9 +405,9 @@ export const AD_MARKERS = [
     feature: 'hidePeopleYouMayKnow',
     surface: 'news feed (the People you may know row)',
     seen: '2026-10-21: 6 in two Home scrolls, each the first edge of a feed page, titled "People you may know" with 7 people; none in 84 units on 2026-10-11 or 140 posts on 2026-10-22',
-    text: [`"${PYMK_TYPENAME}"`],
+    text: [PYMK_NAME, PYMK_RENDERER],
     scope: FEEDS,
-    match: (edge, node) => isObject(node) && 'cursor' in edge && node.__typename === PYMK_TYPENAME,
+    match: (edge, node) => 'cursor' in edge && isPymkUnit(node),
     action: 'drop-node',
   },
   {
@@ -437,7 +448,7 @@ export const AD_MARKERS = [
     text: [HASHED, '"ENGAGEMENT"', '"ENGAGEMENT_QP"'],
     scope: FEEDS,
     // People you may know carries ENGAGEMENT_QP too, and has a switch of its own.
-    match: (edge, node) => isObject(node) && node.__typename !== PYMK_TYPENAME && SUGGESTED.has(feedCategory(edge)),
+    match: (edge, node) => isObject(node) && !isPymkUnit(node) && SUGGESTED.has(feedCategory(edge)),
     action: 'drop-node',
   },
   {

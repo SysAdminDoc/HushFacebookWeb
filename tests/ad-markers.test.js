@@ -495,6 +495,38 @@ test('People you may know goes on its own switch, on Home and the groups feed on
   assert.equal(adRule('hidePeopleYouMayKnow', () => false, null).enabled(), false, 'the switch gates the rule');
 });
 
+test('People you may know under a new typename still goes, by the typename or the code it is drawn with (#5)', () => {
+  const QP = { cat_sensitive: { enc: null, cat: 'ENGAGEMENT_QP' } };
+  const drawnWith = (dr) => ({ __module_component_CometFeedUnitContainerSection_feedUnit: { __dr: dr } });
+  const edges = () => [
+    edge2026('friend'),
+    // The row as captured on 2026-10-21, renderer included.
+    edge2026('captured', QP, { __typename: 'PaginatedPeopleYouMayKnowFeedUnit', ...drawnWith('CometPYMKQPFeedUnitStrategy.react') }),
+    edge2026('renamed', QP, { __typename: 'PeopleYouMayKnowFeedUnit' }),
+    edge2026('renderer', QP, { __typename: 'FriendingSuggestionsFeedUnit', ...drawnWith('CometPYMKQPFeedUnitStrategy.react') }),
+    // A row of groups is drawn by other code and keeps its typename.
+    edge2026('groups', QP, { __typename: 'GroupsYouShouldJoinFeedUnit', ...drawnWith('CometGroupsYouShouldJoinFeedUnitStrategy.react') }),
+  ];
+  const ids = (doc) => doc.data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null);
+  const HOME = { transport: 'xhr', path: '/api/graphql/', friendlyName: 'CometNewsFeedPaginationQuery' };
+
+  const fired = [];
+  const people = adRule('hidePeopleYouMayKnow', () => true, (found) => fired.push(...found));
+  const doc = { data: { viewer: { news_feed: { edges: edges() } } } };
+  assert.equal(people.markers.some((marker) => JSON.stringify(doc).includes(marker)), true, 'the prefilter lets the answer through');
+  people.transform(doc, HOME);
+  assert.deepEqual(ids(doc), ['friend', null, null, null, 'groups']);
+  assert.deepEqual(fired, ['people_you_may_know', 'people_you_may_know', 'people_you_may_know']);
+
+  // Hide suggested posts reads the same rows as people, so with People you may know off they stay.
+  const suggested = adRule('hideSuggestedPosts', () => true, null);
+  const kept = { data: { viewer: { news_feed: { edges: edges() } } } };
+  suggested.transform(kept, HOME);
+  assert.deepEqual(ids(kept), ['friend', 'captured', 'renamed', 'renderer', null]);
+  // A stand-in that only reads like the canary (no typename) is left to the field rows.
+  assert.equal(adMarkerFor({ node: { ...drawnWith('CometPYMKQPFeedUnitStrategy.react') }, cursor: 'c' }), null);
+});
+
 test("a friend sharing a suggested Page's post is not a suggestion", () => {
   const share = edge2026('share', {}, { attached_story: titled('page-post', followTitle).node });
   assert.equal(adMarkerFor(share), null);
