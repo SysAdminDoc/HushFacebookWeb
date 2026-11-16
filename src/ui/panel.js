@@ -89,7 +89,7 @@ const searchCount = (count) => (count === 0 ? t('No setting matches.') : plural(
 const TOOLBAR_COUNT_NOTE = "How many posts were hidden in this tab, on the extension's button in the browser toolbar. NEW there instead means a newer release is out.";
 const LOAD_WARNING_NOTE = "A notice when Home or a group's feed still shows Facebook's loading cards 20 seconds after it opened. It offers a way to pause the script for that tab. Diagnostics keeps the result either way.";
 const LAUNCHER_NOTE = "The gear in Facebook's top bar, next to Messenger and Notifications. A page without that bar shows it in the bottom-left corner. {opener} always opens settings too, and so does the row in your account menu while Settings in your account menu is on.";
-const HIDDEN_NOTE_NOTE = 'A short line that says why a post was hidden. Click it to see the post, or Show hidden at its end to see every post hidden on the page.';
+const HIDDEN_NOTE_NOTE = 'A short line that says why a post was hidden. Click it to see that post, or Show hidden at its end to see every post on the page with a note. Only for your own filters puts it on posts that Hide posts by words or Keep posts you hide hidden took out, so a wrong guess is easy to spot. Ads and suggestions disappear completely then.';
 const BACKUP_NOTE = 'Save your choices to a file and load them in another browser, or move them between the userscript and the extension. Seen posts, video spots, speed and volume stay behind. Reset to defaults puts every setting but the language back the way it came, with Undo right after.';
 const REPORT_NOTE = 'Opens a GitHub report with your versions and settings filled in, for you to add what happened.';
 const LANGUAGE_NOTE = "The language for these settings and the script's notices. Facebook's own language doesn't change it, and Reset to defaults keeps it. The two tests stretch every phrase or mirror the panel, to show how a translation will fit.";
@@ -882,13 +882,22 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           toggle('ui.launcher', 'Show the settings button', { describedBy: 'hfw-ui.launcher-desc' })));
   }
 
+  // Never, only for the person's own filters, or always. The values aren't all strings, so the
+  // choice is found again by its spelling, as a feature's select does.
   function hiddenNoteCard() {
+    const key = 'ui.hiddenNote';
+    const value = settingValue(key);
+    const { choices } = settings.schema.get(key);
+    const select = h('select', {
+      dataset: { key }, 'aria-describedby': 'hfw-ui.hiddenNote-desc', disabled: bulkChangePending(),
+      onchange: (event) => apply(key, choices.find((choice) => String(choice.value) === event.target.value)?.value, event.target),
+    }, choices.map((choice) => h('option', { value: String(choice.value), selected: choice.value === value, text: t(choice.label) })));
+    // Picked by value too: happy-dom 21 keeps the second of three options when the third is marked.
+    select.value = String(value);
     return h('div', { class: 'card' },
-        h('div', { class: 'row' },
-          h('div', { class: 'text' },
-            h('div', { class: 'title', text: t('Leave a note where a post was hidden') }),
-            help('ui.hiddenNote', 'Leave a note where a post was hidden', HIDDEN_NOTE_NOTE, { id: 'hfw-ui.hiddenNote-desc' })),
-          toggle('ui.hiddenNote', 'Leave a note where a post was hidden', { describedBy: 'hfw-ui.hiddenNote-desc' })));
+      h('div', { class: 'title', text: t('Leave a note where a post was hidden') }),
+      help(key, 'Leave a note where a post was hidden', HIDDEN_NOTE_NOTE, { id: 'hfw-ui.hiddenNote-desc' }),
+      h('div', { class: 'options' }, h('div', { class: 'field' }, h('label', null, t('Leave a note'), select))));
   }
 
   function toolbarCountCard() {

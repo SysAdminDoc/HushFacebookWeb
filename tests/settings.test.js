@@ -10,6 +10,7 @@ import {
 // A record that has run every change there is.
 const ALL_MIGRATIONS = MIGRATIONS.map((migration) => migration.id);
 import { applyObjectMutation, createMemoryStorage } from '../src/core/storage.js';
+import { OWN } from '../src/core/dom/hide.js';
 import { buildDiagnosticReport } from '../src/ui/diagnostic-report.js';
 import { applyQuickSetup } from '../src/ui/quick-setups.js';
 
@@ -126,6 +127,20 @@ test('bad values and unknown keys are refused', () => {
   assert.throws(() => settings.set('beta.order', 'oldest'), TypeError);
   assert.throws(() => settings.set('beta.days', 31), TypeError);
   assert.throws(() => settings.get('nope'), /Unknown setting/);
+});
+
+test('a note setting saved while it was a switch keeps its meaning, and Only for your own filters saves', () => {
+  // On is Always and off is Never, as they were.
+  for (const [stored, loaded] of [[true, true], [false, false], [OWN, OWN], ['sometimes', false], [1, false]]) {
+    const settings = createSettings({ storage: createMemoryStorage({ settings: { 'ui.hiddenNote': stored } }), features: [], version: '0.0.1' });
+    assert.equal(settings.get('ui.hiddenNote'), loaded, `saved ${JSON.stringify(stored)}`);
+  }
+  const settings = createSettings({ storage: createMemoryStorage(), features: [], version: '0.0.1' });
+  assert.equal(settings.get('ui.hiddenNote'), false, 'Never until it is picked');
+  assert.deepEqual(settings.schema.get('ui.hiddenNote').choices.map((choice) => [choice.value, choice.label]), [[false, 'Never'], [OWN, 'Only for your own filters'], [true, 'Always']]);
+  settings.set('ui.hiddenNote', OWN);
+  assert.equal(settings.get('ui.hiddenNote'), OWN);
+  assert.throws(() => settings.set('ui.hiddenNote', 'sometimes'), TypeError);
 });
 
 test('junk in storage is ignored on load', () => {

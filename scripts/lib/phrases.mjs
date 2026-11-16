@@ -248,6 +248,12 @@ export async function collectPhrases() {
       for (const choice of option.choices ?? []) if (choice.label) phrases.add(choice.label);
     }
   }
+  // The script's own settings' choices, General's among them. A language keeps its own name.
+  const { buildSchema } = await import(pathToFileURL(join(SRC, 'core', 'settings.js')));
+  for (const [key, spec] of buildSchema([])) {
+    if (key === 'ui.language') continue;
+    for (const choice of spec.choices ?? []) if (choice.label) phrases.add(choice.label);
+  }
   for (const page of PAGES) phrases.add(page.title).add(page.description);
   for (const section of SECTIONS) phrases.add(section.title);
   for (const setup of QUICK_SETUPS) phrases.add(setup.label).add(setup.description);

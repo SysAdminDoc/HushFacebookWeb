@@ -1,4 +1,4 @@
-import { MARK, SHOW_ALL, createHider, hideCss } from '../../../src/core/dom/hide.js';
+import { MARK, OWN, SHOW_ALL, createHider, hideCss } from '../../../src/core/dom/hide.js';
 import { check } from './helpers.js';
 
 // The note line's two buttons in real layout: Show hidden gets a box of its own beside the note,
@@ -57,4 +57,43 @@ export async function hiddenNote() {
   check(hider.hide(later, 'Sponsored'), 'A later post was not hidden');
   check(!later.querySelector('.time').checkVisibility() && later.querySelector('.head').checkVisibility(), 'The later post has no note line');
   return { note: Math.round(box.width - own.width), showHidden: Math.round(own.width) };
+}
+
+// With notes for the person's own filters only: a filtered post keeps its note line, an ad and an
+// ad that a filter also caught take up no room at all, and Show hidden brings back only the
+// noted posts.
+export async function hiddenNoteOwn() {
+  const rules = document.createElement('style');
+  rules.textContent = hideCss({ notes: OWN });
+  document.head.append(rules);
+  const feed = document.createElement('main');
+  feed.innerHTML = [1, 2, 3, 4].map(post).join('');
+  document.body.append(feed);
+  const hider = createHider({ doc: document, notesShown: () => OWN });
+  const [filtered, ad, both, dismissed] = feed.querySelectorAll('[aria-posinset]');
+  check(hider.hide(filtered, 'Filter', 'cats'), 'The filtered post was not hidden');
+  check(hider.hide(ad, 'Sponsored'), 'The ad was not hidden');
+  check(hider.hide(both, 'Filter', 'dogs') && hider.hide(both, 'Sponsored'), 'The filtered ad was not hidden');
+  check(hider.hide(dismissed, 'Dismissed'), 'The dismissed post was not hidden');
+  const heights = [filtered, ad, both, dismissed].map((element) => Math.round(element.getBoundingClientRect().height));
+  for (const [element, name] of [[filtered, 'filtered post'], [dismissed, 'dismissed post']]) {
+    const mark = element.querySelector(`[${MARK}]`);
+    check(element.getBoundingClientRect().height > 30, `The ${name} has no note line`);
+    check(!element.querySelector('.head a').checkVisibility() && !element.querySelector('.footer').checkVisibility(), `Part of the ${name} still shows`);
+    check(mark.getAttribute('role') === 'button', `The ${name}'s note is not a button`);
+  }
+  for (const [element, name] of [[ad, 'ad'], [both, 'filtered ad']]) {
+    check(element.getBoundingClientRect().height === 0 && !element.checkVisibility(), `The ${name} still takes room`);
+    check(!element.querySelector(`[${MARK}]`).hasAttribute('role'), `The ${name}'s mark is a button`);
+  }
+
+  const showHidden = filtered.querySelector(`[${MARK}]`).firstElementChild;
+  const box = showHidden.getBoundingClientRect();
+  const target = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+  check(target === showHidden, 'A click on Show hidden does not land on it');
+  target.click();
+  check(!hider.isHidden(filtered) && !hider.isHidden(dismissed), 'Show hidden left a noted post hidden');
+  check(hider.isHidden(ad) && hider.isHidden(both), 'Show hidden brought back a post hidden completely');
+  check(!ad.checkVisibility() && filtered.querySelector('.footer').checkVisibility(), 'What shows after Show hidden is wrong');
+  return { heights };
 }

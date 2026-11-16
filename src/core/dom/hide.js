@@ -45,35 +45,54 @@ const BUTTON = ['role', 'tabindex', 'aria-label'];
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 export const SHOW_ALL = 'Show hidden';
 // The note's Show hidden button: the mark's first element, unless it's one ::before can't draw on
-// or a mark of its own.
-const ALL = `[${MARK}] > :first-child:not(${[...REPLACED].map((tag) => tag.toLowerCase()).join(', ')}, [${MARK}])`;
+// or a mark of its own (hideCss).
 const allOf = (marker) => {
   const child = marker.firstElementChild;
   return child && !REPLACED.has(child.tagName) && !child.hasAttribute(MARK) ? child : null;
 };
 
+// "Leave a note" set to Only for your own filters: a note for a post hidden by what the person
+// set up (the words, people and sites lists, and Keep posts you hide hidden) and nothing else,
+// so one of those that caught the wrong post can be seen. Ads and suggestions go completely.
+export const OWN = 'own';
+export const OWN_REASONS = Object.freeze(['Filter', 'Dismissed']);
+// Every mark of own reasons alone, spelled as write() spells it: the reasons in the order they
+// came, one space apart.
+const orders = (reasons) => reasons.flatMap((reason) => {
+  const rest = reasons.filter((other) => other !== reason);
+  return [[reason], ...orders(rest).map((tail) => [reason, ...tail])];
+});
+const OWN_MARKS = new Set(orders(OWN_REASONS).map((reasons) => reasons.join(' ')));
+
+// notes: true for a note on every hidden post, OWN for those of the person's own filters, or
+// false for none.
 export function hideCss({ notes }) {
-  if (!notes) return `${HOLDER} { display: none !important; }`;
+  if (notes !== true && notes !== OWN) return `${HOLDER} { display: none !important; }`;
+  // The marks that carry a note.
+  const mark = notes === OWN ? `:is(${[...OWN_MARKS].map((value) => `[${MARK}="${value}"]`).join(', ')})` : `[${MARK}]`;
+  const all = `${mark} > :first-child:not(${[...REPLACED].map((tag) => tag.toLowerCase()).join(', ')}, [${MARK}])`;
   return [
-    `${HOLDER} > :not([${MARK}]) { display: none !important; }`,
-    `[${MARK}] > * { display: none !important; }`,
+    // With own filters only, every other post goes as it does with no note.
+    ...(notes === OWN ? [`:has(> [${MARK}]:not(${mark})) { display: none !important; }`] : []),
+    `:has(> ${mark}) > :not([${MARK}]) { display: none !important; }`,
+    `${mark} > * { display: none !important; }`,
     // Loose text right inside the mark has no element to hide, so it shrinks to nothing.
-    `[${MARK}] { font-size: 0 !important; }`,
+    `${mark} { font-size: 0 !important; }`,
     // Facebook's mark is a display:contents wrapper, which can't take focus.
-    `[${MARK}] { display: flex !important; gap: 8px; border-radius: 6px; }`,
-    `[${MARK}]::before { content: attr(${NOTE}); display: block; flex: 1 1 auto; padding: 12px 16px; border: 1px solid var(--hfw-note-border); border-radius: 6px; background: var(--hfw-note-bg); font: 600 13px/1.4 system-ui, sans-serif; color: var(--hfw-note-text); cursor: pointer; }`,
-    `[${MARK}]:hover:not(:has(> :hover))::before { text-decoration: underline; }`,
+    `${mark} { display: flex !important; gap: 8px; border-radius: 6px; }`,
+    `${mark}::before { content: attr(${NOTE}); display: block; flex: 1 1 auto; padding: 12px 16px; border: 1px solid var(--hfw-note-border); border-radius: 6px; background: var(--hfw-note-bg); font: 600 13px/1.4 system-ui, sans-serif; color: var(--hfw-note-text); cursor: pointer; }`,
+    `${mark}:hover:not(:has(> :hover))::before { text-decoration: underline; }`,
     // The ring sits on Facebook's page, so a halo in the note's own background fills the gap and
     // runs under it, keeping the ring clear of whatever the page has there.
-    `[${MARK}]:focus-visible { outline: 2px solid var(--hfw-note-text) !important; outline-offset: 2px; box-shadow: 0 0 0 4px var(--hfw-note-bg) !important; }`,
+    `${mark}:focus-visible { outline: 2px solid var(--hfw-note-text) !important; outline-offset: 2px; box-shadow: 0 0 0 4px var(--hfw-note-bg) !important; }`,
     // Facebook's own element, so its classes' look goes first.
-    `${ALL} { all: unset !important; display: block !important; flex: none !important; border-radius: 6px !important; cursor: pointer !important; font-size: 0 !important; }`,
-    `${ALL} > * { display: none !important; }`,
-    `${ALL}::before { all: unset !important; content: "${SHOW_ALL}" !important; display: block !important; padding: 12px 16px !important; border: 1px solid var(--hfw-note-border) !important; border-radius: 6px !important; background: var(--hfw-note-bg-strong) !important; font: 600 13px/1.4 system-ui, sans-serif !important; color: var(--hfw-note-text) !important; white-space: nowrap !important; }`,
-    `${ALL}::after { content: none !important; }`,
-    `${ALL}:hover::before { text-decoration: underline !important; }`,
+    `${all} { all: unset !important; display: block !important; flex: none !important; border-radius: 6px !important; cursor: pointer !important; font-size: 0 !important; }`,
+    `${all} > * { display: none !important; }`,
+    `${all}::before { all: unset !important; content: "${SHOW_ALL}" !important; display: block !important; padding: 12px 16px !important; border: 1px solid var(--hfw-note-border) !important; border-radius: 6px !important; background: var(--hfw-note-bg-strong) !important; font: 600 13px/1.4 system-ui, sans-serif !important; color: var(--hfw-note-text) !important; white-space: nowrap !important; }`,
+    `${all}::after { content: none !important; }`,
+    `${all}:hover::before { text-decoration: underline !important; }`,
     // Important, or the all: unset above puts the ring back on the edge, outside its halo.
-    `${ALL}:focus-visible { outline: 2px solid var(--hfw-note-text) !important; outline-offset: 2px !important; box-shadow: 0 0 0 4px var(--hfw-note-bg) !important; }`,
+    `${all}:focus-visible { outline: 2px solid var(--hfw-note-text) !important; outline-offset: 2px !important; box-shadow: 0 0 0 4px var(--hfw-note-bg) !important; }`,
     `[${HELD}] { display: block !important; }`,
     // What each of Facebook's modes sets the colors above to (note-colors.js).
     NOTE_COLORS,
@@ -83,8 +102,9 @@ export function hideCss({ notes }) {
 // Whether an element takes up room on screen, so focus can land on it.
 const drawn = (element) => element.getClientRects().length > 0;
 
-// notesShown: whether the note line is on screen (not paused, "Leave a note" on). Clicks on
-// a mark are only taken while it is, so a paused script never swallows one.
+// notesShown: whether the note line is on screen (not paused, "Leave a note" on): true, false,
+// or OWN for the marks of the person's own filters alone. Clicks on a mark are only taken while
+// its note shows, so a paused script never swallows one.
 // onHide({ element, reason, detail, signal }): told each time a reason goes on a post, not
 // when the same reason is applied again, for the Diagnostics decision list.
 export function createHider({ doc = globalThis.document, posts, log, notesShown = () => true, onHide } = {}) {
@@ -123,6 +143,11 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
 
   // The mark normally sits on the first child, but Facebook may put something in front of it.
   const markOf = (element) => [...element.children].find((child) => child.hasAttribute(MARK)) ?? null;
+  // Whether a mark's note is on screen, by the same test hideCss draws it by.
+  const noted = (marker) => {
+    const shown = notesShown();
+    return shown === true || (shown === OWN && OWN_MARKS.has(marker.getAttribute(MARK)));
+  };
 
   function notify() {
     for (const listener of listeners) {
@@ -185,7 +210,7 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   function write(marker, reasons) {
     marker.setAttribute(MARK, [...reasons.keys()].join(' '));
     marker.setAttribute(NOTE, `Hidden: ${reasons.values().next().value}. Show`);
-    if (notesShown()) asButton(marker);
+    if (noted(marker)) asButton(marker);
     else notButton(marker);
   }
 
@@ -401,7 +426,7 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     });
   }
 
-  const isNote = (target) => Boolean(target?.hasAttribute?.(MARK) && marks.has(target) && notesShown() && target.parentElement);
+  const isNote = (target) => Boolean(target?.hasAttribute?.(MARK) && marks.has(target) && noted(target) && target.parentElement);
   // The mark a Show hidden press belongs to, or null.
   const showAllOf = (target) => {
     const marker = target?.parentElement;
@@ -440,22 +465,23 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   // The marks this hider set that still hide a post on the page.
   const shownMarks = () => [...doc.querySelectorAll(`[${MARK}]`)].filter((marker) => marks.has(marker) && marker.parentElement);
 
-  // Shows every post this hider has hidden on the page, for the rest of the visit. Posts that
-  // load later are still hidden. focusOn(mark) says which post focus goes into. Returns how many
-  // posts and how many comments came back.
-  function revealMarks(focusOn = () => false) {
-    const shown = shownMarks();
+  // Shows every post this hider has hidden on the page, for the rest of the visit, or those of
+  // them only() picks. Posts that load later are still hidden. focusOn(mark) says which post focus
+  // goes into. Returns how many posts and how many comments came back.
+  function revealMarks(focusOn = () => false, only = () => true) {
+    const shown = shownMarks().filter(only);
     const comments = shown.filter((marker) => isComment(marker.parentElement)).length;
     for (const marker of shown) reveal(marker, focusOn(marker));
     if (shown.length) notify();
     return { posts: shown.length - comments, comments };
   }
 
-  // Focus on the Show hidden pressed goes into its own post.
+  // Focus on the Show hidden pressed goes into its own post. The posts with a note come back, so
+  // an ad hidden completely beside a filter's note stays hidden.
   function revealAll(button) {
     const owner = button.parentElement;
     const focused = doc.activeElement === button;
-    revealMarks((marker) => marker === owner && focused);
+    revealMarks((marker) => marker === owner && focused, noted);
   }
 
   function press(target) {
@@ -567,10 +593,9 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     },
     // Makes each note a button again, or not, after pausing or the note setting changed.
     refresh() {
-      const shown = notesShown();
       for (const marker of doc.querySelectorAll(`[${MARK}]`)) {
         if (!marks.has(marker)) continue;
-        if (shown) asButton(marker);
+        if (noted(marker)) asButton(marker);
         else notButton(marker);
       }
     },

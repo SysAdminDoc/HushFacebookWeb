@@ -5,7 +5,7 @@ export { preparePanel, panelState, focusPanelControl, finishPanel } from './pane
 export { boundedDownload } from './download.js';
 export { activeDots } from './active-dots.js';
 export { widerFeed } from './wider-feed.js';
-export { hiddenNote } from './hidden-note.js';
+export { hiddenNote, hiddenNoteOwn } from './hidden-note.js';
 export { overviewHidden } from './overview-hidden.js';
 export { generalToolbar } from './general-toolbar.js';
 export { panelTheme, panelPages } from './panel-theme.js';

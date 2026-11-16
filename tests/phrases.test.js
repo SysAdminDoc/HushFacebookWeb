@@ -17,6 +17,7 @@ test('the template holds what each kind of call shows, and no names that stay as
   for (const phrase of [
     'Hide the New message button', // a feature title
     'Hide memories', // an option label built from a table
+    'Only for your own filters', // a choice of one of the script's own settings
     'Make Facebook feel like yours.', // a section description from a lookup table
     'Reload', // a toast's button, passed from main.js
     'Copying...', // a busyLabel

@@ -4,6 +4,7 @@ import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { boot } from '../src/boot.js';
+import { OWN, hideCss } from '../src/core/dom/hide.js';
 import { CONFIRM_MS, LOAD_WAIT_MS, TAB_PAUSE_KEY } from '../src/core/load-watchdog.js';
 import { MONSTER } from '../src/core/storage-report.js';
 import { pickerRules } from '../src/features/appearance/hide-parts.js';
@@ -141,6 +142,27 @@ test('a tab that is not paused hooks the page, and Pause for this tab marks the 
   block(false);
   started.pauseTab();
   assert.deepEqual(reloads, ['1']);
+});
+
+test('the note setting reaches the page rules and the hider, and Only for your own filters notes a filtered post but not an ad', (t) => {
+  quiet(t);
+  const { win } = tab();
+  const started = boot({ win, doc: win.document, access: 'page', own: win, features: [counted()] });
+  const rules = () => win.document.querySelector('style[data-hushfacebook-web="features"]').textContent;
+  assert.ok(rules().includes(hideCss({ notes: false })) && !rules().includes(hideCss({ notes: OWN })), 'Never to start');
+  win.document.body.insertAdjacentHTML('beforeend', '<div aria-posinset="1"><div><a href="/someone/posts/pfbid0Mine">2h</a></div></div><div aria-posinset="2"><div><a href="/someone/posts/pfbid0Ad">2h</a></div></div>');
+  const [filtered, ad] = win.document.querySelectorAll('[aria-posinset]');
+  started.hider.hide(filtered, 'Filter', 'cats');
+  started.hider.hide(ad, 'Sponsored');
+  const asButton = (element) => element.firstElementChild.getAttribute('role') === 'button';
+  started.settings.set('ui.hiddenNote', OWN);
+  assert.ok(rules().includes(hideCss({ notes: OWN })), 'the rules for your own filters');
+  assert.deepEqual([asButton(filtered), asButton(ad)], [true, false]);
+  started.settings.set('ui.hiddenNote', true);
+  assert.ok(rules().includes(hideCss({ notes: true })), 'the rules for every note');
+  assert.deepEqual([asButton(filtered), asButton(ad)], [true, true]);
+  started.settings.set('paused', true);
+  assert.deepEqual([asButton(filtered), asButton(ad)], [false, false], 'paused, no note takes a click');
 });
 
 // A signed-in Home held behind Facebook's splash screen. The feed check's two waits run when

@@ -103,7 +103,12 @@ const GLOBAL_SETTINGS = [
   { key: 'ui.launcher', type: 'toggle', default: true, label: 'Show the settings button on Facebook' },
   // The extension's toolbar button only. The userscript keeps the choice, so a backup moves it.
   { key: 'ui.toolbarCount', type: 'toggle', default: true, label: 'Show the hidden count on the toolbar button' },
-  { key: 'ui.hiddenNote', type: 'toggle', default: false, label: 'Leave a note where a post was hidden' },
+  // Once a switch, so a saved true is Always and false is Never as they stand. 'own' is hide.js's
+  // OWN, spelled out so the isolated world's bundle doesn't take in the hider.
+  {
+    key: 'ui.hiddenNote', type: 'select', default: false, label: 'Leave a note where a post was hidden',
+    choices: [{ value: false, label: 'Never' }, { value: 'own', label: 'Only for your own filters' }, { value: true, label: 'Always' }],
+  },
   { key: 'ui.loadWarning', type: 'toggle', default: true, label: 'Warn when the feed seems stuck' },
   { key: 'ui.language', type: 'select', default: 'en', label: 'Language', choices: LANGUAGES.map(({ value, label }) => ({ value, label })) },
 ];

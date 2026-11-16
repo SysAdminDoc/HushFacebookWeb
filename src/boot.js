@@ -85,7 +85,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
   const diagnostics = createDiagnostics();
   const hider = tabPaused ? null : createHider({
     doc, posts, log,
-    notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote') === true,
+    notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote'),
     onHide: hideListener(diagnostics, postIdOf),
   });
   if (hider) settings.subscribe(() => hider.refresh());
@@ -270,7 +270,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     });
   }
 
-  if (!tabPaused) mountFeatureStyles({ features, settings, log, doc, base: [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') === true }) }] });
+  if (!tabPaused) mountFeatureStyles({ features, settings, log, doc, base: [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') }) }] });
 
   // Daily jobs wait until the page has settled and the page's copy of the check is read.
   const tasks = createDailyTasks({ storage, log });

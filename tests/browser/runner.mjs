@@ -55,6 +55,7 @@ const scenarios = [
   { id: 'active-dots', fixture: 'activeDots', screenshot: true },
   { id: 'wider-feed', fixture: 'widerFeed', screenshot: true, viewport: { width: 1600, height: 1000 } },
   { id: 'hidden-note', fixture: 'hiddenNote', screenshot: true },
+  { id: 'hidden-note-own', fixture: 'hiddenNoteOwn', screenshot: true },
   { id: 'overview-hidden', fixture: 'overviewHidden', screenshot: true },
   { id: 'general-toolbar', fixture: 'generalToolbar', screenshot: true },
   ...['light', 'dark'].map((theme) => ({ id: `panel-${theme}`, fixture: 'panelTheme', theme, screenshot: true, viewport: { width: 1100, height: 760 } })),

@@ -222,15 +222,22 @@ test('Diagnostics lists why posts were hidden, newest first, and the report carr
   assert.ok(!copied[0].includes('UzpfSTEyMw'));
 });
 
-test('General has the switch for leaving a note where a post was hidden', () => {
-  const { shadow, panel, settings } = setup();
+test('General has the choice of when to leave a note where a post was hidden', () => {
+  const { win, shadow, panel, settings } = setup();
   panel.open('general');
-  const toggle = shadow.querySelector('input[data-key="ui.hiddenNote"]');
-  assert.ok(toggle, 'the switch is there');
-  assert.equal(toggle.checked, false);
-  toggle.checked = true;
-  toggle.dispatchEvent(new toggle.ownerDocument.defaultView.Event('change'));
-  assert.equal(settings.get('ui.hiddenNote'), true);
+  const choice = () => shadow.querySelector('select[data-key="ui.hiddenNote"]');
+  assert.ok(choice(), 'the choice is there');
+  assert.deepEqual([...choice().options].map((option) => option.textContent), ['Never', 'Only for your own filters', 'Always']);
+  assert.equal(choice().selectedOptions[0].textContent, 'Never');
+  assert.equal(choice().closest('label').textContent.startsWith('Leave a note'), true, 'named by its label');
+  for (const [picked, saved] of [['Only for your own filters', 'own'], ['Always', true], ['Never', false]]) {
+    choice().value = [...choice().options].find((option) => option.textContent === picked).value;
+    choice().dispatchEvent(new win.Event('change'));
+    assert.equal(settings.get('ui.hiddenNote'), saved, picked);
+    assert.equal(choice().selectedOptions[0].textContent, picked, `${picked} stays picked after the redraw`);
+    panel.open('general');
+    assert.equal(choice().selectedOptions[0].textContent, picked, `${picked} is what the page shows when it opens again`);
+  }
 });
 
 test('the language under General redraws the panel in it, mirrors it for right to left and keeps the report English', async () => {
@@ -490,7 +497,7 @@ test('a Quick setup that changes nothing offers no Undo while another choice is 
 
   panel.open('general');
   const input = shadow.querySelector('[data-key="ui.hiddenNote"]');
-  input.checked = true;
+  input.value = 'true';
   input.dispatchEvent(new win.Event('change'));
   mutations[1].reject(new Error('Extension context disconnected'));
   await tick();
@@ -570,10 +577,10 @@ test('Quick setups wait for extension storage and preserve unrelated saved choic
   assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), 'true');
   assert.equal(settings.get('cleanUpReels'), false, 'the setup has not used unloaded defaults');
   panel.open('general');
-  const laterToggle = shadow.querySelector('[data-key="ui.hiddenNote"]');
+  const laterToggle = shadow.querySelector('[data-key="ui.loadWarning"]');
   assert.equal(laterToggle.disabled, true, 'later preference actions wait behind the deferred setup');
   laterToggle.click();
-  assert.equal(settings.get('ui.hiddenNote'), false);
+  assert.equal(settings.get('ui.loadWarning'), true);
 
   data.set('settings', { forceDarkMode: true });
   atLoad.set('settings', { forceDarkMode: true });
@@ -582,7 +589,7 @@ test('Quick setups wait for extension storage and preserve unrelated saved choic
   assert.equal(settings.get('forceDarkMode'), true);
   assert.ok(quiet.keys.every((key) => settings.get(key) === true));
   assert.equal(data.get('settings').forceDarkMode, true);
-  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').disabled, false);
+  assert.equal(shadow.querySelector('[data-key="ui.loadWarning"]').disabled, false);
   panel.open('overview');
   assert.equal(shadow.querySelector('[data-key="quick:quiet"]').getAttribute('aria-busy'), null);
   assert.match(shadow.querySelector('.toast:last-child span').textContent, /^Changed \d+ settings\.$/);
@@ -1476,11 +1483,11 @@ test('a synchronous manager save failure rolls the switch back and reports it', 
   const save = storage.set;
   storage.set = () => { throw new Error('Disk full'); };
   panel.open('general');
-  const input = shadow.querySelector('[data-key="ui.hiddenNote"]');
-  input.checked = true;
+  const input = shadow.querySelector('[data-key="ui.loadWarning"]');
+  input.checked = false;
   input.dispatchEvent(new win.Event('change'));
-  assert.equal(settings.get('ui.hiddenNote'), false);
-  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').checked, false);
+  assert.equal(settings.get('ui.loadWarning'), true);
+  assert.equal(shadow.querySelector('[data-key="ui.loadWarning"]').checked, true);
   assert.equal(shadow.querySelector('[data-key="save-recovery"]'), null);
   assert.equal(shadow.querySelector('[data-key="save-state"]').textContent, 'Changes apply as you go.');
   assert.match(shadow.querySelector('.toast.error').textContent, /save|storage/i);
@@ -2063,17 +2070,17 @@ test('an extension save shows pending state, keeps a rejected draft and commits 
   const { win, shadow, panel, settings } = setup({ storage, migrations: [] });
   panel.open('general');
   const input = shadow.querySelector('[data-key="ui.hiddenNote"]');
-  input.checked = true;
+  input.value = 'true';
   input.dispatchEvent(new win.Event('change'));
 
   assert.equal(settings.get('ui.hiddenNote'), false);
-  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').checked, true);
+  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').value, 'true');
   assert.equal(shadow.querySelector('[data-key="save-state"]').textContent, 'Saving changes...');
   mutations[0].reject(new Error('Extension context disconnected'));
   await tick();
 
   assert.equal(settings.get('ui.hiddenNote'), false);
-  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').checked, true);
+  assert.equal(shadow.querySelector('[data-key="ui.hiddenNote"]').value, 'true');
   assert.ok(shadow.querySelector('[data-key="save-recovery"]'));
   shadow.querySelector('[data-key="settings:retry"]').click();
   assert.equal(shadow.querySelector('[data-key="save-state"]').textContent, 'Saving changes...');
@@ -2221,7 +2228,9 @@ test("General's switches and backup actions come up by their own words, and the 
   const { shadow, panel, win } = setup();
   panel.open('feed');
   const search = shadow.querySelector('[data-key="search"]');
+  // Typed into the box, so focus is there and not on the last control a link landed on.
   const find = (query) => {
+    search.focus();
     search.value = query;
     search.dispatchEvent(new win.Event('input', { bubbles: true }));
   };

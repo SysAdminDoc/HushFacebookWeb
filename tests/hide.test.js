@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
-import { MARK, NOTE, createHider, hideCss } from '../src/core/dom/hide.js';
+import { MARK, NOTE, OWN, OWN_REASONS, createHider, hideCss } from '../src/core/dom/hide.js';
 import { NOTE_COLORS } from '../src/core/dom/note-colors.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
 import { createSettings } from '../src/core/settings.js';
@@ -315,8 +315,10 @@ test('with the real post tracker, a recycled element is judged again', async () 
 
 test('the hiding rules ship while the script runs and follow the note setting', () => {
   const settings = createSettings({ storage: createMemoryStorage(), features: [] });
-  const base = [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') === true }) }];
+  const base = [{ id: 'hidden posts', css: (get) => hideCss({ notes: get('ui.hiddenNote') }) }];
   assert.equal(renderFeatureCss([], settings, undefined, base), `/* hidden posts */\n${hideCss({ notes: false })}`);
+  settings.set('ui.hiddenNote', OWN);
+  assert.equal(renderFeatureCss([], settings, undefined, base), `/* hidden posts */\n${hideCss({ notes: OWN })}`);
   settings.set('ui.hiddenNote', true);
   assert.equal(renderFeatureCss([], settings, undefined, base), `/* hidden posts */\n${hideCss({ notes: true })}`);
   settings.set('paused', true);
@@ -1668,6 +1670,57 @@ test('pausing or switching the note off takes the button back off and puts back 
   assert.deepEqual(buttonParts(second.firstElementChild), ['button', '0', 'Hidden: Sponsored. Show']);
   hider.show(first);
   assert.deepEqual(buttonParts(marker), ['none', null, null]);
+});
+
+// Hidden by the words, people and sites lists, by Keep posts you hide hidden, by both in either
+// order, and by an ad or a suggestion, alone or with a filter.
+const OWN_CASES = [[['Filter'], true], [['Dismissed'], true], [['Dismissed', 'Filter'], true], [['Filter', 'Dismissed'], true], [['Sponsored'], false], [['Suggested', 'Filter'], false], [['Filter', 'Sponsored'], false]];
+
+test('with notes for your own filters, a post they hid keeps its note line and every other hidden post goes completely', () => {
+  assert.deepEqual([...OWN_REASONS], ['Filter', 'Dismissed']);
+  const win = page(feed(...OWN_CASES.map((_, i) => post(i + 1))));
+  const elements = [...win.document.querySelectorAll('[aria-posinset]')];
+  const hider = createHider({ doc: win.document, notesShown: () => OWN });
+  OWN_CASES.forEach(([reasons], i) => reasons.forEach((reason) => hider.hide(elements[i], reason)));
+  const [gone, siblings, contents] = selectorsOf(hideCss({ notes: OWN }));
+  OWN_CASES.forEach(([reasons, noted], i) => {
+    const element = elements[i];
+    const marker = element.firstElementChild;
+    const where = reasons.join(' then ');
+    assert.equal(element.matches(gone), !noted, `${where}: gone completely`);
+    assert.equal(element.querySelector('.footer').matches(siblings), noted, `${where}: the rest of the post hidden around the note`);
+    assert.equal(marker.firstElementChild.matches(contents), noted, `${where}: what's in the mark hidden under the note`);
+    assert.deepEqual(buttonParts(marker), noted ? ['button', '0', `Hidden: ${reasons[0]}. Show`] : [null, null, null], `${where}: a button only with its note`);
+  });
+  // A post nothing hid is left alone, and Always and Never are as they were.
+  const plain = win.document.createElement('div');
+  plain.innerHTML = post(99);
+  assert.equal(plain.firstElementChild.firstElementChild.matches(gone), false);
+  assert.equal(hideCss({ notes: true }).includes(':not(:is('), false);
+  assert.equal(hideCss({ notes: 'sometimes' }), hideCss({ notes: false }), 'anything else is no note');
+});
+
+test('with notes for your own filters, a post moves between note and gone as its reasons change, and clicks on one gone pass through', () => {
+  const win = page(feed(post(1), post(2), post(3)));
+  const [filtered, ad, dismissed] = win.document.querySelectorAll('[aria-posinset]');
+  const hider = createHider({ doc: win.document, notesShown: () => OWN });
+  hider.hide(filtered, 'Filter', 'cats');
+  hider.hide(ad, 'Sponsored');
+  hider.hide(dismissed, 'Dismissed');
+  const note = filtered.firstElementChild;
+  assert.deepEqual(buttonParts(note), ['button', '0', 'Hidden: Filter: cats. Show']);
+  hider.hide(filtered, 'Sponsored');
+  assert.deepEqual(buttonParts(note), [null, null, null], 'an ad as well: gone, no button');
+  assert.equal(press(win, note).defaultPrevented, false, 'a click on it goes to Facebook');
+  assert.equal(hider.isHidden(filtered), true);
+  hider.show(filtered, 'Sponsored');
+  assert.deepEqual(buttonParts(note), ['button', '0', 'Hidden: Filter: cats. Show'], 'the filter alone again: its note is back');
+
+  // Show hidden on a note brings back the posts with a note, and the ad stays gone.
+  press(win, note.firstElementChild);
+  assert.equal(hider.isHidden(filtered), false);
+  assert.equal(hider.isHidden(dismissed), false);
+  assert.equal(hider.isHidden(ad), true, 'an ad hidden completely stays hidden');
 });
 
 test('a click on the note shows the post and leaves focus where it was', () => {
