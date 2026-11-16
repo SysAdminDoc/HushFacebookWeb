@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.48 (2026-11-16, unreleased)
 
 * The Feed page has a new switch, Hide Friend requests on Home, off by default. It takes the Friend requests box out of Home's right column, in any language and in content mode too. Your requests are still on the Friends page, and the friends icon still counts new ones. With Wider feed on, the column folds away when nothing's left in it.
 * Appearance has a new setting, Hide parts of the page. Click Pick a part to hide, then point at a box outside the feed (in the right column, the left column or the top bar) and click it. It shows hidden right away, and Save keeps it hidden from then on, on that kind of page (Home, a group, Marketplace and so on). Parts of the top bar stay hidden everywhere. Bigger and Smaller change how much of the page goes, and nothing on Facebook reacts to your clicks, taps or keys until you save or cancel. Tab keeps to the picker's buttons and Escape cancels. Each part you hid is listed on the card with its own Show again button, and every save and Show again comes with Undo. Posts can't be picked, since Hide posts by words is the tool for those, and a post Facebook later puts in a hidden part brings that part back.
