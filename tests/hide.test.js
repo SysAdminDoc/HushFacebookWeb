@@ -639,6 +639,126 @@ test('with the real post tracker, a post back before its link fills in counts ag
   }
 });
 
+// The hider starts hearing the tracker at its first hide: after the features when one of them
+// asks for it, before them when something was hidden earlier. Both have to come out the same.
+const LISTEN_ORDERS = ['features first', 'hider first'];
+
+test('with the real post tracker, an element back as another story keeps only what a feature hides it for now', async () => {
+  for (const order of LISTEN_ORDERS) {
+    const win = page(feed(post(1), post(2)));
+    const posts = createPostTracker({ doc: win.document });
+    const hider = createHider({ doc: win.document, posts });
+    const [element, other] = win.document.querySelectorAll('[aria-posinset]');
+    if (order === 'hider first') hider.hide(other, 'Seed');
+    posts.on('post/add', ({ element: added, id }) => {
+      if (id === 'pfbid0Post1') hider.hide(added, 'Sponsored');
+      if (id === 'pfbid0Post4') hider.hide(added, 'Filter', 'spam');
+    });
+    const list = win.document.querySelector('.feed');
+    const mark = () => element.firstElementChild;
+    const backAs = async (id) => {
+      element.remove();
+      await tick();
+      element.querySelector('a[href*="/posts/"]').setAttribute('href', `/someone/posts/${id}`);
+      list.prepend(element);
+      await tick();
+    };
+    assert.equal(mark().getAttribute(MARK), 'Sponsored', order);
+
+    // React reused it while it was off the page, for a story another feature hides.
+    await backAs('pfbid0Post4');
+    assert.equal(mark().getAttribute(MARK), 'Filter', `${order}: the ad's reason went`);
+    assert.equal(mark().getAttribute(NOTE), 'Hidden: Filter: spam. Show', order);
+    assert.deepEqual([hider.counts().Sponsored, hider.counts().Filter], [1, 1], order);
+
+    // And again, for a story nothing hides.
+    let heard = 0;
+    hider.subscribe(() => heard++);
+    await backAs('pfbid0Post3');
+    assert.equal(hider.isHidden(element), false, `${order}: shown`);
+    assert.equal(heard, 1, `${order}: its mark leaving the page was the news`);
+    assert.deepEqual([hider.counts().Sponsored, hider.counts().Filter], [1, 1], order);
+    posts.stop();
+  }
+});
+
+test('with the real post tracker, a post back before its link keeps only what a feature hid it for since, once the link names another story', async () => {
+  const story = (n, text, href) => `<div aria-posinset="${n}"><div><a href="${href}">2h</a><div class="text">${text}</div></div></div>`;
+  for (const order of LISTEN_ORDERS) {
+    const win = page(feed(story(1, 'Ad one', '/someone/posts/pfbid0First'), story(2, 'Ad two', '/someone/posts/pfbid0Second'), story(3, 'Plain', '/someone/posts/pfbid0Third')));
+    const posts = createPostTracker({ doc: win.document });
+    const hider = createHider({ doc: win.document, posts });
+    const [first, second, third] = win.document.querySelectorAll('[aria-posinset]');
+    if (order === 'hider first') hider.hide(third, 'Seed');
+    const ads = new Set(['pfbid0First', 'pfbid0Second']);
+    posts.on('post/add', ({ element, id }) => {
+      if (ads.has(id)) hider.hide(element, 'Sponsored');
+      if (element.textContent.includes('Spam')) hider.hide(element, 'Filter');
+    });
+    const list = win.document.querySelector('.feed');
+    const backBeforeLink = async (element, text) => {
+      element.remove();
+      await tick();
+      element.querySelector('.text').textContent = text;
+      element.querySelector('a').setAttribute('href', '#');
+      list.append(element);
+      await tick();
+    };
+    assert.equal(hider.counts().Sponsored, 2, order);
+
+    // Back with words a filter hides: both reasons until the link says it isn't the ad.
+    await backBeforeLink(first, 'Spam');
+    assert.equal(first.firstElementChild.getAttribute(MARK), 'Sponsored Filter', order);
+    first.querySelector('a').setAttribute('href', '/other/posts/pfbid0Fourth');
+    await tick();
+    assert.equal(first.firstElementChild.getAttribute(MARK), 'Filter', `${order}: the ad's reason went`);
+    assert.equal(first.firstElementChild.getAttribute(NOTE), 'Hidden: Filter. Show', order);
+    assert.deepEqual([hider.counts().Sponsored, hider.counts().Filter], [2, 1], `${order}: counted as the new story, under the filter`);
+
+    // Back with words nothing hides: shown once the link names another story, and that's news.
+    await backBeforeLink(second, 'Plain words');
+    assert.equal(hider.isHidden(second), true, `${order}: not yet known to be another story`);
+    let heard = 0;
+    hider.subscribe(() => heard++);
+    second.querySelector('a').setAttribute('href', '/other/posts/pfbid0Fifth');
+    await tick();
+    assert.equal(hider.isHidden(second), false, `${order}: shown`);
+    assert.equal(heard, 1, `${order}: Overview hears the mark come off`);
+    assert.deepEqual([hider.counts().Sponsored, hider.counts().Filter], [2, 1], order);
+    posts.stop();
+  }
+});
+
+test('with the real post tracker, a story counted before its link counts once wherever Facebook draws it again', async () => {
+  const story = (n, href) => `<div aria-posinset="${n}"><div><a href="${href}">2h</a><div class="text">Spam</div></div></div>`;
+  const win = page(feed(story(1, '#'), story(2, '#')));
+  const posts = createPostTracker({ doc: win.document });
+  const hider = createHider({ doc: win.document, posts });
+  posts.on('post/add', ({ element }) => {
+    if (element.textContent.includes('Spam')) hider.hide(element, 'Filter');
+  });
+  const [first, second] = win.document.querySelectorAll('[aria-posinset]');
+  const list = win.document.querySelector('.feed');
+  assert.equal(hider.hiddenPosts(), 2);
+
+  // Its link fills in on the page, and the same story turns up in another element.
+  first.querySelector('a').setAttribute('href', '/someone/posts/pfbid0Spam');
+  await tick();
+  list.insertAdjacentHTML('beforeend', story(3, '/someone/posts/pfbid0Spam'));
+  await tick();
+  assert.equal(hider.hiddenPosts(), 2, 'the story it filled in as');
+
+  // Its link fills in as it leaves for good, and the story turns up in another element.
+  second.querySelector('a').setAttribute('href', '/someone/posts/pfbid0Other');
+  second.remove();
+  await tick();
+  list.insertAdjacentHTML('beforeend', story(4, '/someone/posts/pfbid0Other'));
+  await tick();
+  assert.equal(hider.hiddenPosts(), 2, 'the story it left as');
+  assert.deepEqual(hider.counts(), { Filter: 2 });
+  posts.stop();
+});
+
 test('Show them says how many posts and how many comments came back', () => {
   const comment = '<div role="article" class="comment"><div><a href="/someone/posts/pfbid0Post1?comment_id=123">1h</a><div>A comment</div></div></div>';
   const win = page(feed(post(1), post(2)) + comment);
