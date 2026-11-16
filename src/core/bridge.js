@@ -210,6 +210,8 @@ export function createBridgeStorage(bridge, { log } = {}) {
   let revisionEpoch = 0;
   let storageEpoch = null;
   let loadPending = false;
+  // The load in progress, so an older load's late cleanup can't clear a newer one's flag.
+  let currentLoad = null;
   let storageFailureRevision = 0;
   let writeRetry = null;
   // Set once the extension was reloaded or updated under this tab. Nothing saves again until the
@@ -276,7 +278,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       }
     }
     finishing = false;
-    for (const { type, payload, confirmed } of queuedWrites.values()) save(type, payload, confirmed);
+    for (const { confirmed } of queuedWrites.values()) void sendConfirmed(confirmed);
     queuedWrites.clear();
     written.clear();
     if ([...confirmedWrites.values()].some((operation) => operation.failed)) setStatus('error', lastError);
@@ -297,10 +299,20 @@ export function createBridgeStorage(bridge, { log } = {}) {
     const keepsLocal = (key) => written.has(key) && (
       queuedWrites.has(key) || unansweredAtStart.has(key) || (lastWrite.get(key) ?? 0) > startedWrites
     );
+    // Cleared as each way out of the load runs, not a turn later when its promise settles, so a
+    // Retry right after the page heard it was ready (and then a failure) reads storage again.
+    const thisLoad = {};
+    currentLoad = thisLoad;
+    const done = () => {
+      if (currentLoad === thisLoad) loadPending = false;
+    };
     loadPending = true;
     setStatus('loading');
     loadPromise = request('storage:load').then((saved) => {
-      if (storageFailureRevision !== startedFailureRevision) return false;
+      if (storageFailureRevision !== startedFailureRevision) {
+        done();
+        return false;
+      }
       const stored = { ...(saved ?? {}) };
       const savedRevisions = stored[STORAGE_REVISIONS_KEY];
       const savedRevisionsValid = validStorageRevisions(savedRevisions);
@@ -356,6 +368,12 @@ export function createBridgeStorage(bridge, { log } = {}) {
         if (newerRemote(key)) pageLoadData.set(key, copy(change.value));
       }
 
+      // What this read found is newer than any write answered before it began, so one of those
+      // whose failure lands after it doesn't roll the key back past it (sendConfirmed).
+      for (const key of new Set([...snapshot.keys(), ...data.keys(), ...confirmedWrites.keys()])) {
+        if (keepsLocal(key) || newerRemote(key)) continue;
+        keyEvents.set(key, (keyEvents.get(key) ?? 0) + 1);
+      }
       for (const key of data.keys()) {
         if (snapshot.has(key) || keepsLocal(key) || newerRemote(key)) continue;
         data.delete(key);
@@ -380,12 +398,14 @@ export function createBridgeStorage(bridge, { log } = {}) {
         }
       }
       finish();
+      done();
       return true;
     }, (error) => {
       log?.error("The extension's saved settings couldn't be read", error);
       setStatus('error', error);
+      done();
       return false;
-    }).finally(() => { loadPending = false; });
+    }).finally(done);
     return loadPromise;
   };
   bridge.on('storage', (changes, meta) => {
@@ -509,13 +529,38 @@ export function createBridgeStorage(bridge, { log } = {}) {
     // doesn't count the write as on its way.
     return request(type, payload, answered).finally(answered);
   };
+  // A write that failed after a newer write of the same key was sent. Storage holds what was
+  // there before the failed one unless the newer one works, so the newer one's rollback goes
+  // there, and one already rolled back to the failed write's value moves on to it now.
+  const failedUnder = (operation, previous) => {
+    const newer = operation.next;
+    if (!newer || newer.basedOn !== operation) return;
+    newer.previous = copy(previous);
+    newer.basedOn = operation.basedOn;
+    if (operation.basedOn) operation.basedOn.next = newer;
+    const { key } = operation;
+    const back = newer.rolledBack;
+    if (
+      newer.failed && back && confirmedWrites.get(key) === newer && directVersions.get(key) === newer.version
+      && (keyEvents.get(key) ?? 0) === back.events && same(data.get(key), back.to)
+    ) {
+      if (previous === undefined) data.delete(key);
+      else data.set(key, copy(previous));
+      newer.rolledBack = { to: copy(previous), events: back.events };
+      tell(key, previous, 'rollback');
+    }
+  };
   const sendConfirmed = async (operation) => {
     const { key, version } = operation;
     const events = keyEvents.get(key) ?? 0;
-    const before = operation.failed ? copy(data.get(key)) : operation.previous;
+    // A retried write goes back to what the page shows now if it fails again.
+    if (operation.failed) operation.previous = copy(data.get(key));
     operation.failed = false;
+    operation.sent = true;
+    operation.inFlight = true;
     try {
       await send(key, operation.type, operation.payload);
+      operation.inFlight = false;
       if (confirmedWrites.get(key) === operation) {
         confirmedWrites.delete(key);
         if (directVersions.get(key) === version && (keyEvents.get(key) ?? 0) === events && !same(data.get(key), operation.value)) {
@@ -527,9 +572,12 @@ export function createBridgeStorage(bridge, { log } = {}) {
       operation.resolve();
       return true;
     } catch (error) {
-      log?.error("Saved activity couldn't be changed in the extension", error);
-      if (confirmedWrites.get(key) === operation) {
-        const previous = !operation.loaded && before === undefined ? copy(pageLoadData.get(key)) : before;
+      operation.inFlight = false;
+      log?.error(operation.failure, error);
+      const before = operation.previous;
+      const previous = !operation.loaded && before === undefined ? copy(pageLoadData.get(key)) : before;
+      if (confirmedWrites.get(key) !== operation) failedUnder(operation, previous);
+      else {
         // A push while this was on its way that left the key at its old value (a snapshot
         // repeating it, or the echo of an earlier write of this tab's) brought nothing newer.
         if (
@@ -542,6 +590,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
           if (!operation.failed) confirmedWrites.delete(key);
           if (previous === undefined) data.delete(key);
           else data.set(key, previous);
+          operation.rolledBack = { to: copy(previous), events: keyEvents.get(key) ?? 0 };
           written.delete(key);
           tell(key, previous, 'rollback');
         } else {
@@ -556,11 +605,9 @@ export function createBridgeStorage(bridge, { log } = {}) {
       return false;
     }
   };
-  const save = (type, payload, confirmed) => confirmed ? sendConfirmed(confirmed)
-    : send(payload.key, type, payload).catch((error) => log?.error("A setting couldn't be saved in the extension", error));
-  const persist = (key, type, payload, confirmed) => {
-    if (!loaded || finishing) queuedWrites.set(key, { type, payload, confirmed });
-    else void save(type, payload, confirmed);
+  const persist = (operation) => {
+    if (!loaded || finishing) queuedWrites.set(operation.key, { confirmed: operation });
+    else void sendConfirmed(operation);
   };
   const retry = () => {
     // Retrying can't help once the extension is gone from this tab. Only a page reload does.
@@ -594,21 +641,37 @@ export function createBridgeStorage(bridge, { log } = {}) {
     directVersions.set(key, version);
     return version;
   };
-  const confirmedWrite = (key, type, payload, value) => {
+  const confirmedWrite = (key, type, payload, value, failure = "Saved activity couldn't be changed in the extension") => {
+    const base = confirmedWrites.get(key);
     const version = supersedeWrite(key);
     let resolve;
     let reject;
     const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
     // Older feature actions may ignore a returned promise. The status still exposes failure.
     void promise.catch(() => {});
-    const operation = { key, type, payload, value: copy(value), version, previous: copy(data.get(key)), loaded, failed: false, resolve, reject };
+    const operation = {
+      key, type, payload, value: copy(value), version, previous: copy(data.get(key)), loaded, failed: false, failure,
+      basedOn: null, next: null, resolve, reject,
+    };
+    // Storage holds what the write this one replaces left there. A queued one never got there, so
+    // this one goes back past it. One still on its way (or failed under one still on its way)
+    // may yet fail, and then this one's rollback moves with it (failedUnder).
+    if (base && !base.sent) {
+      operation.previous = copy(base.previous);
+      operation.basedOn = base.basedOn;
+    } else if (base?.inFlight) {
+      operation.basedOn = base;
+    } else if (base?.failed && base.basedOn?.inFlight) {
+      operation.basedOn = base.basedOn;
+    }
+    if (operation.basedOn) operation.basedOn.next = operation;
     confirmedWrites.set(key, operation);
     written.add(key);
     lastWrite.set(key, ++writeCount);
     failureAtWrite.set(key, failuresFor(key));
     if (value === undefined) data.delete(key);
     else data.set(key, copy(value));
-    persist(key, type, payload, operation);
+    persist(operation);
     return promise;
   };
 
@@ -717,13 +780,8 @@ export function createBridgeStorage(bridge, { log } = {}) {
     ),
     set(key, value) {
       const stored = copy(value);
-      supersedeWrite(key);
-      written.add(key);
-      lastWrite.set(key, ++writeCount);
-      failureAtWrite.set(key, failuresFor(key));
-      if (stored === undefined) data.delete(key);
-      else data.set(key, stored);
-      persist(key, 'storage:set', { key, value: stored ?? null });
+      // Confirmed like the rest, so a refused write rolls back and waits for Retry.
+      void confirmedWrite(key, 'storage:set', { key, value: stored ?? null }, stored, "A setting couldn't be saved in the extension");
     },
     setConfirmed: (key, value) => value === undefined
       ? confirmedWrite(key, 'storage:remove', { key })

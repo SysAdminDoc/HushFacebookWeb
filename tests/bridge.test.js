@@ -571,6 +571,118 @@ test('a confirmed legacy import rolls back failed writes and Retry saves the ret
   assert.equal(storage.status().state, 'ready');
 });
 
+test('a plain set the extension refuses rolls back, shows the error and goes again on Retry', async () => {
+  const key = 'keepSpeed.rate';
+  const saved = { [key]: 1.5 };
+  let reject = true;
+  let writes = 0;
+  const errors = [];
+  const told = [];
+  const storage = createBridgeStorage({
+    on() {},
+    async request(type, payload) {
+      if (type === 'storage:load') return structuredClone(saved);
+      assert.equal(type, 'storage:set');
+      writes++;
+      if (reject) throw new Error('storage unavailable');
+      saved[payload.key] = payload.value;
+    },
+  }, { log: { error: (message) => errors.push(message) } });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  storage.onChange(key, (value, { source }) => told.push([value, source]));
+  storage.set(key, 2);
+  assert.equal(storage.get(key), 2, 'the page shows the change at once');
+  await settle();
+  assert.equal(storage.get(key), 1.5, "a value that wasn't saved doesn't stay on the page");
+  assert.deepEqual(told, [[1.5, 'rollback']]);
+  assert.equal(storage.status().state, 'error');
+  assert.deepEqual(errors, ["A setting couldn't be saved in the extension"]);
+  reject = false;
+  assert.equal(await storage.retry(), true);
+  assert.equal(writes, 2, 'Retry sends it again');
+  assert.equal(saved[key], 2);
+  assert.equal(storage.get(key), 2);
+  assert.equal(storage.status().state, 'ready');
+});
+
+test('a confirmed set and then remove of one key end at what storage holds, whichever answer comes first', async () => {
+  const key = 'keepSpeed.rate';
+  // Storage applies writes in the order they were sent, so it holds the last one that worked,
+  // or what it had before when neither did.
+  const cases = [
+    { set: 'fail', remove: 'fail', first: 'set', ends: 1.5 },
+    { set: 'fail', remove: 'fail', first: 'remove', ends: 1.5 },
+    { set: 'ok', remove: 'fail', first: 'set', ends: 2 },
+    { set: 'ok', remove: 'fail', first: 'remove', ends: 2 },
+    { set: 'fail', remove: 'ok', first: 'set', ends: 'removed' },
+    { set: 'fail', remove: 'ok', first: 'remove', ends: 'removed' },
+  ];
+  for (const { set, remove, first, ends } of cases) {
+    const label = `set ${set}, remove ${remove}, ${first} answered first`;
+    const answers = { 'storage:set': deferred(), 'storage:remove': deferred() };
+    const storage = createBridgeStorage({
+      on() {},
+      async request(type) {
+        if (type === 'storage:load') return { [key]: 1.5 };
+        return answers[type].promise;
+      },
+    }, { log: { error() {} } });
+    await new Promise((resolve) => storage.whenReady(resolve));
+    const setting = storage.setConfirmed(key, 2).then(() => 'ok', () => 'fail');
+    const removing = storage.remove(key).then(() => 'ok', () => 'fail');
+    const answer = (type, outcome) => (outcome === 'ok' ? answers[type].resolve() : answers[type].reject(new Error(`${type} failed`)));
+    const order = first === 'set' ? [['storage:set', set], ['storage:remove', remove]] : [['storage:remove', remove], ['storage:set', set]];
+    for (const [type, outcome] of order) {
+      answer(type, outcome);
+      await settle();
+    }
+    assert.deepEqual([await setting, await removing], [set, remove], label);
+    assert.equal(storage.get(key, 'removed'), ends, label);
+    assert.equal(storage.status().state, remove === 'fail' ? 'error' : 'ready', label);
+  }
+});
+
+test('a write that replaced one still waiting for the first load rolls back to what storage holds', async () => {
+  const key = 'keepSpeed.rate';
+  const loading = deferred();
+  const sent = [];
+  const storage = createBridgeStorage({
+    on() {},
+    request(type, payload) {
+      if (type === 'storage:load') return loading.promise;
+      sent.push(payload.value);
+      return Promise.reject(new Error('storage unavailable'));
+    },
+  }, { log: { error() {} } });
+  // Both wait for the read, so only the second is ever sent.
+  storage.set(key, 2);
+  storage.set(key, 3);
+  loading.resolve({ [key]: 1.5 });
+  await settle();
+  assert.deepEqual(sent, [3]);
+  assert.equal(storage.get(key), 1.5, "the first write never reached storage, so it isn't what the page goes back to");
+  assert.equal(storage.status().state, 'error');
+});
+
+test('Retry in the same turn as the first load still reads storage again', async () => {
+  let push;
+  let loads = 0;
+  const storage = createBridgeStorage({
+    on(name, listener) { if (name === 'storage') push = listener; },
+    async request(type) {
+      if (type === 'storage:load') loads++;
+      return { 'keepSpeed.rate': 1.5 };
+    },
+  }, { log: { error() {} } });
+  await new Promise((resolve) => storage.whenReady(resolve));
+  // Before the load has wound up, a read fails in the extension and the page asks again.
+  push({}, { error: 'read failed' });
+  assert.equal(storage.status().state, 'error');
+  assert.equal(await storage.retry(), true);
+  assert.equal(loads, 2, 'Retry read storage again');
+  assert.equal(storage.status().state, 'ready');
+});
+
 test('a failed clear never rolls a newer local or remote activity change back', async () => {
   for (const newer of ['local', 'remote', 'remote removal']) {
     const key = 'keepSpeed.rate';
@@ -1287,18 +1399,22 @@ test("another tab's change reaches listeners, and this tab's own write doesn't c
   const storage = createBridgeStorage(connectBridge({ doc: win.document, win, secret: randomUUID() }));
   await settle();
   const told = [];
-  storage.onChange('settings', (value) => told.push(value));
-  storage.set('settings', { alpha: false });
+  const key = 'keepSpeed.rate';
+  storage.onChange(key, (value) => told.push(value));
+  storage.set(key, 1.5);
   await settle();
+  // A key the page may set, so the write reaches storage and its echo really comes back.
+  assert.equal((await chrome.storage.local.get(key))[key], 1.5, 'our own write was saved');
   assert.deepEqual(told, [], 'the echo of our own write is skipped');
-  await chrome.storage.local.set({ settings: { alpha: true } });
+  await chrome.storage.local.set({ [key]: 2 });
   await settle();
-  assert.deepEqual(told, [{ alpha: true }]);
-  assert.deepEqual(storage.get('settings'), { alpha: true });
-  await chrome.storage.local.remove('settings');
+  assert.deepEqual(told, [2]);
+  assert.equal(storage.get(key), 2);
+  await chrome.storage.local.remove(key);
   await settle();
-  assert.deepEqual(told, [{ alpha: true }, undefined]);
-  assert.equal(storage.get('settings', 'none'), 'none');
+  assert.deepEqual(told, [2, undefined]);
+  assert.equal(storage.get(key, 'none'), 'none');
+  assert.equal(storage.status().state, 'ready');
 });
 
 test('accepted revisions reject stale pushes and let a later direct deletion win', async () => {
