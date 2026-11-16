@@ -164,13 +164,20 @@ export function landmarkOf(node, doc = node.ownerDocument) {
   return found ? { name: found.getAttribute('role'), element: found } : { name: 'page', element: doc.body };
 }
 
+// A text or comment node goes by the element it sits in. Anything else that isn't an element
+// (a shadow root, the document) is null, which no rule can hide.
+const elementOf = (node) => {
+  if (node?.nodeType === 1) return node;
+  return node?.nodeType === 3 || node?.nodeType === 8 ? node.parentElement : null;
+};
+
 // Why a node can't be hidden: 'ours' (the script's own), 'feed' (a post, the feed or anything
 // holding them), 'big' (the page itself or its main column), or null when it can.
 export function refusalFor(node, doc = node?.ownerDocument) {
+  node = elementOf(node);
   if (!node || !doc?.body) return 'big';
   // First, since something of the script's own can sit in a shadow root, which body doesn't contain.
-  // A text node or shadow root has no closest(), and goes on to the checks below.
-  if (node.closest?.(OURS)) return 'ours';
+  if (node.closest(OURS)) return 'ours';
   if (node === doc.body || node === doc.documentElement || !doc.body.contains(node)) return 'big';
   if (node.closest(POSTS) || node.querySelector(POSTS)) return 'feed';
   if (node.matches('[role="main"]') || node.querySelector('[role="main"]')) return 'big';
@@ -204,6 +211,7 @@ function stepsTo(node, top) {
 export function ruleFor(node, doc = node?.ownerDocument) {
   const refused = refusalFor(node, doc);
   if (refused) return { refused };
+  node = elementOf(node);
   const landmark = landmarkOf(node, doc);
   const route = doc.documentElement.dataset.hfwRoute;
   const on = landmark.name !== 'banner' && ROUTES.has(route) ? ` on ${route}` : '';
