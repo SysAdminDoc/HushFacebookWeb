@@ -358,10 +358,11 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     if (countedElements.has(element)) {
       if (unsure.has(element)) return claim(element, id);
       if (!reused(element, id)) return false;
-    }
-    const seen = id !== null && countedIds.has(id);
+    } else if (stale(element, id)) return false;
+    const ids = idsOf(element, id);
+    const seen = ids.some((one) => countedIds.has(one));
     countedElements.set(element, id);
-    if (id !== null) countedIds.add(id);
+    for (const one of ids) countedIds.add(one);
     if (seen) return false;
     // Before its link, it counts as the post on the page, and its link may never fill in.
     // claim() gives the count to the story the link names, if it does.
@@ -373,10 +374,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
 
   // Whether a counted post shows another story now, one this hide counts. A better link for the
   // story it counted as is that story still, and the hider learns the link's id is it too.
-  // Another story's link is Facebook reusing it. The tracker reports that when it looks, if it
-  // knew the post as a story it no longer shows, and the story counts on its own once a feature
-  // hides it there. The tracker that never knew it by a story hears the link filling in, so it
-  // never says, and the story counts here.
+  // Another story's link is Facebook reusing it. The tracker that never knew it by a story hears
+  // the link filling in, so it never says, and the story counts here.
   function reused(element, id) {
     const was = countedElements.get(element);
     if (id === null || was === null || id === was) return false;
@@ -384,9 +383,25 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       countedIds.add(id);
       return false;
     }
-    const known = posts?.idOf?.(element) ?? null;
-    return known === null || sameStory(element, known);
+    return !stale(element, id);
   }
+
+  // Whether the tracker knows a post as a story its links no longer name. It reports it reused
+  // when it next looks, which takes this hide's mark off, and the story it shows counts once a
+  // feature hides it there.
+  const stale = (element, id) => {
+    const known = id === null ? null : posts?.idOf?.(element) ?? null;
+    return known !== null && !sameStory(element, known);
+  };
+
+  // The ids a story counts under: the one its link names, and the one the tracker knows it by
+  // when a better link turned up since. The tracker keeps that one, and the story drawn again
+  // elsewhere may show it alone.
+  const idsOf = (element, id) => {
+    if (id === null) return [];
+    const known = posts?.idOf?.(element) ?? null;
+    return known !== null && known !== id && sameStory(element, known) ? [id, known] : [id];
+  };
 
   // A recycled element holds a different story, so what was hidden or shown in it before
   // no longer applies. Until the new story's link fills in, the tracker can't tell it was
@@ -399,14 +414,15 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       // A post that leaves the page takes its mark along, and Overview's Show them hears it.
       const marked = markOf(element) !== null;
       let uncounted = false;
-      // Still on the page, it's been reused for another story, which counts on its own, or
-      // Facebook wrapped it in another post or took it out of the feed for a moment. The tracker
-      // can't tell a post with no link was reused, so one counted before its link is the same
-      // post, and the first story its link names settles that count (claim()). Taken off, it may
-      // come back as itself (settle()). Its link can fill in as it goes, too late for the tracker
-      // to have heard. Known, that story counted, wherever Facebook draws it next.
+      // Still on the page, it's been reused for another story, or Facebook wrapped it in another
+      // post or took it out of the feed for a moment. It keeps the story it counted as: the same
+      // post is that story still, and a reused one counts the story it shows at its next hide
+      // (reused()). The tracker can't tell a post with no link was reused, so one counted before
+      // its link is the same post, and the first story its link names settles that count
+      // (claim()). Taken off, it may come back as itself (settle()). Its link can fill in as it
+      // goes, too late for the tracker to have heard. Known, that story counted, wherever
+      // Facebook draws it next.
       if (element.isConnected) {
-        if (!unsure.has(element)) countedElements.delete(element);
         leftWith.delete(element);
         clear(element);
       } else {

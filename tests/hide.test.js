@@ -815,6 +815,29 @@ test('with the real post tracker, a post hidden while it was off the page, befor
   }
 });
 
+// Facebook taking an adFeed post out of the feed for a moment while it stays on the page. The
+// tracker reports it gone and then back, and it's the same post throughout.
+const BLIPS = {
+  // Wrapped in another post, then drawn on its own again.
+  wrapped: async (s) => {
+    const list = s.first.parentElement;
+    const outer = list.ownerDocument.createElement('div');
+    outer.setAttribute('aria-posinset', '9');
+    list.prepend(outer);
+    outer.append(s.first);
+    await tick();
+    list.append(s.first);
+    await tick();
+  },
+  // No longer a post for a moment, then one again.
+  'lost its place': async (s) => {
+    s.first.removeAttribute('aria-posinset');
+    await tick();
+    s.first.setAttribute('aria-posinset', '1');
+    await tick();
+  },
+};
+
 // An ad a feature hid for Sponsored and a plain post, for a post that leaves and comes back.
 // judge(hider, event) hears post/add, and post/update first with `updates`. heard holds what's
 // hidden on the page at each notification, and noted each reason onHide was told about.
@@ -1240,23 +1263,33 @@ test('with the real post tracker, a post hidden before its link and hidden again
 
 test('with the real post tracker, an element reused for another story and hidden before the tracker heard counts that story on its own', async () => {
   // The filter hides it again once the tracker reports it reused, or never does, and the post the
-  // tracker shows as it reports that counts for nothing.
-  for (const again of [true, false]) {
-    for (const order of LISTEN_ORDERS) {
-      const s = adFeed(order, (hider, { element }) => {
-        if (again && element.textContent.includes('Spam')) hider.hide(element, 'Filter');
-      });
-      const where = `${again ? 'hidden again' : 'not hidden again'} ${order}`;
-      s.hider.hide(s.first, 'Sponsored');
-      // Facebook draws another story in it, and a check hides it before the tracker's look.
-      s.first.querySelector('.text').textContent = 'Spam';
-      s.link('/other/posts/pfbid0Fourth');
-      s.hider.hide(s.first, 'Filter');
-      await tick();
-      assert.deepEqual(s.counts(), again ? { Sponsored: 1, Filter: 1 } : { Sponsored: 1 }, where);
-      assert.equal(s.hider.hiddenPosts() - s.seeded, again ? 2 : 1, where);
-      assert.equal(s.hider.isHidden(s.first), again, where);
-      s.posts.stop();
+  // tracker shows as it reports that counts for nothing. The tracker knew it as the first story,
+  // hidden as that or not, and wrapped or taken out of the feed for a moment before the reuse.
+  for (const [how, blip] of [['as drawn', async () => {}], ...Object.entries(BLIPS)]) {
+    for (const hiddenBefore of [true, false]) {
+      for (const again of [true, false]) {
+        for (const order of LISTEN_ORDERS) {
+          const s = adFeed(order, (hider, { element }) => {
+            if (again && element.textContent.includes('Spam')) hider.hide(element, 'Filter');
+          });
+          const where = `${how}, ${hiddenBefore ? 'hidden' : 'not hidden'} before, ${again ? 'hidden again' : 'not hidden again'} ${order}`;
+          const before = hiddenBefore ? { Sponsored: 1 } : {};
+          if (hiddenBefore) s.hider.hide(s.first, 'Sponsored');
+          await blip(s);
+          // Back, a check hides it again as the story it was.
+          if (hiddenBefore) s.hider.hide(s.first, 'Sponsored');
+          // Facebook draws another story in it, and a check hides it before the tracker's look.
+          s.first.querySelector('.text').textContent = 'Spam';
+          s.link('/other/posts/pfbid0Fourth');
+          s.hider.hide(s.first, 'Filter');
+          assert.deepEqual(s.counts(), before, `${where}, at the hide`);
+          await tick();
+          assert.deepEqual(s.counts(), again ? { ...before, Filter: 1 } : before, where);
+          assert.equal(s.hider.hiddenPosts() - s.seeded, (hiddenBefore ? 1 : 0) + (again ? 1 : 0), where);
+          assert.equal(s.hider.isHidden(s.first), again, where);
+          s.posts.stop();
+        }
+      }
     }
   }
 });
@@ -1296,19 +1329,49 @@ test('with the real post tracker, a post settled at a hide as one story and reus
 });
 
 test('with the real post tracker, a story that gains a better link counts once, drawn again by either link', async () => {
+  // Hidden before the better link turns up, and wrapped or taken out of the feed for a moment
+  // after it, or hidden first after it while the tracker still knows the story by the old link.
+  // (Wrapped or taken out first, the tracker hears it as new by the better link, and nothing says
+  // the old link is that story.)
+  const cases = [
+    ...[['as drawn', async () => {}], ...Object.entries(BLIPS)].map(([how, blip]) => ['before', how, blip]),
+    ['after', 'as drawn', async () => {}],
+  ];
+  for (const [when, how, blip] of cases) {
+    for (const order of LISTEN_ORDERS) {
+      const where = `hidden ${when} its better link, ${how} ${order}`;
+      const s = adFeed(order, () => {}, { href: '/story.php?story_fbid=12345&id=4' });
+      if (when === 'before') s.hider.hide(s.first, 'Sponsored');
+      // A permalink to the same story turns up next to the old link, and a check hides it again.
+      const better = s.first.ownerDocument.createElement('a');
+      better.setAttribute('href', '/someone/posts/pfbid0Better');
+      s.first.firstElementChild.prepend(better);
+      await tick();
+      await blip(s);
+      if (when === 'after') s.hider.hide(s.first, 'Sponsored');
+      s.hider.hide(s.first, 'Filter');
+      await s.draw('Ad one', '/someone/posts/pfbid0Better');
+      s.hider.hide(s.posts.current().at(-1).element, 'Sponsored');
+      await s.draw('Ad one', '/story.php?story_fbid=12345&id=4');
+      s.hider.hide(s.posts.current().at(-1).element, 'Sponsored');
+      assert.deepEqual(s.counts(), { Sponsored: 1 }, where);
+      assert.equal(s.hider.hiddenPosts() - s.seeded, 1, where);
+      s.posts.stop();
+    }
+  }
+});
+
+test('with the real post tracker, a story counted by its old link is counted already where it shows a better link', async () => {
   for (const order of LISTEN_ORDERS) {
     const s = adFeed(order, () => {}, { href: '/story.php?story_fbid=12345&id=4' });
-    s.hider.hide(s.first, 'Sponsored');
-    // A permalink to the same story turns up next to the old link, and a check hides it again.
+    // The same story drawn again further down, by the old link alone, and hidden there first.
+    await s.draw('Ad one', '/story.php?story_fbid=12345&id=4');
+    s.hider.hide(s.posts.current().at(-1).element, 'Sponsored');
     const better = s.first.ownerDocument.createElement('a');
     better.setAttribute('href', '/someone/posts/pfbid0Better');
     s.first.firstElementChild.prepend(better);
     await tick();
     s.hider.hide(s.first, 'Filter');
-    await s.draw('Ad one', '/someone/posts/pfbid0Better');
-    s.hider.hide(s.posts.current().at(-1).element, 'Sponsored');
-    await s.draw('Ad one', '/story.php?story_fbid=12345&id=4');
-    s.hider.hide(s.posts.current().at(-1).element, 'Sponsored');
     assert.deepEqual(s.counts(), { Sponsored: 1 }, order);
     assert.equal(s.hider.hiddenPosts() - s.seeded, 1, order);
     s.posts.stop();
@@ -1382,27 +1445,7 @@ test('with the real post tracker, a post counted before its link and taken into 
 
 test('with the real post tracker, a post hidden before its link that Facebook wraps or takes out of the feed for a moment is the same post, settled by the story its link names', async () => {
   const spam = '/someone/posts/pfbid0Spam';
-  const blips = {
-    // Wrapped in another post, then drawn on its own again.
-    wrapped: async (s) => {
-      const list = s.first.parentElement;
-      const outer = list.ownerDocument.createElement('div');
-      outer.setAttribute('aria-posinset', '9');
-      list.prepend(outer);
-      outer.append(s.first);
-      await tick();
-      list.append(s.first);
-      await tick();
-    },
-    // No longer a post for a moment, then one again.
-    'lost its place': async (s) => {
-      s.first.removeAttribute('aria-posinset');
-      await tick();
-      s.first.setAttribute('aria-posinset', '1');
-      await tick();
-    },
-  };
-  for (const [how, blip] of Object.entries(blips)) {
+  for (const [how, blip] of Object.entries(BLIPS)) {
     for (const already of [false, true]) {
       for (const order of LISTEN_ORDERS) {
         const s = adFeed(order, (hider, { element, id }) => {
