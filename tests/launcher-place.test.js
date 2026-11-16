@@ -206,7 +206,9 @@ test("the gear's focus ring shows on Facebook's light top bar as well as its dar
   // Facebook's top bar, light and dark.
   for (const bar of ['#ffffff', '#242526']) assert.ok(Math.max(contrast(ring, bar), contrast(under, bar)) >= 3, bar);
   const corner = /\.launcher\[data-place="corner"\]:focus-visible \{([^}]*)\}/.exec(panelCss)?.[1] ?? '';
-  assert.match(corner, /box-shadow: 0 0 0 \d+px var\(--\w+\), 0 2px 12px #0006/, 'the gear in the corner keeps its shadow too');
+  const resting = /\.launcher\[data-place="corner"\] \{[^}]*box-shadow: ([^;]+);/.exec(panelCss)?.[1];
+  assert.ok(resting, 'the gear in the corner has a shadow');
+  assert.equal(/box-shadow: 0 0 0 \d+px var\(--\w+\), ([^;]+);/.exec(corner)?.[1], resting, 'the gear in the corner keeps its shadow too');
 });
 
 test('a page change places the gear again, and a hidden gear is left alone', async () => {
