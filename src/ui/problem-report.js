@@ -27,6 +27,16 @@ export function buildProblemReport({ version, browser, manager, managerVersion, 
     .filter(([key, spec]) => spec.type === 'toggle'
       && settings.get(key) === true)
     .map(([, spec]) => `- ${oneLine(spec.label)}`);
+  // A feature's option has a short label ("Order"), so its feature's title goes with it.
+  const titles = new Map(features.map((feature) => [feature.id, feature.title]));
+  const changed = switches
+    .filter(([key, spec]) => spec.type === 'select' && settings.get(key) !== spec.default)
+    .map(([key, spec]) => {
+      const choice = spec.choices?.find(({ value }) => value === settings.get(key));
+      const title = titles.get(spec.featureId);
+      return choice && `- ${oneLine(spec.label)}${title ? ` (${oneLine(title)})` : ''}: ${oneLine(choice.label)}`;
+    })
+    .filter(Boolean);
   const details = [
     `HushFacebook Web: ${shorten(version, 80)}`,
     `Browser: ${shorten(browser, 500)}`,
@@ -34,6 +44,9 @@ export function buildProblemReport({ version, browser, manager, managerVersion, 
     '',
     'Enabled switches:',
     ...(enabled.length ? enabled : ['- None']),
+    '',
+    'Changed choices:',
+    ...(changed.length ? changed : ['- None']),
   ].join('\n');
   const footer = '\n\nWhat happened:\n\n\nWhat I expected:\n';
   const body = cappedBody(details, footer, maxBodyLength);

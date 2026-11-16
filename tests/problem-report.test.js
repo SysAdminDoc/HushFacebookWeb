@@ -41,6 +41,32 @@ test('the problem link contains versions and enabled titles without private sett
   assert.equal(url.searchParams.get('body'), report.body);
 });
 
+test('the problem link lists each choice moved off its default by the words the panel shows', () => {
+  const features = [{ id: 'comments', title: 'Sort comments' }];
+  const note = {
+    type: 'select', default: false, label: 'Leave a note where a post was hidden',
+    choices: [{ value: false, label: 'Never' }, { value: 'own', label: 'Only for your own filters' }, { value: true, label: 'Always' }],
+  };
+  const order = {
+    type: 'select', default: 'newest', label: 'Order', featureId: 'comments',
+    choices: [{ value: 'newest', label: 'Newest first' }, { value: 'oldest', label: 'Oldest first' }],
+  };
+  const schema = new Map([['ui.hiddenNote', note], ['comments.order', order]]);
+  const report = (values) => buildProblemReport({
+    version: '0.0.4', browser: 'Example Browser 1.2', manager: 'Tampermonkey', managerVersion: '5.5.1', features,
+    settings: { schema, get: (key) => values[key] },
+  }).body;
+  // A choice that was a switch once, at each of its values, and a feature's option named with it.
+  assert.match(report({ 'ui.hiddenNote': 'own', 'comments.order': 'oldest' }), /^Changed choices:\n- Leave a note where a post was hidden: Only for your own filters\n- Order \(Sort comments\): Oldest first$/m);
+  assert.match(report({ 'ui.hiddenNote': true, 'comments.order': 'newest' }), /^Changed choices:\n- Leave a note where a post was hidden: Always\n\n/m);
+  // Defaults, and a value no choice has, list nothing.
+  for (const values of [{ 'ui.hiddenNote': false, 'comments.order': 'newest' }, { 'ui.hiddenNote': 'Own', 'comments.order': 'sideways' }]) {
+    const body = report(values);
+    assert.match(body, /^Changed choices:\n- None$/m, JSON.stringify(values));
+    assert.ok(!body.includes('Leave a note'), JSON.stringify(values));
+  }
+});
+
 test('the problem body is capped and keeps both questions', () => {
   const features = Array.from({ length: 100 }, (_, index) => ({ id: `feature-${index}`, title: `Feature ${index} ${'x'.repeat(100)}` }));
   const report = buildProblemReport({
