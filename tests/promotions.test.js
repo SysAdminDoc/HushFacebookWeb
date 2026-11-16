@@ -77,7 +77,7 @@ test('the feature empties promotion lists through JSON.parse, drops Home promoti
   assert.equal(rulesFor(JSON.stringify(home), [units]).length, 1);
   assert.equal(units.transform(home, { transport: 'json-parse' }), true);
   assert.deepEqual(home.data.viewer.news_feed.edges.map((edge) => edge.node?.post_id ?? null), ['1000000000000400', null]);
-  assert.deepEqual(decisions, [{ post: postId, rule: 'Promotion', signal: 'promotion category', layer: 'data' }]);
+  assert.deepEqual(decisions, [{ post: postId, rule: 'Promotion', signal: 'promotion category', layer: 'data', listed: true }]);
   assert.deepEqual(rows.map(([label, read]) => [label, read()]), [['Cards and tips held back', '2']]);
   assert.equal(hidePromotions.default, false);
   assert.equal(hidePromotions.needsPage, true);
