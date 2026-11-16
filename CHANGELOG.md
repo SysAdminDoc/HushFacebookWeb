@@ -28,6 +28,7 @@
 * In the extension, a change made while the page was still loading could be saved over another tab's newer one when a storage error hid that tab's change. A change made after the first load failed went the other way: the page showed the older saved value even though yours was the one saved. Both now end with the page showing what's saved. Retry after a failed save now leaves another tab's change in place too, when a storage error kept this tab from seeing it. A storage error about one setting no longer holds back your change to a different one.
 * Download any photo could say it couldn't find the photo's file for a picture the browser hadn't started loading yet, when Facebook's data didn't have it either (content mode, say). It saves the copy on the page now.
 * In Trim the share menu, hiding the row of Messenger contacts could have taken the box you write in and the Share now button with it, if Facebook ever drew them in one block. It now stops at the row and its heading.
+* Holding the Facebook logo to open settings no longer gives up when your finger or mouse wobbles a pixel or two. It keeps going unless you move more than about 10 pixels, like a long press on a phone.
 * Why posts were hidden, in Diagnostics, says in words where each post went: "Removed before it showed" or "Hidden on the page", in place of the data and page tags its legend used to explain. Copy report keeps the short tags. A line too long for a phone screen now indents where it wraps, so each entry stands apart.
 
 ## v0.0.47 (2026-11-15, unreleased)

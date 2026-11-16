@@ -104,17 +104,35 @@ test('a short press leaves Facebook logo clicks untouched, and non-primary press
   assert.equal(facebookClicks, 1);
 });
 
-test('movement, pointer cancellation, and leaving the logo cancel the hold', () => {
-  for (const cancel of ['move', 'pointercancel', 'pointerleave']) {
+test('movement past 10 pixels, pointer cancellation, and leaving the logo cancel the hold', () => {
+  for (const cancel of ['move', 'move back', 'pointercancel', 'pointerleave']) {
     const { win, doc, logo } = page();
     const clock = scheduler();
     let opened = 0;
     installLogoLongPress({ doc, openSettings: () => opened++, setTimer: clock.set, clearTimer: clock.clear });
     pointer(win, logo, 'pointerdown', { x: 10, y: 10 });
-    if (cancel === 'move') pointer(win, logo, 'pointermove', { x: 11, y: 10 });
-    else pointer(win, logo, cancel);
+    if (cancel === 'move') pointer(win, logo, 'pointermove', { x: 18, y: 17 });
+    else if (cancel === 'move back') {
+      // Gone past and back again still counts as gone.
+      pointer(win, logo, 'pointermove', { x: 10, y: 21 });
+      pointer(win, logo, 'pointermove', { x: 10, y: 10 });
+    } else pointer(win, logo, cancel);
     clock.fire();
     assert.equal(opened, 0, cancel);
+  }
+});
+
+// A finger on a touch screen, or a light mouse, always wobbles a little while it holds still.
+test('a hold keeps going through a wobble of up to 10 pixels, by mouse or touch', () => {
+  for (const pointerType of ['mouse', 'touch']) {
+    const { win, doc, logo } = page();
+    const clock = scheduler();
+    let opened = 0;
+    installLogoLongPress({ doc, openSettings: () => opened++, setTimer: clock.set, clearTimer: clock.clear });
+    pointer(win, logo, 'pointerdown', { x: 10, y: 10, pointerType });
+    for (const [x, y] of [[11, 10], [17, 16], [20, 10], [10, 0], [4, 18]]) pointer(win, logo, 'pointermove', { x, y, pointerType });
+    clock.fire();
+    assert.equal(opened, 1, pointerType);
   }
 });
 

@@ -1,5 +1,6 @@
 const LOGO_SELECTOR = '[role="banner"] a[aria-label="Facebook"]';
 const HOLD_MS = 500;
+const SLOP_PX = 10;
 
 const logoFor = (target) => target?.closest?.(LOGO_SELECTOR) ?? null;
 
@@ -48,9 +49,11 @@ export function installLogoLongPress({
     press = started;
   }
 
+  // A finger, or a light mouse, wobbles a little while it holds still, so only a move past
+  // SLOP_PX from where the press began ends the hold, as a long press does on phones.
   function pointermove(event) {
     if (!press || event.pointerId !== press.pointerId) return;
-    if (event.clientX !== press.x || event.clientY !== press.y) cancelPress();
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > SLOP_PX) cancelPress();
   }
 
   function pointerend(event) {
