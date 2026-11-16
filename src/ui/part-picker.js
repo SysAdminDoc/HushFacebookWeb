@@ -12,12 +12,15 @@
 // The events reach the picker through one set of window listeners the script adds as it starts
 // (guardForPicking), ahead of its own features' window listeners (Following feed's and
 // Marketplace only's clicks, Keep posts hidden's) and of keepKeysInPanel, which would stop
-// Escape on the bar before a listener added later saw it.
+// Escape on the bar before a listener added later saw it. They're kept by document, since in a
+// userscript boot's window (pageWindow) and the panel's (document.defaultView) can be two
+// objects for one page.
 //
 // root: where the bar and outline go, inside host's shadow root.
 // rules: { ruleFor(node) => { line } | { refused }, cssFor(line), describe(line) }
 
 import { t } from '../core/i18n.js';
+import { OURS } from '../features/appearance/part-rules.js';
 import { h } from './h.js';
 
 const BLOCKED = ['pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave', 'mousedown',
@@ -30,11 +33,11 @@ const POINTING_CURSOR = 'html, html * { cursor: crosshair !important; }';
 
 const gates = new WeakMap();
 
-// The window listeners every picker in this window goes through. Added once, as the script starts.
-export function guardForPicking(win) {
-  if (gates.has(win)) return;
+// The window listeners every picker on this page goes through. Added once, as the script starts.
+export function guardForPicking(win, doc = win.document) {
+  if (gates.has(doc)) return;
   const gate = { active: null };
-  gates.set(win, gate);
+  gates.set(doc, gate);
   for (const type of GATED) win.addEventListener(type, (event) => gate.active?.(event), { capture: true, passive: TOUCH.includes(type) });
 }
 
@@ -95,6 +98,9 @@ export function startPartPicker({ root, host, doc, win, rules, onSave, onEnd }) 
   // What a pointer at node would pick: out of words and icons to the box holding them, then
   // through wrappers the same size as what they hold.
   function boxFor(node) {
+    // Something of the script's own is never a way into the Facebook part around it.
+    const own = node.closest(OURS);
+    if (own) return own;
     let box = node;
     while (!top(box) && inline(box)) box = box.parentElement;
     while (!top(box) && sameBox(box, box.parentElement)) box = box.parentElement;
@@ -228,19 +234,17 @@ export function startPartPicker({ root, host, doc, win, rules, onSave, onEnd }) 
   };
   // Only the outline moves with the page. The preview stays as it is.
   const redraw = () => draw(outlined?.node, outlined?.refused);
-  const gate = gates.get(win);
-  const listeners = [
-    ...(gate ? [] : GATED.map((type) => [type, handle])),
-    ['scroll', redraw],
-    ['resize', redraw],
-  ];
-  if (gate) gate.active = handle;
-  for (const [type, run] of listeners) win.addEventListener(type, run, { capture: true, passive: type === 'scroll' || TOUCH.includes(type) });
+  // Boot added the gate as the script started. A picker started without boot adds it now.
+  guardForPicking(win, doc);
+  const gate = gates.get(doc);
+  const listeners = [['scroll', redraw], ['resize', redraw]];
+  gate.active = handle;
+  for (const [type, run] of listeners) win.addEventListener(type, run, { capture: true, passive: type === 'scroll' });
 
   function end(saved) {
     if (ended) return;
     ended = true;
-    if (gate?.active === handle) gate.active = null;
+    if (gate.active === handle) gate.active = null;
     for (const [type, run] of listeners) win.removeEventListener(type, run, { capture: true });
     preview.remove();
     outline.remove();

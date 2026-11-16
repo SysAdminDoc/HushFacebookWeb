@@ -59,6 +59,8 @@ export async function preparePicker() {
   guardForPicking(window);
   keepKeysInPanel(window);
   document.documentElement.dataset.hfwRoute = 'home';
+  // main.js stamps the running version on <html>, so every part of the page sits inside that mark.
+  document.documentElement.setAttribute('data-hushfacebook-web', '0.0.47');
   const errors = [];
   const log = createLog({ sink: { info() {}, warn() {}, error: (message) => errors.push(String(message)) } });
   const storage = createMemoryStorage();

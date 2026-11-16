@@ -45,7 +45,7 @@ function signedInAccount(doc) {
 export function boot({ win, doc, access, own = globalThis, features = allFeatures }) {
   // The part picker's window listeners come before every other one of the script's own, so a
   // feature's click handler never acts on a pick and keepKeysInPanel never eats the picker's Escape.
-  guardForPicking(win);
+  guardForPicking(win, doc);
   // First, so Facebook's keyboard shortcuts never see what's typed in the settings panel.
   keepKeysInPanel(win);
   const log = createLog();

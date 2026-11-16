@@ -42,7 +42,9 @@ const SUBSECTIONS = new Set([
 const MAX_UP = 12;
 const MAX_DEPTH = 40;
 const MAX_LINKS = 40;
-const OURS = '[data-hushfacebook-web]';
+// The script's own elements. <html> carries the same attribute with the running version (main.js),
+// and everything is inside that.
+export const OURS = '[data-hushfacebook-web]:not(html)';
 const POSTS = `[role="feed"], ${CANDIDATE_SELECTOR}`;
 const MAIN = '[role="main"]';
 const POSTS_LIST = POSTS.split(', ');

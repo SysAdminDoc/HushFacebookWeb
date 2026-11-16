@@ -28,6 +28,8 @@ const PAGE = `
 
 function page(html = PAGE) {
   const win = testWindow('https://www.facebook.com/');
+  // main.js stamps the running version on <html>, so the whole page sits inside that mark.
+  win.document.documentElement.setAttribute('data-hushfacebook-web', '0.0.47');
   win.document.body.innerHTML = html;
   return win.document;
 }
@@ -73,11 +75,14 @@ test('each line becomes one CSS rule, a link on both hosts and relative, a place
     assert.ok(rules[0].includes(`[role="navigation"] :has(> * > a[href="${form}"])`), form);
     assert.ok(rules[0].includes(`[role="navigation"] :has(> * > a[href^="${form}?"])`), `${form}?`);
   }
-  const place = ':not([data-hushfacebook-web])';
+  // <html> has the attribute too (main.js), so ours is any other element that has it.
+  const ours = '[data-hushfacebook-web]:not(html)';
+  const place = `:not(${ours})`;
   assert.ok(rules[1].startsWith(`[role="complementary"] > :nth-child(1 of ${place}) > :nth-child(2 of ${place}):not(`), rules[1]);
   for (const rule of [rules[0], rules[1], selectorFor(parseRule('page link /friends/ up 0'))]) {
+    assert.ok(rule.includes(`:not(${ours}, ${ours} *, `), 'never our own or inside it');
     assert.ok(rule.includes(':not(:has([role="feed"], [aria-posinset]:not([role]), [role="article"], [role="main"]))'), 'never what holds a post');
-    assert.ok(rule.includes('[role="article"] *'), 'never inside a post');
+    for (const post of ['[role="feed"]', '[aria-posinset]:not([role])', '[role="article"]']) assert.ok(rule.includes(`, ${post} *`), `never inside ${post}`);
   }
   assert.ok(selectorFor(parseRule('page link /friends/ up 0')).startsWith('body a[href="/friends/"]:not('));
   assert.equal(partsCss(''), '');
@@ -91,8 +96,20 @@ test('the matcher finds what the CSS would: inside the landmark, that many level
   assert.deepEqual(ids('navigation link /friends/ up 0', doc), ['tab-friends'], 'the top bar has a navigation inside');
   assert.deepEqual(ids('page link /friends/ up 0', doc), ['tab-friends'], 'the whole page');
   assert.deepEqual(ids('complementary at 1 2', doc), ['birthdays']);
-  assert.deepEqual(ids('page at 5', doc), [], 'the 5th thing in the page is our own');
+  assert.deepEqual(ids('page at 5', doc), [], 'four of the five things in the page are Facebook\'s, so there is no 5th');
   assert.deepEqual(ids('complementary at 1 9', doc), []);
+
+  // A section link in the main column, outside the feed, is found like any other.
+  const side = page('<div role="main"><div id="side"><a href="/marketplace/">Marketplace</a></div><div role="feed"><div aria-posinset="1">x</div></div></div>');
+  assert.deepEqual(ids('main link /marketplace/ up 1', side), ['side']);
+  // A line from a backup can point anywhere, but never at the main column or what holds it.
+  const big = page('<div id="a">x</div><div role="main" id="m"><div>y</div></div><div id="outer"><div role="main"><div>z</div></div></div>');
+  assert.deepEqual(ids('page at 1', big), ['a']);
+  assert.deepEqual(ids('page at 2', big), [], 'the main column');
+  assert.deepEqual(ids('page at 3', big), [], 'what holds a main column');
+  // Nor at the script's own, by a link inside it.
+  const own = page('<div data-hushfacebook-web="ui"><div id="o"><a href="/friends/">Friends</a></div></div><div id="f"><a href="/friends/">Friends</a></div>');
+  assert.deepEqual(ids('page link /friends/ up 1', own), ['f']);
 });
 
 test('a pick becomes a rule that hides it and nothing else, by a section link when it can', () => {

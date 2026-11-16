@@ -29,7 +29,8 @@ afterEach(() => {
 const PAGE_EVENTS = ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'mouseover', 'mousemove', 'contextmenu', 'auxclick', 'dblclick'];
 
 // before(win): runs ahead of the picker, the way boot adds its window listeners first.
-function setup({ before } = {}) {
+// view(win): the window the picker gets, when it isn't the one boot used.
+function setup({ before, view = (win) => win } = {}) {
   const win = testWindow('https://www.facebook.com/');
   // h() builds with the page's globals, as it does in the userscript.
   const saved = ['document', 'Node'].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
@@ -42,6 +43,8 @@ function setup({ before } = {}) {
     win.happyDOM.close();
   });
   const doc = win.document;
+  // main.js stamps the running version on <html>, so the whole page sits inside that mark.
+  doc.documentElement.setAttribute('data-hushfacebook-web', '0.0.47');
   // A browser's own default, which happy-dom leaves out (it reports '' for both).
   doc.head.innerHTML = '<style>a, span { display: inline; }</style>';
   doc.body.innerHTML = PAGE;
@@ -59,7 +62,7 @@ function setup({ before } = {}) {
   const ends = [];
   before?.(win);
   const picker = startPartPicker({
-    root, host, doc, win, rules: pickerRules,
+    root, host, doc, win: view(win), rules: pickerRules,
     onSave: (line) => saves.push(line),
     onEnd: (result) => ends.push(result),
   });
@@ -216,6 +219,31 @@ test("the picker hears the page ahead of the script's own window listeners, and 
   assert.deepEqual(heard, []);
 });
 
+test("a picker handed another object for boot's window still goes through boot's listeners", () => {
+  const featureHeard = [];
+  // A userscript's pageWindow and document.defaultView can be two objects for one window.
+  const other = (win) => new Proxy(win, {
+    get(target, name) {
+      const value = Reflect.get(target, name, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const { win, picker, ends, fire, button, doc } = setup({
+    before: (page) => {
+      guardForPicking(page);
+      keepKeysInPanel(page);
+      page.addEventListener('click', (event) => featureHeard.push(event.type), true);
+    },
+    view: other,
+  });
+  fire(doc.getElementById('birthdays-title'), 'click');
+  assert.equal(picker.state().state, 'picked');
+  assert.deepEqual(featureHeard, []);
+  const escape = new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, composed: true });
+  assert.equal(button('save').dispatchEvent(escape), false);
+  assert.deepEqual(ends, [{ saved: false }], "keepKeysInPanel doesn't eat the Escape");
+});
+
 test('Tab and Shift+Tab go around the bar, and a key aimed at the page waits while focus comes back to the bar', () => {
   const { win, doc, shadow, fire, button } = setup();
   const keysHeard = [];
@@ -272,4 +300,13 @@ test("a pick on something of the script's own on the page says so", () => {
   assert.deepEqual(picker.state(), { state: 'picked', line: null, refused: 'ours' });
   assert.match(text(), /HushFacebook Web's own/);
   assert.equal(button('save').disabled, true);
+
+  // A word of the script's own inside a Facebook box isn't a way to pick that box.
+  button('again').click();
+  const word = doc.createElement('span');
+  word.dataset.hushfacebookWeb = 'download';
+  word.textContent = 'Download';
+  doc.getElementById('birthdays-title').append(word);
+  fire(word, 'click');
+  assert.deepEqual(picker.state(), { state: 'picked', line: null, refused: 'ours' });
 });
