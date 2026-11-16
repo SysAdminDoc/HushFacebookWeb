@@ -158,6 +158,8 @@ test('scrubbing takes out addresses, ids and emails', () => {
 // ever fill with fixed text.
 const SAFE = {
   'core/activity.js': ['ACCOUNT_CHANGED'],
+  // One of confirmedWrite's two fixed sentences.
+  'core/bridge.js': ['operation.failure'],
   'core/dom/posts.js': ['type'],
   'core/load-watchdog.js': ['where', 'seconds'],
   'core/modules.js': ['name'],
