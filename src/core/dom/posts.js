@@ -286,6 +286,8 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
       return () => listeners[type].delete(listener);
     },
     current: () => [...live.values()],
+    // Whether the element is a post on the page as far as the tracker has heard.
+    has: (element) => live.has(element),
     // Stops watching and forgets every post. A later on() starts over and reports them again.
     stop() {
       observer?.disconnect();
