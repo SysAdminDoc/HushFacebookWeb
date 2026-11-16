@@ -479,6 +479,110 @@ test('with the real post tracker, a hidden post Facebook takes off and puts back
   posts.stop();
 });
 
+test('with the real post tracker, a hidden post with no id yet that Facebook takes off and puts back counts once', async () => {
+  const lazy = '<div aria-posinset="2"><div><a href="#">2h</a><div>Lazy</div></div></div>';
+  const win = page(feed(post(1), lazy));
+  const posts = createPostTracker({ doc: win.document });
+  const hider = createHider({ doc: win.document, posts });
+  // Hidden by what it says, the way a word filter goes, so its missing id doesn't matter.
+  posts.on('post/add', ({ element }) => {
+    if (element.textContent.includes('Lazy')) hider.hide(element, 'Filter');
+  });
+  const element = win.document.querySelectorAll('[aria-posinset]')[1];
+  const list = win.document.querySelector('.feed');
+  assert.equal(hider.isHidden(element), true);
+  for (let away = 0; away < 2; away++) {
+    element.remove();
+    await tick();
+    list.append(element);
+    await tick();
+    assert.equal(hider.isHidden(element), true);
+  }
+  // Its link filled in while it was off the page: the tracker would call that the same story too.
+  element.remove();
+  await tick();
+  element.querySelector('a').setAttribute('href', '/someone/posts/pfbid0Late');
+  list.append(element);
+  await tick();
+  assert.deepEqual(hider.counts(), { Filter: 1 });
+  assert.equal(hider.hiddenPosts(), 1);
+  posts.stop();
+});
+
+test('with the real post tracker, a post that comes back before its link fills in, or with a better link, is the post it was', async () => {
+  // A comment link is all it has at first, which still names the post by the comment's id.
+  const named = '<div aria-posinset="2"><div><a href="/photo/?fbid=7&comment_id=55">1h</a><div>Named by a comment</div></div></div>';
+  const win = page(feed(post(1), named));
+  const posts = createPostTracker({ doc: win.document });
+  const hider = createHider({ doc: win.document, posts });
+  posts.on('post/add', ({ element }) => {
+    if (/Post number 1|Named by a comment/.test(element.textContent)) hider.hide(element, 'Filter');
+  });
+  const [first, second] = win.document.querySelectorAll('[aria-posinset]');
+  const list = win.document.querySelector('.feed');
+  assert.deepEqual(hider.counts(), { Filter: 2 });
+
+  // Facebook draws the link again later, so for a moment the post has none.
+  first.remove();
+  await tick();
+  const link = first.querySelector('a[href*="/posts/"]');
+  link.setAttribute('href', '#');
+  list.append(first);
+  await tick();
+  assert.equal(hider.isHidden(first), true);
+
+  // The post's own link turns up beside the comment's while it's away.
+  second.remove();
+  await tick();
+  second.querySelector('a').insertAdjacentHTML('afterend', '<a href="/someone/posts/pfbid0Named">2h</a>');
+  list.append(second);
+  await tick();
+  assert.equal(hider.isHidden(second), true);
+  assert.deepEqual(hider.counts(), { Filter: 2 });
+  posts.stop();
+});
+
+test('with the real post tracker, an element Facebook takes off and puts back showing another story counts again', async () => {
+  const win = page(feed(post(1), post(2)));
+  const posts = createPostTracker({ doc: win.document });
+  const hider = createHider({ doc: win.document, posts });
+  const sponsored = new Set(['pfbid0Post1', 'pfbid0Post3']);
+  posts.on('post/add', ({ element, id }) => {
+    if (sponsored.has(id)) hider.hide(element, 'Sponsored');
+    else hider.show(element);
+  });
+  const element = win.document.querySelector('[aria-posinset]');
+  const list = win.document.querySelector('.feed');
+  const link = () => element.querySelector('a[href*="/posts/"]');
+  assert.deepEqual(hider.counts(), { Sponsored: 1 });
+
+  // React reused it while it was off the page.
+  element.remove();
+  await tick();
+  link().setAttribute('href', '/someone/posts/pfbid0Post3');
+  list.prepend(element);
+  await tick();
+  assert.equal(hider.isHidden(element), true);
+  assert.deepEqual(hider.counts(), { Sponsored: 2 });
+
+  // Back as a story that isn't hidden, off again, and hidden the next time it's back: it's still
+  // a story other than the one it counted as.
+  element.remove();
+  await tick();
+  link().setAttribute('href', '/someone/posts/pfbid0Post4');
+  list.prepend(element);
+  await tick();
+  assert.equal(hider.isHidden(element), false);
+  element.remove();
+  await tick();
+  sponsored.add('pfbid0Post4');
+  list.prepend(element);
+  await tick();
+  assert.equal(hider.isHidden(element), true);
+  assert.deepEqual(hider.counts(), { Sponsored: 3 });
+  posts.stop();
+});
+
 test('Show them says how many posts and how many comments came back', () => {
   const comment = '<div role="article" class="comment"><div><a href="/someone/posts/pfbid0Post1?comment_id=123">1h</a><div>A comment</div></div></div>';
   const win = page(feed(post(1), post(2)) + comment);

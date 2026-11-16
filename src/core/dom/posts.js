@@ -89,6 +89,17 @@ function idHrefs(element) {
     .map((a) => a.getAttribute('href'));
 }
 
+// Whether element still shows the story it had under the id before: none was known then, none
+// is there yet, it's the same id, or a link still names the old one (a better link for the same
+// story turned up). recheck() goes by the same rule, and the hider uses it for a post Facebook
+// took off the page and put back, which the tracker reports as new.
+export function sameStory(element, before) {
+  if (before == null) return true;
+  const hrefs = idHrefs(element);
+  const { id } = postIdFromHrefs(hrefs);
+  return id === null || id === before || hrefs.some((href) => href.includes(before));
+}
+
 export function postIdOf(element) {
   return postIdFromHrefs(idHrefs(element));
 }

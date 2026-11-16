@@ -30,7 +30,7 @@
 // can't draw a ::before (REPLACED) leaves the note with no second button.
 
 import { NOTE_COLORS } from './note-colors.js';
-import { inDialog, isComment, postIdOf } from './posts.js';
+import { inDialog, isComment, postIdOf, sameStory } from './posts.js';
 
 export const MARK = 'data-hfw-hide';
 export const NOTE = 'data-hfw-note';
@@ -95,6 +95,10 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   // draws again counts once, and by element, for posts whose id isn't known yet.
   const countedIds = new Set();
   const countedElements = new WeakSet();
+  // Counted posts Facebook took off the page, and the tracker's id for each as it first left (null
+  // when its link hadn't filled in yet). One it puts back is still the post it counted as, unless
+  // it shows another story by then, since React can reuse an element it took off.
+  const leftWith = new WeakMap();
   const revealed = new WeakSet();
   // Marked posts Facebook took off the page with the mark still on. One it puts back is hidden on
   // the page again, and nothing else would say so, since it counted already.
@@ -216,6 +220,12 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   function count(element, reason) {
     const comment = isComment(element);
     const id = comment ? null : postIdOf(element).id;
+    // Decided here and not when the tracker reports it back, since the features hear that first
+    // and hide it before the hider would.
+    if (leftWith.has(element)) {
+      if (!sameStory(element, leftWith.get(element))) countedElements.delete(element);
+      leftWith.delete(element);
+    }
     const seen = countedElements.has(element) || (id !== null && countedIds.has(id));
     countedElements.add(element);
     if (id !== null) countedIds.add(id);
@@ -231,9 +241,12 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   function watchRecycling() {
     if (watching || !posts) return;
     watching = true;
-    posts.on('post/remove', ({ element }) => {
+    posts.on('post/remove', ({ element, id = null }) => {
       revealed.delete(element);
-      countedElements.delete(element);
+      // Still on the page, it's been reused for another story, which counts on its own. Taken
+      // off, it may come back as itself (count()).
+      if (element.isConnected) countedElements.delete(element);
+      else if (countedElements.has(element) && !leftWith.has(element)) leftWith.set(element, id);
       // A post that leaves the page takes its mark along, and Overview's Show them hears it.
       const marked = markOf(element) !== null;
       if (element.isConnected) clear(element);
