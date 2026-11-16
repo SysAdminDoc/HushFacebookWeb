@@ -43,6 +43,7 @@ test('only the last 50 decisions are kept, oldest first, each telling listeners'
   // Anything that isn't data counts as the page, and a missing signal is left off the line.
   diagnostics.decide({ post: 'x', rule: 'Seen' });
   assert.equal(decisionLine(diagnostics.decisions().at(-1)), `18:24:05 Hidden on the page, ${postTag('x')}, Seen`);
+  assert.equal(decisionLine({ time: '18:24:05', layer: 'constructor', post: 'p', rule: 'Seen' }), '18:24:05 Hidden on the page, p, Seen', 'a layer named like a built-in still reads as the page');
 });
 
 test('the hider reports each new reason on a post once, with its signal or detail', () => {

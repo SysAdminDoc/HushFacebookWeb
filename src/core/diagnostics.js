@@ -134,5 +134,4 @@ export const hideListener = (diagnostics, idOf) => ({ element, reason, detail, s
 
 // One line per decision, for the panel. It says in words where the post was hidden, and Copy
 // report keeps the short data and page tags.
-const LAYER_WORDS = { data: 'Removed before it showed', page: 'Hidden on the page' };
-export const decisionLine = ({ time, layer, post, rule, signal, detail }) => `${time} ${LAYER_WORDS[layer] ?? LAYER_WORDS.page}, ${post}, ${rule}${signal || detail ? `: ${signal || detail}` : ''}`;
+export const decisionLine = ({ time, layer, post, rule, signal, detail }) => `${time} ${layer === 'data' ? 'Removed before it showed' : 'Hidden on the page'}, ${post}, ${rule}${signal || detail ? `: ${signal || detail}` : ''}`;
