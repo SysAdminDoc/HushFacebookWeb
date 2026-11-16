@@ -9,7 +9,8 @@ import hideParts from '../src/features/appearance/hide-parts.js';
 
 const LINE = 'complementary at 1 1 1';
 
-function setup(stored = '') {
+// full: settings turns down every text, the way it does one over the option's length limit.
+function setup(stored = '', { full = false } = {}) {
   let value = stored;
   const pending = [];
   const toasts = [];
@@ -20,6 +21,7 @@ function setup(stored = '') {
     settings: {
       display: () => value,
       set: (key, text) => {
+        if (full) throw new RangeError('Parts you hid is too long');
         value = text;
         return new Promise((resolve, reject) => pending.push({ resolve, reject }));
       },
@@ -57,6 +59,15 @@ test('Part hidden shows once storage has the part, and never when the save fails
   await settle();
   assert.deepEqual(lost.toasts, [], 'no Part hidden, and no Undo for a change that never happened');
   assert.deepEqual(lost.errors, ["Couldn't save the parts you hid"], 'the error is logged, which shows it in the panel');
+});
+
+test('a full list says so right away and keeps the parts it had', async () => {
+  const full = setup('navigation at 1', { full: true });
+  full.pick();
+  await settle();
+  assert.equal(full.value(), 'navigation at 1');
+  assert.deepEqual(full.toasts.map(({ text, options }) => [text, options?.tone]), [["Your list of hidden parts is full, so that part wasn't hidden.", 'error']]);
+  assert.deepEqual(full.errors, [], "it isn't a storage error");
 });
 
 test('That part shows again waits for storage the same way', async () => {
