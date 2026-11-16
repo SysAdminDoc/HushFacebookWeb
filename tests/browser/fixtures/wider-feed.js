@@ -9,12 +9,15 @@ import { createMemoryStorage } from '../../../src/core/storage.js';
 import { mountFeatureStyles } from '../../../src/core/style.js';
 import widerFeedFeature, { FOLDED_MARK } from '../../../src/features/appearance/wider-feed.js';
 import hideSponsoredPosts from '../../../src/features/feed/hide-sponsored-posts.js';
-import { COLUMN_AD_MARK } from '../../../src/features/feed/sponsored-column.js';
+import hideFriendRequestsColumn from '../../../src/features/feed/hide-friend-requests-column.js';
+import { COLUMN_AD_MARK, FRIEND_REQUESTS_MARK } from '../../../src/features/feed/sponsored-column.js';
 import { check, delay, until } from './helpers.js';
 
 const PICTURE = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="3"><rect width="4" height="3" fill="#3a6"/></svg>');
 const POST = (n) => `<div><div><div aria-posinset="${n}" class="post" style="background:#242526;border-radius:8px;margin-bottom:16px;padding:12px 0"><div style="padding:0 16px">A post</div><img src="${PICTURE}" alt="" style="display:block;width:100%;height:auto"></div></div></div>`;
 const AD = `<div ${COLUMN_AD_MARK}=""><h3>Sponsored</h3><a href="https://l.facebook.com/l.php?u=x"><img src="${PICTURE}" alt="" width="120"><span>Shop now</span></a></div>`;
+// Friend requests as Hide Friend requests on Home marks it, with a picture and a Confirm button.
+const FRIENDS = `<div ${FRIEND_REQUESTS_MARK}=""><h3>Friend requests</h3><a href="/friends/requests/?profile_id=1"><img src="${PICTURE}" alt="" width="60"><span>A Friend</span></a><div role="button">Confirm</div></div>`;
 const CONTACTS = '<div class="contacts"><h2>Contacts</h2><div role="button"><span>Pat Example</span></div></div>';
 
 const PAGE = `<style>
@@ -37,16 +40,17 @@ const PAGE = `<style>
     <div class="fb-story"><div role="button">Create story</div></div>
     <div><div><h3 class="fb-heading">Feed posts</h3><div></div><div class="list">${POST(1)}${POST(2)}${POST(3)}</div></div></div>
   </div></div></div></div></div></div>
-  <div class="fb-side" role="complementary"><div class="inner">${AD}</div></div>
+  <div class="fb-side" role="complementary"><div class="inner">${AD}${FRIENDS}</div></div>
 </div>`;
 
 const width = (el) => Math.round(el.getBoundingClientRect().width);
 
 export async function widerFeed() {
   document.documentElement.dataset.hfwRoute = 'home';
-  const features = [hideSponsoredPosts, widerFeedFeature];
+  const features = [hideSponsoredPosts, hideFriendRequestsColumn, widerFeedFeature];
   const settings = createSettings({ storage: createMemoryStorage(), features, migrations: [] });
   settings.set('hideSponsoredPosts', true);
+  settings.set('hideFriendRequestsColumn', true);
   mountFeatureStyles({ features, settings, doc: document });
   document.body.insertAdjacentHTML('beforeend', PAGE);
   const main = document.querySelector('[role="main"]');
@@ -108,6 +112,12 @@ export async function widerFeed() {
   followed('Full width beside the column');
   document.querySelector('.contacts').remove();
   await until(() => side.hasAttribute(FOLDED_MARK) && width(post) > 1100, 'the column stayed open at Full width after its contacts left');
+
+  // Friend requests shown again: the column opens for it, and folds once it's hidden again.
+  settings.set('hideFriendRequestsColumn', false);
+  await until(() => !side.hasAttribute(FOLDED_MARK) && width(side) >= 280, `the column stayed folded with Friend requests showing: ${width(side)} px`);
+  settings.set('hideFriendRequestsColumn', true);
+  await until(() => side.hasAttribute(FOLDED_MARK) && width(side) === 0, `the column didn't fold with Friend requests hidden again: ${width(side)} px`);
 
   settings.set('widerFeed', false);
   await until(() => width(post) === 680 && width(side) === 360 && width(story) === 680, `switching off left post ${width(post)}, column ${width(side)}, Create story ${width(story)}`);

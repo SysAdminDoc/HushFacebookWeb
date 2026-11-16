@@ -118,6 +118,36 @@ test("the right column's Sponsored box leaves Facebook's inline data, Friend req
   assert.deepEqual(fired, ['AdsSideFeedUnit']);
 });
 
+// The same capture: Friend requests is drawn from viewer.side_feed, with its request in it.
+test("Friend requests leaves Facebook's inline data under its own switch, and only then", async () => {
+  const [line] = await fixtureLines('home-right-column.jsonl');
+  const lists = (doc) => {
+    const found = {};
+    countMatches(doc, (value) => {
+      for (const key of ['side_feed', 'auxColumnUnits']) if (Array.isArray(value[key]?.nodes)) found[key] = value[key].nodes.map((unit) => unit.__typename);
+      return false;
+    });
+    return found;
+  };
+  assert.deepEqual(lists(parseLine(line)), { side_feed: ['FriendingRequestsSideFeedUnit'], auxColumnUnits: ['AdsSideFeedUnit', 'FriendingRequestsSideFeedUnit'] });
+  for (const on of [false, true]) {
+    const win = { JSON: { parse: JSON.parse }, location: { href: 'https://www.facebook.com/' } };
+    const net = installNetworkHooks({ win, log: { error: () => {}, warn() {}, info() {}, debug() {} } });
+    const fired = [];
+    net.transformResponses(adRule('hideFriendRequestsColumn', () => on, (ids) => fired.push(...ids)));
+    const after = win.JSON.parse(line);
+    if (on) {
+      assert.deepEqual(lists(after), { side_feed: [], auxColumnUnits: ['AdsSideFeedUnit'] });
+      assert.doesNotMatch(JSON.stringify(after), /"highlighted_requests"/);
+      assert.deepEqual(fired, ['FriendingRequestsSideFeedUnit', 'FriendingRequestsSideFeedUnit']);
+    } else {
+      assert.deepEqual(after, parseLine(line), 'switched off, the page gets what Facebook sent');
+      assert.deepEqual(fired, []);
+    }
+    net.teardown();
+  }
+});
+
 // The captured Home page's second line is a friend's share. It carries the shared post four
 // times: the story's own attached_story, another under content.story, the section that draws it
 // and that section's own copy. A sponsored label in any of them is the shared post's, so the share

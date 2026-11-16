@@ -84,6 +84,10 @@ const SAMPLES = {
       { __typename: 'FriendingRequestsSideFeedUnit' },
     ],
   }),
+  // The same capture's Friend requests box, under viewer.side_feed.
+  FriendingRequestsSideFeedUnit: () => ({
+    nodes: [{ __typename: 'FriendingRequestsSideFeedUnit', is_hidden: false, highlighted_requests: [{ id: 'r1', is_seen: false, user: { id: '1' } }] }],
+  }),
   MarketplaceFeedAdStory: () => ({ node: { __typename: 'MarketplaceFeedAdStory', id: 'ad', ad_id_string: '1' }, cursor: 'm' }),
   SEARCH_ADS: () => ({ cursor: 's', node: { __typename: 'SearchRenderable', role: 'SEARCH_ADS' }, rendering_strategy: { __typename: 'SearchResultsAdRenderingStrategy' } }),
   // The shape is the live empty answer (tests/fixtures/useInstreamAdsHaloFetcherQuery.jsonl) with one break in it.
@@ -140,8 +144,30 @@ test("the right column loses its Sponsored box and keeps the boxes around it, in
   assert.equal(transformDocumentLine(line, [adRule('hideSponsoredSearch', () => true)]), line, 'only Hide sponsored posts takes it');
   // A column with no ad box, and the ads' own list inside the box, are no match.
   const quiet = { nodes: [{ __typename: 'FriendingRequestsSideFeedUnit' }] };
-  assert.deepEqual(pruneAds(structuredClone(quiet)), []);
+  assert.deepEqual(pruneAds(structuredClone(quiet), markersFor('hideSponsoredPosts').rows), []);
   assert.equal(adMarkerFor(SAMPLES.AdsSideFeedUnit().nodes[0].item_collection), null);
+});
+
+test('Friend requests leaves both lists under its own switch, and every other box stays in order', () => {
+  const column = SAMPLES.AdsSideFeedUnit();
+  column.nodes.unshift({ __typename: 'BirthdaysSideFeedUnit' });
+  const answer = { data: { viewer: { side_feed: SAMPLES.FriendingRequestsSideFeedUnit(), auxColumnUnits: column } }, extensions: { is_final: true } };
+  const line = JSON.stringify(answer);
+  const friends = adRule('hideFriendRequestsColumn', () => true);
+  assert.equal(rulesFor(line, [friends]).length, 1, 'the line gets past the prefilter');
+  for (const ctx of [{ transport: 'json-parse', friendlyName: '' }, { transport: 'fetch', path: '/api/graphql/', friendlyName: 'CometHomeRightSideEgoRefetchQuery' }]) {
+    const out = JSON.parse(transformDocumentLine(line, [friends], ctx));
+    assert.deepEqual(out.data.viewer.side_feed.nodes, [], ctx.transport);
+    assert.deepEqual(out.data.viewer.auxColumnUnits.nodes.map((unit) => unit.__typename), ['BirthdaysSideFeedUnit', 'AdsSideFeedUnit'], ctx.transport);
+  }
+  // With Hide sponsored posts too, each takes only its own box.
+  const both = JSON.parse(transformDocumentLine(line, [adRule('hideSponsoredPosts', () => true), friends]));
+  assert.deepEqual(both.data.viewer.auxColumnUnits.nodes.map((unit) => unit.__typename), ['BirthdaysSideFeedUnit']);
+  assert.deepEqual(both.data.viewer.side_feed.nodes, []);
+  assert.equal(transformDocumentLine(line, [adRule('hideSponsoredPosts', () => true)]).includes('"highlighted_requests"'), true, 'Hide sponsored posts alone leaves it');
+  // The Friends page's own request list isn't a side feed unit, so nothing there matches.
+  const friendsPage = { data: { viewer: { friending_possibilities: { edges: [{ node: { __typename: 'User', id: '1' } }] } } } };
+  assert.deepEqual(pruneAds(structuredClone(friendsPage), markersFor('hideFriendRequestsColumn').rows), []);
 });
 
 test('a row only fires under its own switch', () => {

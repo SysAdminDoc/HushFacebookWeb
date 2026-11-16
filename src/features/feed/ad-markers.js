@@ -208,6 +208,10 @@ export function hasAiLabel(story) {
 // draws the column the way it does for someone it has no ads for.
 const SIDE_AD_TYPENAME = 'AdsSideFeedUnit';
 const isSideAdUnit = (value) => isObject(value) && value.__typename === SIDE_AD_TYPENAME;
+// The Friend requests box is drawn from viewer.side_feed.nodes in the same answer (its requests
+// under highlighted_requests), and the column's own list holds a bare one after the ad unit.
+const FRIEND_REQUESTS_TYPENAME = 'FriendingRequestsSideFeedUnit';
+const isFriendRequestsUnit = (value) => isObject(value) && value.__typename === FRIEND_REQUESTS_TYPENAME;
 
 // The story an edge draws: its node in a feed, or the story behind a search result.
 const storyOf = (edge, node) => (isObject(node) && node.__typename === 'Story'
@@ -284,6 +288,18 @@ export const AD_MARKERS = [
     action: 'drop-items',
     list: 'nodes',
     drop: isSideAdUnit,
+  },
+  {
+    id: 'FriendingRequestsSideFeedUnit',
+    feature: 'hideFriendRequestsColumn',
+    surface: "Home's right column (Friend requests)",
+    seen: '2026-10-21: inline CometRightSideHeaderCardsQuery data on Home, the box with its request in viewer.side_feed.nodes and a bare one after the ad unit in viewer.auxColumnUnits.nodes',
+    text: [`"${FRIEND_REQUESTS_TYPENAME}"`],
+    kind: 'object',
+    match: (value) => Array.isArray(value.nodes) && value.nodes.some(isFriendRequestsUnit),
+    action: 'drop-items',
+    list: 'nodes',
+    drop: isFriendRequestsUnit,
   },
   {
     id: 'MarketplaceFeedAdStory',
