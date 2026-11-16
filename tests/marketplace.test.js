@@ -245,4 +245,10 @@ test("a link is added once, on the name's box", () => {
   assert.equal(addProfileLink(doc, found), false);
   assert.equal(shownLink(found.link.parentElement).getAttribute(MARK), '100000000000001');
   assert.equal(found.link.parentElement.shadowRoot.querySelectorAll(`a[${MARK}]`).length, 1);
+
+  // A link an earlier version added without the script's mark gets it when it's found again.
+  const shown = shownLink(found.link.parentElement);
+  shown.removeAttribute('data-hushfacebook-web');
+  assert.equal(addProfileLink(doc, found), false);
+  assert.equal(shown.getAttribute('data-hushfacebook-web'), 'seller-profile');
 });

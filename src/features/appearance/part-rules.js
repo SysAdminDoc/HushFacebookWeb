@@ -169,7 +169,8 @@ export function landmarkOf(node, doc = node.ownerDocument) {
 export function refusalFor(node, doc = node?.ownerDocument) {
   if (!node || !doc?.body) return 'big';
   // First, since something of the script's own can sit in a shadow root, which body doesn't contain.
-  if (node.closest(OURS)) return 'ours';
+  // A text node or shadow root has no closest(), and goes on to the checks below.
+  if (node.closest?.(OURS)) return 'ours';
   if (node === doc.body || node === doc.documentElement || !doc.body.contains(node)) return 'big';
   if (node.closest(POSTS) || node.querySelector(POSTS)) return 'feed';
   if (node.matches('[role="main"]') || node.querySelector('[role="main"]')) return 'big';

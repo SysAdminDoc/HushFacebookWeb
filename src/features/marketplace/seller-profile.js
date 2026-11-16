@@ -22,6 +22,9 @@ export const MARK = 'data-hfw-seller-profile';
 // nodes and text, not attributes.
 export const HOST_MARK = 'data-hfw-seller-host';
 const SLOT_MARK = 'data-hfw-seller-slot';
+// The script's own, like its other elements, so Hide parts doesn't take the link for Facebook's.
+const OWN_MARK = 'data-hushfacebook-web';
+const OWN_NAME = 'seller-profile';
 export const LABEL = 'View profile';
 const PROFILE_LINKS = 'a[href*="/marketplace/profile/"]';
 const DELAY = 100;
@@ -127,12 +130,13 @@ export function addProfileLink(doc, { id, link }) {
       shown.setAttribute(MARK, id);
       shown.setAttribute('href', profileUrl(id));
     }
+    // A link an earlier version added without it.
+    if (!shown.hasAttribute(OWN_MARK)) shown.setAttribute(OWN_MARK, OWN_NAME);
     return false;
   }
   const view = doc.createElement('a');
   view.setAttribute(MARK, id);
-  // The script's own, like its other elements, so Hide parts doesn't take it for Facebook's.
-  view.setAttribute('data-hushfacebook-web', 'seller-profile');
+  view.setAttribute(OWN_MARK, OWN_NAME);
   view.setAttribute('href', profileUrl(id));
   view.setAttribute('role', 'link');
   view.textContent = LABEL;

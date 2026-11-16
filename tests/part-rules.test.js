@@ -148,6 +148,8 @@ test("posts, the feed and what holds them are refused, and so are the page, the 
   assert.equal(ruleFor(doc.documentElement, doc).refused, 'big');
   assert.equal(refused('ours'), 'ours');
   assert.equal(refusalFor(doc.getElementById('ours').firstElementChild, doc), 'ours');
+  assert.equal(refusalFor(doc.createTextNode('x'), doc), 'big', 'a text node outside the page, which has no closest()');
+  assert.equal(refusalFor(doc.createElement('div').attachShadow({ mode: 'open' }), doc), 'big', 'and a shadow root');
   const article = page('<div role="main"><div id="wrap"><div role="article"><span id="in">x</span></div></div></div>');
   assert.equal(ruleFor(article.getElementById('in'), article).refused, 'feed', 'a permalink post too');
   assert.equal(ruleFor(article.getElementById('wrap'), article).refused, 'feed');
