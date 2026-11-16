@@ -1108,7 +1108,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // Overview's own row for search, as a General row is.
   const overviewRows = () => [{
     id: 'quick-setups', section: 'overview', title: 'Quick setups', description: QUICK_SETUPS_NOTE,
-    options: QUICK_SETUPS.map((setup) => ({ label: setup.label, focusKey: `quick:${setup.id}` })),
+    options: QUICK_SETUPS.map((setup) => ({ label: setup.label, keywords: setup.keywords, focusKey: `quick:${setup.id}` })),
     focusKey: 'quick:quiet', render: quickSetupsCard,
   }];
 
