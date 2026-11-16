@@ -58,6 +58,8 @@ const scenarios = [
   { id: 'overview-hidden', fixture: 'overviewHidden', screenshot: true },
   { id: 'general-toolbar', fixture: 'generalToolbar', screenshot: true },
   ...['light', 'dark'].map((theme) => ({ id: `panel-${theme}`, fixture: 'panelTheme', theme, screenshot: true, viewport: { width: 1100, height: 760 } })),
+  { id: 'stuck-notice', fixture: 'stuckNotice', screenshot: true },
+  { id: 'panel-forced-colors', fixture: 'panelForced', screenshot: true, forcedColors: 'active', viewport: { width: 1100, height: 760 } },
   { id: 'post-dates', fixture: 'postDates', screenshot: true },
   { id: 'stories-gap', fixture: 'storiesGap', viewport: { width: 1000, height: 1000 } },
   { id: 'voice-clip', fixture: 'voiceClip' },
@@ -292,7 +294,7 @@ async function run() {
       for (const scenario of chosen) {
         const started = Date.now();
         await within(SCENARIO_MS, `${name} ${scenario.id}`, async () => {
-          const context = await activeBrowser.newContext({ viewport: scenario.viewport ?? { width: 360, height: 760 }, serviceWorkers: 'block', hasTouch: Boolean(scenario.touch) });
+          const context = await activeBrowser.newContext({ viewport: scenario.viewport ?? { width: 360, height: 760 }, serviceWorkers: 'block', hasTouch: Boolean(scenario.touch), forcedColors: scenario.forcedColors ?? 'none' });
           try {
             context.setDefaultTimeout(5000);
             await context.route('**/*', (route) => {

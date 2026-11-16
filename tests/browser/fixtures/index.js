@@ -9,6 +9,7 @@ export { hiddenNote } from './hidden-note.js';
 export { overviewHidden } from './overview-hidden.js';
 export { generalToolbar } from './general-toolbar.js';
 export { panelTheme } from './panel-theme.js';
+export { stuckNotice, panelForced } from './notices.js';
 export { postDates } from './post-dates.js';
 export { storiesGap } from './stories-gap.js';
 export { prepareVoiceClip, voiceClipState } from './voice-clip.js';
