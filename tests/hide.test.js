@@ -35,7 +35,7 @@ const feed = (...posts) => `<div role="main"><div class="feed">${posts.join('')}
 const attributesOf = (element) => Object.fromEntries([...element.attributes].map((a) => [a.name, a.value]));
 
 function fakePosts() {
-  const listeners = { 'post/add': new Set(), 'post/remove': new Set() };
+  const listeners = { 'post/add': new Set(), 'post/update': new Set(), 'post/remove': new Set() };
   return {
     on(type, fn) {
       listeners[type].add(fn);
@@ -581,6 +581,62 @@ test('with the real post tracker, an element Facebook takes off and puts back sh
   assert.equal(hider.isHidden(element), true);
   assert.deepEqual(hider.counts(), { Sponsored: 3 });
   posts.stop();
+});
+
+test('with the real post tracker, a post back before its link fills in counts again once the link names another story', async () => {
+  const story = (n, text, href) => `<div aria-posinset="${n}"><div><a href="${href}">2h</a><div class="text">${text}</div></div></div>`;
+  // A word filter looks as a post is added. Some look again when its link fills in, some don't.
+  for (const again of [false, true]) {
+    const win = page(feed(story(1, 'Spam one', '/someone/posts/pfbid0First'), story(2, 'Spam three', '#'), story(3, 'Spam four', '/someone/posts/pfbid0Fourth')));
+    const posts = createPostTracker({ doc: win.document });
+    const hider = createHider({ doc: win.document, posts });
+    const filter = ({ element }) => {
+      if (element.textContent.includes('Spam')) hider.hide(element, 'Filter');
+    };
+    posts.on('post/add', filter);
+    if (again) posts.on('post/update', filter);
+    const [first, second, third] = win.document.querySelectorAll('[aria-posinset]');
+    const list = win.document.querySelector('.feed');
+    const redraw = (element, text, href) => {
+      element.querySelector('.text').textContent = text;
+      element.querySelector('a').setAttribute('href', href);
+    };
+    assert.deepEqual(hider.counts(), { Filter: 3 });
+
+    // Away, React draws another story in it, and it's back before that story's link is.
+    first.remove();
+    await tick();
+    redraw(first, 'Spam two', '#');
+    list.append(first);
+    await tick();
+    assert.equal(hider.isHidden(first), true);
+    assert.deepEqual(hider.counts(), { Filter: 3 }, `again=${again}: not yet known to be another story`);
+    first.querySelector('a').setAttribute('href', '/other/posts/pfbid0Second');
+    await tick();
+    assert.deepEqual(hider.counts(), { Filter: 4 }, `again=${again}: the link names another story`);
+
+    // Its link fills in as it leaves, so the tracker never heard the id it left with.
+    second.querySelector('a').setAttribute('href', '/someone/posts/pfbid0Third');
+    second.remove();
+    await tick();
+    redraw(second, 'Spam five', '/other/posts/pfbid0Fifth');
+    list.append(second);
+    await tick();
+    assert.deepEqual(hider.counts(), { Filter: 5 }, `again=${again}: back as another story`);
+
+    // Back as itself, its link drawn again a moment later.
+    third.remove();
+    await tick();
+    third.querySelector('a').setAttribute('href', '#');
+    list.append(third);
+    await tick();
+    third.querySelector('a').setAttribute('href', '/someone/posts/pfbid0Fourth');
+    await tick();
+    assert.equal(hider.isHidden(third), true);
+    assert.deepEqual(hider.counts(), { Filter: 5 }, `again=${again}: the same story counts once`);
+    assert.equal(hider.hiddenPosts(), 5);
+    posts.stop();
+  }
 });
 
 test('Show them says how many posts and how many comments came back', () => {

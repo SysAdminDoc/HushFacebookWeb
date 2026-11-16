@@ -95,9 +95,10 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   // draws again counts once, and by element, for posts whose id isn't known yet.
   const countedIds = new Set();
   const countedElements = new WeakSet();
-  // Counted posts Facebook took off the page, and the tracker's id for each as it first left (null
-  // when its link hadn't filled in yet). One it puts back is still the post it counted as, unless
-  // it shows another story by then, since React can reuse an element it took off.
+  // Counted posts Facebook took off the page, and the id each showed as it first left (null when
+  // its link hadn't filled in yet). One it puts back is still the post it counted as, unless it
+  // shows another story by then, since React can reuse an element it took off. One back before
+  // its link stays the post it was until the link fills in (post/update) and says otherwise.
   const leftWith = new WeakMap();
   const revealed = new WeakSet();
   // Marked posts Facebook took off the page with the mark still on. One it puts back is hidden on
@@ -222,8 +223,9 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     const id = comment ? null : postIdOf(element).id;
     // Decided here and not when the tracker reports it back, since the features hear that first
     // and hide it before the hider would.
-    if (leftWith.has(element)) {
-      if (!sameStory(element, leftWith.get(element))) countedElements.delete(element);
+    const before = leftWith.get(element);
+    if (leftWith.has(element) && (before === null || id !== null)) {
+      if (!sameStory(element, before)) countedElements.delete(element);
       leftWith.delete(element);
     }
     const seen = countedElements.has(element) || (id !== null && countedIds.has(id));
@@ -244,9 +246,10 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     posts.on('post/remove', ({ element, id = null }) => {
       revealed.delete(element);
       // Still on the page, it's been reused for another story, which counts on its own. Taken
-      // off, it may come back as itself (count()).
+      // off, it may come back as itself (count()). Its link can fill in as it goes, too late for
+      // the tracker to have heard.
       if (element.isConnected) countedElements.delete(element);
-      else if (countedElements.has(element) && !leftWith.has(element)) leftWith.set(element, id);
+      else if (countedElements.has(element) && !leftWith.has(element)) leftWith.set(element, id ?? postIdOf(element).id);
       // A post that leaves the page takes its mark along, and Overview's Show them hears it.
       const marked = markOf(element) !== null;
       if (element.isConnected) clear(element);
@@ -255,6 +258,12 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     });
     posts.on('post/add', ({ element }) => {
       if (departed.delete(element) && markOf(element) !== null) notify();
+    });
+    // A post back before its link, still hidden, whose link now names another story counts as
+    // that one, under the reason its note names. A feature that hid it again already decided.
+    posts.on('post/update', ({ element }) => {
+      const marker = markOf(element);
+      if (leftWith.has(element) && marker && count(element, reasonsOf(marker).keys().next().value)) notify();
     });
   }
 
