@@ -280,6 +280,40 @@ test('a block beside the box with words and buttons of its own and no link stays
   assert.equal(friendRequestsBoxes(counted)[0] === counted.querySelector('.friends'), true);
 });
 
+test('a mutual friends link or a Remove link drawn as a button stays in the box', () => {
+  const rows = [
+    request().replace('<span>3 mutual friends</span>', '<a href="/browse/mutual_friends/?uid=1">3 mutual friends</a>'),
+    request().replace('</div>\n', '</div><a href="#" role="button">Remove</a>\n'),
+  ];
+  for (const row of rows) {
+    const doc = page(profileRequests(row) + birthdays + contacts).document;
+    const boxes = friendRequestsBoxes(doc);
+    assert.equal(boxes.length, 1, row);
+    assert.equal(boxes[0] === doc.querySelector('.friends'), true, `the whole box: ${row}`);
+    assert.equal(hasRow(boxes[0]), true, row);
+  }
+});
+
+test('a block beside the box linking to people or to Facebook pages with no buttons, or People you may know, stays out', () => {
+  const beside = [
+    '<div class="nb"><a href="/fundraisers/">Fundraisers</a></div>',
+    '<div class="nb"><span>Birthdays</span><a href="/pat.example">Pat</a> has a birthday today</div>',
+    '<div class="nb"><span>Contacts</span><a href="/pat.example">Pat</a><a href="/sam.example">Sam</a></div>',
+    // One button for everyone in it, not one each the way a request has Confirm.
+    '<div class="nb"><div><span>Contacts</span><div role="button" aria-label="Search"></div></div><a href="/pat.example">Pat</a><a href="/sam.example">Sam</a></div>',
+    // Its heading links to the Friends pages, but to suggestions, not to Friend requests.
+    `<div class="nb"><a href="/friends/suggestions/"><h3>People you may know</h3></a>
+      <div><a href="/pat.example">Pat</a><div role="button">Add friend</div></div></div>`,
+    // A heading over a single link is a box of its own, not a request's name.
+    '<div class="nb"><h3>Your Pages and profiles</h3><a href="/MyShopPage">My Shop</a><div role="button">Switch into Page</div></div>',
+  ];
+  for (const block of beside) {
+    const doc = page(profileRequests() + block).document;
+    const [box] = friendRequestsBoxes(doc);
+    assert.equal(box === doc.querySelector('.friends'), true, block);
+  }
+});
+
 test('a side column inside another one gives one box, not two', () => {
   for (const box of [friendRequests, profileRequests()]) {
     const doc = page(`<div role="complementary" class="inner">${box}</div>${birthdays}`).document;
@@ -389,6 +423,31 @@ test('a box that widens when the box beside it goes is the same box, counted onc
   const wider = doc.querySelector(`[${FRIEND_REQUESTS_MARK}]`);
   assert.equal(Boolean(wider?.contains(doc.querySelector('.friends'))) && !wider.matches('.friends'), true, 'the mark moves out to a block it never heard of');
   assert.equal(rows()['Friend requests boxes hidden on the page'], '1', 'still one box');
+  await tick();
+});
+
+test('a new box drawn where an earlier one was found counts, after the column filled in or with the column empty between', async () => {
+  // Alone at first, so the box found is a block around it, then narrowed when the column fills in.
+  const win = page(sponsoredBox());
+  const doc = win.document;
+  const told = [];
+  watchColumnAds({ doc, enabled: () => true, onAd: (box) => told.push(box) });
+  doc.querySelector('.boxes').insertAdjacentHTML('beforeend', friendRequests);
+  await Promise.resolve();
+  assert.equal(told.length, 1, 'narrowing is the same box');
+  doc.querySelector('.sponsored').outerHTML = sponsoredBox(ad('Other'));
+  await Promise.resolve();
+  assert.equal(told.length, 2, 'a new box in its place');
+  // Gone, then a new one alone again: found as the same block around it, but it's a new box.
+  doc.querySelector('.boxes').replaceChildren();
+  await Promise.resolve();
+  doc.querySelector('.boxes').insertAdjacentHTML('beforeend', sponsoredBox(ad('Third')));
+  await Promise.resolve();
+  assert.equal(told.length, 3);
+  // The block it was found as stands for one box, so a second one drawn in it is new.
+  doc.querySelector('.boxes').insertAdjacentHTML('beforeend', friendRequests + sponsoredBox(ad('Fourth')));
+  await Promise.resolve();
+  assert.equal(told.length, 4);
   await tick();
 });
 

@@ -81,9 +81,10 @@ export function columnAdBoxes(doc) {
   return boxes;
 }
 
-// What a link in the Friend requests box goes to: 'requests' for Friend requests, 'friends' for
-// another page under /friends/, 'person' for someone's profile (each request links to the
-// person, the user.url in the box's data), null for anything else.
+// What a link in the Friend requests box goes to: { kind: 'requests' } for Friend requests,
+// 'friends' for another page under /friends/ or a request's mutual friends, 'person' for
+// someone's profile (each request links to the person, the user.url in the box's data), and
+// `who` for the one person a link names, null for anything else.
 function requestsLink(href) {
   let url;
   try {
@@ -93,27 +94,39 @@ function requestsLink(href) {
   }
   const host = url.hostname.toLowerCase();
   if (host !== 'facebook.com' && !host.endsWith('.facebook.com')) return null;
-  if (/^\/friends\/requests\/?$/.test(url.pathname)) return 'requests';
-  if (/^\/friends(\/|$)/.test(url.pathname)) return 'friends';
+  if (/^\/friends\/requests\/?$/.test(url.pathname)) {
+    const id = url.searchParams.get('profile_id');
+    return id ? { kind: 'requests', who: `id ${id}` } : { kind: 'requests' };
+  }
+  if (/^\/(friends|browse\/mutual_friends)(\/|$)/.test(url.pathname)) return { kind: 'friends' };
   const parts = url.pathname.split('/').filter(Boolean);
   if (parseRoute(url.href).type !== 'profile') return null;
-  if (parts[0] === 'profile.php') return url.searchParams.has('id') ? 'person' : null;
-  if (parts[0] === 'people') return 'person';
+  if (parts[0] === 'profile.php') return url.searchParams.has('id') ? { kind: 'person', who: `id ${url.searchParams.get('id')}` } : null;
+  if (parts[0] === 'people') return { kind: 'person', who: parts.slice(1).join('/') };
   // A username: letters, digits and dots, five or more, alone in the path.
-  return parts.length === 1 && /^[a-z0-9.]{5,}$/i.test(parts[0]) && !parts[0].endsWith('.php') ? 'person' : null;
+  return parts.length === 1 && /^[a-z0-9.]{5,}$/i.test(parts[0]) && !parts[0].endsWith('.php') ? { kind: 'person', who: parts[0].toLowerCase() } : null;
 }
 
-const linksIn = (block) => [...block.querySelectorAll('a[href]')].map((a) => requestsLink(a.getAttribute('href')));
+// A link drawn as a button that goes nowhere, like a request's Remove, is a button.
+const goesNowhere = (a) => a.matches('[role="button"]') && /^\s*(#|javascript:|$)/i.test(a.getAttribute('href'));
+const realLinks = (block) => [...block.querySelectorAll('a[href]')].filter((a) => !goesNowhere(a));
+const kindsIn = (links) => links.map((a) => requestsLink(a.getAttribute('href')));
+const linksIn = (block) => kindsIn(realLinks(block)).map((link) => link?.kind ?? null);
 
-// A heading in a link to someone or to the Friends pages, or holding one, like a request's
-// name: part of a box, not a box of its own.
-const inRequestLink = (heading) => {
-  const link = heading.closest('a[href]') ?? heading.querySelector('a[href]');
-  return Boolean(link) && requestsLink(link.getAttribute('href')) !== null;
-};
+const peopleIn = (links) => new Set(kindsIn(links).map((link) => link?.who).filter(Boolean)).size;
+
+// A request's name drawn as a heading: in a link, or holding links, that name one person. It's
+// part of a box, and any other heading starts a box of its own. People you may know's heading
+// links to the Friends pages and no one. A heading beside a link isn't taken as a name, since
+// a box like Your Pages and profiles can have a heading over a single link.
+function namesOnePerson(heading) {
+  const around = heading.closest('a[href]');
+  const links = around ? [around] : realLinks(heading);
+  return links.length > 0 && !kindsIn(links).includes(null) && peopleIn(links) === 1;
+}
 
 const holdsAnotherBox = (block, heading) => [...block.querySelectorAll(HEADING)]
-  .some((other) => other !== heading && !heading.contains(other) && !other.contains(heading) && !inRequestLink(other));
+  .some((other) => other !== heading && !heading.contains(other) && !other.contains(heading) && !namesOnePerson(other));
 
 // Words outside every button and link, so a block shows something of its own.
 function looseText(block) {
@@ -124,11 +137,31 @@ function looseText(block) {
   return false;
 }
 
-// A block beside the box with no heading and no links that's still something else: its own
-// words and buttons, like a title drawn as plain text over rows of buttons. A request links to
-// the person, and a See more button or an empty divider has no words of its own.
-const somethingElse = (block) => !linksIn(block).some(Boolean)
-  && Boolean(block.querySelector('button, [role="button"]')) && looseText(block);
+const BUTTON = 'button, [role="button"]';
+
+// Whether each person a block links to has a button of their own beside them, as each request
+// has Confirm and Delete.
+function buttonEach(block) {
+  for (const a of realLinks(block)) {
+    if (requestsLink(a.getAttribute('href'))?.kind !== 'person') continue;
+    let row = a;
+    while (row !== block && !row.querySelector(BUTTON)) row = row.parentElement;
+    if (!row.querySelector(BUTTON) || peopleIn(realLinks(row)) > 1) return false;
+  }
+  return true;
+}
+
+// A block beside the box with no heading that's still something else: its own words and
+// buttons with no link, like a title drawn as plain text over rows of buttons, or links to
+// people (or to Facebook pages a username can't be told from) without a button each, like
+// birthdays or contacts under a Search button. A request links to the person with Confirm and
+// Delete beside it, or to Friend requests, and a See more button or an empty divider has no
+// words of its own.
+function somethingElse(block) {
+  const kinds = linksIn(block);
+  if (kinds.includes('person')) return !kinds.includes('requests') && !buttonEach(block);
+  return !kinds.some(Boolean) && Boolean(block.querySelector(BUTTON)) && looseText(block);
+}
 
 // Every Friend requests box in the page's own side columns: the largest block around a heading
 // that holds no other box's heading, links only to the Friends pages and to people (See all,
@@ -174,20 +207,12 @@ function touchesColumn(records) {
 export const watchColumnAds = ({ doc, enabled, onAd }) => watchColumnBoxes({ doc, enabled, find: columnAdBoxes, mark: COLUMN_AD_MARK, onBox: onAd });
 
 // The same for any box find(doc) returns in a side column, under its own mark. onBox hears
-// about a box once while it, or a block around it or in it that it already heard about, is on
-// the page: the box can narrow as the column fills in (contacts loading beside it), and that's
-// still the same box.
+// about a box once: a box the last check found, or a block in or around one of them, is that
+// box again, since the box can narrow as the column fills in (contacts loading beside it) or
+// widen when the box beside it goes. Each earlier box stands for one box only, so a second box
+// drawn in the same block is new, and so is one drawn after a check found none.
 export function watchColumnBoxes({ doc, enabled, find, mark, onBox }) {
-  const told = new Set();
-  const heardOf = (box) => {
-    let heard = false;
-    for (const old of told) {
-      if (!old.isConnected) told.delete(old);
-      else if (old.contains(box) || box.contains(old)) heard = true;
-    }
-    told.add(box);
-    return heard;
-  };
+  let last = [];
   const check = () => {
     if (!enabled()) return;
     const boxes = find(doc);
@@ -195,10 +220,15 @@ export function watchColumnBoxes({ doc, enabled, find, mark, onBox }) {
     for (const marked of doc.querySelectorAll(`[${mark}]`)) {
       if (!boxes.includes(marked)) marked.removeAttribute(mark);
     }
+    const before = last.filter((old) => old.isConnected);
     for (const box of boxes) {
       if (!box.hasAttribute(mark)) box.setAttribute(mark, '');
-      if (!heardOf(box)) onBox?.(box);
+      let at = before.indexOf(box);
+      if (at < 0) at = before.findIndex((old) => old.contains(box) || box.contains(old));
+      if (at < 0) onBox?.(box);
+      else before.splice(at, 1);
     }
+    last = boxes;
   };
   const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
   const observer = new Observer((records) => {
