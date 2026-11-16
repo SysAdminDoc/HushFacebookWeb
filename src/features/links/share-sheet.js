@@ -51,15 +51,18 @@ export function targetOf(item) {
   return TARGETS.find((target) => target.words?.some((word) => words.includes(word)))?.option ?? null;
 }
 
-// The part of the sheet's body that holds element and nothing of the targets row.
-function sectionOf(element, targets) {
-  let node = element;
-  while (node.parentElement && !node.parentElement.contains(targets)) node = node.parentElement;
-  return node;
-}
-
 const HEADING = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 const CONTENT = '[role="list"], [role="textbox"], [contenteditable="true"]';
+
+// The part of the sheet's body that holds element and nothing else the sheet needs: not the
+// targets row, and not the box you write in or another list, should Facebook draw those in one
+// block with it.
+function sectionOf(element, targets) {
+  const holdsMore = (block) => [...block.querySelectorAll(CONTENT)].some((other) => !element.contains(other));
+  let node = element;
+  while (node.parentElement && !node.parentElement.contains(targets) && !holdsMore(node.parentElement)) node = node.parentElement;
+  return node;
+}
 const isHeading = (node) => node.matches(HEADING) || !!node.querySelector(HEADING);
 
 const CONTROL = '[role="button"], [role="link"], a[href]';

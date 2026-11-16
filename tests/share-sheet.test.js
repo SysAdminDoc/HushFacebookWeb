@@ -89,6 +89,19 @@ test('only a heading with no list or text box in it goes with the contacts row',
   assert.equal(withText.getElementById('bug').hasAttribute(MARK), false, 'a box with words in it is not just a button');
 });
 
+test('the contacts row never takes the box you write in along, when Facebook draws them in one block', () => {
+  const html = SHEET()
+    .replace('<div><div role="textbox"', '<div id="top"><div id="composer"><div role="textbox"')
+    .replace('</div></div></div>\n      <div id="share-to">', '</div></div></div></div>\n      <div id="share-to">');
+  const doc = page(html);
+  assert.equal(doc.getElementById('top').contains(doc.getElementById('contacts')), true, 'the fixture wraps them together');
+  markShareSheets(doc);
+  assert.equal(doc.getElementById('top').hasAttribute(MARK), false);
+  assert.equal(doc.getElementById('composer').hasAttribute(MARK), false, 'Share now stays');
+  assert.equal(doc.getElementById('contacts').getAttribute(MARK), 'contacts');
+  assert.equal(doc.getElementById('heading').getAttribute(MARK), 'contacts', 'its heading still goes with it');
+});
+
 test('a list of comments or posts, or a list with one target, is not the share sheet', () => {
   const comment = (inner) => `<div role="listitem"><div role="article" aria-label="Comment by Pat Example">${inner}</div></div>`;
   const doc = page(`
