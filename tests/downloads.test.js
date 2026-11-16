@@ -279,6 +279,17 @@ test('a video in a post is found by the nearest video or reel link, and two diff
   assert.equal(findMedia(q('video.none'), { href: win.location.href, index }).id, null);
 });
 
+test("without the page's data a photo saves the copy on screen, even before the browser has picked one", () => {
+  const src = 'https://scontent.example.invalid/v/123_n.jpg?stp=dst-jpg_s960x960&oh=1';
+  const win = page(POST(`<a href="/photo/?fbid=4444444&set=a.1"><img src="${src}"></a>`));
+  const img = win.document.querySelector('a[href^="/photo/"] img');
+  // A browser reads an empty currentSrc until the image starts loading, not null.
+  Object.defineProperty(img, 'currentSrc', { value: '', configurable: true });
+  const plan = planSave(findMedia(img, { href: win.location.href, index: null }));
+  assert.equal(plan.url, src);
+  assert.equal(plan.name, 'Pat Example photo 4444444.jpg');
+});
+
 test("a verified Page's check mark stays out of the name", () => {
   // Live 2026-10-22 on NASA's Page: one span wraps the name link and the check mark's svg.
   const badge = '<span>&nbsp;<span><svg viewBox="0 0 12 12" role="img" title="Verified account"><title>Verified account</title><path d="M0 0"></path></svg></span></span>';

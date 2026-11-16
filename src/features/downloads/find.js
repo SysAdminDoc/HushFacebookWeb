@@ -122,7 +122,8 @@ export function authorOf(element) {
   return text && text.length <= 80 ? text : null;
 }
 
-// The largest address the page itself has for an image.
+// The largest address the page itself has for an image. A browser's currentSrc is empty, not
+// null, until the image starts loading.
 export function imageSource(img) {
   let best = null;
   for (const part of (img.getAttribute('srcset') ?? '').split(',')) {
@@ -130,7 +131,7 @@ export function imageSource(img) {
     const width = Number.parseFloat(size) || 0;
     if (url && (!best || width > best.width)) best = { url, width };
   }
-  return best?.url ?? img.currentSrc ?? img.getAttribute('src') ?? null;
+  return best?.url || img.currentSrc || img.getAttribute('src') || null;
 }
 
 const asKind = (item, kind) => (item?.kind === kind ? item : null);

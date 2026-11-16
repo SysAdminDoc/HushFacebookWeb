@@ -26,6 +26,7 @@
 * In the extension, Retry after a failed clear or restore could write it over a newer change another tab had made in the meantime. The newer change stays now.
 * In the extension, Retry after a failed clear (like Forget every spot) sometimes did nothing at all, leaving the list in place, when the page had only heard the old list again while the clear was on its way. Retry sends the clear again now.
 * In the extension, a change made while the page was still loading could be saved over another tab's newer one when a storage error hid that tab's change. A change made after the first load failed went the other way: the page showed the older saved value even though yours was the one saved. Both now end with the page showing what's saved. Retry after a failed save now leaves another tab's change in place too, when a storage error kept this tab from seeing it. A storage error about one setting no longer holds back your change to a different one.
+* Download any photo could say it couldn't find the photo's file for a picture the browser hadn't started loading yet, when Facebook's data didn't have it either (content mode, say). It saves the copy on the page now.
 
 ## v0.0.47 (2026-11-15, unreleased)
 
