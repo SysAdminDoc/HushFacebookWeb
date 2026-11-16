@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { boot } from '../src/boot.js';
 import { CONFIRM_MS, LOAD_WAIT_MS, TAB_PAUSE_KEY } from '../src/core/load-watchdog.js';
 import { MONSTER } from '../src/core/storage-report.js';
+import { pickerRules } from '../src/features/appearance/hide-parts.js';
 import { features as allFeatures } from '../src/features/index.js';
 import { testWindow } from './helpers/dom.js';
 
@@ -207,4 +208,33 @@ test('a network installation failure leaves the panel and page cleanup usable an
   button(notices(shadow())[0], 'Open').click();
   assert.match(shadow().textContent, /Network protection/);
   assert.match(shadow().textContent, /Unavailable\. Network filtering and privacy protection are off/);
+});
+
+test("the part picker hears the page ahead of the features' own window listeners, and Escape on its bar ends it", (t) => {
+  quiet(t);
+  const { win, shadow } = tab();
+  const heard = [];
+  let pickPart = null;
+  // A feature that listens for clicks on the window as it starts, like Following feed.
+  const feature = {
+    id: 'listens', section: 'feed', title: 'Listens', description: 'Hears clicks on the window.', default: true,
+    setup: (ctx) => {
+      pickPart = ctx.pickPart;
+      ctx.win.addEventListener('click', (event) => heard.push(event.type), true);
+    },
+  };
+  boot({ win, doc: win.document, access: 'page', own: win, features: [feature] });
+  win.document.body.insertAdjacentHTML('beforeend', '<div role="complementary"><div><h3 id="title">Birthdays</h3></div></div>');
+  const title = win.document.getElementById('title');
+  const click = () => title.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+
+  pickPart({ section: 'appearance', rules: pickerRules, onSave: () => {} });
+  const bar = shadow().querySelector('.picker');
+  assert.ok(bar, 'the picker is running');
+  assert.equal(click(), false, 'the pick is kept from the page');
+  assert.deepEqual(heard, [], "and from the feature's listener, which came before the picker started");
+  bar.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, composed: true }));
+  assert.equal(shadow().querySelector('.picker'), null, 'Escape on the bar ends it, past the stop that keeps panel keys from the page');
+  assert.equal(click(), true);
+  assert.deepEqual(heard, ['click'], 'clicks reach the feature again');
 });

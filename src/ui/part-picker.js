@@ -4,9 +4,15 @@
 // Smaller, Pick another and Cancel. Escape cancels too.
 //
 // Nothing is written on Facebook's elements. The outline and the bar live in the panel's own
-// shadow root, and the preview is a style element of the script's own. Every pointer and mouse
-// event outside the script's own elements stops at the window while the picker runs, so
-// Facebook never hears a click, a hover or a right click until it's done.
+// shadow root, and the preview is a style element of the script's own. Every pointer, mouse,
+// touch and key event outside the script's own elements stops at the window while the picker
+// runs, so Facebook never hears a click, a hover, a right click or a key until it's done. Tab
+// stays in the bar.
+//
+// The events reach the picker through one set of window listeners the script adds as it starts
+// (guardForPicking), ahead of its own features' window listeners (Following feed's and
+// Marketplace only's clicks, Keep posts hidden's) and of keepKeysInPanel, which would stop
+// Escape on the bar before a listener added later saw it.
 //
 // root: where the bar and outline go, inside host's shadow root.
 // rules: { ruleFor(node) => { line } | { refused }, cssFor(line), describe(line) }
@@ -16,12 +22,27 @@ import { h } from './h.js';
 
 const BLOCKED = ['pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave', 'mousedown',
   'mouseup', 'mousemove', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave', 'click', 'auxclick', 'dblclick', 'contextmenu'];
+// Stopped but not cancelled, so a tap still makes the click that picks.
+const TOUCH = ['touchstart', 'touchmove', 'touchend', 'touchcancel'];
+const KEYS = ['keydown', 'keypress', 'keyup'];
+const GATED = [...BLOCKED, ...TOUCH, ...KEYS];
 const POINTING_CURSOR = 'html, html * { cursor: crosshair !important; }';
+
+const gates = new WeakMap();
+
+// The window listeners every picker in this window goes through. Added once, as the script starts.
+export function guardForPicking(win) {
+  if (gates.has(win)) return;
+  const gate = { active: null };
+  gates.set(win, gate);
+  for (const type of GATED) win.addEventListener(type, (event) => gate.active?.(event), { capture: true, passive: TOUCH.includes(type) });
+}
 
 function refusalText(reason) {
   switch (reason) {
     case 'feed': return t("That's part of a post or the feed. To hide posts, use Hide posts by words on the Feed page.");
     case 'big': return t('That would hide most of the page. Pick something smaller.');
+    case 'ours': return t("That's HushFacebook Web's own. Point at a part of Facebook.");
     default: return t("Couldn't tell that part apart from others like it. Try Bigger, or pick something next to it.");
   }
 }
@@ -172,25 +193,54 @@ export function startPartPicker({ root, host, doc, win, rules, onSave, onEnd }) 
       choose(boxFor(node));
     }
   };
-  const keydown = (event) => {
-    if (event.key !== 'Escape') return;
+  // Tab and Shift+Tab go around the bar's buttons.
+  const wrapTab = (event) => {
+    const stops = Object.values(buttons).filter((item) => !item.hidden && !item.disabled);
+    const focused = bar.getRootNode().activeElement;
+    const to = event.shiftKey ? (focused === bar || focused === stops[0] ? stops.at(-1) : null) : focused === stops.at(-1) ? stops[0] : null;
+    if (!to) return;
+    event.preventDefault();
+    to.focus({ preventScroll: true });
+  };
+  const key = (event) => {
+    if (event.type === 'keydown' && event.key === 'Escape') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      end(false);
+      return;
+    }
+    if (ours(event)) {
+      if (event.type === 'keydown' && event.key === 'Tab') wrapTab(event);
+      return;
+    }
+    // Focus somewhere on Facebook (from before the picker, say): its keys wait, and focus comes back.
     event.preventDefault();
     event.stopImmediatePropagation();
-    end(false);
+    if (event.type === 'keydown') bar.focus({ preventScroll: true });
+  };
+  const touch = (event) => {
+    if (!ours(event)) event.stopImmediatePropagation();
+  };
+  const handle = (event) => {
+    if (KEYS.includes(event.type)) key(event);
+    else if (TOUCH.includes(event.type)) touch(event);
+    else block(event);
   };
   // Only the outline moves with the page. The preview stays as it is.
   const redraw = () => draw(outlined?.node, outlined?.refused);
+  const gate = gates.get(win);
   const listeners = [
-    ...BLOCKED.map((type) => [type, block]),
-    ['keydown', keydown],
+    ...(gate ? [] : GATED.map((type) => [type, handle])),
     ['scroll', redraw],
     ['resize', redraw],
   ];
-  for (const [type, run] of listeners) win.addEventListener(type, run, { capture: true, passive: type === 'scroll' });
+  if (gate) gate.active = handle;
+  for (const [type, run] of listeners) win.addEventListener(type, run, { capture: true, passive: type === 'scroll' || TOUCH.includes(type) });
 
   function end(saved) {
     if (ended) return;
     ended = true;
+    if (gate?.active === handle) gate.active = null;
     for (const [type, run] of listeners) win.removeEventListener(type, run, { capture: true });
     preview.remove();
     outline.remove();

@@ -4,17 +4,24 @@
 // wrong, so the tests check the matcher, and the browser fixture checks the two agree).
 //
 // One rule per line, in one of two shapes:
-//   main link /marketplace/ up 2   the element two levels above a link to Marketplace, in the main column
-//   complementary at 1 3 2         the right column's 1st child, then that one's 3rd, then its 2nd
+//   main link /marketplace/ up 2 on home   the element two levels above a link to Marketplace, in the main column
+//   complementary at 1 3 2 on groups       the right column's 1st child, then that one's 3rd, then its 2nd
 //
 // A rule names a landmark (the top bar, a side column, the main column, a dialog) or the whole
-// page, then a link to one of Facebook's own sections or a place inside that landmark. It never
+// page, then a link to one of Facebook's own sections or a place inside that landmark, then the
+// kind of page it was picked on (data-hfw-route), since the same place on another page holds
+// something else. The top bar is the same on every page, so its rules hold no page. A rule never
 // holds a class name, which Facebook changes with every build, or words from the page, which
 // carry people's names. Links to people, groups, Pages and places are never used either. Every
 // token is checked against a strict pattern, so a line from a backup can't carry CSS of its own.
+//
+// Whatever a rule finds, it never hides a post, the feed, the main column, anything inside or
+// holding one of those, or the script's own elements (GUARD), so a part Facebook later fills with
+// posts shows again by itself.
 
 import { t } from '../../core/i18n.js';
 import { CANDIDATE_SELECTOR } from '../../core/dom/posts.js';
+import { ROUTE_NAMES } from '../../core/route.js';
 import { HOSTS } from './declutter-table.js';
 
 export const LANDMARKS = Object.freeze(['banner', 'navigation', 'complementary', 'main', 'contentinfo', 'dialog']);
@@ -37,8 +44,17 @@ const MAX_DEPTH = 40;
 const MAX_LINKS = 40;
 const OURS = '[data-hushfacebook-web]';
 const POSTS = `[role="feed"], ${CANDIDATE_SELECTOR}`;
+const MAIN = '[role="main"]';
+const POSTS_LIST = POSTS.split(', ');
+const GUARD = `:not(${[OURS, `${OURS} *`, ...POSTS_LIST, ...POSTS_LIST.map((post) => `${post} *`), MAIN].join(', ')}):not(:has(${POSTS}, ${MAIN}))`;
+const ROUTES = new Set(ROUTE_NAMES);
 
-const LINE = /^(banner|navigation|complementary|main|contentinfo|dialog|page) (?:link (\/(?:[a-z_]+\/){0,2}) up (\d{1,2})|at ((?:[1-9]\d{0,2} ){0,39}[1-9]\d{0,2}))$/;
+const LINE = /^(banner|navigation|complementary|main|contentinfo|dialog|page) (?:link (\/(?:[a-z_]+\/){0,2}) up (\d{1,2})|at ((?:[1-9]\d{0,2} ){0,39}[1-9]\d{0,2}))(?: on ([a-z]{1,20}))?$/;
+
+// What GUARD lets a rule hide, the way the CSS checks it.
+const hideable = (node) => !node.closest(OURS) && !node.closest(POSTS) && !node.matches(MAIN) && !node.querySelector(`${POSTS}, ${MAIN}`);
+// Facebook's own children of a node, the ones a place in a rule counts.
+const counted = (node) => [...node.children].filter((child) => !child.matches(OURS));
 
 const validPath = (path) => {
   const [first, second, extra] = path.split('/').filter(Boolean);
@@ -82,25 +98,27 @@ export function sectionPath(href) {
 export function parseRule(line) {
   const match = LINE.exec(typeof line === 'string' ? line.trim() : '');
   if (!match) return null;
-  const [, landmark, path, up, at] = match;
+  const [, landmark, path, up, at, route] = match;
+  if (route !== undefined && !ROUTES.has(route)) return null;
+  const on = route === undefined ? {} : { route };
   if (path !== undefined) {
     if (!validPath(path) || Number(up) > MAX_UP) return null;
-    return { landmark, kind: 'link', path, up: Number(up) };
+    return { landmark, kind: 'link', path, up: Number(up), ...on };
   }
-  return { landmark, kind: 'at', steps: at.split(' ').map(Number) };
+  return { landmark, kind: 'at', steps: at.split(' ').map(Number), ...on };
 }
 
 export const ruleLines = (text) => String(text ?? '').split(/\r?\n/).map((line) => line.trim()).filter((line) => parseRule(line));
 
 const scopeSelector = (landmark) => (landmark === 'page' ? 'body' : `[role="${landmark}"]`);
 
-// The selector list for one rule. Never our own elements: a place in the page can come to be the
-// settings button's.
+// The selector list for one rule. A place counts only Facebook's elements, so the script adding
+// one of its own (the settings button, a download button) doesn't move it.
 export function selectorFor(rule) {
-  const scope = scopeSelector(rule.landmark);
-  if (rule.kind === 'at') return `${scope} > ${rule.steps.map((step) => `:nth-child(${step})`).join(' > ')}:not(${OURS})`;
+  const scope = `${rule.route ? `html[data-hfw-route="${rule.route}"] ` : ''}${scopeSelector(rule.landmark)}`;
+  if (rule.kind === 'at') return `${scope} > ${rule.steps.map((step) => `:nth-child(${step} of :not(${OURS}))`).join(' > ')}${GUARD}`;
   return linkSelectors(rule.path)
-    .map((link) => (rule.up === 0 ? `${scope} ${link}` : `${scope} :has(> ${'* > '.repeat(rule.up - 1)}${link})`))
+    .map((link) => (rule.up === 0 ? `${scope} ${link}${GUARD}` : `${scope} :has(> ${'* > '.repeat(rule.up - 1)}${link})${GUARD}`))
     .join(', ');
 }
 
@@ -113,12 +131,13 @@ export function partsCss(text) {
 export function matchRule(rule, doc) {
   const found = new Set();
   if (!rule || !doc?.body) return [];
+  if (rule.route && doc.documentElement.dataset.hfwRoute !== rule.route) return [];
   if (rule.kind === 'at') {
     const scopes = rule.landmark === 'page' ? [doc.body] : doc.querySelectorAll(scopeSelector(rule.landmark));
     for (const scope of scopes) {
       let node = scope;
-      for (const step of rule.steps) node = node?.children[step - 1];
-      if (node && !node.matches(OURS)) found.add(node);
+      for (const step of rule.steps) node = node && counted(node)[step - 1];
+      if (node && hideable(node)) found.add(node);
     }
     return [...found];
   }
@@ -129,7 +148,7 @@ export function matchRule(rule, doc) {
     if (!hrefMatches(link.getAttribute('href'), rule.path)) continue;
     let node = link;
     for (let index = 0; index < rule.up && node; index++) node = node.parentElement;
-    if (node && inScope(node)) found.add(node);
+    if (node && inScope(node) && hideable(node)) found.add(node);
   }
   return [...found];
 }
@@ -169,7 +188,7 @@ function stepsTo(node, top) {
   const steps = [];
   for (let at = node; at !== top; at = at.parentElement) {
     if (!at?.parentElement) return null;
-    steps.unshift([...at.parentElement.children].indexOf(at) + 1);
+    steps.unshift(counted(at.parentElement).indexOf(at) + 1);
   }
   return steps;
 }
@@ -181,20 +200,22 @@ export function ruleFor(node, doc = node?.ownerDocument) {
   const refused = refusalFor(node, doc);
   if (refused) return { refused };
   const landmark = landmarkOf(node, doc);
+  const route = doc.documentElement.dataset.hfwRoute;
+  const on = landmark.name !== 'banner' && ROUTES.has(route) ? ` on ${route}` : '';
   const tried = new Set();
   const links = [...(node.matches('a[href]') ? [node] : []), ...node.querySelectorAll('a[href]')].slice(0, MAX_LINKS);
   for (const link of links) {
     const path = sectionPath(link.getAttribute('href'));
     const up = depthOf(link, node);
     if (!path || up > MAX_UP) continue;
-    const line = `${landmark.name} link ${path} up ${up}`;
+    const line = `${landmark.name} link ${path} up ${up}${on}`;
     if (tried.has(line)) continue;
     tried.add(line);
     if (hidesOnly(parseRule(line), node, doc)) return { line };
   }
   const steps = stepsTo(node, landmark.element);
   if (steps?.length && steps.length <= MAX_DEPTH && steps.every((step) => step < 1000)) {
-    const line = `${landmark.name} at ${steps.join(' ')}`;
+    const line = `${landmark.name} at ${steps.join(' ')}${on}`;
     if (hidesOnly(parseRule(line), node, doc)) return { line };
   }
   return { refused: 'unclear' };
@@ -212,11 +233,41 @@ function whereName(landmark) {
   }
 }
 
+function pageName(route) {
+  switch (route) {
+    case 'home': return t('Home');
+    case 'marketplace': return t('Marketplace');
+    case 'groups': return t('Groups');
+    case 'watch': return t('Video');
+    case 'reel': return t('Reels');
+    case 'stories': return t('Stories');
+    case 'messages': return t('Messages');
+    case 'notifications': return t('Notifications');
+    case 'search': return t('search results');
+    case 'friends': return t('Friends');
+    case 'gaming': return t('Gaming');
+    case 'events': return t('Events');
+    case 'photo': return t('photos');
+    case 'post': return t('single posts');
+    case 'settings': return t('Settings');
+    case 'saved': return t('Saved');
+    case 'hashtag': return t('hashtag pages');
+    case 'feeds': return t('Feeds');
+    case 'menu': return t('the Menu page');
+    default: return t('profiles and Pages');
+  }
+}
+
 // What a saved line hides, in words for the list of parts.
 export function describeRule(line) {
   const rule = parseRule(line);
   if (!rule) return line;
   const where = whereName(rule.landmark);
+  if (rule.route) {
+    const page = pageName(rule.route);
+    if (rule.kind === 'link') return t('The part with a link to {path} in {where}, on {page}', { path: rule.path, where, page });
+    return t('A part of {where} on {page}, found by its place in it', { where, page });
+  }
   if (rule.kind === 'link') return t('The part with a link to {path} in {where}', { path: rule.path, where });
   return t('A part of {where}, found by its place in it', { where });
 }

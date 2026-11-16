@@ -1,15 +1,17 @@
 // The part picker (src/ui/part-picker.js) with the rules Hide parts of the page gives it: Facebook
-// hears none of the clicks and hovers while it runs, a click picks the part under it and shows it
-// hidden, and Save, Cancel, Escape, Bigger, Smaller and Pick another do what they say. Where the
-// outline lands and what the CSS hides need real layout, so tests/browser/hide-parts-fixture.html
-// checks those in Chromium and Firefox.
+// hears none of the clicks, hovers, touches and keys while it runs, not even through the script's
+// own window listeners, a click picks the part under it and shows it hidden, and Save, Cancel,
+// Escape, Tab, Bigger, Smaller and Pick another do what they say. Where the outline lands and what
+// the CSS hides need real layout, so tests/browser/fixtures/hide-parts.js checks those in Chromium
+// and Firefox.
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
 import { describeRule, partsCss } from '../src/features/appearance/part-rules.js';
 import { pickerRules } from '../src/features/appearance/hide-parts.js';
-import { startPartPicker } from '../src/ui/part-picker.js';
+import { guardForPicking, startPartPicker } from '../src/ui/part-picker.js';
+import { keepKeysInPanel } from '../src/ui/keys.js';
 
 const PAGE = `
   <div role="navigation" id="left"><ul>
@@ -26,7 +28,8 @@ afterEach(() => {
 
 const PAGE_EVENTS = ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'mouseover', 'mousemove', 'contextmenu', 'auxclick', 'dblclick'];
 
-function setup() {
+// before(win): runs ahead of the picker, the way boot adds its window listeners first.
+function setup({ before } = {}) {
   const win = testWindow('https://www.facebook.com/');
   // h() builds with the page's globals, as it does in the userscript.
   const saved = ['document', 'Node'].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
@@ -54,6 +57,7 @@ function setup() {
   for (const type of PAGE_EVENTS) doc.addEventListener(type, () => heard.push(type));
   const saves = [];
   const ends = [];
+  before?.(win);
   const picker = startPartPicker({
     root, host, doc, win, rules: pickerRules,
     onSave: (line) => saves.push(line),
@@ -171,4 +175,101 @@ test('Bigger takes the part around the pick, and Smaller goes back', () => {
     assert.equal(picker.state().line, line);
   }
   assert.equal(button('smaller').disabled, true);
+});
+
+test("the picker hears the page ahead of the script's own window listeners, and keepKeysInPanel leaves it Escape", () => {
+  const featureHeard = [];
+  const { win, doc, host, root, picker, heard, ends, fire, button } = setup({
+    before: (page) => {
+      guardForPicking(page);
+      keepKeysInPanel(page);
+      // Like Following feed's and Marketplace only's click listeners, added as the script starts.
+      for (const type of ['click', 'pointerdown', 'mousedown', 'keydown']) page.addEventListener(type, (event) => featureHeard.push(event.type), true);
+    },
+  });
+  const title = doc.getElementById('birthdays-title');
+  assert.equal(fire(title, 'pointerdown'), false);
+  assert.equal(fire(title, 'click'), false);
+  assert.equal(picker.state().state, 'picked');
+  assert.deepEqual(featureHeard, [], "the script's own listeners never act on a pick");
+  assert.deepEqual(heard, []);
+
+  // Escape on the bar, where keepKeysInPanel stops every key before the page hears it.
+  const escape = new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, composed: true });
+  assert.equal(button('save').dispatchEvent(escape), false);
+  assert.deepEqual(ends, [{ saved: false }]);
+  assert.deepEqual(featureHeard, []);
+
+  // Once it ends, the guard passes everything on.
+  assert.equal(fire(title, 'click'), true);
+  assert.deepEqual(featureHeard, ['click']);
+  assert.deepEqual(heard, ['click']);
+
+  // The next picker in the window goes through the same listeners.
+  featureHeard.length = 0;
+  heard.length = 0;
+  const again = startPartPicker({ root, host, doc, win, rules: pickerRules, onSave: () => {} });
+  cleanups.push(() => again.stop());
+  assert.equal(fire(title, 'click'), false);
+  assert.equal(again.state().state, 'picked');
+  assert.deepEqual(featureHeard, []);
+  assert.deepEqual(heard, []);
+});
+
+test('Tab and Shift+Tab go around the bar, and a key aimed at the page waits while focus comes back to the bar', () => {
+  const { win, doc, shadow, fire, button } = setup();
+  const keysHeard = [];
+  for (const type of ['keydown', 'keypress', 'keyup']) doc.addEventListener(type, (event) => keysHeard.push(`${event.type} ${event.key}`));
+  const press = (target, init, type = 'keydown') => target.dispatchEvent(new win.KeyboardEvent(type, { bubbles: true, cancelable: true, composed: true, ...init }));
+  const bar = shadow.querySelector('.picker');
+
+  // While pointing, Cancel is the one button.
+  assert.equal(press(bar, { key: 'Tab', shiftKey: true }), false);
+  assert.ok(shadow.activeElement === button('cancel'), 'Shift+Tab from the bar goes to the last button');
+  assert.equal(press(button('cancel'), { key: 'Tab' }), false);
+  assert.ok(shadow.activeElement === button('cancel'), 'and Tab keeps to it');
+
+  fire(doc.getElementById('market-word'), 'click');
+  assert.ok(shadow.activeElement === button('save'));
+  assert.equal(press(button('save'), { key: 'Tab' }), true, 'between buttons the browser moves focus as usual');
+  button('cancel').focus();
+  assert.equal(press(button('cancel'), { key: 'Tab' }), false);
+  assert.ok(shadow.activeElement === button('save'), 'Tab from the last button goes to the first');
+  assert.equal(press(button('save'), { key: 'Tab', shiftKey: true }), false);
+  assert.ok(shadow.activeElement === button('cancel'), 'Shift+Tab from the first goes to the last');
+
+  // Focus left on Facebook from before the picker: none of its keys reach the page.
+  keysHeard.length = 0;
+  const link = doc.querySelector('#groups a');
+  for (const type of ['keydown', 'keypress', 'keyup']) assert.equal(press(link, { key: 'l' }, type), false, `${type} is held back`);
+  assert.deepEqual(keysHeard, []);
+  assert.ok(shadow.activeElement === bar, 'focus comes back to the bar');
+  assert.equal(press(link, { key: 'Escape' }), false);
+  assert.equal(button('cancel'), null, 'Escape ends it from anywhere');
+});
+
+test('a touch on the page is kept from Facebook but not cancelled, so the tap still picks', () => {
+  const { win, doc, picker, fire, button } = setup();
+  const touches = [];
+  const TOUCHES = ['touchstart', 'touchmove', 'touchend', 'touchcancel'];
+  for (const type of TOUCHES) doc.addEventListener(type, () => touches.push(type));
+  const touch = (target, type) => target.dispatchEvent(new win.Event(type, { bubbles: true, cancelable: true, composed: true }));
+  const title = doc.getElementById('birthdays-title');
+  for (const type of TOUCHES) assert.equal(touch(title, type), true, `${type} isn't cancelled`);
+  assert.deepEqual(touches, []);
+  fire(title, 'click');
+  assert.equal(picker.state().state, 'picked');
+  assert.equal(touch(button('save'), 'touchstart'), true);
+  assert.deepEqual(touches, ['touchstart'], 'touches on the bar go through');
+});
+
+test("a pick on something of the script's own on the page says so", () => {
+  const { doc, picker, fire, button, text } = setup();
+  const mark = doc.createElement('div');
+  mark.dataset.hushfacebookWeb = 'note';
+  doc.getElementById('right').append(mark);
+  fire(mark, 'click');
+  assert.deepEqual(picker.state(), { state: 'picked', line: null, refused: 'ours' });
+  assert.match(text(), /HushFacebook Web's own/);
+  assert.equal(button('save').disabled, true);
 });

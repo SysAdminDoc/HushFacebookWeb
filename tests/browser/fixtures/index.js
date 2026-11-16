@@ -14,4 +14,4 @@ export { storiesGap } from './stories-gap.js';
 export { prepareVoiceClip, voiceClipState } from './voice-clip.js';
 export { prepareMessenger, messengerState } from './messenger.js';
 export { prepareSeller, sellerFocus } from './seller.js';
-export { preparePicker, pickerState, pointAt, boxOf, displayOf, clearHeard, savedPart, showList } from './hide-parts.js';
+export { preparePicker, focusPick, pickerState, pointAt, boxOf, displayOf, displayOn, postInto, clearHeard, savedPart, showList } from './hide-parts.js';

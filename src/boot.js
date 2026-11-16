@@ -26,6 +26,7 @@ import { features as allFeatures } from './features/index.js';
 import { keepKeysInPanel } from './ui/keys.js';
 import { installLogoLongPress } from './ui/logo-long-press.js';
 import { mountPanel } from './ui/panel.js';
+import { guardForPicking } from './ui/part-picker.js';
 
 export const DUPLICATE = 'data-hushfacebook-web-duplicate';
 
@@ -42,6 +43,9 @@ function signedInAccount(doc) {
 // Starts the script in one Facebook tab and hands back what it set up. win is Facebook's own
 // window, doc its document, access 'page' or 'content' (env.js), own the script's own global.
 export function boot({ win, doc, access, own = globalThis, features = allFeatures }) {
+  // The part picker's window listeners come before every other one of the script's own, so a
+  // feature's click handler never acts on a pick and keepKeysInPanel never eats the picker's Escape.
+  guardForPicking(win);
   // First, so Facebook's keyboard shortcuts never see what's typed in the settings panel.
   keepKeysInPanel(win);
   const log = createLog();

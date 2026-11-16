@@ -33,6 +33,9 @@ const ROUTE_TYPES = {
   bookmarks: 'menu',
 };
 
+// Every kind of page data-hfw-route can name.
+export const ROUTE_NAMES = Object.freeze([...new Set(Object.values(ROUTE_TYPES))]);
+
 export function parseRoute(href) {
   const url = new URL(href);
   const parts = url.pathname.split('/').filter(Boolean);

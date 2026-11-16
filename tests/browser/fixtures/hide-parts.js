@@ -8,12 +8,16 @@ import { createMemoryStorage } from '../../../src/core/storage.js';
 import { mountFeatureStyles, renderFeatureCss } from '../../../src/core/style.js';
 import hideParts from '../../../src/features/appearance/hide-parts.js';
 import { matchRule, parseRule, selectorFor } from '../../../src/features/appearance/part-rules.js';
+import { keepKeysInPanel } from '../../../src/ui/keys.js';
 import { mountPanel } from '../../../src/ui/panel.js';
+import { guardForPicking } from '../../../src/ui/part-picker.js';
 import { check, delay } from './helpers.js';
 
 // Hide parts of the page in a real browser: real pointer moves draw the outline over the right
 // box, real clicks pick instead of reaching the page, and the saved line's CSS hides exactly what
-// the matcher finds. The driver in runner.mjs moves the mouse and presses the keys.
+/// the matcher finds. The driver in runner.mjs moves the mouse and presses the keys. The window
+// listeners go on in boot's order, the picker's first, then keepKeysInPanel, then a feature's own
+// click listener, and the page is stamped Home the way the router stamps it.
 
 const PAGE = `<style>
   #hfw-parts-page { display: grid; grid-template-columns: 200px 1fr 240px; gap: 12px; align-items: start; }
@@ -52,6 +56,9 @@ const rectOf = (node) => {
 };
 
 export async function preparePicker() {
+  guardForPicking(window);
+  keepKeysInPanel(window);
+  document.documentElement.dataset.hfwRoute = 'home';
   const errors = [];
   const log = createLog({ sink: { info() {}, warn() {}, error: (message) => errors.push(String(message)) } });
   const storage = createMemoryStorage();
@@ -65,6 +72,13 @@ export async function preparePicker() {
       heard.push(type);
       if (type === 'click') event.preventDefault();
     });
+  }
+  // One of the script's own features, like Following feed's click listener on the window, added
+  // as the script starts. It acts on clicks in the page, never on the panel's.
+  for (const type of ['click', 'pointerdown']) {
+    window.addEventListener(type, (event) => {
+      if (event.target?.closest?.('#hfw-parts-page')) heard.push(`feature ${type}`);
+    }, true);
   }
   let shadow;
   const attach = HTMLElement.prototype.attachShadow;
@@ -94,10 +108,45 @@ export async function preparePicker() {
   panel.open('appearance');
   await frames();
   state = { panel, settings, storage, shadow, opener, heard, style, log, errors };
+  return focusPick();
+}
+
+// Focus on the card's Pick a part to hide, ready for Enter.
+export async function focusPick() {
+  await frames();
+  const { shadow } = state;
   const pick = [...shadow.querySelectorAll('main button')].find((item) => item.textContent === 'Pick a part to hide');
   check(Boolean(pick), 'Appearance has no Pick a part to hide button');
   pick.focus();
   return { focused: shadow.activeElement === pick };
+}
+
+// A post Facebook puts into a hidden part later brings the part back, since a rule never hides
+// posts. Gone again, the part hides again.
+export async function postInto(id) {
+  const part = document.getElementById(id);
+  const post = document.createElement('div');
+  post.setAttribute('role', 'article');
+  post.setAttribute('aria-posinset', '3');
+  post.textContent = 'A post that turned up in the column.';
+  part.append(post);
+  await frames();
+  const withPost = getComputedStyle(part).display;
+  post.remove();
+  await frames();
+  return { withPost, after: getComputedStyle(part).display };
+}
+
+// How the part shows on another kind of page, the router's stamp put back after.
+export async function displayOn({ id, route }) {
+  const root = document.documentElement;
+  const was = root.dataset.hfwRoute;
+  root.dataset.hfwRoute = route;
+  await frames();
+  const display = getComputedStyle(document.getElementById(id)).display;
+  root.dataset.hfwRoute = was;
+  await frames();
+  return display;
 }
 
 // Where the picker stands, in booleans, keys and boxes.

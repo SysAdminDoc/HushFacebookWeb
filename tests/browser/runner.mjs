@@ -184,6 +184,21 @@ async function hideParts(page, engine) {
   assert.equal(seen.barFocused, true, "The panel's closing took focus from the picker's bar");
   assert.equal(seen.openerFocused, false, 'Focus went back to what opened the panel');
 
+  // Escape on the bar ends it, though keepKeysInPanel stops every key from the panel.
+  await page.keyboard.press('Escape');
+  seen = await fixture('pickerState');
+  assert.equal(seen.picker, false, 'Escape on the bar did not end the picker');
+  assert.equal(seen.dialogOpen, true, 'Escape did not bring the panel back');
+  assert.equal((await fixture('focusPick')).focused, true);
+  await page.keyboard.press('Enter');
+  assert.equal((await fixture('pickerState')).barFocused, true, 'Picking again did not focus the bar');
+
+  // Tab and Shift+Tab stay on the bar: Cancel is its one button while pointing.
+  for (const key of ['Tab', 'Tab', 'Shift+Tab']) {
+    await page.keyboard.press(key);
+    assert.equal((await fixture('pickerState')).focused, 'picker:cancel', `${key} left the bar`);
+  }
+
   // The bar starts over the top bar and steps to the bottom once the pointer is on something it
   // covers, so the top bar's tabs can be pointed at. The fixed footer sends it back up. Single
   // moves, since every point a stepped move passes can move the bar.
@@ -232,7 +247,7 @@ async function hideParts(page, engine) {
   assert.equal(seen.picker, false);
   assert.equal(seen.preview, false, 'The preview style stayed after Save');
   assert.equal(seen.dialogOpen, false, 'Save opened the panel over the page');
-  assert.equal(seen.parts, 'complementary link /friends/requests/ up 1');
+  assert.equal(seen.parts, 'complementary link /friends/requests/ up 1 on home', 'The rule is not kept to the page it was picked on');
   assert.match(seen.toast, /Part hidden/);
   assert.equal(seen.undo, true, 'The save has no Undo');
   const saved = await fixture('savedPart');
@@ -241,6 +256,10 @@ async function hideParts(page, engine) {
   assert.equal(saved.selectorAgrees, true, "The browser's selector engine and the matcher disagree");
   assert.equal(saved.styleHasRule, true, 'The feature style lacks the saved rule');
   assert.equal(saved.afterReload, true, 'Settings read back from storage build different CSS');
+  assert.notEqual(await fixture('displayOn', { id: 'requests', route: 'groups' }), 'none', 'A part hidden on Home is hidden on Groups too');
+  const withPost = await fixture('postInto', 'requests');
+  assert.notEqual(withPost.withPost, 'none', 'A post that turned up in the hidden part stayed hidden');
+  assert.equal(withPost.after, 'none', 'The part did not hide again once the post was gone');
 
   // Clicks reach the page again.
   await fixture('clearHeard');

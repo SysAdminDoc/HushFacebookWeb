@@ -73,8 +73,13 @@ test('each line becomes one CSS rule, a link on both hosts and relative, a place
     assert.ok(rules[0].includes(`[role="navigation"] :has(> * > a[href="${form}"])`), form);
     assert.ok(rules[0].includes(`[role="navigation"] :has(> * > a[href^="${form}?"])`), `${form}?`);
   }
-  assert.equal(rules[1], '[role="complementary"] > :nth-child(1) > :nth-child(2):not([data-hushfacebook-web]) { display: none !important; }');
-  assert.equal(selectorFor(parseRule('page link /friends/ up 0')).split(', ')[0], 'body a[href="/friends/"]');
+  const place = ':not([data-hushfacebook-web])';
+  assert.ok(rules[1].startsWith(`[role="complementary"] > :nth-child(1 of ${place}) > :nth-child(2 of ${place}):not(`), rules[1]);
+  for (const rule of [rules[0], rules[1], selectorFor(parseRule('page link /friends/ up 0'))]) {
+    assert.ok(rule.includes(':not(:has([role="feed"], [aria-posinset]:not([role]), [role="article"], [role="main"]))'), 'never what holds a post');
+    assert.ok(rule.includes('[role="article"] *'), 'never inside a post');
+  }
+  assert.ok(selectorFor(parseRule('page link /friends/ up 0')).startsWith('body a[href="/friends/"]:not('));
   assert.equal(partsCss(''), '');
   assert.equal(partsCss(undefined), '');
 });
@@ -82,7 +87,7 @@ test('each line becomes one CSS rule, a link on both hosts and relative, a place
 test('the matcher finds what the CSS would: inside the landmark, that many levels up, never our own', () => {
   const doc = page();
   assert.deepEqual(ids('navigation link /marketplace/ up 2', doc), ['market'], 'not the post in the main column');
-  assert.deepEqual(ids('main link /marketplace/ up 1', doc), ['post']);
+  assert.deepEqual(ids('main link /marketplace/ up 1', doc), [], 'never a post, even one the rule reaches');
   assert.deepEqual(ids('navigation link /friends/ up 0', doc), ['tab-friends'], 'the top bar has a navigation inside');
   assert.deepEqual(ids('page link /friends/ up 0', doc), ['tab-friends'], 'the whole page');
   assert.deepEqual(ids('complementary at 1 2', doc), ['birthdays']);
@@ -139,6 +144,54 @@ test('no rule for anything on the page holds words, names or ids from it', () =>
     assert.ok(parseRule(line), line);
     assert.doesNotMatch(line, /someone|person|name|1234567|ref=|facebook\.com|Friend requests|Birthdays/i, line);
   }
+});
+
+test('a saved rule never hides posts Facebook puts there later, in a dialog, inside a part, or a part holding them', () => {
+  const doc = page();
+  // Picked before any post was there.
+  const top = ruleFor(doc.getElementById('top-of-main'), doc).line;
+  const watch = ruleFor(doc.getElementById('tab-video'), doc).line;
+  assert.equal(top, 'main at 1');
+  // Then Facebook moves the feed into that place, a post links to Video, and a post opens in a dialog.
+  doc.getElementById('top-of-main').append(doc.getElementById('feed'));
+  doc.getElementById('post').insertAdjacentHTML('beforeend', '<div id="in-post"><a href="https://www.facebook.com/watch/?v=222&ref=x">a video</a></div>');
+  doc.body.insertAdjacentHTML('beforeend', '<div role="dialog"><div id="d1"><div role="article" id="opened"><a href="/watch/">v</a></div></div></div>');
+  assert.deepEqual(ids(top, doc), [], 'the place now holds the feed');
+  assert.deepEqual(ids('main link /watch/ up 1', doc), [], 'a link inside a post');
+  assert.deepEqual(ids('dialog at 1', doc), [], 'a dialog part holding a post');
+  assert.deepEqual(ids('dialog link /watch/ up 0', doc), [], 'a link inside a post in a dialog');
+  assert.deepEqual(ids(watch, doc), ['tab-video'], 'the top bar tab still goes');
+});
+
+test("a place counts only Facebook's elements, so the script's own never moves it", () => {
+  const doc = page('<div data-hushfacebook-web="ui"></div><div id="a"><div>x</div></div><div id="b"><div id="b1">y</div><div id="b2">z</div></div>');
+  const line = ruleFor(doc.getElementById('b2'), doc).line;
+  assert.equal(line, 'page at 2 2', "the settings button's host isn't counted");
+  doc.body.insertAdjacentHTML('afterbegin', '<div data-hushfacebook-web="download"></div>');
+  doc.getElementById('b1').insertAdjacentHTML('beforebegin', '<div data-hushfacebook-web="download"></div>');
+  assert.deepEqual(ids(line, doc), ['b2'], 'still the same part after the script adds two more of its own');
+  assert.equal(ruleFor(doc.getElementById('b2'), doc).line, line, 'and a pick now gets the same line');
+});
+
+test('a rule keeps to the kind of page it was picked on, except in the top bar', () => {
+  const doc = page();
+  doc.documentElement.dataset.hfwRoute = 'home';
+  const pick = (id) => ruleFor(doc.getElementById(id), doc).line;
+  assert.equal(pick('requests'), 'complementary link /friends/requests/ up 1 on home');
+  assert.equal(pick('birthdays'), 'complementary at 1 2 on home');
+  assert.equal(pick('tab-friends'), 'banner link /friends/ up 0', 'the top bar is the same on every page');
+  assert.deepEqual(parseRule('complementary at 1 2 on home'), { landmark: 'complementary', kind: 'at', steps: [1, 2], route: 'home' });
+  for (const bad of ['complementary at 1 2 on nowhere', 'complementary at 1 2 on Home', 'complementary at 1 2 on', 'main at 1 on home on home']) {
+    assert.equal(parseRule(bad), null, bad);
+  }
+  assert.ok(selectorFor(parseRule('complementary at 1 2 on home')).startsWith('html[data-hfw-route="home"] [role="complementary"] > '));
+  assert.ok(selectorFor(parseRule('page link /friends/ up 0 on groups')).split(':not(')[0] === 'html[data-hfw-route="groups"] body a[href="/friends/"]');
+  assert.deepEqual(ids('complementary at 1 2 on home', doc), ['birthdays']);
+  doc.documentElement.dataset.hfwRoute = 'groups';
+  assert.deepEqual(ids('complementary at 1 2 on home', doc), [], 'not on a group');
+  assert.deepEqual(ids('banner link /friends/ up 0', doc), ['tab-friends']);
+  assert.equal(describeRule('complementary link /friends/requests/ up 1 on home'), 'The part with a link to /friends/requests/ in the right column, on Home');
+  assert.equal(describeRule('navigation at 1 3 on profile'), 'A part of the left column on profiles and Pages, found by its place in it');
 });
 
 test('landmarks and the words for each saved part', () => {
