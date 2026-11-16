@@ -1202,6 +1202,109 @@ test('with the real post tracker, a post hidden before its link, on the page or 
   }
 });
 
+test('with the real post tracker, a post hidden before its link and hidden again as the link fills in counts as the story the link names', async () => {
+  const spam = '/someone/posts/pfbid0Spam';
+  // A feature that only knows the story once the link names it hides it then, or a check hides it
+  // again before the tracker has heard the link. The story is new, or a post on the page already
+  // showed it.
+  for (const how of ['a feature on the link', 'before the tracker heard']) {
+    for (const already of [false, true]) {
+      for (const order of LISTEN_ORDERS) {
+        const s = adFeed(order, (hider, { element, id }) => {
+          if (how === 'a feature on the link' && id === 'pfbid0Spam') hider.hide(element, 'Filter');
+        }, { text: 'Gossip', href: '#', updates: true });
+        const where = `${how}${already ? ', counted already' : ''} ${order}`;
+        if (already) {
+          await s.draw('Spam', spam);
+          s.hider.hide(s.posts.current().at(-1).element, 'Filter');
+        }
+        s.hider.hide(s.first, 'People');
+        const heard = s.heard.length;
+        s.link(spam);
+        // Settled as the hide lands, for an element the tracker never says more about.
+        if (how === 'before the tracker heard') {
+          s.hider.hide(s.first, 'Filter');
+          assert.deepEqual(s.counts(), already ? { Filter: 1 } : { People: 1 }, `${where}, at the hide`);
+        }
+        await tick();
+        assert.deepEqual(s.counts(), already ? { Filter: 1 } : { People: 1 }, where);
+        assert.equal(s.hider.hiddenPosts() - s.seeded, 1, where);
+        if (already) assert.ok(s.heard.length > heard, `${where}: listeners heard the count come off`);
+        s.posts.stop();
+      }
+    }
+  }
+});
+
+test('with the real post tracker, an element reused for another story and hidden before the tracker heard counts that story on its own', async () => {
+  for (const order of LISTEN_ORDERS) {
+    const s = adFeed(order, (hider, { element }) => {
+      if (element.textContent.includes('Spam')) hider.hide(element, 'Filter');
+    });
+    s.hider.hide(s.first, 'Sponsored');
+    // Facebook draws another story in it, and a check hides it before the tracker's look.
+    s.first.querySelector('.text').textContent = 'Spam';
+    s.link('/other/posts/pfbid0Fourth');
+    s.hider.hide(s.first, 'Filter');
+    await tick();
+    assert.deepEqual(s.counts(), { Sponsored: 1, Filter: 1 }, order);
+    assert.equal(s.hider.hiddenPosts() - s.seeded, 2, order);
+    s.posts.stop();
+  }
+});
+
+test('with the real post tracker, listeners hear the count come off for a post shown while away that comes back as a story counted already', async () => {
+  const spam = '/someone/posts/pfbid0Spam';
+  // Hidden on the page before its link, it leaves, or it's hidden again while away before the
+  // tracker heard it go. Shown while away, it's back with a story's link a post already counted,
+  // and nothing hides it again, so the count coming off is the only news.
+  for (const unheard of [false, true]) {
+    for (const order of LISTEN_ORDERS) {
+      const s = adFeed(order, () => {}, { text: 'Gossip', href: '#' });
+      const where = `${unheard ? 'hidden away before the tracker heard' : 'heard leaving'} ${order}`;
+      await s.draw('Spam', spam);
+      s.hider.hide(s.posts.current().at(-1).element, 'Filter');
+      s.hider.hide(s.first, 'People');
+      if (unheard) {
+        s.first.remove();
+        s.hider.hide(s.first, 'Other');
+      } else await s.leave();
+      s.hider.show(s.first);
+      const heard = s.heard.length;
+      await s.back(undefined, spam);
+      assert.deepEqual(s.counts(), { Filter: 1 }, where);
+      assert.equal(s.hider.hiddenPosts() - s.seeded, 1, where);
+      assert.ok(s.heard.length > heard, `${where}: listeners heard the count come off`);
+      s.posts.stop();
+    }
+  }
+});
+
+test('with the real post tracker, a post counted before its link and taken into another post keeps that count when it later shows a story of its own', async () => {
+  const spam = '/someone/posts/pfbid0Spam';
+  for (const order of LISTEN_ORDERS) {
+    const s = adFeed(order, (hider, { element, id }) => {
+      if (id === 'pfbid0Spam') hider.hide(element, 'Filter');
+    }, { text: 'Gossip', href: '#' });
+    const list = s.first.parentElement;
+    s.hider.hide(s.first, 'People');
+    // Facebook wraps it in another post, then draws it on its own again showing a story the
+    // filter hides, and it leaves.
+    const outer = list.ownerDocument.createElement('div');
+    outer.setAttribute('aria-posinset', '9');
+    list.prepend(outer);
+    outer.append(s.first);
+    await tick();
+    s.link(spam);
+    list.append(s.first);
+    await tick();
+    await s.leave();
+    assert.deepEqual(s.counts(), { People: 1, Filter: 1 }, order);
+    assert.equal(s.hider.hiddenPosts() - s.seeded, 2, order);
+    s.posts.stop();
+  }
+});
+
 test('with the real post tracker, a comment hidden while it was off the page counts at once', () => {
   const win = page(feed('<div aria-posinset="1"><div><a href="/someone/posts/pfbid0Post1">2h</a><div class="comments"><div role="article"><div><a href="/someone/posts/pfbid0Post1?comment_id=123">1h</a><div>Spam comment</div></div></div></div></div></div>'));
   const posts = createPostTracker({ doc: win.document });

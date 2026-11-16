@@ -305,20 +305,29 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   // and decide on the post before the hider would.
   function catchUp(element) {
     const back = leftWith.has(element);
+    // A count coming off is news even when the mark's return isn't: shown while it was away.
+    const hidden = postsHidden;
     const cleared = settle(element);
+    const uncounted = postsHidden < hidden;
     const counted = back && countAs(element);
-    return (departed.delete(element) ? markOf(element) !== null : cleared) || counted;
+    return (departed.delete(element) ? markOf(element) !== null : cleared) || uncounted || counted;
   }
 
-  // Counts a post the first time it's hidden. Returns whether it was new. A comment's links name
-  // the post it's on, so a comment counts by its element alone.
+  // Counts a post the first time it's hidden. Returns whether listeners have news: it counted, or
+  // a count came off. A comment's links name the post it's on, so a comment counts by its element
+  // alone.
   function count(element, reason) {
     const left = leftWith.get(element);
     // Away, it isn't known which story it shows: it counts once it's back.
     if (left && !element.isConnected) return false;
+    // Counted before its link said, the story its link names now settles that count, wherever
+    // this hide lands next to the tracker's word on the link (or with no word, for an element the
+    // tracker doesn't follow). Counted as a story, another story's link is Facebook reusing it,
+    // and that story counts on its own once the tracker hears.
+    if (countedElements.has(element)) return unsure.has(element) && claim(element, storyOf(element));
     const comment = isComment(element);
     const id = storyOf(element);
-    const seen = countedElements.has(element) || (id !== null && countedIds.has(id));
+    const seen = id !== null && countedIds.has(id);
     countedElements.add(element);
     if (id !== null) countedIds.add(id);
     if (seen) return false;
@@ -344,8 +353,11 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       // Still on the page, it's been reused for another story, which counts on its own. Taken
       // off, it may come back as itself (settle()). Its link can fill in as it goes, too late for
       // the tracker to have heard. Known, that story counted, wherever Facebook draws it next.
+      // Counted before its link, it stays counted as the story it showed then, and a link it
+      // shows later is another story's.
       if (element.isConnected) {
         countedElements.delete(element);
+        unsure.delete(element);
         leftWith.delete(element);
         clear(element);
       } else {
