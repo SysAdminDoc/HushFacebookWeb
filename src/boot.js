@@ -9,6 +9,7 @@ import { availableUpdate, extensionHost, UPDATE_KEY, UPDATE_TOLD_KEY, updateStat
 import { createDiagnostics, hideListener } from './core/diagnostics.js';
 import { setLanguage, t } from './core/i18n.js';
 import { createHider, hideCss } from './core/dom/hide.js';
+import { keepFeedKeysMoving } from './core/dom/feed-keys.js';
 import { createPostTracker, postIdOf } from './core/dom/posts.js';
 import { createLog } from './core/log.js';
 import { LOAD_WAIT_MS, readTabPause, setTabPause, watchFeedLoads } from './core/load-watchdog.js';
@@ -88,7 +89,10 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     notesShown: () => settings.get('paused') !== true && settings.get('ui.hiddenNote'),
     onHide: hideListener(diagnostics, postIdOf),
   });
-  if (hider) settings.subscribe(() => hider.refresh());
+  if (hider) {
+    settings.subscribe(() => hider.refresh());
+    keepFeedKeysMoving({ win, doc, hider, active: () => settings.get('paused') !== true });
+  }
   // Fixed wording only, so these go in Copy report as they read.
   const shareable = { shareable: true };
   diagnostics.add('Settings kept for', () => (settings.perAccount ? 'This Facebook account' : 'Everyone on this browser (signed out)'), shareable);
