@@ -162,6 +162,15 @@ test('k at the first shown post stays there, not on a hidden post above it', asy
   }
 });
 
+test('k at the first shown post keeps it in place when Facebook scrolls toward the hidden post above', async () => {
+  for (const notes of [false, true]) {
+    const { walk, press, posts } = setup({ count: 4, hide: [0], notes });
+    await press('j');
+    await walk('k', 3);
+    assert.equal(posts[1].getBoundingClientRect().top, 76, `notes ${notes}`);
+  }
+});
+
 test('j at the last shown post stays there, not on a hidden post below it', async () => {
   for (const notes of [false, true]) {
     const { walk, scrolls } = setup({ count: 4, hide: [2, 3], notes });

@@ -55,11 +55,11 @@ export function keepFeedKeysMoving({ win, doc = win.document, hider, active = ()
       moveTo(target);
       return;
     }
-    // Nothing shown that way. Facebook may have gone to a hidden post's note, so come back from it.
-    if (now && !shown(now)) {
-      if (from) moveTo(from);
-      else now.blur();
-    }
+    // Nothing shown that way. Facebook may have gone to a hidden post's note, or scrolled toward a
+    // hidden post with no place on the page, so go back to where this press started.
+    const onHidden = now && !shown(now);
+    if (from && (shown(from) || onHidden)) moveTo(from);
+    else if (onHidden) now.blur();
     // Everything left on the page is hidden, so the way on is more of the feed.
     if (forward) win.scrollTo({ top: doc.documentElement.scrollHeight, behavior: 'smooth' });
   }
