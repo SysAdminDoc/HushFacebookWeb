@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.0.51 (2026-11-18, unreleased)
+
+Facebook's j and k keys work on a feed with hidden posts now.
+
+* j and k go past hidden posts in both directions and never stop on one. They used to get stuck at the first hidden post they reached, with or without the note line. You still need Facebook's own single-key shortcuts turned on
+* At the first visible post, k leaves the page where it is. Facebook was scrolling toward the hidden post above it, which moved the page a little on every other press
+* Block Instant Games ads no longer says it hasn't been tried. Two live games asked for an ad with it on and got Facebook's "no ad to show" answer
+* Arabic's six plural forms have a test now, so a translation can drop in when it's ready (#6). English doesn't change
+
 ## v0.0.50 (2026-11-18, unreleased)
 
 Hide read receipts got a real test on a live chat this time. That turned up a bug, and #5 gets the option it asked for.
