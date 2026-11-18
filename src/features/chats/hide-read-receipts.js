@@ -1,8 +1,10 @@
 // Hide read receipts, as Hushfacebook's patch does on Android. Opening a chat queues a task
 // that tells Facebook you've read it (label 21, see core/net/lightspeed.js). The task is taken
-// out of the request before it leaves the page, and the rest of the request goes as it was.
-// End-to-end encrypted chats send their receipts encrypted, so they aren't covered. A chat whose
-// receipt was held keeps looking unread in the chat list (unread-look.js).
+// out of the request before it leaves the page, and the rest of the request goes as it was. The
+// page is then told the task is done, or it would keep resending it with the chat's queue, your
+// replies included, waiting behind it (core/net/websocket.js). End-to-end encrypted chats send
+// their receipts encrypted, so they aren't covered. A chat whose receipt was held keeps looking
+// unread in the chat list (unread-look.js).
 
 import { chatSocketRow } from './shared.js';
 import { SEND_MESSAGE, taskThread, UNREAD_LOOK_CSS, watchUnreadLook } from './unread-look.js';
@@ -31,12 +33,13 @@ export default {
         id: 'hideReadReceipts',
         startupPrivacy: true,
         enabled,
-        edit(request) {
+        edit(request, finish) {
           const tasks = request.type === 3 ? request.payload.tasks : null;
           if (!Array.isArray(tasks)) return false;
           const kept = tasks.filter((task) => String(task?.label) !== MARK_READ);
           for (const task of tasks) {
             if (String(task?.label) !== MARK_READ) continue;
+            finish(task?.task_id);
             look?.hold(taskThread(task));
           }
           // After the holds: a reply goes out with a receipt beside it.

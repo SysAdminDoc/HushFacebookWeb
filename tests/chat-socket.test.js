@@ -1,6 +1,6 @@
 // The chat socket: gateway frames, lightspeed requests, and the two chat switches. The
-// fixture holds one scrubbed outgoing message of each kind seen live on 2026-10-10. No thread
-// was opened then, so the read and typing requests are built in the shape mautrix-meta sends.
+// fixture holds one scrubbed outgoing message of each kind seen live on 2026-10-10. The read and
+// typing requests and the server's replies are built in the shapes seen live on 2026-11-18.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -54,16 +54,16 @@ function message2(list) {
 
 const task = (label, payload, queue, id) =>
   JSON.stringify({ failure_count: null, label, payload: JSON.stringify(payload).replace(/"(\d{16,})"/g, '$1'), queue_name: queue, task_id: id });
-const markRead = (id = 3) => task('21', { thread_id: '10987654321098765', last_read_watermark_ts: 1791675618820, sync_group: 1 }, '10987654321098765', id);
+const markRead = (id = 3) => task('21', { thread_id: '10987654321098765', last_read_watermark_ts: 1791675618820, sync_group: 1, offline_threading_id: '7400000000000000001' }, '10987654321098765', id);
 const contact = (id) => task('207', { contact_id: 40680124264414 }, 'cpq_v2', id);
 
 function socketWindow() {
   const sent = [];
-  class WebSocket {
-    constructor(url) { this.url = url; }
+  class WebSocket extends EventTarget {
+    constructor(url) { super(); this.url = url; }
     send(data) { sent.push(data); }
   }
-  return { win: { WebSocket, TextDecoder, TextEncoder }, sent };
+  return { win: { WebSocket, TextDecoder, TextEncoder, MessageEvent, Uint8Array }, sent };
 }
 
 function setup(features, on = {}, startup) {
@@ -86,6 +86,19 @@ function startupControl() {
     ready: () => { state = 'ready'; },
   };
 }
+
+// What the page hears on a socket, and the server starting its reply on a stream: it opens its
+// side and acknowledges the request, as every reply seen live began.
+function listen(socket) {
+  const heard = [];
+  socket.addEventListener('message', (event) => heard.push(event.data));
+  return heard;
+}
+const serverOpens = (socket, stream) => socket.dispatchEvent(new MessageEvent('message', {
+  data: message2([[0x0f, stream, encoder.encode('{}')], [0x0c, stream, new Uint8Array([0, 0])]]).slice().buffer,
+}));
+const doneStep = (id) => `[4,0,1,[5,"taskExists",[19,"${id}"]]],[23,[2,0],[1,[5,"removeTask",[19,"${id}"],[9]]]]`;
+const hasReceipt = (bytes) => /label\\":\\"21/.test(frames(bytes)[1].json);
 
 test('every captured message reads into frames and writes back byte for byte', () => {
   assert.ok(captured.length >= 8);
@@ -142,6 +155,89 @@ test('a request that only marks a thread read still goes out, with no tasks', ()
   socket.send(taskMessage([markRead(4)]));
   const [, data] = frames(sent[0]);
   assert.match(data.json, /\\"tasks\\":\[\],/);
+});
+
+test('the page hears a held receipt is done, word for word as Facebook says it, and Facebook hears nothing', () => {
+  const { sent, socket } = setup([hideReadReceipts]);
+  const heard = listen(socket);
+  socket.send(taskMessage([markRead(16)], { stream: 0x0102 }));
+  assert.equal(heard.length, 0, 'the stream has to be open on the page first');
+  serverOpens(socket, 0x0102);
+  assert.equal(heard.length, 2);
+  assert.equal(Object.prototype.toString.call(heard[1]), '[object ArrayBuffer]');
+  const [frame, ...rest] = frames(new Uint8Array(heard[1]));
+  assert.equal(rest.length, 0);
+  assert.equal(frame.type, 0x0d);
+  assert.equal(frame.stream, 0x0102);
+  assert.deepEqual(frame.seq, [0, 0], 'a number the page does not acknowledge to the server');
+  const reply = JSON.parse(frame.json);
+  assert.equal(reply.request_id, 9);
+  assert.equal(reply.payload, '{"name":null,"step":[1,[4,0,1,[5,"taskExists",[19,"16"]]],[23,[2,0],[1,[5,"removeTask",[19,"16"],[9]]]]]}');
+  assert.deepEqual(reply.sp, ['taskExists', 'removeTask']);
+  assert.equal(reply.target, 3);
+  assert.equal(sent.length, 1, 'only the request itself went out');
+});
+
+test('several held receipts in a request are answered together, once, on their own stream', () => {
+  const { socket } = setup([hideReadReceipts]);
+  const heard = listen(socket);
+  socket.send(taskMessage([contact(1), markRead(38), markRead(39)], { stream: 5 }));
+  socket.dispatchEvent(new MessageEvent('message', { data: new Blob(['x']) }));
+  serverOpens(socket, 6);
+  assert.equal(heard.length, 2, 'another stream starting says nothing about this one');
+  serverOpens(socket, 5);
+  assert.equal(heard.length, 4);
+  const reply = JSON.parse(frames(new Uint8Array(heard[3]))[0].json);
+  assert.equal(reply.payload, `{"name":null,"step":[1,[1,${doneStep(38)}],[1,${doneStep(39)}]]}`, 'only the held tasks, the server answers for the rest');
+  serverOpens(socket, 5);
+  assert.equal(heard.length, 5, 'answered once');
+});
+
+test('a task number too big for JavaScript is answered exactly, and one with no number is only held', () => {
+  const { sent, socket } = setup([hideReadReceipts]);
+  const heard = listen(socket);
+  const big = markRead(1).replace('"task_id":1', '"task_id":12345678901234567890');
+  socket.send(taskMessage([big, markRead(null)], { stream: 3 }));
+  assert.ok(!hasReceipt(sent[0]));
+  serverOpens(socket, 3);
+  assert.equal(JSON.parse(frames(new Uint8Array(heard[1]))[0].json).payload, `{"name":null,"step":[1,${doneStep('12345678901234567890')}]}`);
+  socket.send(taskMessage([markRead(null)], { stream: 4 }));
+  serverOpens(socket, 4);
+  assert.equal(heard.length, 3, 'nothing to answer');
+});
+
+test('a receipt held only until the settings load is not answered, so it can still go out', () => {
+  const control = startupControl();
+  const { sent, socket } = setup([hideReadReceipts], { hideReadReceipts: false }, control.startup);
+  const heard = listen(socket);
+  socket.send(taskMessage([markRead(2)], { stream: 8 }));
+  assert.ok(!hasReceipt(sent[0]), 'held while the choice is unknown');
+  serverOpens(socket, 8);
+  assert.equal(heard.length, 1, 'the page keeps the task and sends it again');
+  control.ready();
+  const again = taskMessage([markRead(2)], { stream: 9 });
+  socket.send(again);
+  assert.ok(sent[1] === again, 'the switch is off, so this time it goes');
+  serverOpens(socket, 9);
+  assert.equal(heard.length, 2);
+});
+
+test('a message that goes out unchanged gets no answer, and a socket that can not listen still sends', () => {
+  const failing = setup([hideReadReceipts]);
+  failing.sockets.editChatRequests({ id: 'broken', enabled: () => true, edit() { throw new Error('boom'); } });
+  const heard = listen(failing.socket);
+  const original = taskMessage([markRead(2)], { stream: 2 });
+  failing.socket.send(original);
+  assert.ok(failing.sent[0] === original);
+  serverOpens(failing.socket, 2);
+  assert.equal(heard.length, 1);
+
+  const deaf = setup([hideReadReceipts]);
+  deaf.socket.addEventListener = () => { throw new Error('no'); };
+  deaf.socket.send(taskMessage([markRead(2)]));
+  assert.equal(deaf.sent.length, 1, 'never sent a second time');
+  assert.ok(!hasReceipt(deaf.sent[0]), 'and the receipt stayed out');
+  assert.equal(deaf.errors.length, 1);
 });
 
 test('with the switch off, or on other sockets, the message is the very same one', () => {

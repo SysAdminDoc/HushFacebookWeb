@@ -3,7 +3,7 @@
 // (realtime.js). Only messages a rule changes are rewritten. Anything the script can't read goes
 // out untouched, and so does everything when a rule fails.
 
-import { DATA, frameJson, readFrames, readJson, readRequest, withJson, writeFrames, writeJson, writeRequest } from './lightspeed.js';
+import { ACK, DATA, frameJson, readFrames, readJson, readRequest, taskDoneFrame, taskIdText, withJson, writeFrames, writeJson, writeRequest } from './lightspeed.js';
 import { readBatchBody, withBatchText } from './realtime.js';
 
 const LIGHTSPEED = /^wss:\/\/gateway\.facebook\.com\/ws\/lightspeed(?:[/?]|$)/;
@@ -32,13 +32,62 @@ export function patchWebSocket(win, { log, startup, replace = (object, key, valu
     log.error(`Socket rule "${rule.id}" failed, so Facebook's message went out unchanged`, error);
   };
 
-  // The edited bytes, or null to send the original.
-  function rewrite(bytes, active) {
+  // A task a rule took out never gets a reply, and the page would send it again forever with its
+  // chat's queue waiting behind it. So the page is told it's done, here in the page only, once
+  // the server has opened its side of that request's stream: earlier, the page ignores the news.
+  const waiting = new WeakMap();
+
+  const answerFailed = (error) => {
+    if (failed.has('answers')) return;
+    failed.add('answers');
+    log.error("Couldn't tell the page a held chat task is done", error);
+  };
+
+  function heardFromServer(socket, streams, event) {
+    try {
+      if (!streams.size) return;
+      const bytes = bytesOf(event.data);
+      const frames = bytes && readFrames(bytes);
+      if (!frames) return;
+      for (const frame of frames) {
+        const answer = frame.type === ACK ? streams.get(frame.stream) : null;
+        if (!answer) continue;
+        streams.delete(frame.stream);
+        // Made in the page's own realm, which is what its code checks for.
+        const data = new win.Uint8Array(taskDoneFrame(answer, encoder)).buffer;
+        socket.dispatchEvent(new win.MessageEvent('message', { data }));
+      }
+    } catch (error) {
+      answerFailed(error);
+    }
+  }
+
+  // Never throws: the request has already gone, and send() must not send it again unedited.
+  function expectServer(socket, answers) {
+    try {
+      let streams = waiting.get(socket);
+      if (!streams) {
+        streams = new Map();
+        // Added after the page's own listeners, so the page has seen the stream open by now.
+        socket.addEventListener('message', (event) => heardFromServer(socket, streams, event));
+        waiting.set(socket, streams);
+      }
+      for (const answer of answers) streams.set(answer.stream, answer);
+    } catch (error) {
+      answerFailed(error);
+    }
+  }
+
+  // The edited bytes, or null to send the original. Tasks to answer go on answers.
+  function rewrite(bytes, active, answers) {
     const frames = readFrames(bytes);
     if (!frames) {
       stats.unreadable++;
       return null;
     }
+    // Until the settings load, a rule may be holding a receipt the user wants sent. Unanswered,
+    // the page sends it again, and it goes out then if the switch turns out to be off.
+    const settled = (startup?.state?.() ?? 'ready') === 'ready';
     let changed = false;
     const out = frames.map((frame) => {
       const text = frameJson(frame, decoder);
@@ -49,9 +98,14 @@ export function patchWebSocket(win, { log, startup, replace = (object, key, valu
         return frame;
       }
       let edited = false;
+      const done = [];
+      const finish = (id) => {
+        const text = taskIdText(id);
+        if (settled && text) done.push(text);
+      };
       for (const rule of active) {
         try {
-          if (rule.edit(request)) edited = true;
+          if (rule.edit(request, finish)) edited = true;
         } catch (error) {
           fail(rule, error);
           return frame;
@@ -59,6 +113,7 @@ export function patchWebSocket(win, { log, startup, replace = (object, key, valu
       }
       if (!edited) return frame;
       changed = true;
+      if (done.length) answers.push({ stream: frame.stream, requestId: request.outer.request_id, tasks: done });
       return withJson(frame, writeRequest(request), encoder);
     });
     return changed ? writeFrames(out) : null;
@@ -117,10 +172,13 @@ export function patchWebSocket(win, { log, startup, replace = (object, key, valu
           (chat ? stats : logStats).messages++;
           const active = activeRules(chat ? rules : logRules);
           const bytes = active.length ? bytesOf(data) : null;
-          const edited = bytes && (chat ? rewrite : rewriteBatches)(bytes, active);
+          const answers = [];
+          const edited = bytes && (chat ? rewrite(bytes, active, answers) : rewriteBatches(bytes, active));
           if (edited) {
             const isBuffer = Object.prototype.toString.call(data) === '[object ArrayBuffer]';
-            return original.call(this, isBuffer ? edited.buffer : edited);
+            const result = original.call(this, isBuffer ? edited.buffer : edited);
+            if (answers.length) expectServer(this, answers);
+            return result;
           }
         }
       } catch (error) {
@@ -134,8 +192,9 @@ export function patchWebSocket(win, { log, startup, replace = (object, key, valu
     installed: typeof original === 'function',
     stats,
     logStats,
-    // rule: { id, enabled(), startupPrivacy?, edit(request) -> true when it changed request.payload }
+    // rule: { id, enabled(), startupPrivacy?, edit(request, finish) -> true when it changed request.payload }
     // request: { type, payload } with payload parsed (3: tasks, 4: one unqueued task).
+    // finish(task_id): call it for each queued task taken out, so the page stops waiting on it.
     editChatRequests(rule) {
       rules.push(rule);
     },

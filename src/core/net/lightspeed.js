@@ -14,10 +14,15 @@
 // type 3 carries queued tasks ({epoch_id, tasks: [{label, payload, queue_name, task_id}]}),
 // type 4 one task that isn't queued ({label, payload, version}). Labels are the ones the open
 // source mautrix-meta bridge names: 21 marks a thread read, 3 says whether you're typing.
+//
+// The page keeps a queued task until a reply tells it removeTask. Seen live 2026-11-18: a task
+// that gets no reply is sent again after 0.5, 1, 2, 4, 8, 16 and 30 seconds, over and over, and
+// the tasks queued behind it in that chat only leave along with those retries.
 
 const SHORT = new Map([[0x09, 1], [0x0a, 1], [0x0e, 3]]);
 const WITH_BODY = new Set([0x0c, 0x0d, 0x0f]);
 export const DATA = 0x0d;
+export const ACK = 0x0c;
 
 // The frames in a message, or null when it isn't exactly a run of known frames.
 export function readFrames(bytes) {
@@ -138,4 +143,19 @@ export function readRequest(text) {
 
 export function writeRequest(request) {
   return writeJson({ ...request.outer, payload: writeJson(request.payload) });
+}
+
+// A task's number as digits, or null. Numbers too big for JavaScript arrive tagged (see BIG).
+export function taskIdText(id) {
+  const text = typeof id === 'number' ? String(id) : typeof id === 'string' ? id.replace(BIG, '') : '';
+  return /^\d+$/.test(text) ? text : null;
+}
+
+// The reply that tells the page these tasks are done, in the words the server uses. Sequence
+// number 0 without the server's high bit: the page doesn't acknowledge it back to the server.
+export function taskDoneFrame({ stream, requestId, tasks }, encoder) {
+  const steps = tasks.map((id) => `[4,0,1,[5,"taskExists",[19,"${id}"]]],[23,[2,0],[1,[5,"removeTask",[19,"${id}"],[9]]]]`);
+  const step = steps.length === 1 ? steps[0] : steps.map((one) => `[1,${one}]`).join(',');
+  const text = writeJson({ request_id: requestId, payload: `{"name":null,"step":[1,${step}]}`, sp: ['taskExists', 'removeTask'], target: 3 });
+  return writeFrames([withJson({ type: DATA, stream, body: new Uint8Array(2) }, text, encoder)]);
 }
