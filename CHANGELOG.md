@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.0.50 (2026-11-18, unreleased)
+
+Hide read receipts got a real test on a live chat this time. That turned up a bug, and #5 gets the option it asked for.
+
+* Hide read receipts has a new option, Keep chats you open looking unread, and it's on by default (#5). Facebook's page used to flip a chat to read the moment you opened it, even with the receipt held back. Now the chat keeps its bold text and dot in the chat list until you reply or turn the option off. It works on chats that aren't end-to-end encrypted.
+* A held read receipt could hold up that chat. The page kept resending it, as often as every 30 seconds, because no answer ever came, and whatever was queued behind it had to wait. The script now tells the page the receipt is done, inside your browser, and nothing about it goes to Facebook.
+
 ## v0.0.49 (2026-11-16)
 
 Two fixes, both from reports. The empty space under the Stories row is gone (#13 and #15), and Hide People you may know has a second way to find its row (#5).
