@@ -3,9 +3,23 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { english, language, LANGUAGES, plural, setLanguage, t } from '../src/core/i18n.js';
+import { english, language, LANGUAGES, plural, pluralForm, setLanguage, t } from '../src/core/i18n.js';
 
 afterEach(() => setLanguage('en'));
+
+test('a translation picks its plural form by that language\'s own count rules', () => {
+  const arabic = { zero: 'zero', one: 'one', two: 'two', few: 'few', many: 'many', other: 'other' };
+  assert.deepEqual([0, 1, 2, 3, 11, 100].map((count) => pluralForm(arabic, count, 'ar')),
+    ['zero', 'one', 'two', 'few', 'many', 'other']);
+  assert.equal(pluralForm({ one: 'one', other: 'other' }, 1, 'en'), 'one');
+  assert.equal(pluralForm({ one: 'one', other: 'other' }, 0, 'en'), 'other');
+});
+
+test('a translation missing a plural form falls back to its other form, and then to nothing', () => {
+  assert.equal(pluralForm({ one: 'one', other: 'other' }, 3, 'ar'), 'other');
+  assert.equal(pluralForm({ one: 'one' }, 3, 'ar'), null);
+  assert.equal(pluralForm({ few: 7, other: 'other' }, 3, 'ar'), null, 'a form that is not text is not shown');
+});
 
 const fold = (text) => text.normalize('NFKD').replace(/[̀-ͯ]/g, '');
 

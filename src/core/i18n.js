@@ -82,12 +82,18 @@ export function t(template, vars) {
   return fill(typeof translated === 'string' ? translated : template, vars);
 }
 
+// The form a language uses for this count, or its other form when the catalog lacks that one.
+export function pluralForm(forms, count, lang) {
+  const form = forms[new Intl.PluralRules(lang).select(count)] ?? forms.other;
+  return typeof form === 'string' ? form : null;
+}
+
 export function plural(count, one, other, vars) {
   const forms = CATALOGS[active.value]?.[other];
   const all = { count, ...vars };
   if (forms && typeof forms === 'object' && !active.transform) {
-    const form = forms[new Intl.PluralRules(active.lang).select(count)] ?? forms.other;
-    if (typeof form === 'string') return fill(form, all);
+    const form = pluralForm(forms, count, active.lang);
+    if (form !== null) return fill(form, all);
   }
   return t(count === 1 ? one : other, all);
 }
