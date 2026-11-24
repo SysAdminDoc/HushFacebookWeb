@@ -944,6 +944,29 @@ test('watched-history Retry appears while Playback stays open and acknowledgemen
   assert.equal(shadow.querySelectorAll('[data-links-for="rememberWatched"] a').length, 1);
 });
 
+test('a picker you cancel puts you back on its button, with the search you started from', async () => {
+  const actions = createActions();
+  const { win, shadow, panel, settings, log, unavailable } = setup({ features: [hideParts], actions });
+  const doc = win.document;
+  startFeatures({
+    features: [hideParts], net: null, settings, log, unavailable, changed: () => panel.refresh(),
+    context: (feature) => ({ doc, win, actions: actions.for(feature.id), toast: panel.toast, pickPart: (options) => panel.pickPart(options) }),
+  });
+  const pick = () => [...shadow.querySelectorAll('main button')].find((item) => item.textContent === 'Pick a part to hide');
+  for (const query of ['', 'hide parts']) {
+    panel.open('appearance', query);
+    pick().focus();
+    pick().click();
+    await tick();
+    assert.ok(shadow.querySelector('.picker'), query);
+    doc.body.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await tick();
+    assert.equal(shadow.querySelector('.picker'), null);
+    assert.equal(shadow.querySelector('[data-key="search"]').value, query);
+    assert.ok(pick() && shadow.activeElement === pick(), `focus is back on Pick a part to hide (${query || 'no search'})`);
+  }
+});
+
 test('Hide parts of the page: the panel steps aside for the picker, a save hides the part with Undo, and the list has Show again', async () => {
   const actions = createActions();
   const { win, shadow, panel, settings, log, unavailable } = setup({ features: [hideParts], actions });

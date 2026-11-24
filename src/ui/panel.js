@@ -1535,6 +1535,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // section: the page or group to come back to.
   function pickPart({ section = 'layout', rules, onSave }) {
     stopPicking();
+    // Where a cancel goes back to: the button that started it, in the search it was found in.
+    const from = { key: shadow.activeElement?.dataset?.key, query };
     // Closed first, since nothing outside a modal dialog can take focus while it's open.
     close();
     const handle = startPartPicker({
@@ -1542,8 +1544,10 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       onEnd: ({ saved }) => {
         if (picker !== handle) return;
         picker = null;
-        if (!saved) open(section);
-        else if (!launcher.hidden) launcher.focus({ preventScroll: true });
+        if (!saved) {
+          open(section, from.query);
+          if (from.key) root.querySelector(`[data-key="${CSS.escape(from.key)}"]`)?.focus();
+        } else if (!launcher.hidden) launcher.focus({ preventScroll: true });
       },
     });
     picker = handle;
