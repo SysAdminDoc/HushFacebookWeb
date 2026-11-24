@@ -165,9 +165,14 @@ const TOP_BAR = `
     <li data-row="tab:Home"><span><div><a aria-label="Home" href="/"></a></div></span></li>
     <li data-row="tab:Friends"><span><div><a aria-label="Friends" href="/friends/"></a></div></span></li>
     <li data-row="tab:Groups"><span><div><a aria-label="Groups" href="/groups/"></a></div></span></li>
-    <li data-row="tab:Video"><span><div><a aria-label="Video" href="/watch/?ref=tab"></a></div></span></li>
-    <li data-row="tab:Marketplace"><span><div><a aria-label="Marketplace" href="/marketplace/"></a></div></span></li>
-    <li data-row="tab:Gaming"><span><div><a aria-label="Gaming" href="/gaming/"></a></div></span></li>
+    <li data-row="tab:Video"><span><div><a aria-label="Reels" href="/reel/?s=tab"></a></div></span></li>
+    <li data-row="tab:Marketplace"><span><div><a aria-label="Marketplace" href="/marketplace/?ref=app_tab"></a></div></span></li>
+    <li data-row="tab:Gaming"><span><div><a aria-label="Gaming" href="/gaming/play/?store_visit_source=gaming_tab"></a></div></span></li>
+    <li data-row="tab:Events"><span><div><a aria-label="Events" href="/events/"></a></div></span></li>
+    <li data-row="tab:Feeds"><span><div><a aria-label="Feeds" href="/?filter=all&amp;sk=h_chr"></a></div></span></li>
+    <li data-row="tab:Pages"><span><div><a aria-label="Pages" href="/pages/?category=your_pages&amp;ref=bookmarks"></a></div></span></li>
+    <li data-row="tab:Professional dashboard"><span><div><a aria-label="Professional dashboard" href="/professional_dashboard/?ref=tab_bar"></a></div></span></li>
+    <li data-row="tab:Ad Center"><span><div><a aria-label="Ad Center" href="/615000000000001/ad_center/"></a></div></span></li>
   </ul></div>
   <div role="navigation"><div data-row="find-friends"><a href="/friends/">Find friends</a></div></div>
 </div>`;
@@ -179,7 +184,9 @@ test('the top bar keeps the logo and Marketplace, and the other tabs and Find fr
   const rule = MARKETPLACE_ONLY_CSS.split('\n').filter((line) => !line.startsWith('html[')).join('\n');
   const selectors = rule.slice(0, rule.lastIndexOf(' { display: none !important; }'));
   const hidden = [...win.document.querySelectorAll(selectors)].map((el) => el.dataset.row).sort();
-  assert.deepEqual(hidden, ['find-friends', 'tab:Friends', 'tab:Gaming', 'tab:Groups', 'tab:Home', 'tab:Video']);
+  // Every tab Facebook's table can put in the bar (live 2026-11-24), by the link it makes.
+  assert.deepEqual(hidden, ['find-friends', 'tab:Ad Center', 'tab:Events', 'tab:Feeds', 'tab:Friends', 'tab:Gaming', 'tab:Groups', 'tab:Home',
+    'tab:Pages', 'tab:Professional dashboard', 'tab:Video']);
   assert.match(MARKETPLACE_ONLY_CSS, /html\[data-hfw-route="home"\]:not\(\[data-hfw-marketplace-loop\]\) \[role="main"\] \{ visibility: hidden !important; \}/);
 });
 

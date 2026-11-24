@@ -9,13 +9,15 @@
 // Live 2026-10-11: the logo and the Home tab are both a[href="/"] in the top bar, the tab inside
 // an li of the tab list and the logo outside it. This account's top bar has no Marketplace tab,
 // so the left column's Marketplace row is the in-page way there, and a plain load the fallback.
+// Where an account has the tab, its link is /marketplace/?ref=app_tab (Facebook's tab table,
+// live 2026-11-24, see declutter-table.js).
 
 import { parseRoute } from '../../core/route.js';
-import { FIND_FRIENDS, HOSTS, TAB_ROWS, hide, place } from '../appearance/declutter-table.js';
+import { FIND_FRIENDS, HOSTS, OTHER_TABS as UNLISTED_TABS, TAB_ROWS, hide, place } from '../appearance/declutter-table.js';
 import { claimHomeRedirect, onceLoaded, sameTabLink } from './start.js';
 
 export const MARKETPLACE = '/marketplace/';
-const MARKETPLACE_LINKS = ['[role="banner"] a[href="/marketplace/"]', ...HOSTS.map((host) => `[role="navigation"] a[href^="${host}/marketplace/"]`)].join(', ');
+const MARKETPLACE_LINKS = ['[role="banner"] a[href="/marketplace/"]', '[role="banner"] a[href^="/marketplace/?"]', ...HOSTS.map((host) => `[role="navigation"] a[href^="${host}/marketplace/"]`)].join(', ');
 // Set on <html> while the script has stopped sending Home away (see mayRedirect).
 export const LOOP_MARK = 'data-hfw-marketplace-loop';
 const GUARD_KEY = 'hfw:marketplaceOnlyGuard';
@@ -23,7 +25,7 @@ export const BOUNCE_MS = 60000; // back on Home this soon after a send, with no 
 export const MAX_BOUNCES = 4;
 export const STOP_MS = 10 * 60000; // how long the script leaves Home alone after a loop
 
-const OTHER_TABS = ['a[href="/"]', ...TAB_ROWS.filter((row) => row.option !== 'marketplace').map((row) => row.link)].join(', ');
+const OTHER_TABS = ['a[href="/"]', ...TAB_ROWS.filter((row) => row.option !== 'marketplace').map((row) => row.link), UNLISTED_TABS].join(', ');
 // The feed stays out of sight for the moment it takes to leave Home.
 export const MARKETPLACE_ONLY_CSS = [
   hide([place.tab(OTHER_TABS), FIND_FRIENDS].join(',\n')),

@@ -31,7 +31,7 @@ const HOME = `
   <a aria-label="Facebook" href="/">f</a>
   <div role="navigation" aria-label="Facebook"><ul>
     ${tab('Home', '/')}${tab('Friends', '/friends/', '<span class="tab-badge" style="position:absolute"><span>3</span></span>')}
-    ${tab('Groups', '/groups/')}${tab('Video', '/watch/?ref=tab')}${tab('Marketplace', '/marketplace/')}${tab('Gaming', '/gaming/')}
+    ${tab('Groups', '/groups/')}${tab('Video', '/reel/?s=tab')}${tab('Marketplace', '/marketplace/?ref=app_tab')}${tab('Gaming', '/gaming/play/?store_visit_source=gaming_tab')}
   </ul></div>
   <div role="navigation" aria-label="Account Controls and Settings">
     <div data-row="find-friends"><a href="/friends/">Find friends</a></div>
@@ -103,6 +103,33 @@ test('Hide tabs takes the noisy tabs and Find friends by default, and Home never
   assert.equal(tabsCss(settings(none)), '');
   // The left column's own Friends, Groups and Marketplace rows stay.
   assert.ok(!hiddenBy(win, hideTabs.css(settings(all))).some((row) => row.startsWith('left:')));
+});
+
+// The links Facebook's own tab table (CometLoggedInTargetedTabsList) made live on 2026-11-24.
+// #18: Gaming is the Play games page, which Hide Gaming didn't look for.
+const FACEBOOK_TABS = [
+  ['Home', '/'], ['Friends', '/friends/'], ['Reels', '/reel/?s=tab'], ['Watch', '/watch/?ref=tab'], ['Marketplace', '/marketplace/?ref=app_tab'],
+  ['Groups', '/groups/'], ['Gaming', '/gaming/play/?store_visit_source=gaming_tab'], ['Events', '/events/'], ['Feeds', '/?filter=all&sk=h_chr'],
+  ['Pages', '/pages/?category=your_pages&ref=bookmarks'], ['Professional dashboard', '/professional_dashboard/?ref=tab_bar'],
+  ['Ad Center', '/615000000000001/ad_center/'], ['More', '/bookmarks/'],
+];
+const barOf = (tabs) => `<div role="banner"><div role="navigation" aria-label="Facebook"><ul>${tabs.map(([label, href]) => tab(label, href)).join('')}</ul></div></div>`;
+
+test('each Hide tabs choice finds its tab by the link Facebook gives it, and only that tab', () => {
+  const win = page(barOf(FACEBOOK_TABS));
+  const only = (option) => hiddenBy(win, tabsCss(settings({ [`hideTabs.${option}`]: true })));
+  assert.deepEqual(only('video'), ['tab:Reels', 'tab:Watch']);
+  assert.deepEqual(only('marketplace'), ['tab:Marketplace']);
+  assert.deepEqual(only('gaming'), ['tab:Gaming']);
+  assert.deepEqual(only('groups'), ['tab:Groups']);
+  assert.deepEqual(only('friends'), ['tab:Friends']);
+});
+
+test('a bar of Home, Friends, Reels, Marketplace and Gaming is left with Home and Friends by default', () => {
+  const win = page(barOf(FACEBOOK_TABS.filter(([label]) => ['Home', 'Friends', 'Reels', 'Marketplace', 'Gaming'].includes(label))));
+  const hidden = new Set(hiddenBy(win, tabsCss(settings(tabDefaults))));
+  const left = [...win.document.querySelectorAll('[role="banner"] li')].map((li) => li.dataset.row).filter((row) => !hidden.has(row));
+  assert.deepEqual(left, ['tab:Home', 'tab:Friends']);
 });
 
 test('Hide Menu promotions takes ad tools and gaming out of the left column and the menu', () => {

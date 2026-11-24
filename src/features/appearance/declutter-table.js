@@ -22,6 +22,21 @@
 //   the compose icon's svg, alone in a fixed box outside the top bar, the feed and any dialog.
 //   The button draws the circle and its shadow itself. Its label is in the page's language, so
 //   it's found by the icon's outline, the only one on Home starting M17.99.93a1.75.
+//
+// Live 2026-11-24 (#18): Facebook's server sends each account its own short list of tab ids
+// (viewer.tab_bookmarks in CometAppNavigationTargetedTabBarContentInnerImplQuery), so one
+// person's bar has Groups and no Gaming and another's the reverse. The page looks each id up
+// in its own table, CometLoggedInTargetedTabsList, and these are the links that table makes:
+//   Home /                       Friends /friends/
+//   Reels /reel/?s=tab           (or /watch/?ref=tab where Reels isn't the tab yet)
+//   Marketplace /marketplace/?ref=app_tab
+//   Groups /groups/              Gaming /gaming/play/?store_visit_source=gaming_tab
+//   Events /events/              Feeds /?filter=all&sk=h_chr
+//   Pages /pages/?category=your_pages&ref=bookmarks
+//   Professional dashboard /professional_dashboard/?ref=tab_bar
+//   Ad Center /<your id>/ad_center/          More /bookmarks/
+// The Gaming tab is the Play games page, not Gaming video at /gaming/, which is all Hide
+// Gaming looked for until then.
 
 // The left column is the navigation outside the top bar that links Friends and Groups, and the
 // Facebook menu is the dialog with the Create column's Page and Event links. Anything looser
@@ -48,10 +63,14 @@ export const OFFSITE = 'a[href*="l.facebook.com/l.php"], a[href^="http"]:not([hr
 export const TAB_ROWS = [
   { option: 'video', label: 'Video', link: [section('/watch/'), section('/reel/'), section('/video/')].join(', ') },
   { option: 'marketplace', label: 'Marketplace', link: section('/marketplace/') },
-  { option: 'gaming', label: 'Gaming', link: section('/gaming/') },
+  { option: 'gaming', label: 'Gaming', link: [section('/gaming/play/'), section('/gaming/')].join(', ') },
   { option: 'groups', label: 'Groups', link: section('/groups/') },
   { option: 'friends', label: 'Friends', link: section('/friends/') },
 ];
+
+// The tabs Facebook's table can also put in the bar that Hide tabs has no choice for: Events,
+// Feeds, Pages, Professional dashboard and Ad Center. Marketplace only clears them with the rest.
+export const OTHER_TABS = [section('/events/'), 'a[href^="/?filter="]', section('/pages/'), section('/professional_dashboard/'), 'a[href$="/ad_center/"]'].join(', ');
 
 export const PROMOTION_ROWS = [
   { option: 'ads', label: 'Ads Manager, Your Ad Activity and Create an ad', link: [section('/ad_campaign/landing.php'), section('/adsmanager/'), section('/ads/activity/'), 'a[href^="/ads/create_ad/"]', absolute('/ads/create_ad/')].join(', ') },
