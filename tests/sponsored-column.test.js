@@ -82,6 +82,27 @@ test('only an exact ad label counts as the heading, and only in a side column', 
   assert.deepEqual(columnAdBoxes(page(friendRequests, main).document), [], 'a feed heading is the post check\'s business');
 });
 
+// Facebook's page changes many times a second, so the switch being off has to cost nothing.
+test('while the switch is off the watcher passes over the page\'s changes without reading them', async () => {
+  const win = page(friendRequests);
+  const doc = win.document;
+  const watcher = watchColumnAds({ doc, enabled: () => false });
+  const closest = win.Element.prototype.closest;
+  let looked = 0;
+  win.Element.prototype.closest = function (...args) {
+    looked++;
+    return closest.apply(this, args);
+  };
+  try {
+    doc.querySelector('.boxes').insertAdjacentHTML('beforeend', sponsoredBox());
+    await tick();
+  } finally {
+    win.Element.prototype.closest = closest;
+    watcher.stop();
+  }
+  assert.equal(looked, 0);
+});
+
 test('the watcher marks the box when Facebook draws it later, tells once, and the CSS hides only marked boxes', async () => {
   const win = page(friendRequests);
   const doc = win.document;

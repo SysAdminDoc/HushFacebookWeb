@@ -232,7 +232,7 @@ export function watchColumnBoxes({ doc, enabled, find, mark, onBox }) {
   };
   const Observer = doc.defaultView?.MutationObserver ?? globalThis.MutationObserver;
   const observer = new Observer((records) => {
-    if (touchesColumn(records)) check();
+    if (enabled() && touchesColumn(records)) check();
   });
   whenRootReady(() => {
     observer.observe(doc.documentElement, { childList: true, subtree: true });
