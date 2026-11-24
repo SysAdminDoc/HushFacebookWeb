@@ -2163,6 +2163,22 @@ test('an extension save shows pending state, keeps a rejected draft and commits 
   assert.equal(shadow.querySelector('[data-key="save-state"]').textContent, 'Changes apply as you go.');
 });
 
+// The save line is a live region, and writing it again can read it out again even when the
+// words are the same. Every change from this tab or another one redraws the panel.
+test("the save line is left alone when a change doesn't change what it says", async () => {
+  const { win, shadow, panel, settings } = setup();
+  panel.open('general');
+  const line = shadow.querySelector('[data-key="save-state"]');
+  const before = line.textContent;
+  const writes = [];
+  new win.MutationObserver((records) => writes.push(...records)).observe(line, { childList: true, characterData: true, subtree: true, attributes: true });
+  await settings.set('ui.hiddenNote', true);
+  await settings.set('ui.hiddenNote', false);
+  await tick();
+  assert.equal(line.textContent, before);
+  assert.equal(writes.length, 0);
+});
+
 test('invalid numeric edits stay in the field with an associated error and can be corrected', () => {
   const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];
   const { win, shadow, panel, settings } = setup({ features });

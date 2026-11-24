@@ -1288,18 +1288,20 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     launcherSpot.update();
   }
 
+  // A live region, so it's only written when what it says changes: writing the same words again
+  // can read them out again, and every change from any tab comes through here.
   function refreshSaveState() {
-    if (extensionReloaded(environment.storage)) {
-      saveState.dataset.state = 'error';
-      saveState.textContent = t('Extension updated. Reload the page to save.');
-      return;
-    }
-    saveState.dataset.state = preferenceSave.state;
-    saveState.textContent = t(preferenceSave.state === 'saving'
-      ? 'Saving changes...'
-      : preferenceSave.state === 'error'
-        ? "Changes couldn't be saved. Open General to retry."
-        : 'Changes apply as you go.');
+    const reloaded = extensionReloaded(environment.storage);
+    const state = reloaded ? 'error' : preferenceSave.state;
+    const text = t(reloaded
+      ? 'Extension updated. Reload the page to save.'
+      : state === 'saving'
+        ? 'Saving changes...'
+        : state === 'error'
+          ? "Changes couldn't be saved. Open General to retry."
+          : 'Changes apply as you go.');
+    if (saveState.dataset.state !== state) saveState.dataset.state = state;
+    if (saveState.textContent !== text) saveState.textContent = text;
   }
 
   // ---- actions ----
