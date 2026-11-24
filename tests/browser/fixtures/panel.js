@@ -59,6 +59,17 @@ export function panelState() {
   };
 }
 
+// Whether the focused control is out from under every notice, and which one it is.
+export function focusClearOfNotices() {
+  const active = state.shadow.activeElement;
+  const box = active.getBoundingClientRect();
+  const under = [...state.shadow.querySelectorAll('.toast')].filter((toast) => {
+    const notice = toast.getBoundingClientRect();
+    return notice.bottom > box.top && notice.top < box.bottom && notice.right > box.left && notice.left < box.right;
+  });
+  return { focused: active?.dataset.key ?? null, clear: under.length === 0, notices: state.shadow.querySelectorAll('.toast').length };
+}
+
 export function focusPanelControl(key) {
   const control = state.shadow.querySelector(`[data-key="${CSS.escape(key)}"]`);
   check(Boolean(control), `Missing panel control ${key}`);

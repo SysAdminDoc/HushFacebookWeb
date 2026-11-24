@@ -112,6 +112,14 @@ async function panel(page, engine) {
   await page.waitForFunction(() => window.hfwBrowserFixture.panelState().undo);
   assert.equal((await page.evaluate(() => window.hfwBrowserFixture.panelState())).watchHistory, true);
   await page.screenshot({ path: join(output, `${engine}-dialog-undo.png`), animations: 'disabled' });
+  // The next control down, Reset to defaults, sits at the bottom of the page on a phone, where
+  // the Undo notice is. Tab has to bring it up clear of the notice.
+  await page.keyboard.press('Tab');
+  const next = await page.evaluate(() => window.hfwBrowserFixture.focusClearOfNotices());
+  assert.equal(next.focused, 'quick:defaults');
+  assert.ok(next.notices > 0, 'The Undo notice went before Tab');
+  assert.equal(next.clear, true, 'Tab left Reset to defaults under the Undo notice');
+  await page.screenshot({ path: join(output, `${engine}-dialog-undo-tab.png`), animations: 'disabled' });
   await page.evaluate(() => window.hfwBrowserFixture.focusPanelControl('reset:undo'));
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => !window.hfwBrowserFixture.panelState().undo);

@@ -260,6 +260,10 @@ dd { margin: 0; overflow-wrap: anywhere; }
    room for the gear when it's down there too. */
 .toasts.corner { --toast-gap: 6px; left: 12px; bottom: 14px; transform: none; max-width: calc(100vw - 24px); justify-items: start; }
 .root:has(> .launcher[data-place="corner"]:not([hidden])) .toasts.corner { left: 60px; max-width: calc(100vw - 72px); }
+/* In the open panel the stacks cover the bottom of the page, so while a notice is up a control Tab
+   scrolls to stops well above them. Raising the stacks instead put them over the control just
+   used, like a Quick setup's button under its own Undo notice. */
+.dialog:has(> .toasts .toast) main { scroll-padding-bottom: 120px; }
 .toast.small { gap: 4px 10px; padding: 5px 8px 5px 12px; font-size: 13px; box-shadow: 0 4px 14px var(--shadow-sm); }
 .toast.small span { flex: 0 1 auto; }
 .toast.small button { min-height: 24px; padding: 2px 4px; }
