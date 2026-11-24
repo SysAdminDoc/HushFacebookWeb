@@ -8,7 +8,7 @@ export default [
   {
     files: ['src/**/*.js'],
     languageOptions: {
-      ecmaVersion: 2024,
+      ecmaVersion: 2025,
       sourceType: 'module',
       globals: {
         ...globals.browser,
@@ -22,7 +22,7 @@ export default [
   {
     files: ['extension/**/*.js'],
     languageOptions: {
-      ecmaVersion: 2024,
+      ecmaVersion: 2025,
       sourceType: 'module',
       globals: { ...globals.browser, ...globals.webextensions },
     },
@@ -30,7 +30,7 @@ export default [
   {
     files: ['scripts/**/*.mjs', 'tests/**/*.mjs', 'tests/**/*.js', 'eslint.config.js'],
     languageOptions: {
-      ecmaVersion: 2024,
+      ecmaVersion: 2025,
       sourceType: 'module',
       globals: { ...globals.node },
     },
