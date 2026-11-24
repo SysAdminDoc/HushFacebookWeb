@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.0.53 (2026-11-24, unreleased)
+
+Fixes from an audit of the whole script.
+
+* With Russian picked, the note left where a post was hidden reads in Russian too. It said "Hidden: Sponsored. Show" in English beside a Russian Show hidden button. A word, name or site from your own filter list still shows the way you typed it
+* Your userscript manager's menu names the settings entry in the language you picked
+* In the extension, the "!" on the toolbar button keeps saying why the settings didn't open after you reload Facebook. The tooltip used to go back to the plain one while the "!" stayed
+
 ## v0.0.52 (2026-11-24, unreleased)
 
 Fixes for the reports in #18 and #19, the switch #17 asked for, and Russian.

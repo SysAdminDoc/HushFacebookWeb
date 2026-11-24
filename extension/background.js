@@ -1337,14 +1337,18 @@ async function newerShown() {
   }
 }
 
-// A tab with no text of its own shows NEW when there is one, in NEW's color.
+// A tab with no text of its own shows NEW when there is one, in NEW's color. The tooltip goes
+// with the badge: Chrome drops both when the tab loads a page, and a "!" that comes back with
+// the next page's count has to say why again.
 async function paintBadge(tabId, record) {
   const failed = record?.failed === true;
   const text = failed ? '!' : record?.count > 0 && !(await newerShown()) ? countText(record.count) : null;
   const color = failed ? FAILED_COLOR : text ? COUNT_COLOR : UPDATE_COLOR;
+  const title = failed ? OPEN_FAILED : chrome.runtime.getManifest().action?.default_title ?? 'HushFacebook Web settings';
   await Promise.allSettled([
     (async () => chrome.action.setBadgeText({ tabId, text }))(),
     (async () => chrome.action.setBadgeBackgroundColor({ tabId, color }))(),
+    (async () => chrome.action.setTitle({ tabId, title }))(),
   ]);
 }
 
@@ -1366,9 +1370,7 @@ function changeBadge(tabId, change) {
 
 // The button for one tab: a "!" and why, or back to how it is everywhere else.
 async function showOpenFailed(tabId, failed) {
-  const title = failed ? OPEN_FAILED : chrome.runtime.getManifest().action?.default_title ?? 'HushFacebook Web settings';
   await changeBadge(tabId, (record) => ({ ...record, failed })).catch(() => paintBadge(tabId, { failed }));
-  await (async () => chrome.action.setTitle({ tabId, title }))().catch(() => {});
 }
 
 // A page's hidden count. A page Chrome is prerendering isn't the tab's page yet, and one being

@@ -2019,6 +2019,17 @@ test('the wait ends on the alarm, and a page that asks too late lights the "!" a
   assert.equal(await late.context.openSettings({ id: 4, index: 0, url: 'https://www.facebook.com/' }), 'reloaded', 'an old record is no reason to wait');
 });
 
+// Chrome drops a tab's own badge and tooltip when the tab loads a page, so the reloaded page's
+// count paints the "!" again, and has to bring back the tooltip that says why with it.
+test('a "!" painted again after a reload keeps the tooltip that says why', async () => {
+  const failed = worker({ session: { [OPENS_KEY]: { 5: { at: Date.now() - 61 * 1000 } } }, tabs: { 5: true } });
+  await failed.context.sweepOpens();
+  await ask(failed, { type: 'badge:count', count: 12 }, topFrame(5));
+  assert.deepEqual(failed.calls.tabButton.slice(-2), [[5, '!'], [5, OPEN_FAILED]]);
+  await ask(failed, { type: 'badge:count', count: 3 }, topFrame(6));
+  assert.deepEqual(failed.calls.tabButton.slice(-2), [[6, '3'], [6, 'HushFacebook Web settings']], 'other tabs keep the usual tooltip');
+});
+
 // What one tab's button says now: its last badge text, titles left out.
 const tabText = (current, tabId) => current.calls.tabButton
   .filter(([id, value]) => id === tabId && !(typeof value === 'string' && value.startsWith('HushFacebook Web'))).at(-1)?.[1];
