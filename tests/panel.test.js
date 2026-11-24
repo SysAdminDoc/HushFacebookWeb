@@ -2632,7 +2632,22 @@ const DOT_ON = { id: 'dotOn', section: 'feed', title: 'Dot on', description: 'A 
 const DOT_ADS = { id: 'dotAds', section: 'ads', title: 'Dot ads', description: 'An ads switch.', default: false, setup() {} };
 const dotsIn = (root) => [...root.querySelectorAll('.new-dot')].map((dot) => {
   const holder = dot.closest('[data-key], .title, label');
-  return holder.dataset?.key ?? holder.textContent.replace(/New$/, '');
+  return holder.dataset?.key ?? holder.textContent.replace(/\s*New$/, '');
+});
+// What a screen reader makes of a control named by what's in it: every piece end to end, less the
+// pieces hidden from it.
+const nameOf = (el) => [...el.childNodes].map((node) => (node.nodeType === 3 ? node.textContent : node.getAttribute('aria-hidden') === 'true' ? '' : nameOf(node))).join('');
+
+// NVDA 2026.3.1 on Chromium read the sidebar as "Ads and promotions4 on" and a new page as
+// "FeedNew4 on": the hidden words sat right against the name.
+test('the words a screen reader hears after a name are words of their own', () => {
+  const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotOn.size'] });
+  const { shadow, panel } = setup({ features: [DOT_ON], storage, environment: { storage } });
+  panel.open('feed');
+  assert.match(nameOf(shadow.querySelector('[data-key="nav:feed"]')), /^Feed\sNew\s1 on$/);
+  assert.match(nameOf(shadow.querySelector('.card .title')), /^Dot on\sNew$/);
+  panel.open('overview');
+  assert.match(nameOf([...shadow.querySelectorAll('.tile-title')].find((title) => title.textContent.startsWith('Feed'))), /^Feed\sNew$/);
 });
 
 test('the first time settings open nothing has a dot, and every setting counts as seen from then on', async () => {
@@ -2653,7 +2668,7 @@ test('a setting an update added keeps its dot, and its section its own, until se
   panel.open('feed');
   // dotFeed is off, so its new option hides with it and the card carries the dot.
   assert.deepEqual(dotsIn(shadow), ['nav:ads', 'nav:feed', 'Dot feed']);
-  assert.equal(shadow.querySelector('.title .new-dot').textContent, 'New', 'a screen reader hears it');
+  assert.equal(shadow.querySelector('.title .new-dot').textContent.trim(), 'New', 'a screen reader hears it');
   panel.close();
   await tick();
   assert.deepEqual(storage.get(SEEN_SETTINGS_KEY), ['dotFeed', 'gone', 'dotFeed.words'], 'only what was shown, and a removed setting stays');
@@ -2681,7 +2696,7 @@ test('a switch with a new-dot says New to a screen reader before what it does, u
   const storage = createMemoryStorage({ [SEEN_SETTINGS_KEY]: ['dotOn.size'] });
   const { shadow, panel } = setup({ features: [DOT_ON], storage, environment: { storage } });
   const heard = (key) => (shadow.querySelector(`.switch[data-key="${key}"]`).getAttribute('aria-describedby') ?? '')
-    .split(' ').filter(Boolean).map((id) => shadow.getElementById(id)?.textContent);
+    .split(' ').filter(Boolean).map((id) => shadow.getElementById(id)?.textContent.trim());
   panel.open('feed');
   assert.deepEqual(heard('dotOn'), ['New', 'A switch that starts on.']);
   assert.deepEqual(heard('dotOn.quiet'), ['New']);

@@ -135,9 +135,13 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   let renderedDirection = null;
   let opener = null;
   const newDots = createNewDots({ storage: environment.storage, features, log });
+  // Words only a screen reader gets, set after a visible name. A control's name is its pieces end to
+  // end, so they start with a no-break space (a plain one is trimmed away): NVDA read a sidebar entry
+  // as "Ads and promotions4 on".
+  const spoken = (text) => h('span', { class: 'visually-hidden', text: `${String.fromCharCode(160)}${text}` });
   // id: a switch beside the dot lists it in its aria-describedby, since the switch's name is its
   // aria-label and the dot's hidden "New" would go unread on Tab.
-  const newDot = (id) => h('span', { class: 'new-dot', id }, h('span', { class: 'visually-hidden', text: t('New') }));
+  const newDot = (id) => h('span', { class: 'new-dot', id }, spoken(t('New')));
   const drafts = new Map();
   const openHelp = new Set(); // Rows whose More was clicked open, kept across redraws.
   // Rows a search opened and Less closed again. A redraw keeps them closed until the search
@@ -1183,7 +1187,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     navigationIcon(page.id),
     h('span', { class: 'nav-title', text: t(page.title) }),
     pageIsNew(page.id) ? newDot() : null,
-    on ? h('span', { class: 'nav-count' }, h('span', { 'aria-hidden': 'true', text: String(on) }), h('span', { class: 'visually-hidden', text: t('{count} on', { count: on }) })) : null);
+    on ? h('span', { class: 'nav-count' }, h('span', { 'aria-hidden': 'true', text: String(on) }), spoken(t('{count} on', { count: on }))) : null);
   }
 
   function render() {
