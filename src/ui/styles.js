@@ -221,6 +221,10 @@ nav button .new-dot { margin-inline-start: 0; }
 a.button { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
 .button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 .button.primary:hover { filter: brightness(1.08); }
+.button:disabled, .options select:disabled, .options input:disabled, .options textarea:disabled { opacity: 0.55; cursor: not-allowed; }
+.button:not(.primary):disabled:hover { background: transparent; }
+.button.primary:disabled:hover { filter: none; }
+.button[aria-busy="true"] { cursor: progress; }
 footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; padding: 8px 20px; border-top: 1px solid var(--border); color: var(--subtext); background: var(--mantle); font-size: 12px; }
 .save-state[data-state="saving"] { color: var(--peach); }
 .save-state[data-state="error"] { color: var(--red); font-weight: 600; }

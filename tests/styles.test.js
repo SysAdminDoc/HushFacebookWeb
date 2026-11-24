@@ -43,6 +43,20 @@ test('the light set gives every color the dark one has, so nothing stays dark on
   assert.deepEqual(Object.keys(tokens(uiLightTokens)).sort(), Object.keys(tokens(uiTokens)).sort());
 });
 
+// The page's own rule hands every control the text color, which hides the browser's own grayed
+// look, so the panel draws one. Reset, Restore and Quick setups turn every button and field off
+// while they run.
+test("a button or field that can't be used right now looks it, and doesn't light up under the pointer", () => {
+  const rules = [...panelCss.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, selectors, body]) => [selectors.split(',').map((each) => each.trim()), body]);
+  const ruleFor = (selector) => rules.filter(([selectors]) => selectors.includes(selector)).map(([, body]) => body).join(' ');
+  for (const selector of ['.button:disabled', '.options select:disabled', '.options input:disabled', '.options textarea:disabled']) {
+    assert.match(ruleFor(selector), /opacity: 0\.55;/, selector);
+    assert.match(ruleFor(selector), /cursor: not-allowed;/, selector);
+  }
+  assert.match(ruleFor('.button:not(.primary):disabled:hover'), /background: transparent;/);
+  assert.match(ruleFor('.button.primary:disabled:hover'), /filter: none;/);
+});
+
 test("the search placeholder isn't faded below its color, and the dialog veil has a color where variables don't reach it", () => {
   const placeholder = /\.search::placeholder \{([^}]*)\}/.exec(panelCss)?.[1] ?? '';
   assert.match(placeholder, /color: var\(--placeholder\)/);
