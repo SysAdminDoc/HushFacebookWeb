@@ -748,7 +748,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         }
         // A Quick setup that found its switches already on wrote nothing, so it has nothing to undo,
         // even while a failed save leaves another choice showing that isn't saved yet.
-        const undo = (changed || id === 'defaults') && rememberUndo(previous, { kind: 'quick', focusKey: key });
+        const undo = (changed || id === 'defaults') && rememberUndo(previous, { kind: id === 'defaults' ? 'reset' : 'quick', focusKey: key });
         if (dialog.open) render();
         let message;
         if (changed) message = plural(changed, 'Changed {count} setting.', 'Changed {count} settings.');
@@ -798,7 +798,8 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
           h('button', {
             class: `button${setup.reset ? '' : ' primary'}`, type: 'button', id: ids.button, 'aria-labelledby': setup.reset ? ids.title : `${ids.button} ${ids.title}`,
             text: t(pending.has(key) ? 'Waiting...' : setup.reset ? 'Reset' : 'Turn on'), dataset: { key },
-            disabled: bulkChangePending(), 'aria-busy': pending.has(key) ? 'true' : null,
+            // The tile being applied stays focusable, so keyboard focus stays on it.
+            disabled: bulkChangePending() && !pending.has(key), 'aria-disabled': pending.has(key) ? 'true' : null, 'aria-busy': pending.has(key) ? 'true' : null,
             onclick: () => applySetup(setup.id),
           })));
     }));

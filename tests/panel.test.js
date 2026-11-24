@@ -1572,6 +1572,32 @@ test('every Quick setup keeps a persistent Undo with its earlier choices and foc
   }
 });
 
+test('a Quick setup keeps keyboard focus on its own button while it applies and after', async () => {
+  for (const id of ['quiet', 'defaults']) {
+    const { shadow, panel, settings } = setup({ features: allFeatures });
+    settings.setMany({ hideSponsoredPosts: false, accentColor: true });
+    panel.open('overview');
+    shadow.querySelector(`[data-key="quick:${id}"]`).focus();
+    shadow.querySelector(`[data-key="quick:${id}"]`).click();
+    assert.equal(shadow.activeElement?.dataset.key, `quick:${id}`, `${id} while it applies`);
+    await tick();
+    assert.equal(shadow.activeElement?.dataset.key, `quick:${id}`, `${id} once it's done`);
+  }
+});
+
+test('Reset to defaults offers the same Undo from Overview as from General', async () => {
+  for (const page of ['overview', 'general']) {
+    const { shadow, panel, settings } = setup({ features: allFeatures });
+    settings.setMany({ hideSponsoredPosts: false });
+    panel.open(page);
+    shadow.querySelector(page === 'overview' ? '[data-key="quick:defaults"]' : '[data-key="reset"]').click();
+    await tick();
+    const card = shadow.querySelector('[data-key="reset:undo"]').closest('.card');
+    assert.equal(card.querySelector('.title').textContent, 'Settings were reset', page);
+    assert.equal(shadow.querySelector('[data-key="reset:undo"]').textContent, 'Undo reset', page);
+  }
+});
+
 test('a full restore keeps Undo after omitted choices return to defaults and rejects bad imports unchanged', async () => {
   const context = setup();
   const { shadow, panel, settings } = context;
