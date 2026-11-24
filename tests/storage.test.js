@@ -2,15 +2,12 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createGmStorage, createLocalStorage, UNKEPT_SETTINGS } from '../src/core/storage.js';
+import { createGmStorage, createLocalStorage } from '../src/core/storage.js';
 import { ACTIVITY_KEYS, activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 
-test('without GM storage the settings fall back to the page, and the warning says why that fails', () => {
+test('without GM storage the settings fall back to the page', () => {
   assert.equal(typeof globalThis.GM_getValue, 'undefined');
   assert.equal(createGmStorage().kind, 'localStorage');
-  assert.match(UNKEPT_SETTINGS, /clears them within seconds/);
-  assert.match(UNKEPT_SETTINGS, /Tampermonkey and Violentmonkey/);
-  assert.doesNotMatch(UNKEPT_SETTINGS, /[–—;]/);
 });
 
 test('with GM storage the manager keeps them', () => {

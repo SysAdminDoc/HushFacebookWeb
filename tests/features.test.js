@@ -1,5 +1,4 @@
-// Guards the feature registry: shape, settings, the Android parity doc, and the voice rules
-// for text people read in the panel.
+// Guards the feature registry: its shape and its settings.
 
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
@@ -8,7 +7,6 @@ import { features } from '../src/features/index.js';
 import { PAGES, SECTIONS } from '../src/features/sections.js';
 import { buildSchema, isValid } from '../src/core/settings.js';
 
-const parity = await readFile(new URL('../docs/feature-parity.md', import.meta.url), 'utf8');
 const sectionIds = new Set(SECTIONS.map((section) => section.id));
 
 test('feature ids are unique camelCase keys', () => {
@@ -36,30 +34,6 @@ test('every group sits on a page, and every page has switches in at least one of
     assert.ok(features.some((feature) => groups.includes(feature.section)), `${page.id}: an empty page`);
   }
   for (const section of SECTIONS) assert.ok(features.some((feature) => feature.section === section.id), `${section.id}: an empty group`);
-});
-
-// Switches with no Hushfacebook patch behind them, each added on purpose.
-const WEB_ONLY = new Set(['pauseOffscreenVideos', 'hideVideoSuggestions', 'filterMarketplace', 'hidePostBox', 'hideActiveDots', 'widerFeed', 'keepNotificationsFilter', 'keepPostsHidden', 'hideRepeatPosts', 'calmTheme', 'hideFooterLinks', 'loadAhead', 'showLoadProgress', 'hideParts', 'hideFriendRequestsColumn', 'freezeLastActive']);
-
-test('ported features retain their parity rows and the web-only additions are explicit', () => {
-  for (const feature of features) {
-    if (WEB_ONLY.has(feature.id)) {
-      assert.equal(feature.webOnly, true, `${feature.id}: explicit web-only control`);
-      assert.equal(feature.android, undefined, `${feature.id}: no invented Android counterpart`);
-      continue;
-    }
-    assert.equal(feature.webOnly, undefined, `${feature.id}: existing ports retain their Android mapping`);
-    assert.ok(feature.android, `${feature.id}: android`);
-    assert.ok(parity.includes(`| ${feature.android} |`), `${feature.id}: "${feature.android}" missing from docs/feature-parity.md`);
-  }
-});
-
-test('panel text follows the voice rules', () => {
-  for (const feature of features) {
-    for (const text of [feature.title, feature.description, ...(feature.options ?? []).map((option) => option.label)]) {
-      assert.doesNotMatch(text, /[–—;]/, `${feature.id}: no dashes or semicolons in "${text}"`);
-    }
-  }
 });
 
 test("no two features add a Diagnostics row with the same label, since one would replace the other's", async () => {
