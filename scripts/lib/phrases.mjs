@@ -1,8 +1,9 @@
 // Every phrase the script can show through t(), plural() or english(), in English, for the
 // translation template. Three sources: the feature list's own words (titles, descriptions,
 // option labels and choices, page and group names, quick setup names), Diagnostics' row labels
-// (diagnostics.add), card buttons' labels (actions.add) and an empty link list's words
-// (actions.links), and every call in src, read with a parser. An argument is followed to the
+// (diagnostics.add), card buttons' labels (actions.add), an empty link list's words
+// (actions.links) and logged errors (log.error, which the panel's error notice shows), and
+// every call in src, read with a parser. An argument is followed to the
 // words it can end up as: a string, either side of ?: ?? or ||, a const or a lookup table in
 // the same file or one it imports, a parameter of the function it's in (through that
 // function's callers in the same file), or a property (the strings that property gets in the
@@ -32,6 +33,7 @@ export const PASS_THROUGH = new Map([
   ["src/ui/panel.js t(status ?? '')", "a feature's status line (diagnostics.status), none so far"],
   ["src/ui/panel.js t(diagnostics.statusOf(node.getAttribute('data-status-for')) ?? '')", "a feature's status line (diagnostics.status), none so far"],
   ['src/ui/panel.js t(found.empty)', 'an empty link list, from the actions.links calls'],
+  ['src/core/tasks.js t(result.phrase, { ...result.vars, keeper: t(KEEPER) })', "the storage check's phrases, read from english(phrase) in failure()"],
 ]);
 
 async function sources(dir) {
@@ -228,6 +230,12 @@ export async function collectPhrases() {
         const found = resolve(file, node.arguments[0], ancestors);
         if (found === null) missed();
         else add(found);
+      } else if (node.callee.type === 'MemberExpression' && calleeName(node) === 'error' && node.callee.object.name === 'log') {
+        // An error's message: the panel's error notice shows it through t(entry.message). One
+        // built as it's logged, around a rule's id or a feature's name, can't be in a catalog,
+        // so the notice says something went wrong in the chosen language instead.
+        const found = resolve(file, node.arguments[0], ancestors);
+        if (found !== null) add(found);
       } else if (node.callee.type === 'MemberExpression' && calleeName(node) === 'links' && node.callee.object.name === 'actions' && node.arguments.length === 2) {
         // A card's link list: what it says while empty, shown through t(empty).
         const found = resolve(file, node.arguments[1], ancestors);
@@ -248,9 +256,11 @@ export async function collectPhrases() {
       for (const choice of option.choices ?? []) if (choice.label) phrases.add(choice.label);
     }
   }
-  // The script's own settings' choices, General's among them. A language keeps its own name.
+  // The script's own settings' labels, which a backup's error names, and their choices, General's
+  // among them. A language keeps its own name.
   const { buildSchema } = await import(pathToFileURL(join(SRC, 'core', 'settings.js')));
   for (const [key, spec] of buildSchema([])) {
+    if (spec.label) phrases.add(spec.label);
     if (key === 'ui.language') continue;
     for (const choice of spec.choices ?? []) if (choice.label) phrases.add(choice.label);
   }

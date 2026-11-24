@@ -30,6 +30,7 @@ import { panelCss } from './styles.js';
 const ALWAYS_OPENS = TARGET === 'extension' ? "The extension's toolbar button" : "Your userscript manager's menu";
 const ERROR_TOAST_GAP_MS = 15000;
 const FOCUSABLE = 'button, input, select, textarea, a[href], [tabindex]';
+const SOMETHING_WRONG = 'Something went wrong';
 // How long a toast live region sits in the page, after it goes in or moves, before it is heard.
 export const REGION_SETTLE_MS = 500;
 const KOFI_URL = 'https://ko-fi.com/X8K126YVER';
@@ -1608,8 +1609,11 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     if (force) lastErrorNotice?.dismiss();
     lastErrorToast = Date.now();
     // The log keeps the English. The notice shows it translated where the catalog has it, and a
-    // message that already ends its sentence doesn't get a second period.
-    const message = translated ?? t(entry.message);
+    // message that already ends its sentence doesn't get a second period. One built as it was
+    // logged, around a rule's id or a feature's name, has no translation, so in a language that
+    // has a catalog the notice says something went wrong and Diagnostics has the English.
+    const own = t(entry.message);
+    const message = translated ?? (own === entry.message && t(SOMETHING_WRONG) !== SOMETHING_WRONG ? t(SOMETHING_WRONG) : own);
     const text = /[.!?。！？]$/.test(message) ? t('{message} Details are in Diagnostics.', { message }) : t('{message}. Details are in Diagnostics.', { message });
     lastErrorNotice = toast(text, { tone: 'error', action: { label: 'Open', run: () => open('diagnostics') } });
   };

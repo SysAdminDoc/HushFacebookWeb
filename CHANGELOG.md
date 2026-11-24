@@ -6,6 +6,9 @@ Fixes from an audit of the whole script.
 
 * With Russian picked, the note left where a post was hidden reads in Russian too. It said "Hidden: Sponsored. Show" in English beside a Russian Show hidden button. A word, name or site from your own filter list still shows the way you typed it
 * Your userscript manager's menu names the settings entry in the language you picked
+* With Russian picked, error notices read in Russian as well, the daily storage check and a backup this version can't restore included. A few errors name a filter rule or a feature as they happen, and those say something went wrong, with the English in Diagnostics
+* A Pause for this tab or Turn back on that fails, or a failed storage check, puts up one notice instead of two
+* When the watched list can't be saved, the notice points at the Video page, where Retry saving is. It named a Playback page that doesn't exist
 * In the extension, the "!" on the toolbar button keeps saying why the settings didn't open after you reload Facebook. The tooltip used to go back to the plain one while the "!" stayed
 * Pressing a Quick setup's button from the keyboard keeps focus on it. Focus used to fall off the panel, so the next Tab started over from the top of the page
 * When a card in the settings goes away under the keyboard (a Retry that worked, Dismiss, Undo), focus moves to the nearest control left instead of dropping out of the panel

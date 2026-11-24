@@ -11,6 +11,7 @@
 // the manager's storage but each has its own IndexedDB. A page copy written in the last few
 // minutes is another tab's check running alongside, and isn't compared.
 
+import { english, t } from './i18n.js';
 import { KEEPER } from './target.js';
 
 export const DAY = 24 * 60 * 60 * 1000;
@@ -175,32 +176,39 @@ export function whenMirrorReady(mirror, run, { wait = 30000, setTimer = setTimeo
 const randomToken = () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
 const day = (time) => new Date(time).toISOString().slice(0, 10);
 const STORAGE_FAILED = `${KEEPER}'s storage failed the daily check, so your settings may not be saving`;
+const UNREADABLE = "{keeper}'s storage couldn't be read ({error}), so your settings may not be saved.";
+const NOT_KEPT = "{keeper} didn't keep what HushFacebook Web saved on {day}. If you didn't reinstall the script or clear its storage since then, your settings may not be saving.";
+const NOT_GIVEN_BACK = "{keeper} didn't give back what HushFacebook Web just saved, so your settings may not be saving.";
+const WONT_SAVE = "{keeper} wouldn't save ({error}), so your settings may not be saving.";
 
-// One check. Returns { ok: true, at } or { ok: false, at, message, cause? }, where cause is the
-// manager's own error when there was one.
+// A failed check: message in English for the log and Diagnostics, and phrase and vars for the
+// notice, which shows it in the chosen language.
+function failure(at, phrase, vars, cause) {
+  const result = { ok: false, at, message: english(phrase, { ...vars, keeper: KEEPER }), phrase, vars };
+  return cause === undefined ? result : { ...result, cause };
+}
+
+// One check. Returns { ok: true, at } or { ok: false, at, message, phrase, vars, cause? }, where
+// cause is the manager's own error when there was one.
 export function checkStorage({ storage, mirror, now = Date.now(), token = randomToken() }) {
   let kept;
   try {
     kept = asRecord(storage.get(CHECK_KEY, null));
   } catch (error) {
-    return { ok: false, at: now, cause: error, message: `${KEEPER}'s storage couldn't be read (${error?.message ?? error}), so your settings may not be saved.` };
+    return failure(now, UNREADABLE, { error: String(error?.message ?? error) }, error);
   }
   const before = mirror?.get() ?? null;
   const earlier = before && !(now - Number(before.at) < RECENT);
-  const lost = earlier && (!kept || (kept.token !== before.token && !(Number(kept.at) > Number(before.at))))
-    ? `${KEEPER} didn't keep what HushFacebook Web saved on ${day(before.at)}. If you didn't reinstall the script or clear its storage since then, your settings may not be saving.`
-    : null;
+  const lost = earlier && (!kept || (kept.token !== before.token && !(Number(kept.at) > Number(before.at))));
   try {
     storage.set(CHECK_KEY, { token, at: now });
     const back = asRecord(storage.get(CHECK_KEY, null));
-    if (!back || back.token !== token) {
-      return { ok: false, at: now, message: `${KEEPER} didn't give back what HushFacebook Web just saved, so your settings may not be saving.` };
-    }
+    if (!back || back.token !== token) return failure(now, NOT_GIVEN_BACK, {});
   } catch (error) {
-    return { ok: false, at: now, cause: error, message: `${KEEPER} wouldn't save (${error?.message ?? error}), so your settings may not be saving.` };
+    return failure(now, WONT_SAVE, { error: String(error?.message ?? error) }, error);
   }
   mirror?.set({ token, at: now });
-  return lost ? { ok: false, at: now, message: lost } : { ok: true, at: now };
+  return lost ? failure(now, NOT_KEPT, { day: day(before.at) }) : { ok: true, at: now };
 }
 
 // Wires the storage check into the daily jobs, the toast and Diagnostics.
@@ -209,9 +217,10 @@ export function scheduleStorageCheck({ tasks, storage, mirror, log, toast, diagn
   tasks.add(CHECK_KEY, () => {
     result = checkStorage({ storage, mirror, now: now() });
     if (!result.ok) {
-      // The manager's own error text goes in the detail, where Copy report doesn't reach.
-      log?.error(result.cause ? STORAGE_FAILED : result.message, result.cause);
-      toast?.(result.message, { tone: 'error' });
+      // The manager's own error text goes in the detail, where Copy report doesn't reach. A
+      // warning, since the notice below says it: an error would put the panel's own up too.
+      log?.warn(result.cause ? STORAGE_FAILED : result.message, result.cause);
+      toast?.(t(result.phrase, { ...result.vars, keeper: t(KEEPER) }), { tone: 'error' });
     }
     diagnostics?.changed();
   }, { lastSeen: () => mirror?.get()?.at ?? 0 });

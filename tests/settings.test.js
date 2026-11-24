@@ -1354,6 +1354,20 @@ test('olderThan compares release numbers and refuses anything else', () => {
   assert.equal(olderThan(undefined, '0.0.2'), false);
 });
 
+// The message goes straight onto the panel's notice, so it's built in the chosen language.
+test("a backup this version can't use says so in the chosen language, naming the setting as the panel does", (t) => {
+  t.after(() => setLanguage('en'));
+  setLanguage('ru');
+  const settings = createSettings({ storage: createMemoryStorage(), features: adSwitches, version: '0.0.1' });
+  const backup = (values, version = '0.0.1') => JSON.stringify({ app: 'HushFacebook Web', schema: EXPORT_SCHEMA, version, settings: values });
+  for (const [values, version, message] of [
+    [{ paused: 'yes' }, '0.0.1', 'В этой резервной копии есть значение, которое эта версия не может использовать: Приостановить HushFacebook Web, поэтому ничего не изменилось'],
+    [{ paused: 'yes', 'ui.launcher': 'no', 'ui.toolbarCount': 2 }, '9.0.0', 'В этой резервной копии есть значения, которые эта версия не может использовать: Приостановить HushFacebook Web и ещё 2, поэтому ничего не изменилось. Копия из версии 9.0.0, так что обновите HushFacebook Web и восстановите её ещё раз'],
+  ]) {
+    assert.throws(() => settings.importJson(backup(values, version)), (error) => error instanceof TypeError && error.message === message);
+  }
+});
+
 test('a backup whose version is not text restores like one with no version', () => {
   const settings = createSettings({ storage: createMemoryStorage(), features: adSwitches });
   // JSON can't make a function, so this object has no way to turn into text at all.

@@ -1724,6 +1724,19 @@ test('an error notice ends each sentence with one period', () => {
   }
 });
 
+test('an error notice reads in the chosen language, and one built as it was logged says something went wrong', async (t) => {
+  t.after(() => setLanguage('en'));
+  for (const [message, shown] of [
+    ["Couldn't save the parts you hid", 'Не удалось сохранить скрытые вами части. Подробности в Диагностике.'],
+    ['Network rule "hideAds" failed, so Facebook got its original data', 'Что-то пошло не так. Подробности в Диагностике.'],
+  ]) {
+    const { shadow, log, settings } = setup();
+    await settings.set('ui.language', 'ru');
+    log.error(message);
+    assert.equal(shadow.querySelector('.toast.error span')?.textContent, shown);
+  }
+});
+
 test('backup includes rejected validated choices and leaves invalid field text behind', async () => {
   const { storage, control } = laterStorage({});
   const features = [{ id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] }];

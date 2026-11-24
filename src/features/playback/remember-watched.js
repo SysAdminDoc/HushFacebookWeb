@@ -242,7 +242,7 @@ export default {
   setup({ doc, router, storage, enabled, toast, diagnostics, actions, log, markUnavailable }) {
     if (storage.watchedSupported === false) { markUnavailable?.('api'); return; }
     const list = createWatchList({ doc, storage, enabled, changed: () => diagnostics?.changed(),
-      onError: (error) => log?.error("Couldn't save the watched list. Retry saving is in Playback", error),
+      onError: (error) => log?.error("Couldn't save the watched list. Retry saving is on the Video page", error),
     });
     list.start(router);
     diagnostics?.add('Watched list', () => String(list.entries().length));

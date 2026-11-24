@@ -7,7 +7,7 @@
 // the settings everyone shared before, so nothing is lost on upgrade. Signed out, the shared
 // settings are used.
 
-import { LANGUAGES } from './i18n.js';
+import { LANGUAGES, plural, t } from './i18n.js';
 import { sha256Hex } from './sha256.js';
 
 const STORAGE_KEY = 'settings';
@@ -154,19 +154,28 @@ export function isValid(spec, value) {
 export function createSettings({ storage, features, log, version = 'dev', account = null, migrations = MIGRATIONS, tabPaused = false }) {
   const schema = buildSchema(features);
   const listeners = new Set();
-  // The name the panel shows for a setting, so an error can point at the right row.
+  // The name the panel shows for a setting, in the chosen language, so an error can point at
+  // the right row.
   const settingName = (key) => {
     const spec = schema.get(key);
     const feature = spec.featureId && spec.featureId !== key ? schema.get(spec.featureId) : null;
-    if (feature && spec.label) return `${spec.label} in ${feature.label}`;
-    return feature?.label ?? spec.label ?? key;
+    if (feature && spec.label) return t('{option} in {feature}', { option: t(spec.label), feature: t(feature.label) });
+    if (feature?.label) return t(feature.label);
+    return spec.label ? t(spec.label) : key;
   };
+  // Whole sentences, so a language can put the name and the count where they belong.
   const invalidBackupMessage = (keys, from) => {
-    const which = keys.length === 1 ? `a value this version can't use for ${settingName(keys[0])}` : `values this version can't use for ${settingName(keys[0])} and ${keys.length - 1} more`;
+    const name = settingName(keys[0]);
     // Only the version number itself is shown, never whatever else the file put after it.
     const newer = olderThan(version, from) ? /^\d+\.\d+\.\d+/.exec(from)[0] : null;
-    const update = newer ? `. It's from version ${newer}, so update HushFacebook Web and restore it again` : '';
-    return `That backup has ${which}, so nothing changed${update}`;
+    if (keys.length === 1) {
+      return newer
+        ? t("That backup has a value this version can't use for {name}, so nothing changed. It's from version {version}, so update HushFacebook Web and restore it again", { name, version: newer })
+        : t("That backup has a value this version can't use for {name}, so nothing changed", { name });
+    }
+    return newer
+      ? plural(keys.length - 1, "That backup has values this version can't use for {name} and {count} more, so nothing changed. It's from version {version}, so update HushFacebook Web and restore it again", "That backup has values this version can't use for {name} and {count} more, so nothing changed. It's from version {version}, so update HushFacebook Web and restore it again", { name, version: newer })
+      : plural(keys.length - 1, "That backup has values this version can't use for {name} and {count} more, so nothing changed", "That backup has values this version can't use for {name} and {count} more, so nothing changed", { name });
   };
   const key = storageKeyFor(account);
   const doneKey = `${key}.migrated`;

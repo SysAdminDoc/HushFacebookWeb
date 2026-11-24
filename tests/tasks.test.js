@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import { CHECK_KEY, checkStorage, createDailyTasks, DAY, MIRROR_DB, MIRROR_KEY, pageMirror, RECENT, scheduleStorageCheck, TASKS_KEY, whenMirrorReady } from '../src/core/tasks.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
+import { setLanguage } from '../src/core/i18n.js';
 
 const T0 = Date.UTC(2026, 9, 11, 12, 0, 0);
 
@@ -143,7 +144,7 @@ test('a failed check shows a toast, logs it and says so in Diagnostics', () => {
   const errors = [];
   const diagnostics = createDiagnostics();
   const tasks = createDailyTasks({ storage: createMemoryStorage(), now: () => T0 });
-  scheduleStorageCheck({ tasks, storage, mirror: memoryMirror(), log: { error: (message) => errors.push(message) }, toast: (message, options) => toasts.push([message, options]), diagnostics, now: () => T0 });
+  scheduleStorageCheck({ tasks, storage, mirror: memoryMirror(), log: { warn: (message) => errors.push(message) }, toast: (message, options) => toasts.push([message, options]), diagnostics, now: () => T0 });
   const row = () => diagnostics.rows().find((entry) => entry.label === 'Storage check').value;
   assert.equal(row(), 'Runs within a day');
   assert.deepEqual(tasks.runDue(), [CHECK_KEY]);
@@ -158,12 +159,28 @@ test("a failed check logs the manager's error as the detail, not in the message"
   const logged = [];
   const toasts = [];
   const tasks = createDailyTasks({ storage: createMemoryStorage(), now: () => T0 });
-  scheduleStorageCheck({ tasks, storage, mirror: memoryMirror(), log: { error: (message, detail) => logged.push([message, detail]) }, toast: (message) => toasts.push(message), diagnostics: createDiagnostics(), now: () => T0 });
+  scheduleStorageCheck({ tasks, storage, mirror: memoryMirror(), log: { warn: (message, detail) => logged.push([message, detail]) }, toast: (message) => toasts.push(message), diagnostics: createDiagnostics(), now: () => T0 });
   tasks.runDue();
   assert.equal(logged.length, 1);
   assert.doesNotMatch(logged[0][0], /PRIVATE/);
   assert.equal(logged[0][1].message, 'PRIVATE quota');
   assert.match(toasts[0], /wouldn't save \(PRIVATE quota\)/, 'the toast still names the error for the person');
+});
+
+// The notice is the person's, so it's in their language. Diagnostics and the log keep English.
+test("a failed check's notice reads in the chosen language", (t) => {
+  t.after(() => setLanguage('en'));
+  setLanguage('ru');
+  const storage = { get: () => undefined, set: () => { throw new Error('quota'); } };
+  const toasts = [];
+  const logged = [];
+  const diagnostics = createDiagnostics();
+  const tasks = createDailyTasks({ storage: createMemoryStorage(), now: () => T0 });
+  scheduleStorageCheck({ tasks, storage, mirror: memoryMirror(), log: { warn: (message) => logged.push(message) }, toast: (message) => toasts.push(message), diagnostics, now: () => T0 });
+  tasks.runDue();
+  assert.deepEqual(toasts, ['Ваш менеджер юзерскриптов: сохранить не удалось (quota), поэтому настройки, возможно, не сохраняются.']);
+  assert.match(logged[0], /^Your userscript manager's storage failed the daily check/);
+  assert.match(diagnostics.rows().find((entry) => entry.label === 'Storage check').value, /^Failed: Your userscript manager wouldn't save \(quota\)/);
 });
 
 test('a passing check is quiet and Diagnostics shows when it ran', () => {
