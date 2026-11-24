@@ -193,11 +193,22 @@ test('the copied report carries the hidden counts', async () => {
   assert.match(copied[0], /^Hidden since the page loaded: Suggested 1$/m);
 });
 
+// A screen reader's list of headings: the page's title, then its parts one level under it.
+test("every page's own headings sit one level under the page title", () => {
+  const { shadow, panel } = setup({ features: allFeatures });
+  for (const page of PAGES.map(({ id }) => id).concat(['overview', 'general', 'diagnostics'])) {
+    panel.open(page);
+    const levels = [...shadow.querySelectorAll('main h1, main h2, main h3, main h4, main h5, main h6')].map((node) => node.tagName.toLowerCase());
+    assert.equal(levels[0], 'h3', page);
+    assert.deepEqual([...new Set(levels.slice(1))].filter((level) => level !== 'h4'), [], page);
+  }
+});
+
 test('Diagnostics lists why posts were hidden, newest first, and the report carries them oldest first', async () => {
   const { shadow, panel, diagnostics, copied } = setup();
   panel.open('diagnostics');
   const listed = () => {
-    const heading = [...shadow.querySelectorAll('h3')].find((h3) => h3.textContent === 'Why posts were hidden');
+    const heading = [...shadow.querySelectorAll('.subheading')].find((node) => node.textContent === 'Why posts were hidden');
     const box = heading.nextElementSibling.nextElementSibling;
     return box.classList.contains('log') ? [...box.children].map((line) => line.textContent) : box.textContent;
   };
@@ -2200,6 +2211,17 @@ test("the save line is left alone when a change doesn't change what it says", as
   await tick();
   assert.equal(line.textContent, before);
   assert.equal(writes.length, 0);
+});
+
+test("a switch left on without network protection says it isn't running, not that it's off", () => {
+  const features = [{ id: 'netty', section: 'feed', title: 'Netty', description: 'Netty help.', default: true }];
+  const { shadow, panel } = setup({ features, unavailable: new Map([['netty', 'network']]) });
+  panel.open('feed');
+  const switchFor = shadow.querySelector('main [data-key="netty"]');
+  assert.equal(switchFor.checked, true);
+  const note = describedText(shadow, switchFor)[1];
+  assert.match(note, /^Network protection couldn't start, so this one isn't running\..*You can still turn it off\.$/);
+  assert.doesNotMatch(note, /is off/);
 });
 
 test('invalid numeric edits stay in the field with an associated error and can be corrected', () => {

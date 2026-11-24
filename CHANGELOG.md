@@ -12,6 +12,8 @@ Fixes from an audit of the whole script.
 * In the extension, the "!" on the toolbar button keeps saying why the settings didn't open after you reload Facebook. The tooltip used to go back to the plain one while the "!" stayed
 * Pressing a Quick setup's button from the keyboard keeps focus on it. Focus used to fall off the panel, so the next Tab started over from the top of the page
 * When a card in the settings goes away under the keyboard (a Retry that worked, Dismiss, Undo), focus moves to the nearest control left instead of dropping out of the panel
+* A switch that's on while network protection couldn't start says it isn't running. It said it was off, right next to a switch that showed on
+* Diagnostics' headings sit one level under the page title, like every other page's, so a screen reader's list of headings reads in order
 * The Quiet setup's description names what it turns on, the Stories tray, AI-labeled posts, Follow buttons and some tabs among them
 * Cancelling Pick a part to hide brings you back to its button, and to the search you found it in. It used to land on Close with the search cleared
 * While Reset, Restore or a Quick setup runs, the buttons and fields it turns off look off and stop lighting up under the pointer

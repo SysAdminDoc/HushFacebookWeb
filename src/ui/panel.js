@@ -81,7 +81,7 @@ const codeIn = (detail) => {
 // shorter in Diagnostics.
 const UNAVAILABLE_NOTES = {
   page: "This one has to run in Facebook's page, and your userscript manager runs the script outside it. Diagnostics says how to change that.",
-  network: "Network protection couldn't start, so this one is off. The log in Diagnostics says why.",
+  network: "Network protection couldn't start, so this one isn't running. The log in Diagnostics says why.",
   api: "Your browser or userscript manager doesn't offer what this one needs.",
   failed: "This one couldn't start on this page, or stopped working. The log in Diagnostics says why.",
 };
@@ -1153,7 +1153,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       .map((feature) => `${t(feature.title)} (${t(UNAVAILABLE_SHORT[unavailable.get(feature.id)] ?? UNAVAILABLE_SHORT.failed)})`);
     return [
       h('div', { class: 'diagnostic-summary' },
-        h('h3', { class: 'summary-title', text: t('Environment') }),
+        h('h4', { class: 'summary-title', text: t('Environment') }),
         h('dl', null,
         h('dt', { text: t('Version') }), h('dd', { text: environment.version }),
         h('dt', { text: t('Userscript manager') }), h('dd', { text: `${environment.manager} ${environment.managerVersion}` }),
@@ -1164,13 +1164,13 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         ...featureRows().flatMap(({ label, value }) => [h('dt', { text: t(label) }), h('dd', { text: value })])),
       h('div', { class: 'actions' }, actionButton('copy-report', 'Copy report', copyReport, { primary: true, busyLabel: 'Copying...' }))),
       h('section', { class: 'diagnostic-group' },
-      h('h3', { class: 'subheading', text: t('Why posts were hidden') }),
+      h('h4', { class: 'subheading', text: t('Why posts were hidden') }),
       h('p', { class: 'desc', text: t('The last 50, newest first. Each post has a short tag instead of its id.') }),
       decisions().length
         ? h('div', { class: 'log', dir: 'ltr' }, decisions().slice().reverse().map((decision) => h('div', { text: decisionLine(decision) })))
         : h('p', { class: 'empty', text: t('Nothing hidden yet.') })),
       h('section', { class: 'diagnostic-group' },
-      h('h3', { class: 'subheading', text: t('Recent log') }),
+      h('h4', { class: 'subheading', text: t('Recent log') }),
       entries.length
         ? h('div', { class: 'log', dir: 'ltr' }, entries.map((entry) => h('div', { class: entry.level, text: `${entry.time.slice(11, 19)} ${entry.level.padEnd(5)} ${entry.message}${entry.detail ? `\n    ${entry.detail}` : ''}` })))
         : h('p', { class: 'empty', text: t('Nothing logged yet.') })),

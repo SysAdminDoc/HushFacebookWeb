@@ -441,7 +441,7 @@
   "More room between lines": "Больше места между строками",
   "Network filtering and privacy protection couldn't start. Page cleanup still works": "Не удалось запустить сетевую фильтрацию и защиту конфиденциальности. Очистка страницы по-прежнему работает",
   "Network protection": "Сетевая защита",
-  "Network protection couldn't start, so this one is off. The log in Diagnostics says why.": "Сетевая защита не запустилась, поэтому эта функция выключена. Причина указана в журнале в Диагностике.",
+  "Network protection couldn't start, so this one isn't running. The log in Diagnostics says why.": "Сетевая защита не запустилась, поэтому эта функция не работает. Причина указана в журнале в Диагностике.",
   "Never": "Никогда",
   "New": "Новое",
   "New videos play at normal speed again": "Новые видео снова играют с обычной скоростью",

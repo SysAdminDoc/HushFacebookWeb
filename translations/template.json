@@ -437,7 +437,7 @@
   "More room between lines": "More room between lines",
   "Network filtering and privacy protection couldn't start. Page cleanup still works": "Network filtering and privacy protection couldn't start. Page cleanup still works",
   "Network protection": "Network protection",
-  "Network protection couldn't start, so this one is off. The log in Diagnostics says why.": "Network protection couldn't start, so this one is off. The log in Diagnostics says why.",
+  "Network protection couldn't start, so this one isn't running. The log in Diagnostics says why.": "Network protection couldn't start, so this one isn't running. The log in Diagnostics says why.",
   "Never": "Never",
   "New": "New",
   "New videos play at normal speed again": "New videos play at normal speed again",
