@@ -13,10 +13,20 @@
 // Keep a select's choice labels short. A closed select can't wrap, and at 360 px it shows about
 // 30 characters before the ellipsis (the open list shows the whole label).
 //
+// A language is a file in translations/ named by its value, like ru.json. It starts as a copy of
+// template.json (npm run phrases writes that) with every phrase written over, in the same order,
+// and each plural phrase given the forms Intl.PluralRules has for the language (Russian has one,
+// few, many and other). The file is imported here, added to CATALOGS under its value, and listed
+// in LANGUAGES. The General page's Language choice lists it from there, with nothing else to add.
+// A phrase the file doesn't have yet shows in English.
+//
 // Two test layouts stand in for languages that aren't here yet. Long text accents every letter
 // and makes each phrase 40% longer (twice as long when it's short) inside [ ], so a phrase cut
 // off loses its ] and one that never went through t() stays plain. Right to left mirrors the
 // panel with the English left as it is.
+
+// A JSON import with its type stated, which Node runs as it is and esbuild bundles in.
+import ru from '../../translations/ru.json' with { type: 'json' };
 
 // Each letter's accented form folds back to the letter in search (NFKD, then the marks dropped).
 const PLAIN = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -41,14 +51,14 @@ function stretch(template) {
 // is the language's own name for itself, never translated, so it can always be found again.
 export const LANGUAGES = Object.freeze([
   Object.freeze({ value: 'en', label: 'English', lang: 'en', dir: 'ltr' }),
+  Object.freeze({ value: 'ru', label: 'Русский', lang: 'ru', dir: 'ltr' }),
   Object.freeze({ value: 'long-test', label: 'Test: long text', lang: 'en', dir: 'ltr', test: true, transform: stretch }),
   Object.freeze({ value: 'rtl-test', label: 'Test: right to left', lang: 'en', dir: 'rtl', test: true }),
 ]);
 
-// A reviewed translation goes here as value: { 'English phrase': 'translation' }, with a plural
-// phrase keyed by its English plural form: { '{count} settings': { one: '...', other: '...' } }.
-// A translator starts from translations/template.json, which npm run phrases writes.
-const CATALOGS = {};
+// Each translation by its value: { 'English phrase': 'translation' }, with a plural
+// phrase keyed by its English plural form: { '{count} settings': { one: '...', few: '...', ... } }.
+const CATALOGS = { ru };
 
 let active = LANGUAGES[0];
 

@@ -1,11 +1,81 @@
-// The script's words in the chosen language: English as the key and fallback, and the two test
-// layouts that stand in for languages that aren't here yet.
+// The script's words in the chosen language: English as the key and fallback, Russian, and the
+// two test layouts that stand in for languages that aren't here yet.
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, test } from 'node:test';
 import { english, language, LANGUAGES, plural, pluralForm, setLanguage, t } from '../src/core/i18n.js';
 
 afterEach(() => setLanguage('en'));
+
+const catalog = (name) => JSON.parse(readFileSync(new URL(`../translations/${name}.json`, import.meta.url), 'utf8'));
+const template = catalog('template');
+const russian = catalog('ru');
+const words = (text) => [...new Set([...text.matchAll(/\{(\w+)\}/g)].map(([, name]) => name))].sort();
+
+test('Russian is offered right after English, under its own name', () => {
+  const { value, label, lang, dir, test: isTest } = LANGUAGES[1];
+  assert.deepEqual({ value, label, lang, dir, isTest }, { value: 'ru', label: 'Русский', lang: 'ru', dir: 'ltr', isTest: undefined });
+  assert.deepEqual(LANGUAGES.map((entry) => entry.value), ['en', 'ru', 'long-test', 'rtl-test']);
+});
+
+test('the Russian catalog has every phrase the template has, in its order, and nothing else', () => {
+  assert.deepEqual(Object.keys(russian), Object.keys(template));
+});
+
+test('every Russian phrase keeps its English placeholders, and a plural phrase has all four Russian forms', () => {
+  for (const [key, source] of Object.entries(template)) {
+    const shown = russian[key];
+    if (typeof source === 'string') {
+      assert.equal(typeof shown, 'string', key);
+      assert.ok(shown.trim(), key);
+      assert.deepEqual(words(shown), words(key), key);
+      continue;
+    }
+    assert.deepEqual(Object.keys(shown).sort(), ['few', 'many', 'one', 'other'], key);
+    for (const [form, text] of Object.entries(shown)) {
+      assert.equal(typeof text, 'string', `${key} ${form}`);
+      assert.deepEqual(words(text), words(form === 'one' ? source.one : source.other), `${key} ${form}`);
+    }
+  }
+});
+
+test('with Russian chosen, a phrase shows in Russian with its words filled in', () => {
+  assert.equal(setLanguage('ru'), true);
+  assert.deepEqual([language().lang, language().dir], ['ru', 'ltr']);
+  assert.equal(t('Settings'), 'Настройки');
+  assert.equal(t('Enter a number from {min} to {max}.', { min: 1, max: 10 }), 'Введите число от 1 до 10.');
+  assert.equal(t('Hide posts by {name}', { name: 'Анна' }), 'Скрыть публикации автора Анна');
+  assert.equal(t('A phrase no catalog has'), 'A phrase no catalog has', 'a phrase missing from the catalog shows in English');
+  assert.equal(english('Saved {name}', { name: 'photo.jpg' }), 'Saved photo.jpg', 'search keeps the English');
+});
+
+test('Russian picks one, few or many by the count, and other for a fraction', () => {
+  setLanguage('ru');
+  const seen = (count) => plural(count, '{count} seen post', '{count} seen posts');
+  assert.deepEqual([1, 2, 5, 11, 21, 22, 25, 101].map(seen), [
+    '1 просмотренная публикация',
+    '2 просмотренные публикации',
+    '5 просмотренных публикаций',
+    '11 просмотренных публикаций',
+    '21 просмотренная публикация',
+    '22 просмотренные публикации',
+    '25 просмотренных публикаций',
+    '101 просмотренная публикация',
+  ]);
+  assert.equal(seen(1.5), '1.5 просмотренной публикации');
+  assert.equal(plural(3, 'Changed {count} setting.', 'Changed {count} settings.'), 'Изменены 3 настройки.');
+  assert.equal(plural(2, '{count} thing', '{count} things'), '2 things', 'a plural phrase the catalog lacks stays English');
+});
+
+test('switching back from Russian shows English again', () => {
+  setLanguage('ru');
+  assert.equal(t('Settings'), 'Настройки');
+  assert.equal(setLanguage('en'), true);
+  assert.equal(t('Settings'), 'Settings');
+  assert.equal(plural(2, '{count} seen post', '{count} seen posts'), '2 seen posts');
+  assert.equal(plural(1, '{count} seen post', '{count} seen posts'), '1 seen post');
+});
 
 test('a translation picks its plural form by that language\'s own count rules', () => {
   const arabic = { zero: 'zero', one: 'one', two: 'two', few: 'few', many: 'many', other: 'other' };

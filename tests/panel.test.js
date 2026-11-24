@@ -257,7 +257,7 @@ test('the language under General redraws the panel in it, mirrors it for right t
   assert.equal(settings.get('ui.language'), 'long-test');
   assert.equal(titleOf(), `${t('Language')} (Language)`, 'the English name stays next to the shown one');
   assert.match(titleOf(), /^\[\S+ /);
-  assert.deepEqual([...shadow.querySelector('select[data-key="ui.language"]').options].map((option) => option.textContent), ['English', 'Test: long text', 'Test: right to left'], 'each language keeps its own name');
+  assert.deepEqual([...shadow.querySelector('select[data-key="ui.language"]').options].map((option) => option.textContent), ['English', 'Русский', 'Test: long text', 'Test: right to left'], 'each language keeps its own name');
   assert.equal(shadow.querySelector('[data-key="search"]').placeholder, t('Find a setting'));
   assert.equal(shadow.querySelector('nav').getAttribute('aria-label'), t('Settings pages'));
   panel.toast(() => t('Saved {name}', { name: 'photo.jpg' }));
@@ -283,6 +283,8 @@ test('the language under General redraws the panel in it, mirrors it for right t
   choose('rtl-test');
   assert.deepEqual([root.getAttribute('lang'), root.getAttribute('dir')], ['en', 'rtl']);
   assert.equal(titleOf(), 'Language', 'right to left keeps the English');
+  choose('ru');
+  assert.deepEqual([root.getAttribute('lang'), root.getAttribute('dir'), titleOf()], ['ru', 'ltr', 'Язык (Language)']);
   choose('en');
   assert.deepEqual([root.getAttribute('dir'), titleOf()], ['ltr', 'Language']);
 });
