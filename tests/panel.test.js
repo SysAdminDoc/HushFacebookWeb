@@ -2168,6 +2168,25 @@ test('invalid numeric edits stay in the field with an associated error and can b
   assert.equal(shadow.querySelector('[data-key="demo.days"]').getAttribute('aria-invalid'), null);
 });
 
+// An alert is read out each time one is put on the page, and the panel redraws on every change.
+test('a field\'s error is read out when it appears, not again when something else changes', async () => {
+  const features = [
+    { id: 'demo', section: 'feed', title: 'Demo', default: true, options: [{ key: 'days', type: 'number', label: 'Days', default: 7, min: 1, max: 30 }] },
+    { id: 'other', section: 'feed', title: 'Other', default: false },
+  ];
+  const { win, shadow, panel, settings } = setup({ features });
+  panel.open('feed');
+  const input = shadow.querySelector('[data-key="demo.days"]');
+  input.value = '50';
+  input.dispatchEvent(new win.Event('change'));
+  const error = () => shadow.getElementById(shadow.querySelector('[data-key="demo.days"]').getAttribute('aria-describedby'));
+  assert.equal(error().getAttribute('role'), 'alert');
+  await settings.set('other', true);
+  await tick();
+  assert.match(error().textContent, /1.*30/, 'the field still names its error');
+  assert.equal(error().getAttribute('role'), null);
+});
+
 test('async feature actions show busy state, prevent duplicates and recover from rejection', async () => {
   const actions = createActions();
   let reject;

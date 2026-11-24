@@ -152,6 +152,9 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
   // The running part picker (pickPart), or null.
   let picker = null;
   const fieldErrors = new Map();
+  // Errors not drawn yet. Only those are alerts: a screen reader reads an alert each time one is
+  // put on the page, and every redraw puts the field's error back.
+  const freshErrors = new Set();
   const pending = new Set();
   const actionNotices = new Map();
   let preferenceSave = settings.saveStatus?.() ?? { state: 'idle', error: null, pending: [] };
@@ -327,6 +330,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       if (control && error instanceof TypeError) {
         drafts.set(key, draft);
         fieldErrors.set(key, error.message);
+        freshErrors.add(key);
       }
       if (!(control && error instanceof TypeError)) actionError("Couldn't save your change. Try again", error);
       refreshChrome();
@@ -409,7 +413,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       oninput: (event) => drafts.set(key, event.target.value),
     };
     const field = (control) => h('div', { class: 'field' }, h('label', null, dot ? h('span', null, t(option.label), dot) : t(option.label), control),
-      fieldErrors.has(key) ? h('p', { class: 'field-error', id: errorId, role: 'alert', text: fieldErrors.get(key) }) : null);
+      fieldErrors.has(key) ? h('p', { class: 'field-error', id: errorId, role: freshErrors.has(key) ? 'alert' : null, text: fieldErrors.get(key) }) : null);
     switch (option.type) {
       case 'toggle':
         return h('label', { class: 'option-toggle' }, toggle(key, option.label, { describedBy: dotId }), h('span', null, t(option.label), dot));
@@ -1227,6 +1231,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
         ...(reloadPending ? [reloadCard()] : []),
         ...(views[current] ?? (() => pageView(current)))());
     }
+    freshErrors.clear();
     main.scrollTop = scrollTop;
     nav.scrollLeft = navScroll[0];
     nav.scrollTop = navScroll[1];
