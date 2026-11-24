@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.0.52 (2026-11-24, unreleased)
+
+Fixes for the reports in #18 and #19, the switch #17 asked for, and Russian.
+
+* Expand long posts no longer opens and closes a post over and over (#19). Facebook puts a See less button where See more was, and a post whose own text ended in "..." looked cut off again the moment it opened. A post you close by hand stays closed now too
+* Hide tabs takes the Gaming tab off the top bar (#18). That tab opens Play games, and the switch was looking for a different link. Marketplace only clears the Events, Feeds, Pages, Professional dashboard and Ad Center tabs as well
+* Privacy has a new switch, Freeze last active (#17). It starts off. With it on, the page tells Facebook you're idle while you browse, which is the report a tab left in the background sends. Active Status can stay on and you still see who's online. I've checked what the page sends and haven't seen it from a friend's side yet, so say in #17 how it looks from there
+* Settings come in Russian. Pick Русский under General, Language. Nobody who grew up speaking it has gone over the translation yet, so corrections to translations/ru.json are welcome
+* A screen reader says a sidebar page's name and its count as separate words now. NVDA was reading "Ads and promotions4 on"
+
 ## v0.0.51 (2026-11-18, unreleased)
 
 Facebook's j and k keys work on a feed with hidden posts now.

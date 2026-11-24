@@ -1,7 +1,7 @@
 ![HushFacebook Web, a quieter Facebook feed. The same Home feed twice, first with an ad at the top, then with Calm theme on and the ad and a suggested post folded into short notes.](assets/readme-hero.jpg)
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.0.51-8ABFFF" alt="Version 0.0.51">
+  <img src="https://img.shields.io/badge/version-0.0.52-8ABFFF" alt="Version 0.0.52">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
   <img src="https://img.shields.io/badge/platform-userscript%20%7C%20Chrome%20extension-1877F2" alt="Platform userscript or Chrome extension">
   <img src="https://img.shields.io/badge/for-Tampermonkey%20%7C%20Violentmonkey-00485B" alt="For Tampermonkey or Violentmonkey">
@@ -17,7 +17,7 @@
 
 HushFacebook Web removes ads and suggested posts from Facebook in a desktop browser. It also adds downloads, privacy switches and playback controls. Run it as a userscript or a Chrome extension. Both use the same code and follow the features in [Hushfacebook](https://github.com/SysAdminDoc/HushFacebook), the patch bundle for the Android app.
 
-It's still early. The code is at 0.0.51, and [Releases](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest) has the newest published build, which can be a few versions behind. The [changelog](CHANGELOG.md) lists what changed in each version. [Feature parity](docs/feature-parity.md) explains how each Android patch carries over to the web.
+It's still early. The code is at 0.0.52, and [Releases](https://github.com/SysAdminDoc/HushFacebookWeb/releases/latest) has the newest published build, which can be a few versions behind. The [changelog](CHANGELOG.md) lists what changed in each version. [Feature parity](docs/feature-parity.md) explains how each Android patch carries over to the web.
 
 ## Install
 
@@ -73,9 +73,9 @@ The extension waits for the browser to confirm each settings change. If a save f
 
 During extension startup, recognized story views, watch reports, usage logs, ad reports, read receipts and typing signals wait briefly for saved privacy choices. If storage can't be confirmed, those operations stay on the device and General shows Retry. Unrelated traffic isn't delayed.
 
-Settings are in English for now. General has a Language choice that's ready for translations, plus two test layouts. One stretches every phrase so text that gets cut off stands out, and the other mirrors the panel right to left. Facebook's own language doesn't change it, and Reset to defaults keeps it. The log and Copy report stay in English, so a report reads the same whoever gets it.
+Settings come in English and Russian. Pick one under General, Language. Nobody who grew up speaking Russian has gone over that translation yet, so corrections are welcome. The same list has two test layouts. One stretches every phrase so text that gets cut off stands out, and the other mirrors the panel right to left. Facebook's own language doesn't change it, and Reset to defaults keeps it. The log and Copy report stay in English, so a report reads the same whoever gets it.
 
-To help translate, copy [translations/template.json](translations/template.json) and write your language over the English on the right of each line. Keep words in braces like `{count}` exactly as they are. Phrases with a number have a `one` and an `other` form, and you can add the other forms your language uses (`zero`, `two`, `few`, `many`). Then open a pull request, or attach the file to an issue.
+To help translate, copy [translations/template.json](translations/template.json) and write your language over the English on the right of each line. [translations/ru.json](translations/ru.json) shows a finished one. Keep words in braces like `{count}` exactly as they are. Phrases with a number have a `one` and an `other` form, and you can add the other forms your language uses (`zero`, `two`, `few`, `many`). Then open a pull request, or attach the file to an issue.
 
 <p>
   <img src="assets/screenshots/panel-overview.jpg" width="49%" alt="Settings Overview with the Quick setups and a tile for each page showing how many of its switches are on">
@@ -89,7 +89,7 @@ Most switches start off. The four Hide sponsored switches start on, and so do Hi
 - **News feed:** Hide sponsored posts, Hide suggested posts, Hide People you may know, Hide reel rows in the feed, Hide Stories tray, Hide Friend requests on Home, Hide the post box on groups and profiles, Hide posts by words, Hide seen posts, Keep posts you hide hidden, Hide repeats of a post already on the page, Hide AI-detected posts, Show full post dates, Keep your place in the feed, Load more posts ahead, Show progress while posts load, Hide Follow and Join buttons, Hide counts, Expand long posts.
 - **Reels:** Hide sponsored reels, Don't send watch history, Clean up Reels, Hold a reel for 2x.
 - **Search and Marketplace:** Hide sponsored search results, Don't save search history, Hide sponsored Marketplace listings, Filter Marketplace listings (Ships to you, price range, places, word lists, ones you've opened), View profile on Marketplace sellers, Marketplace only.
-- **Messages and privacy:** Hide read receipts, Hide typing indicator, Hide that you're writing a comment, View stories anonymously, Hold back usage logs, Block ad telemetry, Sanitize sharing links, Skip Facebook's link redirect, Trim the share menu, Open Messenger as a full page. (Read receipt and typing switches can't reach end-to-end encrypted chats.)
+- **Messages and privacy:** Hide read receipts, Hide typing indicator, Freeze last active, Hide that you're writing a comment, View stories anonymously, Hold back usage logs, Block ad telemetry, Sanitize sharing links, Skip Facebook's link redirect, Trim the share menu, Open Messenger as a full page. (Read receipt and typing switches can't reach end-to-end encrypted chats.)
 - **Comments:** Default comment order, Show every reply, Hide GIF and sticker buttons, Hide the video comment box, Tag suggestions only after @, Show comments as written, Hide when others are writing a comment.
 - **Notifications and navigation:** Hide kinds of notifications, Keep your Notifications filter, Following feed on Home, Open on a chosen tab, Hide tabs, Hide tab badges, Hide the New message button.
 - **Downloads:** Download any photo, video, reel or story. Download in post menus adds Download to the top of a post's three-dot menu too. A video Facebook only streams gets put together from its picture and sound right in the browser. Saved photos leave out the ID Facebook writes into its photos (a code starting with FBMD), and the picture itself isn't touched. Tampermonkey opens a tab of its own the first time you save a video (or a photo it couldn't fetch first), asking to allow downloads. If you close it instead of clicking Ok, the file still saves.
