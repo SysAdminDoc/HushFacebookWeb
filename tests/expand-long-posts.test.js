@@ -23,27 +23,112 @@ function page(body) {
 
 const cut = (words = 'See more', id = 'more') => `<div dir="auto"><span>Come join us! L</span>…  <div role="button" tabindex="0" id="${id}">${words}</div></div>`;
 
+// A text block the way Facebook's page builds one (live 2026-11-24): each piece its own text
+// node, then the button. innerHTML would run the pieces together into one node.
+function textBlock(doc, pieces, words, id) {
+  const block = doc.createElement('div');
+  block.setAttribute('dir', 'auto');
+  const button = doc.createElement('div');
+  button.setAttribute('role', 'button');
+  button.setAttribute('tabindex', '0');
+  if (id) button.id = id;
+  button.textContent = words;
+  block.append(...pieces.map((piece) => doc.createTextNode(piece)), button);
+  return block;
+}
+
+const FULL = 'Come join us! Later on there is more to say, and then it trails off...';
+
+// Facebook's own toggle: See more swaps the cut-off text for all of it and a new See less
+// button in the same block, and See less swaps it back with a new See more.
+function toggling(doc, block, clicks, full = FULL) {
+  const draw = (open) => {
+    const next = textBlock(doc, open ? [full, ' '] : ['Come join us! L', '…', ' '], open ? 'See less' : 'See more');
+    block.replaceChildren(...next.childNodes);
+    block.lastElementChild.addEventListener('click', () => {
+      clicks.push(open ? 'less' : 'more');
+      draw(!open);
+    });
+  };
+  draw(false);
+  return block;
+}
+
 test('the button after cut-off text is a See more, in any language', () => {
   const win = page(`<div aria-posinset="1"><div data-ad-preview="message">${cut()}</div></div>
     <div role="article" aria-label="Comment by Pat">${cut('Ver más', 'mas')}</div>
-    <div aria-posinset="2"><div dir="auto">Done... ${'<div role="button" id="dots">See more</div>'}</div></div>`);
+    <div aria-posinset="2"><div dir="auto">Done<!-- -->...<!-- --> ${'<div role="button" id="dots">See more</div>'}</div></div>
+    <div aria-posinset="3" id="third"></div>`);
   const doc = win.document;
   assert.equal(isSeeMore(doc.getElementById('more')), true);
   assert.equal(isSeeMore(doc.getElementById('mas')), true);
-  assert.equal(isSeeMore(doc.getElementById('dots')), true, 'three dots count too');
+  assert.equal(isSeeMore(doc.getElementById('dots')), true, 'three dots of their own count too, past the server\'s comment marks');
+  doc.getElementById('third').append(textBlock(doc, ['Come join us! L', '…', ' '], 'See more', 'pieces'));
+  assert.equal(isSeeMore(doc.getElementById('pieces')), true, 'the text, the "…" and a space as three nodes');
+});
+
+// #19: an open post shows See less in the same place and shape, after the post's own words.
+test('an open post\'s See less is left alone, even when the post itself ends in an ellipsis', () => {
+  const win = page('<div aria-posinset="1" id="one"></div>');
+  const doc = win.document;
+  const one = doc.getElementById('one');
+  one.append(
+    textBlock(doc, [FULL, ' '], 'See less', 'dots'),
+    textBlock(doc, ['It ends with the one character…', ' '], 'See less', 'one-char'),
+    textBlock(doc, ['It ends plainly.', ' '], 'See less', 'plain'),
+  );
+  for (const id of ['dots', 'one-char', 'plain']) assert.equal(isSeeMore(doc.getElementById(id)), false, id);
+});
+
+test('a post that ends in an ellipsis opens once and stays open', () => {
+  const win = page('<div aria-posinset="1" id="one"></div>');
+  const doc = win.document;
+  const io = fakeObserver(win);
+  const clicks = [];
+  const block = toggling(doc, doc.createElement('div'), clicks);
+  doc.getElementById('one').append(block);
+  const expander = createExpander({ doc, enabled: () => true, setTimer: (fn) => fn() });
+  // Each look at the page, with whatever button is there coming near the screen.
+  for (let round = 0; round < 4; round++) {
+    expander.sync();
+    io.near(block.lastElementChild);
+  }
+  assert.deepEqual(clicks, ['more']);
+  assert.equal(block.lastElementChild.textContent, 'See less');
+  assert.equal(expander.opened(), 1);
+});
+
+test('a post you close again with See less stays closed', () => {
+  const win = page('<div aria-posinset="1" id="one"></div>');
+  const doc = win.document;
+  const io = fakeObserver(win);
+  const clicks = [];
+  const block = toggling(doc, doc.createElement('div'), clicks, 'All of it, said plainly.');
+  doc.getElementById('one').append(block);
+  const expander = createExpander({ doc, enabled: () => true, setTimer: (fn) => fn() });
+  expander.sync();
+  io.near(block.lastElementChild);
+  assert.deepEqual(clicks, ['more']);
+  block.lastElementChild.click();
+  for (let round = 0; round < 3; round++) {
+    expander.sync();
+    io.near(block.lastElementChild);
+  }
+  assert.deepEqual(clicks, ['more', 'less']);
+  assert.equal(block.lastElementChild.textContent, 'See more');
 });
 
 // A reel card's See more sits in an <object> inside the card's link, and opens nothing in place.
 test('other buttons stay: no "…" before it, not last, a link or icon, a reel card, or outside posts', () => {
   const win = page(`<div aria-posinset="1">
       <div dir="auto">Whole text. <div role="button" id="whole">See more</div></div>
-      <div dir="auto">Cut… <div role="button" id="early">See more</div><span>tail</span></div>
-      <div dir="auto">Cut… <div role="button" id="link"><a href="/x">See more</a></div></div>
-      <div dir="auto">Cut… <div role="button" id="icon"><svg></svg></div></div>
-      <div dir="auto">Cut… <div role="button" id="long">See more of what people are saying here</div></div>
+      <div dir="auto"><span>Cut</span>… <div role="button" id="early">See more</div><span>tail</span></div>
+      <div dir="auto"><span>Cut</span>… <div role="button" id="link"><a href="/x">See more</a></div></div>
+      <div dir="auto"><span>Cut</span>… <div role="button" id="icon"><svg></svg></div></div>
+      <div dir="auto"><span>Cut</span>… <div role="button" id="long">See more of what people are saying here</div></div>
       <a href="/reel/1/?s=single_unit"><div>the fun to the sand!… <object><div role="button" id="reel">See more</div></object></div></a>
     </div>
-    <div dir="auto">Cut… <div role="button" id="outside">See more</div></div>`);
+    <div dir="auto"><span>Cut</span>… <div role="button" id="outside">See more</div></div>`);
   const doc = win.document;
   for (const id of ['whole', 'early', 'link', 'icon', 'long', 'reel', 'outside']) assert.equal(isSeeMore(doc.getElementById(id)), false, id);
 });

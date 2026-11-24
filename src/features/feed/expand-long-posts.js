@@ -5,6 +5,14 @@
 // shape finds it in any language. The script clicks it as it comes near the screen, once each,
 // so posts open as you scroll to them rather than all at once. Works in content mode.
 //
+// Live 2026-11-24 (#19): an open post now gets a "See less" button in the same block and the
+// same shape, and the block itself stays while its text and button are swapped. What tells the
+// two apart is Facebook's own "…": it stands alone in a text node (text, "…", " ", button, or
+// a span and then "…  " on 2026-10-12), while See less comes straight after the post's own
+// words. A post whose author ended it with "..." used to read as cut off again once open, so
+// it opened and closed without end. A block the script has opened is also left alone from
+// then on, so closing a post by hand with See less sticks.
+//
 // A button that comes near the screen while the switch is off or the script is paused is
 // looked at again once it's back on, and opens then if it's still cut off.
 
@@ -17,6 +25,20 @@ const CANDIDATES = ['[aria-posinset] div[role="button"]:not([aria-label])', '[ro
 const NEAR = '600px 0px';
 
 const clean = (text) => (text ?? '').replace(/\s+/g, ' ').trim();
+const TEXT = 3;
+const COMMENT = 8;
+
+// Whether the thing right before the button is Facebook's own "…", in a text node of its own.
+// Spaces and the comment marks the server leaves between pieces of text are stepped over.
+function afterCutMark(button) {
+  for (let node = button.previousSibling; node; node = node.previousSibling) {
+    if (node.nodeType === COMMENT) continue;
+    if (node.nodeType !== TEXT) return false;
+    const text = node.data.trim();
+    if (text) return text === '…' || text === '...';
+  }
+  return false;
+}
 
 // Whether a button is a "See more" at the end of cut-off text.
 export function isSeeMore(button) {
@@ -24,24 +46,23 @@ export function isSeeMore(button) {
   if (!words || words.length > MAX_WORDS || button.querySelector('a, img, svg') || !button.closest(SCOPE)) return false;
   const block = button.parentElement;
   if (!block || block.lastElementChild !== button) return false;
-  let before = '';
-  for (let node = button.previousSibling; node; node = node.previousSibling) before = node.textContent + before;
-  const text = before.trimEnd();
-  return text.endsWith('…') || text.endsWith('...');
+  return afterCutMark(button);
 }
 
 export function createExpander({ doc, enabled, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
-  // Buttons waiting to come near the screen, and buttons already clicked. One that couldn't be
-  // opened when it came near leaves the first without joining the second, so the next look
-  // watches it again.
+  // Buttons waiting to come near the screen, and text blocks already opened. A button that
+  // couldn't be opened when it came near leaves the first without its block joining the second,
+  // so the next look watches it again. Blocks rather than buttons: Facebook keeps the block and
+  // puts a new button in it each time the text opens or closes.
   const watched = new Set();
-  const clicked = new WeakSet();
+  const openedBlocks = new WeakSet();
   let opened = 0;
   let timer = null;
   const Observer = doc.defaultView?.IntersectionObserver ?? globalThis.IntersectionObserver;
   const open = (button) => {
-    if (!enabled() || !button.isConnected || !isSeeMore(button)) return;
-    clicked.add(button);
+    const block = button.parentElement;
+    if (!enabled() || !button.isConnected || !block || openedBlocks.has(block) || !isSeeMore(button)) return;
+    openedBlocks.add(block);
     opened++;
     button.click();
   };
@@ -64,7 +85,7 @@ export function createExpander({ doc, enabled, setTimer = (fn, ms) => setTimeout
     for (const button of watched) if (!button.isConnected) stopWatching(button);
     if (!enabled()) return;
     for (const button of doc.querySelectorAll(CANDIDATES)) {
-      if (watched.has(button) || clicked.has(button) || !isSeeMore(button)) continue;
+      if (watched.has(button) || openedBlocks.has(button.parentElement) || !isSeeMore(button)) continue;
       if (!near) {
         open(button);
         continue;
