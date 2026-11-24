@@ -10,6 +10,13 @@ import { SEEN_KEY, CLEARED_KEY, MAX_AGE, MAX_ENTRIES, seenBarrier, seenTime } fr
 export { SEEN_KEY, CLEARED_KEY, MAX_AGE, MAX_ENTRIES };
 const DAY = 24 * 60 * 60 * 1000;
 const SAVE_DELAY = 3000;
+// What the log says when a listener throws, written out whole so the panel's notice can show it
+// in the chosen language.
+const LISTENER_FAILED = {
+  status: 'A seen-post status listener failed',
+  ready: 'A seen-post ready listener failed',
+  drop: 'A seen-post drop listener failed',
+};
 
 // Entries from before the list was last forgotten don't count.
 function parse(raw, cleared = 0, strict = false) {
@@ -50,7 +57,7 @@ export function createSeenStore({
       try {
         run();
       } catch (error) {
-        log?.error(`A seen-post ${what} listener failed`, error);
+        log?.error(LISTENER_FAILED[what], error);
       }
     }
   };

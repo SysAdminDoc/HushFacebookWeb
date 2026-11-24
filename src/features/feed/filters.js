@@ -78,14 +78,19 @@ function fingerprint(text) {
   return `${text.length}:${hash.toString(16)}`;
 }
 
+// label is what Diagnostics and preview count by, in English like the rest of Diagnostics. note
+// gives the same words for a hidden post's note, in the language chosen when it's written.
 const KINDS = [
-  { key: 'photos', kind: 'photo', label: 'photo posts' },
-  { key: 'videos', kind: 'video', label: 'video posts' },
-  { key: 'links', kind: 'link', label: 'link posts' },
-  { key: 'colored', kind: 'colored', label: 'colored background posts' },
-  { key: 'shared', kind: 'shared', label: 'shared posts' },
-  { key: 'live', kind: 'live', label: 'live videos' },
+  { key: 'photos', kind: 'photo', label: 'photo posts', note: () => t('photo posts') },
+  { key: 'videos', kind: 'video', label: 'video posts', note: () => t('video posts') },
+  { key: 'links', kind: 'link', label: 'link posts', note: () => t('link posts') },
+  { key: 'colored', kind: 'colored', label: 'colored background posts', note: () => t('colored background posts') },
+  { key: 'shared', kind: 'shared', label: 'shared posts', note: () => t('shared posts') },
+  { key: 'live', kind: 'live', label: 'live videos', note: () => t('live videos') },
 ];
+// What a post's note says after "Filter: " for a verdict: a kind in the chosen language, or the
+// person's own line as written. A word line that's exactly a kind's label reads translated too.
+const noteFor = (verdict) => KINDS.find(({ label }) => label === verdict)?.note ?? verdict;
 
 export const FILTERED = {
   queries: /^(?:CometNewsFeedPaginationQuery|GroupsCometCrossGroupFeedPaginationQuery|GroupsCometFeedRegularStoriesPaginationQuery)$/,
@@ -781,7 +786,7 @@ export default {
         }
         const reason = filterVerdict(unpaused(filter), fields);
         if (reason === null) return false;
-        if (hider.hide(element, 'Filter', reason)) {
+        if (hider.hide(element, 'Filter', reason, undefined, 'Filter', noteFor(reason))) {
           if (!counted.has(element)) counted.set(element, new Set());
           if (!counted.get(element).has(reason)) tally(hits, reason);
           counted.get(element).add(reason);

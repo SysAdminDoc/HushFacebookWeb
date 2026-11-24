@@ -20,6 +20,7 @@ import hideSponsoredPosts from '../src/features/feed/hide-sponsored-posts.js';
 import hideSuggestedPosts from '../src/features/feed/hide-suggested-posts.js';
 import hidePostsByWords, { createFilterFuse, createPreviewTally, filterMatches, filterVerdict, fuseReport, previewFiltered, previewReport, pruneFiltered, siteNotice, skipNotice } from '../src/features/feed/filters.js';
 import { createSettings, EXPORT_SCHEMA } from '../src/core/settings.js';
+import { setLanguage } from '../src/core/i18n.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 
 const windows = [];
@@ -766,6 +767,20 @@ test('preview counts shared posts and live videos in the data and on the page, t
   const notes = [...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
   assert.deepEqual(notes, ['Hidden: Filter: shared posts. Show', 'Hidden: Filter: live videos. Show', null]);
   assert.deepEqual(JSON.parse(transformDocumentLine(line, rules, FEED)).data.viewer.news_feed.edges.map((edge) => edge.node?.id ?? null), [null, null, 's3']);
+  posts.stop();
+});
+
+test("with Russian picked, a note names the kind of post in Russian, keeps the person's own word, and Diagnostics stays English", (t) => {
+  setLanguage('ru');
+  t.after(() => setLanguage('en'));
+  const win = page(sharedPost(1) + livePost(2) + post(3, { text: 'Big football game tonight' }));
+  const { doc, posts, diagnostics, hider } = setupFeature(win, { words: 'football', kinds: { shared: true, live: true } });
+  const notes = () => [...doc.querySelectorAll('[aria-posinset]')].map((p) => p.querySelector(`[${MARK}]`)?.getAttribute(NOTE) ?? null);
+  assert.deepEqual(notes(), ['Скрыто: Фильтр: репосты. Показать', 'Скрыто: Фильтр: прямые эфиры. Показать', 'Скрыто: Фильтр: football. Показать']);
+  assert.equal(diagnostics.rows().find((row) => row.label === 'Posts hidden by your filters').value, 'shared posts 1, live videos 1, football 1');
+  setLanguage('en');
+  hider.refresh();
+  assert.deepEqual(notes(), ['Hidden: Filter: shared posts. Show', 'Hidden: Filter: live videos. Show', 'Hidden: Filter: football. Show']);
   posts.stop();
 });
 

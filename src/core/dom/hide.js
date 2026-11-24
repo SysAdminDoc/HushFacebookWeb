@@ -63,8 +63,11 @@ const NOTE_WORDS = {
 // written, so the note follows the language.
 const wordsFor = (name) => (typeof name === 'function' ? name() : Object.hasOwn(NOTE_WORDS, name) ? t(NOTE_WORDS[name]) : name);
 // The note line for a mark's first reason. What narrows it is the person's own word, name or site,
-// so it stays as written.
-const noteText = ({ name, detail }) => t('Hidden: {reason}. Show', { reason: detail ? `${wordsFor(name)}: ${detail}` : wordsFor(name) });
+// so it stays as written, or a function for words of the script's own ("photo posts").
+const noteText = ({ name, detail }) => {
+  const narrow = typeof detail === 'function' ? detail() : detail;
+  return t('Hidden: {reason}. Show', { reason: narrow ? `${wordsFor(name)}: ${narrow}` : wordsFor(name) });
+};
 // The note's Show hidden button: the mark's first element, unless it's one ::before can't draw on
 // or a mark of its own (hideCss).
 const allOf = (marker) => {
@@ -152,7 +155,7 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
   const departed = new WeakSet();
   // Marks this hider set, so a click on anything else carrying the attribute passes through.
   const marks = new WeakSet();
-  // mark -> Map(reason -> its note text), in the order the reasons came.
+  // mark -> Map(reason -> what its note says, { name, detail }), in the order the reasons came.
   const labels = new WeakMap();
   // element -> the page's own values of BUTTON, while a mark or its Show hidden is a button.
   const prior = new WeakMap();
@@ -597,10 +600,11 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // ("Sponsored", "Filter"); detail narrows it in the note ("Filter: cats"). signal says
     // what matched, for the decision list only, when detail doesn't already say it. name is
     // what the note calls a reason whose one word wouldn't read on its own ("People"): the
-    // words, or a function that gives them in the language chosen now.
+    // words, or a function that gives them in the language chosen now. said is what the note
+    // shows for detail when that's the script's own words, again a function for the language.
     // Returns false when the post can't be marked, the person chose to see it or opened it in a
     // dialog.
-    hide(element, reason, detail, signal, name = reason) {
+    hide(element, reason, detail, signal, name = reason, said = detail) {
       const marker = markFor(element);
       if (!marker) return false;
       watchRecycling();
@@ -629,7 +633,7 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       leftWith.get(element)?.since.add(reason);
       const reasons = marked ? reasonsOf(marker) : new Map();
       const fresh = !reasons.has(reason);
-      reasons.set(reason, { name, detail });
+      reasons.set(reason, { name, detail: said });
       labels.set(marker, reasons);
       write(marker, reasons);
       marks.add(marker);

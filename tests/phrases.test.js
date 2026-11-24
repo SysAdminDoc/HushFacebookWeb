@@ -31,6 +31,10 @@ test('the template holds what each kind of call shows, and no names that stay as
     'Pop out', // one a function gives, called with the video
     'Opening', // a floating button's busyText
     'Saving', // the busyText it has when it's given none
+    "Saved activity couldn't be changed in the extension", // a logged error picked from a table by what was written
+    'A post/remove listener failed', // one picked by the event
+    'A seen-post drop listener failed',
+    'shared posts', // a kind of post a filter note names
   ]) assert.equal(template[phrase], phrase, phrase);
   assert.deepEqual(template['{count} settings changed'], { one: '{count} setting changed', other: '{count} settings changed' });
   assert.ok(!('{count} setting changed' in template), 'a plural phrase is keyed by its plural form only');

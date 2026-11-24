@@ -36,6 +36,12 @@ export const storageRevisionEpoch = (value) => (
 export const channelNames = (secret) => ({ toIsolated: `hushfacebook-web:${secret}:in`, toMain: `hushfacebook-web:${secret}:out` });
 
 const TIMEOUT = 15000;
+// What the log says when a confirmed write fails, by what it was writing: a table read at the log
+// line, so the panel's notice can show it in the chosen language.
+const WRITE_FAILED = {
+  setting: "A setting couldn't be saved in the extension",
+  activity: "Saved activity couldn't be changed in the extension",
+};
 // A request's error code once the extension was reloaded or updated under an open tab.
 export const EXTENSION_RELOADED = 'EXTENSION_RELOADED';
 // True once a storage (createBridgeStorage's) found the extension gone from this tab.
@@ -573,7 +579,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
       return true;
     } catch (error) {
       operation.inFlight = false;
-      log?.error(operation.failure, error);
+      log?.error(WRITE_FAILED[operation.failure], error);
       const before = operation.previous;
       const previous = !operation.loaded && before === undefined ? copy(pageLoadData.get(key)) : before;
       const replaced = confirmedWrites.get(key) !== operation;
@@ -645,7 +651,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
     directVersions.set(key, version);
     return version;
   };
-  const confirmedWrite = (key, type, payload, value, failure = "Saved activity couldn't be changed in the extension") => {
+  const confirmedWrite = (key, type, payload, value, failure = 'activity') => {
     const base = confirmedWrites.get(key);
     const version = supersedeWrite(key);
     let resolve;
@@ -785,7 +791,7 @@ export function createBridgeStorage(bridge, { log } = {}) {
     set(key, value) {
       const stored = copy(value);
       // Confirmed like the rest, so a refused write rolls back and waits for Retry.
-      void confirmedWrite(key, 'storage:set', { key, value: stored ?? null }, stored, "A setting couldn't be saved in the extension");
+      void confirmedWrite(key, 'storage:set', { key, value: stored ?? null }, stored, 'setting');
     },
     setConfirmed: (key, value) => value === undefined
       ? confirmedWrite(key, 'storage:remove', { key })

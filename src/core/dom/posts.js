@@ -127,6 +127,15 @@ export function classifyCandidate(element) {
   return { ok: true, kind: element.hasAttribute('aria-posinset') ? 'feed' : 'article' };
 }
 
+// What the log says when a listener throws, by event, written out whole so the panel's notice
+// can show it in the chosen language.
+const LISTENER_FAILED = {
+  'post/add': 'A post/add listener failed',
+  'post/update': 'A post/update listener failed',
+  'post/remove': 'A post/remove listener failed',
+  reset: 'A reset listener failed',
+};
+
 export function createPostTracker({ doc = globalThis.document, log } = {}) {
   let processed = new WeakSet();
   const live = new Map(); // element -> post record, so removals can be reported
@@ -137,7 +146,7 @@ export function createPostTracker({ doc = globalThis.document, log } = {}) {
     try {
       listener(payload);
     } catch (error) {
-      log?.error(`A ${type} listener failed`, error);
+      log?.error(LISTENER_FAILED[type], error);
     }
   }
 
