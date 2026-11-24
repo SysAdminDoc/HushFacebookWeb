@@ -76,7 +76,7 @@ When one rule throws, the page gets that document as Facebook sent it, without t
 
 ## Text people read
 
-Titles, descriptions, toasts and docs should read like a person wrote them. Keep them plain and short. No em dashes or semicolons, and use contractions. The feature test checks the panel text for dashes and semicolons.
+Titles, descriptions, toasts and docs should read like a person wrote them. Keep them plain and short. No em dashes or semicolons, and use contractions. Anything shown in the settings or on Facebook's page goes through `t()` (src/core/i18n.js), then `npm run phrases` adds it to translations/template.json and the Russian row goes in translations/ru.json in the same commit.
 
 ## Fixtures
 
