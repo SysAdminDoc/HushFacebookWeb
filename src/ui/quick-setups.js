@@ -4,7 +4,7 @@ export const QUICK_SETUPS = Object.freeze([
   Object.freeze({
     id: 'quiet',
     label: 'Quiet',
-    description: "Hides ads, suggested posts, Reels in the feed, red badges and Facebook's pitches for its other apps.",
+    description: "Hides ads and suggestions, Reels in the feed, the Stories tray, AI-labeled posts, red badges, Follow and sticker buttons, some tabs and notifications, and Facebook's pitches for its other apps.",
     keys: Object.freeze([
       'hideSponsoredPosts',
       'hideSuggestedPosts',
