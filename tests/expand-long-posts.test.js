@@ -138,6 +138,25 @@ test('a text block that comes back holding another post\'s cut-off text opens ag
   assert.equal(expander.opened(), 2);
 });
 
+test("an open post's text isn't read again on each look at the page", () => {
+  const win = page('<div aria-posinset="1" id="one"></div>');
+  const doc = win.document;
+  const io = fakeObserver(win);
+  const clicks = [];
+  const block = toggling(doc, doc.createElement('div'), clicks);
+  doc.getElementById('one').append(block);
+  const expander = createExpander({ doc, enabled: () => true, setTimer: (fn) => fn() });
+  expander.sync();
+  io.near(block.lastElementChild);
+  assert.deepEqual(clicks, ['more']);
+  const own = Object.getOwnPropertyDescriptor(win.Node.prototype, 'textContent');
+  let reads = 0;
+  Object.defineProperty(block, 'textContent', { configurable: true, get() { reads++; return own.get.call(this); } });
+  for (let round = 0; round < 3; round++) expander.sync();
+  assert.equal(reads, 0, 'a See less is told apart by its shape before the block is read');
+  assert.deepEqual(clicks, ['more']);
+});
+
 // A reel card's See more sits in an <object> inside the card's link, and opens nothing in place.
 test('other buttons stay: no "…" before it, not last, a link or icon, a reel card, or outside posts', () => {
   const win = page(`<div aria-posinset="1">

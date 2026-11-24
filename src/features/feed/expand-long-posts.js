@@ -56,15 +56,16 @@ export function createExpander({ doc, enabled, setTimer = (fn, ms) => setTimeout
   // puts a new button in it each time the text opens or closes. Each opened block keeps how its
   // cut-off text began, so a block that comes back with another post's text opens again.
   const watched = new Set();
+  // Only a See more's block is read, never an open post's whole text, and only its start.
   const openedBlocks = new WeakMap();
-  const lead = (block) => clean(block.textContent).slice(0, 60);
+  const lead = (block) => clean(block.textContent.slice(0, 240)).slice(0, 60);
   const isOpened = (block) => openedBlocks.has(block) && openedBlocks.get(block) === lead(block);
   let opened = 0;
   let timer = null;
   const Observer = doc.defaultView?.IntersectionObserver ?? globalThis.IntersectionObserver;
   const open = (button) => {
     const block = button.parentElement;
-    if (!enabled() || !button.isConnected || !block || isOpened(block) || !isSeeMore(button)) return;
+    if (!enabled() || !button.isConnected || !block || !isSeeMore(button) || isOpened(block)) return;
     openedBlocks.set(block, lead(block));
     opened++;
     button.click();
@@ -88,7 +89,7 @@ export function createExpander({ doc, enabled, setTimer = (fn, ms) => setTimeout
     for (const button of watched) if (!button.isConnected) stopWatching(button);
     if (!enabled()) return;
     for (const button of doc.querySelectorAll(CANDIDATES)) {
-      if (watched.has(button) || isOpened(button.parentElement) || !isSeeMore(button)) continue;
+      if (watched.has(button) || !isSeeMore(button) || isOpened(button.parentElement)) continue;
       if (!near) {
         open(button);
         continue;
