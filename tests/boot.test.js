@@ -118,6 +118,7 @@ test('a tab paused for itself sets up only the settings panel, and Turn back on 
   button(notice, 'Turn back on').click();
   assert.deepEqual(reloads, [], "storage that won't clear the mark leaves the tab as it is");
   assert.match(notices(shadow()).at(-1).textContent, /Couldn't turn it back on in this tab/);
+  assert.deepEqual(notices(shadow()).map((each) => each.textContent).filter((text) => /Details are in Diagnostics/.test(text)), [], 'one notice for one failure');
   block(false);
   button(notice, 'Turn back on').click();
   assert.deepEqual(reloads, [null], 'the mark is gone before the reload');
@@ -143,6 +144,7 @@ test('a tab that is not paused hooks the page, and Pause for this tab marks the 
   started.pauseTab();
   assert.deepEqual(reloads, []);
   assert.match(notices(shadow()).at(-1).textContent, /Couldn't pause for this tab/);
+  assert.deepEqual(notices(shadow()).map((each) => each.textContent).filter((text) => /Details are in Diagnostics/.test(text)), [], 'one notice for one failure');
   block(false);
   started.pauseTab();
   assert.deepEqual(reloads, ['1']);

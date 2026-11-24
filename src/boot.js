@@ -172,11 +172,13 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     toast(() => t(UNKEPT_SETTINGS), { tone: 'error' });
   }
 
+  // A failure here puts up its own notice, so it's logged as a warning: an error would bring
+  // the panel's own error notice up beside it.
   const resumeTab = () => {
     try {
       setTabPause(win, false);
     } catch (error) {
-      log.error("Couldn't clear this tab's pause", error);
+      log.warn("Couldn't clear this tab's pause", error);
       toast(() => t("Couldn't turn it back on in this tab. Facebook opened in a new tab runs it as usual."), { tone: 'error' });
       return;
     }
@@ -186,7 +188,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     try {
       setTabPause(win, true);
     } catch (error) {
-      log.error("Couldn't pause HushFacebook Web for this tab", error);
+      log.warn("Couldn't pause HushFacebook Web for this tab", error);
       toast(() => t("Couldn't pause for this tab. The switch at the top of the settings pauses it everywhere."), { tone: 'error' });
       return;
     }
@@ -197,7 +199,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
       await settings.set('ui.loadWarning', false);
       toast(() => t('Feed load warnings are off. Warn when the feed seems stuck in General turns them back on.'));
     } catch (error) {
-      log.error("Couldn't turn off feed load warnings", error);
+      log.warn("Couldn't turn off feed load warnings", error);
       // After an extension update the switch in General can't save either, and the reload notice says what will.
       if (!extensionReloaded(storage)) toast(() => t("Couldn't turn off these warnings. Try the switch in General."), { tone: 'error' });
     }
