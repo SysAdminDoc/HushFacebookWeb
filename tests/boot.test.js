@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 
 import { boot } from '../src/boot.js';
 import { OWN, hideCss } from '../src/core/dom/hide.js';
+import { setLanguage } from '../src/core/i18n.js';
 import { CONFIRM_MS, LOAD_WAIT_MS, TAB_PAUSE_KEY } from '../src/core/load-watchdog.js';
 import { MONSTER } from '../src/core/storage-report.js';
 import { pickerRules } from '../src/features/appearance/hide-parts.js';
@@ -18,16 +19,19 @@ afterEach(async () => {
 });
 
 // A Facebook tab with a userscript manager's storage, its globals lent the way the panel reads
-// them. reloads holds the tab's pause mark as it stood at each reload.
-function tab({ paused = false } = {}) {
+// them. reloads holds the tab's pause mark as it stood at each reload, menu the entries put in the
+// manager's menu, and kept is what the manager already holds.
+function tab({ paused = false, kept = {} } = {}) {
   const win = testWindow('https://www.facebook.com/');
   cleanups.push(() => win.happyDOM.close());
-  const values = new Map();
+  const values = new Map(Object.entries(kept));
+  const menu = [];
   const lent = {
     GM_getValue: (key, fallback) => (values.has(key) ? values.get(key) : fallback),
     GM_setValue: (key, value) => values.set(key, value),
     GM_deleteValue: (key) => values.delete(key),
     GM_addValueChangeListener: () => 0,
+    GM_registerMenuCommand: (label) => menu.push(label),
   };
   for (const name of GLOBALS) lent[name] = name === 'requestAnimationFrame' ? (fn) => win.setTimeout(fn, 0) : win[name];
   const saved = Object.keys(lent).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
@@ -73,7 +77,7 @@ function tab({ paused = false } = {}) {
     return listen.call(this, type, ...rest);
   };
   const before = { pushState: win.history.pushState, fetch: win.fetch, parse: win.JSON.parse };
-  return { win, reloads, listened, modules, before, shadow: () => shadow, block: (on) => (blocked = on) };
+  return { win, reloads, listened, modules, before, menu, shadow: () => shadow, block: (on) => (blocked = on) };
 }
 
 // A feature that counts its setups, on by default.
@@ -163,6 +167,22 @@ test('the note setting reaches the page rules and the hider, and Only for your o
   assert.deepEqual([asButton(filtered), asButton(ad)], [true, true]);
   started.settings.set('paused', true);
   assert.deepEqual([asButton(filtered), asButton(ad)], [false, false], 'paused, no note takes a click');
+});
+
+test("the manager's menu entry and a hidden post's note read in the saved language, and the note follows a change", (t) => {
+  quiet(t);
+  cleanups.push(() => setLanguage('en'));
+  const { win, menu } = tab({ kept: { settings: { 'ui.language': 'ru', 'ui.hiddenNote': true } } });
+  const started = boot({ win, doc: win.document, access: 'page', own: win, features: [counted()] });
+  assert.deepEqual(menu, ['Настройки HushFacebook Web']);
+  win.document.body.insertAdjacentHTML('beforeend', '<div aria-posinset="1"><div><a href="/someone/posts/pfbid0Ad">2h</a></div></div>');
+  const ad = win.document.querySelector('[aria-posinset]');
+  started.hider.hide(ad, 'Sponsored');
+  const note = () => ad.firstElementChild.getAttribute('data-hfw-note');
+  assert.equal(note(), 'Скрыто: Реклама. Показать');
+  started.settings.set('ui.language', 'en');
+  assert.equal(note(), 'Hidden: Sponsored. Show');
+  assert.equal(ad.firstElementChild.getAttribute('aria-label'), 'Hidden: Sponsored. Show');
 });
 
 // A signed-in Home held behind Facebook's splash screen. The feed check's two waits run when

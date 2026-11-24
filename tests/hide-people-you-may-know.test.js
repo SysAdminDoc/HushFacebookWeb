@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
+import { setLanguage } from '../src/core/i18n.js';
 import { parseRoute } from '../src/core/route.js';
 import hidePeopleYouMayKnow, { pymkRow } from '../src/features/feed/hide-people-you-may-know.js';
 
@@ -41,7 +42,7 @@ function feed(url) {
   const names = [];
   const hider = {
     hide: (element, reason, detail, signal, name) => {
-      names.push(name);
+      names.push(typeof name === 'function' ? name() : name);
       hidden.set(element.id, reason);
       return true;
     },
@@ -91,6 +92,18 @@ test('a People you may know row on Home is hidden by its See all link, under its
   assert.deepEqual(page.names, ['People you may know'], 'the note gets the long name');
   assert.equal(page.shown(), '1');
   page.clear();
+});
+
+test("the row's name in its note reads in the chosen language", () => {
+  setLanguage('ru');
+  try {
+    const page = feed('https://www.facebook.com/');
+    page.add(ROW('row'));
+    assert.deepEqual(page.names, ['Вы можете их знать']);
+    page.clear();
+  } finally {
+    setLanguage('en');
+  }
 });
 
 test('the words play no part: a row in another language goes, and so does one whose cards link to the suggestions page', () => {

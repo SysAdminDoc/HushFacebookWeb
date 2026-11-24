@@ -185,7 +185,7 @@ export default {
         const key = keysOf(element).find(isKept);
         if (key === undefined) return false;
         const pressed = dismissed.has(element);
-        if (hider.hide(element, REASON, undefined, matchedBy(key), pressed ? REASON : LIKE[key[0]]) && !pressed && !counted.has(element)) {
+        if (hider.hide(element, REASON, undefined, matchedBy(key), pressed ? REASON : () => t(LIKE[key[0]])) && !pressed && !counted.has(element)) {
           counted.add(element);
           hidden++;
           changed();

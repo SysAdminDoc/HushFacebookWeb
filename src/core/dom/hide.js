@@ -46,6 +46,25 @@ const BUTTON = ['role', 'tabindex', 'aria-label'];
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 // In English. It's shown, and read out, in the chosen language.
 export const SHOW_ALL = 'Show hidden';
+// What the note calls the reasons features give, in English, shown in the chosen language. A
+// reason that isn't here reads as the feature wrote it.
+const NOTE_WORDS = {
+  Sponsored: 'Sponsored',
+  Suggested: 'Suggested',
+  Filter: 'Filter',
+  Dismissed: 'Dismissed',
+  Seen: 'Seen',
+  Repeat: 'Repeat',
+  Reels: 'Reels',
+  Promotion: 'Promotion',
+  'AI-labeled': 'AI-labeled',
+};
+// A feature with words of its own for the note hands over a function, asked each time the note is
+// written, so the note follows the language.
+const wordsFor = (name) => (typeof name === 'function' ? name() : Object.hasOwn(NOTE_WORDS, name) ? t(NOTE_WORDS[name]) : name);
+// The note line for a mark's first reason. What narrows it is the person's own word, name or site,
+// so it stays as written.
+const noteText = ({ name, detail }) => t('Hidden: {reason}. Show', { reason: detail ? `${wordsFor(name)}: ${detail}` : wordsFor(name) });
 // The note's Show hidden button: the mark's first element, unless it's one ::before can't draw on
 // or a mark of its own (hideCss).
 const allOf = (marker) => {
@@ -212,16 +231,17 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
 
   function write(marker, reasons) {
     marker.setAttribute(MARK, [...reasons.keys()].join(' '));
-    marker.setAttribute(NOTE, `Hidden: ${reasons.values().next().value}. Show`);
+    marker.setAttribute(NOTE, noteText(reasons.values().next().value));
     if (noted(marker)) asButton(marker);
     else notButton(marker);
   }
 
-  // The reasons on a mark. One this hider didn't write still lists them in the attribute.
+  // The reasons on a mark, each with what its note says ({ name, detail }). One this hider didn't
+  // write still lists them in the attribute.
   function reasonsOf(marker) {
     let reasons = labels.get(marker);
     if (!reasons) {
-      reasons = new Map((marker.getAttribute(MARK) ?? '').split(/\s+/).filter(Boolean).map((reason) => [reason, reason]));
+      reasons = new Map((marker.getAttribute(MARK) ?? '').split(/\s+/).filter(Boolean).map((reason) => [reason, { name: reason }]));
       labels.set(marker, reasons);
     }
     return reasons;
@@ -576,7 +596,8 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     // Hides a post found by the post tracker. reason is what Diagnostics counts
     // ("Sponsored", "Filter"); detail narrows it in the note ("Filter: cats"). signal says
     // what matched, for the decision list only, when detail doesn't already say it. name is
-    // what the note calls a reason whose one word wouldn't read on its own ("People").
+    // what the note calls a reason whose one word wouldn't read on its own ("People"): the
+    // words, or a function that gives them in the language chosen now.
     // Returns false when the post can't be marked, the person chose to see it or opened it in a
     // dialog.
     hide(element, reason, detail, signal, name = reason) {
@@ -608,7 +629,7 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       leftWith.get(element)?.since.add(reason);
       const reasons = marked ? reasonsOf(marker) : new Map();
       const fresh = !reasons.has(reason);
-      reasons.set(reason, detail ? `${name}: ${detail}` : name);
+      reasons.set(reason, { name, detail });
       labels.set(marker, reasons);
       write(marker, reasons);
       marks.add(marker);
@@ -639,10 +660,14 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
       for (const marker of doc.querySelectorAll(`[${MARK}]`)) cleared = unmark(marker, reason) || cleared;
       if (cleared) notify();
     },
-    // Makes each note a button again, or not, after pausing or the note setting changed.
+    // Makes each note a button again, or not, after pausing or the note setting changed, and puts
+    // its words in the language chosen now.
     refresh() {
       for (const marker of doc.querySelectorAll(`[${MARK}]`)) {
         if (!marks.has(marker)) continue;
+        const first = reasonsOf(marker).values().next().value;
+        const text = first ? noteText(first) : null;
+        if (text !== null && marker.getAttribute(NOTE) !== text) marker.setAttribute(NOTE, text);
         if (noted(marker)) asButton(marker);
         else notButton(marker);
       }

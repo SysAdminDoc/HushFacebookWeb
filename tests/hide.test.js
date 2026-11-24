@@ -8,7 +8,7 @@ import { testWindow } from './helpers/dom.js';
 import { MARK, NOTE, OWN, OWN_REASONS, createHider, hideCss } from '../src/core/dom/hide.js';
 import { NOTE_COLORS } from '../src/core/dom/note-colors.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
-import { setLanguage } from '../src/core/i18n.js';
+import { setLanguage, t } from '../src/core/i18n.js';
 import { createSettings } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import { renderFeatureCss } from '../src/core/style.js';
@@ -1975,6 +1975,27 @@ test('Show hidden is drawn and read out in the chosen language', () => {
     setLanguage('en');
   }
   assert.match(hideCss({ notes: true }), /content: "Show hidden" !important;/);
+});
+
+test("a hidden post's note reads in the chosen language, keeps the person's own word, and follows a change of language", () => {
+  setLanguage('ru');
+  try {
+    const win = page(feed(post(1), post(2), post(3)));
+    const [a, b, c] = win.document.querySelectorAll('[aria-posinset]');
+    const hider = createHider({ doc: win.document, posts: fakePosts(), notesShown: () => true });
+    hider.hide(a, 'Sponsored');
+    hider.hide(b, 'Filter', 'football');
+    hider.hide(c, 'People', undefined, undefined, () => t('People you may know'));
+    const notes = () => [a, b, c].map((element) => element.firstElementChild.getAttribute(NOTE));
+    assert.deepEqual(notes(), ['Скрыто: Реклама. Показать', 'Скрыто: Фильтр: football. Показать', 'Скрыто: Вы можете их знать. Показать']);
+    assert.equal(a.firstElementChild.getAttribute('aria-label'), 'Скрыто: Реклама. Показать', 'the button is named by its note');
+    setLanguage('en');
+    hider.refresh();
+    assert.deepEqual(notes(), ['Hidden: Sponsored. Show', 'Hidden: Filter: football. Show', 'Hidden: People you may know. Show']);
+    assert.equal(a.firstElementChild.getAttribute('aria-label'), 'Hidden: Sponsored. Show');
+  } finally {
+    setLanguage('en');
+  }
 });
 
 test('the note\'s Show hidden is a button of its own while the note shows, and goes back with it', () => {

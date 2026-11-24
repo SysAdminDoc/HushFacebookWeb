@@ -312,7 +312,7 @@ export function boot({ win, doc, access, own = globalThis, features = allFeature
     const otherVersion = /^\d+(?:\.\d+){0,3}$/.test(other ?? '') ? ` (v${other})` : '';
     if (other) log.warn(`A second copy of HushFacebook Web${otherVersion} is installed. Turn one off in your userscript manager or on the browser's extensions page.`);
   }, doc);
-  registerMenuCommand('HushFacebook Web settings', () => openSettings());
+  registerMenuCommand(t('HushFacebook Web settings'), () => openSettings());
 
   log.info(`v${version} started (${access} mode)`);
   return { net, router, hider, settings, pauseTab, resumeTab };

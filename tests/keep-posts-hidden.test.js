@@ -12,6 +12,7 @@ import { activityKeyFor, createActivityStorage } from '../src/core/activity.js';
 import { createDiagnostics } from '../src/core/diagnostics.js';
 import { createHider, MARK, NOTE } from '../src/core/dom/hide.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
+import { setLanguage } from '../src/core/i18n.js';
 import { transformDocumentLine } from '../src/core/net/payload.js';
 import { parseRoute } from '../src/core/route.js';
 import { textKey, wordsKey } from '../src/core/seen-keys.js';
@@ -220,6 +221,20 @@ test('Enter and Space on the X hide it too, and a held key or a second press add
     key(win, x, 'Tab');
     assert.deepEqual(heard, ['keydown (capture)', 'keydown']);
     posts.stop();
+  }
+});
+
+test('the note on a post like one you hid reads in the chosen language', () => {
+  setLanguage('ru');
+  try {
+    const storage = sharedStorage({ [HIDDEN_KEY]: { 'm:99999999': 10, [keysOf(1)[1]]: 20 } });
+    const { win } = page(post(1, { photo: false, extra: '<a href="/photo/?fbid=77777777&set=a.1">x</a>' }) + post(2));
+    const { doc, posts } = setup(win, { storage });
+    assert.equal(note(doc, 1), 'Скрыто: Начинается так же, как скрытая вами публикация. Показать');
+    assert.equal(note(doc, 2), null);
+    posts.stop();
+  } finally {
+    setLanguage('en');
   }
 });
 

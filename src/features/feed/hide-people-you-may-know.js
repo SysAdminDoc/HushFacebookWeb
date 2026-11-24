@@ -15,11 +15,13 @@ import { hideDrawnPosts } from './drawn-posts.js';
 import { ownLinks } from '../../core/dom/posts.js';
 import { watchPostChecks } from '../../core/dom/post-checks.js';
 import { hasPostParts } from '../../core/filters/page.js';
+import { t } from '../../core/i18n.js';
 
 // What the hider and Diagnostics call a hidden row. One word, since a hidden post lists its
-// reasons in one attribute. Its note says the row's whole name.
+// reasons in one attribute. Its note says the row's whole name, in the chosen language.
 export const REASON = 'People';
 export const NOTE_NAME = 'People you may know';
+const noteName = () => t(NOTE_NAME);
 
 // A People you may know row between posts: a feed unit drawn as nobody's post, with a See all
 // link of its own to the friend suggestions page, or two people's cards linking there, the way
@@ -68,7 +70,7 @@ export default {
 
     if (net) {
       // A row Facebook drew on the server stays in the data and is hidden on the page.
-      const onDrawn = hideDrawnPosts({ posts, hider, router, settings, enabled, reason: REASON, name: NOTE_NAME, onHide: () => {
+      const onDrawn = hideDrawnPosts({ posts, hider, router, settings, enabled, reason: REASON, name: noteName, onHide: () => {
         drawn++;
         changed();
       } });
@@ -89,7 +91,7 @@ export default {
           if (!pymkRow(element)) return false;
           // The row the data's place already hid counts once.
           const counted = hider.isHidden?.(element) === true;
-          if (hider.hide(element, REASON, undefined, undefined, NOTE_NAME) && !counted) {
+          if (hider.hide(element, REASON, undefined, undefined, noteName) && !counted) {
             drawn++;
             changed();
           }
