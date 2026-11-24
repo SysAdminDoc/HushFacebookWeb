@@ -7,6 +7,9 @@ Fixes from an audit of the whole script.
 * With Russian picked, the note left where a post was hidden reads in Russian too. It said "Hidden: Sponsored. Show" in English beside a Russian Show hidden button. A word, name or site from your own filter list still shows the way you typed it
 * Your userscript manager's menu names the settings entry in the language you picked
 * In the extension, the "!" on the toolbar button keeps saying why the settings didn't open after you reload Facebook. The tooltip used to go back to the plain one while the "!" stayed
+* Pressing a Quick setup's button from the keyboard keeps focus on it. Focus used to fall off the panel, so the next Tab started over from the top of the page
+* Reset to defaults on Overview offers Undo reset, the same card General shows. It used to call it a Quick setup
+* In Russian, the help for the hidden-post note and for the seller link names the buttons the way they're shown now, «Показать скрытые» and «Посмотреть профиль»
 
 ## v0.0.52 (2026-11-24, unreleased)
 
