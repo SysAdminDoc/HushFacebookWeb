@@ -118,6 +118,26 @@ test('a post you close again with See less stays closed', () => {
   assert.equal(block.lastElementChild.textContent, 'See more');
 });
 
+test('a text block that comes back holding another post\'s cut-off text opens again', () => {
+  const win = page('<div aria-posinset="1" id="one"></div>');
+  const doc = win.document;
+  const io = fakeObserver(win);
+  const clicks = [];
+  const block = toggling(doc, doc.createElement('div'), clicks);
+  doc.getElementById('one').append(block);
+  const expander = createExpander({ doc, enabled: () => true, setTimer: (fn) => fn() });
+  expander.sync();
+  io.near(block.lastElementChild);
+  assert.deepEqual(clicks, ['more']);
+  const other = textBlock(doc, ['A different post that goes on for a wh', '…', ' '], 'See more');
+  block.replaceChildren(...other.childNodes);
+  block.lastElementChild.addEventListener('click', () => clicks.push('other'));
+  expander.sync();
+  io.near(block.lastElementChild);
+  assert.deepEqual(clicks, ['more', 'other']);
+  assert.equal(expander.opened(), 2);
+});
+
 // A reel card's See more sits in an <object> inside the card's link, and opens nothing in place.
 test('other buttons stay: no "…" before it, not last, a link or icon, a reel card, or outside posts', () => {
   const win = page(`<div aria-posinset="1">

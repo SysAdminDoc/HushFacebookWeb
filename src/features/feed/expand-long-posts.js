@@ -11,7 +11,7 @@
 // a span and then "…  " on 2026-10-12), while See less comes straight after the post's own
 // words. A post whose author ended it with "..." used to read as cut off again once open, so
 // it opened and closed without end. A block the script has opened is also left alone from
-// then on, so closing a post by hand with See less sticks.
+// then on, while it holds the same post, so closing a post by hand with See less sticks.
 //
 // A button that comes near the screen while the switch is off or the script is paused is
 // looked at again once it's back on, and opens then if it's still cut off.
@@ -53,16 +53,19 @@ export function createExpander({ doc, enabled, setTimer = (fn, ms) => setTimeout
   // Buttons waiting to come near the screen, and text blocks already opened. A button that
   // couldn't be opened when it came near leaves the first without its block joining the second,
   // so the next look watches it again. Blocks rather than buttons: Facebook keeps the block and
-  // puts a new button in it each time the text opens or closes.
+  // puts a new button in it each time the text opens or closes. Each opened block keeps how its
+  // cut-off text began, so a block that comes back with another post's text opens again.
   const watched = new Set();
-  const openedBlocks = new WeakSet();
+  const openedBlocks = new WeakMap();
+  const lead = (block) => clean(block.textContent).slice(0, 60);
+  const isOpened = (block) => openedBlocks.has(block) && openedBlocks.get(block) === lead(block);
   let opened = 0;
   let timer = null;
   const Observer = doc.defaultView?.IntersectionObserver ?? globalThis.IntersectionObserver;
   const open = (button) => {
     const block = button.parentElement;
-    if (!enabled() || !button.isConnected || !block || openedBlocks.has(block) || !isSeeMore(button)) return;
-    openedBlocks.add(block);
+    if (!enabled() || !button.isConnected || !block || isOpened(block) || !isSeeMore(button)) return;
+    openedBlocks.set(block, lead(block));
     opened++;
     button.click();
   };
@@ -85,7 +88,7 @@ export function createExpander({ doc, enabled, setTimer = (fn, ms) => setTimeout
     for (const button of watched) if (!button.isConnected) stopWatching(button);
     if (!enabled()) return;
     for (const button of doc.querySelectorAll(CANDIDATES)) {
-      if (watched.has(button) || openedBlocks.has(button.parentElement) || !isSeeMore(button)) continue;
+      if (watched.has(button) || isOpened(button.parentElement) || !isSeeMore(button)) continue;
       if (!near) {
         open(button);
         continue;
