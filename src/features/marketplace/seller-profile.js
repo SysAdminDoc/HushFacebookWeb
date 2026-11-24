@@ -16,6 +16,7 @@
 
 import { normalizeText } from '../../core/dom/visible-text.js';
 import { whenBodyReady } from '../../core/env.js';
+import { t } from '../../core/i18n.js';
 
 export const MARK = 'data-hfw-seller-profile';
 // On the name's box while it shows a link. Attributes are safe there: React's check compares
@@ -139,7 +140,7 @@ export function addProfileLink(doc, { id, link }) {
   view.setAttribute(OWN_MARK, OWN_NAME);
   view.setAttribute('href', profileUrl(id));
   view.setAttribute('role', 'link');
-  view.textContent = LABEL;
+  view.textContent = t(LABEL);
   root.append(view);
   box.setAttribute(HOST_MARK, '');
   return true;

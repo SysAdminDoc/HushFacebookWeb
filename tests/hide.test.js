@@ -8,6 +8,7 @@ import { testWindow } from './helpers/dom.js';
 import { MARK, NOTE, OWN, OWN_REASONS, createHider, hideCss } from '../src/core/dom/hide.js';
 import { NOTE_COLORS } from '../src/core/dom/note-colors.js';
 import { createPostTracker } from '../src/core/dom/posts.js';
+import { setLanguage } from '../src/core/i18n.js';
 import { createSettings } from '../src/core/settings.js';
 import { createMemoryStorage } from '../src/core/storage.js';
 import { renderFeatureCss } from '../src/core/style.js';
@@ -1960,6 +1961,21 @@ const press = (win, target) => {
   target.dispatchEvent(event);
   return event;
 };
+
+test('Show hidden is drawn and read out in the chosen language', () => {
+  setLanguage('ru');
+  try {
+    const win = page(feed(post(1)));
+    const [a] = win.document.querySelectorAll('[aria-posinset]');
+    const hider = createHider({ doc: win.document, posts: fakePosts(), notesShown: () => true });
+    hider.hide(a, 'Sponsored');
+    assert.equal(a.firstElementChild.firstElementChild.getAttribute('aria-label'), 'Показать скрытые');
+    assert.match(hideCss({ notes: true }), /::before \{ all: unset !important; content: "Показать скрытые" !important;/);
+  } finally {
+    setLanguage('en');
+  }
+  assert.match(hideCss({ notes: true }), /content: "Show hidden" !important;/);
+});
 
 test('the note\'s Show hidden is a button of its own while the note shows, and goes back with it', () => {
   const win = page(feed(

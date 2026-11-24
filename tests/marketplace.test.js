@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { testWindow } from './helpers/dom.js';
+import { setLanguage } from '../src/core/i18n.js';
 import sellerProfileLink, {
   HOST_MARK, LABEL, MARK, MAX_ADDS, SELLER_PROFILE_CSS, addProfileLink, createSellerLinks, isListing, nameLinks, sellerId, shownLink,
 } from '../src/features/marketplace/seller-profile.js';
@@ -48,6 +49,17 @@ test('a Marketplace profile link gives the seller id, and nothing else does', ()
   assert.ok(isListing(LISTING));
   assert.ok(!isListing(`${FB}/marketplace/`));
   assert.ok(!isListing(`${FB}/marketplace/profile/42/`));
+});
+
+test('the link reads in the chosen language', () => {
+  setLanguage('ru');
+  try {
+    const doc = page().document;
+    createSellerLinks({ doc, enabled: () => true, setTimer: (fn) => fn() }).sync();
+    assert.equal(added(doc)[0].textContent, 'Посмотреть профиль');
+  } finally {
+    setLanguage('en');
+  }
 });
 
 test("the link goes after the seller's name, not after the picture or Seller details", () => {

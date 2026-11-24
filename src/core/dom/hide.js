@@ -29,6 +29,7 @@
 // becomes a button the same way the mark does, after it in Tab order. A first element that
 // can't draw a ::before (REPLACED) leaves the note with no second button.
 
+import { t } from '../i18n.js';
 import { NOTE_COLORS } from './note-colors.js';
 import { inDialog, isComment, postIdOf, sameStory } from './posts.js';
 
@@ -43,6 +44,7 @@ const REPLACED = new Set(['IMG', 'VIDEO', 'IFRAME', 'CANVAS', 'INPUT', 'TEXTAREA
 // What makes the mark a button while its note shows. The page's own values come back after.
 const BUTTON = ['role', 'tabindex', 'aria-label'];
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+// In English. It's shown, and read out, in the chosen language.
 export const SHOW_ALL = 'Show hidden';
 // The note's Show hidden button: the mark's first element, unless it's one ::before can't draw on
 // or a mark of its own (hideCss).
@@ -88,7 +90,7 @@ export function hideCss({ notes }) {
     // Facebook's own element, so its classes' look goes first.
     `${all} { all: unset !important; display: block !important; flex: none !important; border-radius: 6px !important; cursor: pointer !important; font-size: 0 !important; }`,
     `${all} > * { display: none !important; }`,
-    `${all}::before { all: unset !important; content: "${SHOW_ALL}" !important; display: block !important; padding: 12px 16px !important; border: 1px solid var(--hfw-note-border) !important; border-radius: 6px !important; background: var(--hfw-note-bg-strong) !important; font: 600 13px/1.4 system-ui, sans-serif !important; color: var(--hfw-note-text) !important; white-space: nowrap !important; }`,
+    `${all}::before { all: unset !important; content: ${JSON.stringify(t(SHOW_ALL))} !important; display: block !important; padding: 12px 16px !important; border: 1px solid var(--hfw-note-border) !important; border-radius: 6px !important; background: var(--hfw-note-bg-strong) !important; font: 600 13px/1.4 system-ui, sans-serif !important; color: var(--hfw-note-text) !important; white-space: nowrap !important; }`,
     `${all}::after { content: none !important; }`,
     `${all}:hover::before { text-decoration: underline !important; }`,
     // Important, or the all: unset above puts the ring back on the edge, outside its halo.
@@ -181,7 +183,7 @@ export function createHider({ doc = globalThis.document, posts, log, notesShown 
     const before = allButtons.get(marker);
     if (before && before !== all) restore(before);
     if (all) {
-      makeButton(all, SHOW_ALL);
+      makeButton(all, t(SHOW_ALL));
       allButtons.set(marker, all);
     } else allButtons.delete(marker);
   }
