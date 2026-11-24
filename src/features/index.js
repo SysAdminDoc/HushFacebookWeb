@@ -58,6 +58,7 @@ import filterMarketplace from './marketplace/filter-marketplace.js';
 import sellerProfileLink from './marketplace/seller-profile.js';
 import hideReadReceipts from './chats/hide-read-receipts.js';
 import hideTyping from './chats/hide-typing.js';
+import freezeLastActive from './chats/freeze-last-active.js';
 import hideNotificationKinds from './notifications/hide-kinds.js';
 import keepNotificationsFilter from './notifications/keep-filter.js';
 import commentOrder from './comments/comment-order.js';
@@ -117,7 +118,7 @@ import blockInstantGamesAds from './games/block-ads.js';
 
 export const features = [
   hideSponsoredPosts, hideSuggestedPosts, hidePeopleYouMayKnow, hideReelsInFeed, hideStoriesTray, hideFriendRequestsColumn, hidePostBox, hidePostsByWords, hideSeenPosts, keepPostsHidden, hideRepeatPosts, hideAiPosts, keepPostDates, keepFeedPlace, loadAhead, showLoadProgress, hideFollowButtons, hideCounts, expandLongPosts,
-  hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, filterMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, hideNotificationKinds, keepNotificationsFilter, holdBackLogs, blockAdTelemetry,
+  hideSponsoredReels, noWatchHistory, cleanUpReels, anonymousStories, stopStoryAdvance, hideSponsoredSearch, noSearchHistory, hideSponsoredMarketplace, filterMarketplace, sellerProfileLink, hideReadReceipts, hideTyping, freezeLastActive, hideNotificationKinds, keepNotificationsFilter, holdBackLogs, blockAdTelemetry,
   commentOrder, showAllReplies, hideCommentStickers, hideVideoCommentBox, hideCommentTyping, hideIncomingCommentTyping, tagsAfterAt, commentsAsWritten, sanitizeLinks, directLinks, shareSheet, downloadPhotos, downloadVideos, downloadReels, downloadStories, downloadMenu, tapToPlay, pauseOffscreenVideos, limitHdr, resumeVideos,
   keepSpeed, keepVolume, holdForSpeed, pictureInPicture, frameStep, keepControls, videoQuality, rememberWatched, hideVideoSuggestions,
   forceDarkMode, calmTheme, amoledTheme, accentColor, systemFont, systemEmoji, noTransitions, hideTabs, hideTabBadges, hideNewMessageButton, hideFooterLinks, hideActiveDots, hideParts, widerFeed, screenshotMode,
