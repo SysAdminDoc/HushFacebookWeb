@@ -2058,6 +2058,36 @@ test('the Undo belongs to the account that reset, and Dismiss ends it', async ()
   assert.equal(settings.get('ui.hiddenNote'), false);
 });
 
+// The control that had focus can go with its card, and the one it hands focus to can be on
+// another page. Focus then stays in the panel instead of falling to Facebook's page.
+test('focus stays in the panel when its control goes away with its card', async () => {
+  {
+    const { shadow, panel, settings } = setup({ features: allFeatures });
+    settings.set('ui.hiddenNote', true);
+    panel.open('general');
+    shadow.querySelector('[data-key="reset"]').click();
+    await tick();
+    panel.open('overview');
+    shadow.querySelector('[data-key="reset:dismiss"]').focus();
+    shadow.querySelector('[data-key="reset:dismiss"]').click();
+    assert.equal(shadow.querySelector('[data-key="reset:dismiss"]'), null);
+    assert.ok(shadow.activeElement, 'Dismiss on Overview, where General\'s Reset isn\'t');
+  }
+  {
+    const { shadow, panel, settings } = setup({ features: allFeatures });
+    settings.set('hideSponsoredPosts', false);
+    panel.open('overview');
+    shadow.querySelector('[data-key="quick:quiet"]').click();
+    await tick();
+    panel.open('general');
+    shadow.querySelector('[data-key="reset:undo"]').focus();
+    shadow.querySelector('[data-key="reset:undo"]').click();
+    await tick();
+    assert.equal(shadow.querySelector('[data-key="reset:undo"]'), null);
+    assert.ok(shadow.activeElement, 'Undo in General for a Quick setup from Overview');
+  }
+});
+
 test('resetting settings already at their defaults offers nothing to undo', async () => {
   const { shadow, panel } = setup();
   panel.open('general');

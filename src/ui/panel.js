@@ -29,6 +29,7 @@ import { panelCss } from './styles.js';
 
 const ALWAYS_OPENS = TARGET === 'extension' ? "The extension's toolbar button" : "Your userscript manager's menu";
 const ERROR_TOAST_GAP_MS = 15000;
+const FOCUSABLE = 'button, input, select, textarea, a[href], [tabindex]';
 // How long a toast live region sits in the page, after it goes in or moves, before it is heard.
 export const REGION_SETTLE_MS = 500;
 const KOFI_URL = 'https://ko-fi.com/X8K126YVER';
@@ -1197,6 +1198,7 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     renderedDirection = direction;
     const focused = shadow.activeElement;
     const focusedKey = focused?.dataset?.key;
+    const neighbors = focusedKey ? neighborKeys(focused) : [];
     const selection = typeof focused?.selectionStart === 'number' ? [focused.selectionStart, focused.selectionEnd] : null;
     const scrollTop = main.scrollTop;
     const navScroll = [nav.scrollLeft, nav.scrollTop];
@@ -1235,7 +1237,24 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
       const replacement = root.querySelector(`[data-key="${CSS.escape(focusedKey)}"]`) ?? nearestLinkAction(focusedKey);
       replacement?.focus({ preventScroll: true });
       if (selection && replacement?.setSelectionRange) replacement.setSelectionRange(...selection);
+      // Gone with its card (a Retry that worked, Dismiss): the nearest control still there, or
+      // the page's own button in the sidebar, so focus doesn't fall out to Facebook's page.
+      if (!shadow.activeElement) {
+        for (const key of neighbors) {
+          root.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+          if (shadow.activeElement) break;
+        }
+        if (!shadow.activeElement) nav.querySelector('[aria-current="page"]')?.focus({ preventScroll: true });
+      }
     }
+  }
+
+  // The keyed controls around one, nearest first: a few after it, then a few before it.
+  function neighborKeys(focused) {
+    const keyed = [...root.querySelectorAll('[data-key]')].filter((node) => node.matches(FOCUSABLE));
+    const at = keyed.indexOf(focused);
+    if (at < 0) return [];
+    return [...keyed.slice(at + 1, at + 6), ...keyed.slice(Math.max(0, at - 5), at).reverse()].map((node) => node.dataset.key);
   }
 
   // Speaks the count once typing has settled, and not again while it stays the same. Leaving

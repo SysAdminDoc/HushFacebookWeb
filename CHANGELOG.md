@@ -8,6 +8,7 @@ Fixes from an audit of the whole script.
 * Your userscript manager's menu names the settings entry in the language you picked
 * In the extension, the "!" on the toolbar button keeps saying why the settings didn't open after you reload Facebook. The tooltip used to go back to the plain one while the "!" stayed
 * Pressing a Quick setup's button from the keyboard keeps focus on it. Focus used to fall off the panel, so the next Tab started over from the top of the page
+* When a card in the settings goes away under the keyboard (a Retry that worked, Dismiss, Undo), focus moves to the nearest control left instead of dropping out of the panel
 * Reset to defaults on Overview offers Undo reset, the same card General shows. It used to call it a Quick setup
 * In Russian, the help for the hidden-post note and for the seller link names the buttons the way they're shown now, «Показать скрытые» and «Посмотреть профиль»
 
