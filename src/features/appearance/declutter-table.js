@@ -60,13 +60,20 @@ export function section(path) {
 // redirect has rewritten one on click.
 export const OFFSITE = 'a[href*="l.facebook.com/l.php"], a[href^="http"]:not([href*="facebook.com"]):not([href*="fbcdn.net"])';
 
+// app is the id Facebook's tab list gives the tab (an Application), which Pin tabs adds.
 export const TAB_ROWS = [
-  { option: 'video', label: 'Video', link: [section('/watch/'), section('/reel/'), section('/video/')].join(', ') },
-  { option: 'marketplace', label: 'Marketplace', link: section('/marketplace/') },
-  { option: 'gaming', label: 'Gaming', link: [section('/gaming/play/'), section('/gaming/')].join(', ') },
-  { option: 'groups', label: 'Groups', link: section('/groups/') },
-  { option: 'friends', label: 'Friends', link: section('/friends/') },
+  { option: 'video', label: 'Video', app: '2392950137', link: [section('/watch/'), section('/reel/'), section('/video/')].join(', ') },
+  { option: 'marketplace', label: 'Marketplace', app: '1606854132932955', link: section('/marketplace/') },
+  { option: 'gaming', label: 'Gaming', app: '513746992167374', link: [section('/gaming/play/'), section('/gaming/')].join(', ') },
+  { option: 'groups', label: 'Groups', app: '2361831622', link: section('/groups/') },
+  { option: 'friends', label: 'Friends', app: '2356318349', link: section('/friends/') },
 ];
+
+// The order these tabs come in on a bar Facebook sends with all of them: Home, Friends, Video
+// (Reels), Marketplace, Groups, Gaming. Any other tab (Events, Feeds, Pages and the rest) keeps
+// its place after them.
+export const HOME_APP = '4748854339';
+export const TAB_ORDER = [HOME_APP, '2356318349', '2392950137', '1606854132932955', '2361831622', '513746992167374'];
 
 // The tabs Facebook's table can also put in the bar that Hide tabs has no choice for: Events,
 // Feeds, Pages, Professional dashboard and Ad Center. Marketplace only clears them with the rest.

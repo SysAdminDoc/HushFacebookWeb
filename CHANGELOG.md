@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.54 (2026-11-25, unreleased)
+
+* Layout has a new Pin tabs switch (#18). Facebook gives each account a few top bar tabs and swaps them now and then, so Groups can be there one day and gone the next, script or no script. Pin tabs puts the ones you pick back as Facebook's own tabs, in the order Facebook uses, and they stay as you move around the site. Groups and Friends start picked. A pinned tab stays even if Hide tabs is set to take it off. It needs page mode.
+
 ## v0.0.53 (2026-11-24)
 
 This release carries every change since 0.0.49, so 0.0.50 through 0.0.53. Four reports get something from it. Expand long posts stops opening and closing the same post (#19), Hide tabs takes the Gaming tab off the top bar (#18), Privacy has a new Freeze last active switch (#17), and Hide read receipts can keep a chat you open looking unread (#5). Settings come in Russian now too. An audit of the whole script also fixed a long run of smaller things, mostly for people who use the keyboard or a screen reader and for anyone who picked Russian.

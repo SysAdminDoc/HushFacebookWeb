@@ -6,8 +6,11 @@ import { FIND_FRIENDS, hide, place, TAB_ROWS } from './declutter-table.js';
 
 const ON_BY_DEFAULT = new Set(['video', 'marketplace', 'gaming']);
 
+// A tab Pin tabs keeps is one you asked to see, so it isn't hidden while that switch is on.
+const pinned = (get, option) => get('pinTabs') === true && get(`pinTabs.${option}`) === true;
+
 export function tabsCss(get) {
-  const links = TAB_ROWS.filter(({ option }) => get(`hideTabs.${option}`)).map(({ link }) => place.tab(link));
+  const links = TAB_ROWS.filter(({ option }) => get(`hideTabs.${option}`) && !pinned(get, option)).map(({ link }) => place.tab(link));
   if (get('hideTabs.findFriends')) links.push(FIND_FRIENDS);
   return links.length ? hide(links.join(',\n')) : '';
 }
