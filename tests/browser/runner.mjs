@@ -113,13 +113,24 @@ async function panel(page, engine) {
   assert.equal((await page.evaluate(() => window.hfwBrowserFixture.panelState())).watchHistory, true);
   await page.screenshot({ path: join(output, `${engine}-dialog-undo.png`), animations: 'disabled' });
   // The next control down, Reset to defaults, sits at the bottom of the page on a phone, where
-  // the Undo notice is. Tab has to bring it up clear of the notice.
+  // the notices are: the Undo one and a long error over it. Tab has to bring it up clear of both.
+  await page.evaluate(() => window.hfwBrowserFixture.raiseErrorNotice());
   await page.keyboard.press('Tab');
   const next = await page.evaluate(() => window.hfwBrowserFixture.focusClearOfNotices());
   assert.equal(next.focused, 'quick:defaults');
-  assert.ok(next.notices > 0, 'The Undo notice went before Tab');
-  assert.equal(next.clear, true, 'Tab left Reset to defaults under the Undo notice');
+  assert.equal(next.notices, 2, 'The Undo notice or the error was gone before Tab');
+  assert.equal(next.clear, true, 'Tab left Reset to defaults under the notices');
   await page.screenshot({ path: join(output, `${engine}-dialog-undo-tab.png`), animations: 'disabled' });
+  // Already in view but low on the page, where two notices reach higher than one: Tab has to
+  // scroll it up past both, not just past where one notice would end.
+  await page.keyboard.press('Shift+Tab');
+  const placed = await page.evaluate(() => window.hfwBrowserFixture.focusWithNextNearBottom('quick:privacy', 'quick:defaults', 122));
+  assert.ok(Math.min(...placed.notices) < placed.bottom - 122, `The notices don't reach Reset to defaults there, so Tab has nothing to clear (${JSON.stringify(placed)})`);
+  await page.keyboard.press('Tab');
+  const low = await page.evaluate(() => window.hfwBrowserFixture.focusClearOfNotices());
+  assert.equal(low.focused, 'quick:defaults');
+  assert.equal(low.clear, true, `Tab left Reset to defaults under the notices (${JSON.stringify(placed)})`);
+  await page.screenshot({ path: join(output, `${engine}-dialog-undo-tab-low.png`), animations: 'disabled' });
   await page.evaluate(() => window.hfwBrowserFixture.focusPanelControl('reset:undo'));
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => !window.hfwBrowserFixture.panelState().undo);

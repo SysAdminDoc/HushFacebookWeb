@@ -58,9 +58,10 @@ test("a button or field that can't be used right now looks it, and doesn't light
 });
 
 // The stacks move into the dialog while it's open (moveStacks in panel.js) and cover the bottom
-// of the page there, so a control Tab scrolls to while one is up has to stop above them.
+// of the page there, so a control Tab scrolls to while one is up has to stop above them, by as
+// much as they cover (panel.js measures it; the browser run checks two notices on a phone).
 test('a control you Tab to in the open panel scrolls clear of the notices', () => {
-  assert.match(panelCss, /\.dialog:has\(> \.toasts \.toast\) main \{ scroll-padding-bottom: 120px; \}/);
+  assert.match(panelCss, /\.dialog:has\(> \.toasts \.toast\) main \{ scroll-padding-bottom: var\(--notice-room, 120px\); \}/);
 });
 
 test("the search placeholder isn't faded below its color, and the dialog veil has a color where variables don't reach it", () => {

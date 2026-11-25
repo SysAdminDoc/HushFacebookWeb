@@ -292,6 +292,20 @@ export function mountPanel({ settings, features, log, hider, diagnostics, action
     else if (!launcher.hidden) launcher.focus({ preventScroll: true });
     opener = null;
   });
+  // While a notice is up in the open panel, a control Tab scrolls to stops above the notices
+  // (styles.js pads main's scrolling by --notice-room). It's kept at how far up the page they
+  // reach now, so two notices, or one that wraps on a phone, count in full.
+  const Resize = document.defaultView?.ResizeObserver ?? globalThis.ResizeObserver;
+  const measureNotices = () => {
+    const tops = [toasts.box, corner.box].filter((box) => box.parentNode === dialog && box.querySelector('.toast')).map((box) => box.getBoundingClientRect().top);
+    if (!tops.length) return;
+    const room = main.getBoundingClientRect().bottom - Math.min(...tops) + 16;
+    dialog.style.setProperty('--notice-room', `${Math.max(0, Math.ceil(room))}px`);
+  };
+  if (Resize) {
+    const watch = new Resize(measureNotices);
+    for (const el of [toasts.box, corner.box, main]) watch.observe(el);
+  }
   const fileInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onchange: importSettings });
   dialog.append(fileInput);
   root.append(launcher, dialog, toasts.box, corner.box);

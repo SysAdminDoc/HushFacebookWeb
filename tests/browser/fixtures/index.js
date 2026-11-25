@@ -1,7 +1,7 @@
 export { network } from './network.js';
 export { delayedBridge } from './bridge.js';
 export { stagedShare, recycledPosts } from './dom.js';
-export { preparePanel, panelState, focusPanelControl, focusClearOfNotices, finishPanel } from './panel.js';
+export { preparePanel, panelState, focusPanelControl, focusClearOfNotices, focusWithNextNearBottom, raiseErrorNotice, finishPanel } from './panel.js';
 export { boundedDownload } from './download.js';
 export { activeDots } from './active-dots.js';
 export { widerFeed } from './wider-feed.js';

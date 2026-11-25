@@ -5,7 +5,7 @@
 Fixes from an audit of the whole script.
 
 * With Russian picked, the note left where a post was hidden reads in Russian too. It said "Hidden: Sponsored. Show" in English beside a Russian Show hidden button. A word, name or site from your own filter list still shows the way you typed it
-* Your userscript manager's menu names the settings entry in the language you picked
+* Your userscript manager's menu names the settings entry in the language you picked. After you change the language, it follows from the next page load
 * With Russian picked, error notices read in Russian as well, the daily storage check and a backup this version can't restore included. A few errors name a network rule or a feature as they happen, and those say something went wrong, with the English in Diagnostics
 * A Pause for this tab or Turn back on that fails, or a failed storage check, puts up one notice instead of two
 * When the watched list can't be saved, the notice points at the Video page, where Retry saving is. It named a Playback page that doesn't exist
@@ -17,6 +17,7 @@ Fixes from an audit of the whole script.
 * The Quiet setup's description names what it turns on, the Stories tray, AI-labeled posts, Follow buttons and some tabs among them
 * Cancelling Pick a part to hide brings you back to its button, and to the search you found it in. It used to land on Close with the search cleared
 * While Reset, Restore or a Quick setup runs, the buttons and fields it turns off look off and stop lighting up under the pointer
+* On a narrow screen, a control you Tab to in the settings stops above the notices at the bottom, even with two of them up or one that wraps. It could land under them
 * A screen reader reads a field's error once, when it shows up. It used to read it again each time anything else on that page changed
 * Reset to defaults on Overview offers Undo reset, the same card General shows. It used to call it a Quick setup
 * In Russian, the help for the hidden-post note and for the seller link names the buttons the way they're shown now, «Показать скрытые» and «Посмотреть профиль»

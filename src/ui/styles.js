@@ -168,7 +168,6 @@ a.card { display: block; color: inherit; text-decoration: none; }
 .field { min-width: 0; }
 .field-error { color: var(--red); font-size: 14px; margin: 8px 0 0; }
 .options [aria-invalid="true"] { border-color: var(--red); }
-.button[aria-busy="true"] { cursor: progress; }
 .options select, .options input[type="text"], .options input[type="number"], .options textarea {
   min-width: 0; max-width: 100%; background: var(--crust); border: 1px solid var(--control); border-radius: 8px; padding: 8px 12px;
 }
@@ -224,6 +223,7 @@ a.button { display: inline-flex; align-items: center; text-decoration: none; col
 .button:disabled, .options select:disabled, .options input:disabled, .options textarea:disabled { opacity: 0.55; cursor: not-allowed; }
 .button:not(.primary):disabled:hover { background: transparent; }
 .button.primary:disabled:hover { filter: none; }
+/* After :disabled, so a busy button that's also off shows it's working. */
 .button[aria-busy="true"] { cursor: progress; }
 footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; padding: 8px 20px; border-top: 1px solid var(--border); color: var(--subtext); background: var(--mantle); font-size: 12px; }
 .save-state[data-state="saving"] { color: var(--peach); }
@@ -261,9 +261,10 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .toasts.corner { --toast-gap: 6px; left: 12px; bottom: 14px; transform: none; max-width: calc(100vw - 24px); justify-items: start; }
 .root:has(> .launcher[data-place="corner"]:not([hidden])) .toasts.corner { left: 60px; max-width: calc(100vw - 72px); }
 /* In the open panel the stacks cover the bottom of the page, so while a notice is up a control Tab
-   scrolls to stops well above them. Raising the stacks instead put them over the control just
-   used, like a Quick setup's button under its own Undo notice. */
-.dialog:has(> .toasts .toast) main { scroll-padding-bottom: 120px; }
+   scrolls to stops above them, by as much as they cover (--notice-room, measured in panel.js).
+   Raising the stacks instead put them over the control just used, like a Quick setup's button
+   under its own Undo notice. */
+.dialog:has(> .toasts .toast) main { scroll-padding-bottom: var(--notice-room, 120px); }
 .toast.small { gap: 4px 10px; padding: 5px 8px 5px 12px; font-size: 13px; box-shadow: 0 4px 14px var(--shadow-sm); }
 .toast.small span { flex: 0 1 auto; }
 .toast.small button { min-height: 24px; padding: 2px 4px; }

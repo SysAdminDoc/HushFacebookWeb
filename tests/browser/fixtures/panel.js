@@ -59,15 +59,32 @@ export function panelState() {
   };
 }
 
+// A second notice over the first, long enough to wrap on a phone.
+export function raiseErrorNotice() {
+  state.panel.toast("Couldn't save the watched list. Retry saving is on the Video page, and the log in Diagnostics says why.", { tone: 'error', duration: Infinity });
+}
+
+// Focus on one control, with the page scrolled so another sits a little above the bottom of
+// the page, in view but where the notices are.
+export function focusWithNextNearBottom(key, next, gap) {
+  const main = state.shadow.querySelector('main');
+  state.shadow.querySelector(`[data-key="${CSS.escape(key)}"]`).focus({ preventScroll: true });
+  const below = state.shadow.querySelector(`[data-key="${CSS.escape(next)}"]`).getBoundingClientRect().bottom - (main.getBoundingClientRect().bottom - gap);
+  main.scrollTop += below;
+  const notices = [...state.shadow.querySelectorAll('.toast')].map((toast) => Math.round(toast.getBoundingClientRect().top));
+  return { bottom: Math.round(main.getBoundingClientRect().bottom), notices };
+}
+
 // Whether the focused control is out from under every notice, and which one it is.
 export function focusClearOfNotices() {
   const active = state.shadow.activeElement;
+  if (!active) return { focused: null, clear: false, notices: state.shadow.querySelectorAll('.toast').length };
   const box = active.getBoundingClientRect();
   const under = [...state.shadow.querySelectorAll('.toast')].filter((toast) => {
     const notice = toast.getBoundingClientRect();
     return notice.bottom > box.top && notice.top < box.bottom && notice.right > box.left && notice.left < box.right;
   });
-  return { focused: active?.dataset.key ?? null, clear: under.length === 0, notices: state.shadow.querySelectorAll('.toast').length };
+  return { focused: active.dataset.key ?? null, clear: under.length === 0, notices: state.shadow.querySelectorAll('.toast').length };
 }
 
 export function focusPanelControl(key) {
