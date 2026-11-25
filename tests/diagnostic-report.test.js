@@ -159,13 +159,14 @@ test('scrubbing takes out addresses, ids and emails', () => {
 const SAFE = {
   'core/activity.js': ['ACCOUNT_CHANGED'],
   // One of confirmedWrite's two fixed sentences.
-  'core/bridge.js': ['operation.failure'],
-  'core/dom/posts.js': ['type'],
+  'core/bridge.js': ['WRITE_FAILED[operation.failure]'],
+  // A fixed sentence per event.
+  'core/dom/posts.js': ['LISTENER_FAILED[type]'],
   'core/load-watchdog.js': ['where', 'seconds'],
   'core/modules.js': ['name'],
   'core/net/hooks.js': ['rule.id'],
   'core/net/websocket.js': ['rule.id'],
-  'core/seen-store.js': ['what'],
+  'core/seen-store.js': ['LISTENER_FAILED[what]'],
   'core/settings.js': ['message', "copyAll ? 'Could not copy your settings to this account' : 'Could not save a settings update'"],
   'core/style.js': ['part.id', 'feature.title'],
   'core/tasks.js': ['task.id', 'result.cause ? STORAGE_FAILED : result.message'],
