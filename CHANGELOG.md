@@ -1,52 +1,37 @@
 # Changelog
 
-## v0.0.53 (2026-11-24, unreleased)
+## v0.0.53 (2026-11-24)
 
-Fixes from an audit of the whole script.
+This release carries every change since 0.0.49, so 0.0.50 through 0.0.53. Four reports get something from it. Expand long posts stops opening and closing the same post (#19), Hide tabs takes the Gaming tab off the top bar (#18), Privacy has a new Freeze last active switch (#17), and Hide read receipts can keep a chat you open looking unread (#5). Settings come in Russian now too. An audit of the whole script also fixed a long run of smaller things, mostly for people who use the keyboard or a screen reader and for anyone who picked Russian.
 
-* With Russian picked, the note left where a post was hidden reads in Russian too. It said "Hidden: Sponsored. Show" in English beside a Russian Show hidden button. A word, name or site from your own filter list still shows the way you typed it
-* Your userscript manager's menu names the settings entry in the language you picked. After you change the language, it follows from the next page load
-* With Russian picked, error notices read in Russian as well, the daily storage check and a backup this version can't restore included. A few errors name a network rule or a feature as they happen, and those say something went wrong, with the English in Diagnostics
-* A Pause for this tab or Turn back on that fails, or a failed storage check, puts up one notice instead of two
-* When the watched list can't be saved, the notice points at the Video page, where Retry saving is. It named a Playback page that doesn't exist
-* In the extension, the "!" on the toolbar button keeps saying why the settings didn't open after you reload Facebook. The tooltip used to go back to the plain one while the "!" stayed
-* Pressing a Quick setup's button from the keyboard keeps focus on it. Focus used to fall off the panel, so the next Tab started over from the top of the page
-* When a card in the settings goes away under the keyboard (a Retry that worked, Dismiss, Undo), focus moves to the nearest control left instead of dropping out of the panel
-* A switch that's on while network protection couldn't start says it isn't running. It said it was off, right next to a switch that showed on
-* Diagnostics' headings sit one level under the page title, like every other page's, so a screen reader's list of headings reads in order
-* The Quiet setup's description names what it turns on, the Stories tray, AI-labeled posts, Follow buttons and some tabs among them
-* Cancelling Pick a part to hide brings you back to its button, and to the search you found it in. It used to land on Close with the search cleared
-* While Reset, Restore or a Quick setup runs, the buttons and fields it turns off look off and stop lighting up under the pointer
-* On a narrow screen, a control you Tab to in the settings stops above the notices at the bottom, even with two of them up or one that wraps. It could land under them
-* A screen reader reads a field's error once, when it shows up. It used to read it again each time anything else on that page changed
-* Reset to defaults on Overview offers Undo reset, the same card General shows. It used to call it a Quick setup
-* In Russian, the help for the hidden-post note and for the seller link names the buttons the way they're shown now, «Показать скрытые» and «Посмотреть профиль»
-
-## v0.0.52 (2026-11-24, unreleased)
-
-Fixes for the reports in #18 and #19, the switch #17 asked for, and Russian.
-
-* Expand long posts no longer opens and closes a post over and over (#19). Facebook puts a See less button where See more was, and a post whose own text ended in "..." looked cut off again the moment it opened. A post you close by hand stays closed now too
-* Hide tabs takes the Gaming tab off the top bar (#18). That tab opens Play games, and the switch was looking for a different link. Marketplace only clears the Events, Feeds, Pages, Professional dashboard and Ad Center tabs as well
-* Privacy has a new switch, Freeze last active (#17). It starts off. With it on, the page tells Facebook you're idle while you browse, which is the report a tab left in the background sends. Active Status can stay on and you still see who's online. I've checked what the page sends and haven't seen it from a friend's side yet, so say in #17 how it looks from there
-* Settings come in Russian. Pick Русский under General, Language. Nobody who grew up speaking it has gone over the translation yet, so corrections to translations/ru.json are welcome
-* A screen reader says a sidebar page's name and its count as separate words now. NVDA was reading "Ads and promotions4 on"
-
-## v0.0.51 (2026-11-18, unreleased)
-
-Facebook's j and k keys work on a feed with hidden posts now.
-
-* j and k go past hidden posts in both directions and never stop on one. They used to get stuck at the first hidden post they reached, with or without the note line. You still need Facebook's own single-key shortcuts turned on
-* At the first visible post, k leaves the page where it is. Facebook was scrolling toward the hidden post above it, which moved the page a little on every other press
-* Block Instant Games ads no longer says it hasn't been tried. Two live games asked for an ad with it on and got Facebook's "no ad to show" answer
-* Arabic's six plural forms have a test now, so a translation can drop in when it's ready (#6). English doesn't change
-
-## v0.0.50 (2026-11-18, unreleased)
-
-Hide read receipts got a real test on a live chat this time. That turned up a bug, and #5 gets the option it asked for.
-
+* Expand long posts no longer opens and closes a post over and over (#19). Facebook puts a See less button where See more was, and a post whose own text ended in "..." looked cut off again the moment it opened. A post you close by hand stays closed now too.
+* Hide tabs takes the Gaming tab off the top bar (#18). That tab opens Play games, and the switch was looking for a different link. Marketplace only clears the Events, Feeds, Pages, Professional dashboard and Ad Center tabs as well.
+* Privacy has a new switch, Freeze last active (#17). It starts off. With it on, the page tells Facebook you're idle while you browse, which is the report a tab left in the background sends. Active Status can stay on and you still see who's online. I've checked what the page sends and haven't seen it from a friend's side yet, so say in #17 how it looks from there.
+* Settings come in Russian. Pick Русский under General, Language. Nobody who grew up speaking it has gone over the translation yet, so corrections to translations/ru.json are welcome.
+* A screen reader says a sidebar page's name and its count as separate words now. NVDA was reading "Ads and promotions4 on".
 * Hide read receipts has a new option, Keep chats you open looking unread, and it's on by default (#5). Facebook's page used to flip a chat to read the moment you opened it, even with the receipt held back. Now the chat keeps its bold text and dot in the chat list until you reply or turn the option off. It works on chats that aren't end-to-end encrypted.
 * A held read receipt could hold up that chat. The page kept resending it, as often as every 30 seconds, because no answer ever came, and whatever was queued behind it had to wait. The script now tells the page the receipt is done, inside your browser, and nothing about it goes to Facebook.
+* j and k go past hidden posts in both directions and never stop on one. They used to get stuck at the first hidden post they reached, with or without the note line. You still need Facebook's own single-key shortcuts turned on.
+* At the first visible post, k leaves the page where it is. Facebook was scrolling toward the hidden post above it, which moved the page a little on every other press.
+* Block Instant Games ads no longer says it hasn't been tried. Two live games asked for an ad with it on and got Facebook's "no ad to show" answer.
+* Arabic's six plural forms have a test now, so a translation can drop in when it's ready (#6). English doesn't change.
+* With Russian picked, the note left where a post was hidden reads in Russian too. It said "Hidden: Sponsored. Show" in English beside a Russian Show hidden button. A word, name or site from your own filter list still shows the way you typed it.
+* Your userscript manager's menu names the settings entry in the language you picked. After you change the language, it follows from the next page load.
+* With Russian picked, error notices read in Russian as well, the daily storage check and a backup this version can't restore included. A few errors name a network rule or a feature as they happen, and those say something went wrong, with the English in Diagnostics.
+* A Pause for this tab or Turn back on that fails, or a failed storage check, puts up one notice instead of two.
+* When the watched list can't be saved, the notice points at the Video page, where Retry saving is. It named a Playback page that doesn't exist.
+* In the extension, the "!" on the toolbar button keeps saying why the settings didn't open after you reload Facebook. The tooltip used to go back to the plain one while the mark stayed.
+* Pressing a Quick setup's button from the keyboard keeps focus on it. Focus used to fall off the panel, so the next Tab started over from the top of the page.
+* When a card in the settings goes away under the keyboard (a Retry that worked, Dismiss, Undo), focus moves to the nearest control left instead of dropping out of the panel.
+* A switch that's on while network protection couldn't start says it isn't running. It said it was off, right next to a switch that showed on.
+* Diagnostics' headings sit one level under the page title, like every other page's, so a screen reader's list of headings reads in order.
+* The Quiet setup's description names what it turns on, the Stories tray, AI-labeled posts, Follow buttons and some tabs among them.
+* Cancelling Pick a part to hide brings you back to its button, and to the search you found it in. It used to land on Close with the search cleared.
+* While Reset, Restore or a Quick setup runs, the buttons and fields it turns off look off and stop lighting up under the pointer.
+* On a narrow screen, a control you Tab to in the settings stops above the notices at the bottom, even with two of them up or one that wraps. It could land under them.
+* A screen reader reads a field's error once, when it shows up. It used to read it again each time anything else on that page changed.
+* Reset to defaults on Overview offers Undo reset, the same card General shows. It used to call it a Quick setup.
+* In Russian, the help for the hidden-post note and for the seller link names the buttons the way they're shown now, «Показать скрытые» and «Посмотреть профиль».
 
 ## v0.0.49 (2026-11-16)
 
