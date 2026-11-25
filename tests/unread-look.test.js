@@ -28,8 +28,11 @@ const tick = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const task = (label, payload, queue, id = 1) =>
   JSON.stringify({ failure_count: null, label, payload: JSON.stringify(payload).replace(/"(\d{16,})"/g, '$1'), queue_name: queue, task_id: id });
-const markRead = (thread, id) => task('21', { thread_id: thread, last_read_watermark_ts: 1791675618820, sync_group: 1, offline_threading_id: '7400000000000000001' }, thread, id);
-const reply = (thread, id) => task('46', { thread_id: thread, otid: '7400000000000000002', source: 65537, send_type: 1, sync_group: 1, text: 'hi' }, thread, id);
+const markRead = (thread, id, syncGroup = 1) => task('21', { thread_id: thread, last_read_watermark_ts: 1791675618820, sync_group: syncGroup, offline_threading_id: '7400000000000000001' }, thread, id);
+const reply = (thread, id, syncGroup = 1) => task('46', { thread_id: thread, otid: '7400000000000000002', source: 65537, send_type: 1, sync_group: syncGroup, text: 'hi' }, thread, id);
+// Live 2026-11-25: opening an end-to-end encrypted chat queues its mark-read task on the same
+// socket, in sync group 95, with the number from the chat's /messages/e2ee/t/ link.
+const ENCRYPTED = 95;
 
 function taskMessage(tasks) {
   const payload = `{"epoch_id":7514831369484259021,"tasks":[${tasks.join(',')}],"version_id":"28807723308890973"}`;
@@ -101,6 +104,36 @@ test('a chat whose read receipt was held keeps looking unread, and no other row 
   assert.equal(link(OTHER).hasAttribute(MARK), false);
   assert.equal(link(OPENED, 'messages/e2ee/t').hasAttribute(MARK), false, 'an encrypted chat with the same number is another chat');
   assert.equal(rows.get('Chats kept looking unread')(), '1');
+});
+
+test('an encrypted chat whose receipt was held keeps looking unread, and the plain chat with its number doesn\'t', async () => {
+  const { socket, sent, link, rows } = page();
+  socket.send(taskMessage([markRead(OPENED, 1, ENCRYPTED)]));
+  await tick();
+  assert.ok(!/label\\":\\"21/.test(sentText(sent[0])), 'the receipt still stays back');
+  assert.equal(link(OPENED, 'messages/e2ee/t').hasAttribute(MARK), true);
+  assert.equal(link(OPENED).hasAttribute(MARK), false);
+  assert.equal(rows.get('Chats kept looking unread')(), '1');
+});
+
+test('an encrypted chat reads its number from the task body too, and a reply there ends it', async () => {
+  const { socket, link } = page();
+  socket.send(taskMessage([task('21', { thread_id: OPENED, last_read_watermark_ts: 1, sync_group: ENCRYPTED }, 'mrq.1'), markRead(OTHER, 2)]));
+  await tick();
+  assert.equal(link(OPENED, 'messages/e2ee/t').hasAttribute(MARK), true);
+  socket.send(taskMessage([reply(OPENED, 3, ENCRYPTED)]));
+  await tick();
+  assert.equal(link(OPENED, 'messages/e2ee/t').hasAttribute(MARK), false);
+  assert.equal(link(OTHER).hasAttribute(MARK), true, 'a reply in the encrypted chat leaves the plain one alone');
+});
+
+test('a full link to an encrypted chat is matched the same way', async () => {
+  const { doc, list, socket } = page();
+  list.append(row(doc, `https://www.facebook.com/messages/e2ee/t/${OTHER}/?x=1`));
+  socket.send(taskMessage([markRead(OTHER, 1, ENCRYPTED)]));
+  await tick();
+  assert.equal(doc.querySelector(`a[href^="https://"]`).hasAttribute(MARK), true);
+  assert.equal(doc.querySelector(`a[href="/messages/t/${OTHER}/"]`).hasAttribute(MARK), false);
 });
 
 test('a thread id too big for a JavaScript number still finds its row', async () => {

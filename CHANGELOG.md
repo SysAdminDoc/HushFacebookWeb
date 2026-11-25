@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.55 (2026-11-25, unreleased)
+
+* Keep chats you open looking unread works on end-to-end encrypted chats now (#5). Opening one sends its read receipt the same way a plain chat does, and Hide read receipts was already holding it back. The chat list part only looked for plain chats, though, so an encrypted one showed as read until you reloaded. The switch's description now says what it covers on those chats.
+
 ## v0.0.54 (2026-11-25, unreleased)
 
 * Layout has a new Pin tabs switch (#18). Facebook gives each account a few top bar tabs and swaps them now and then, so Groups can be there one day and gone the next, script or no script. Pin tabs puts the ones you pick back as Facebook's own tabs, in the order Facebook uses, and they stay as you move around the site. Groups and Friends start picked. A pinned tab stays even if Hide tabs is set to take it off. It needs page mode.

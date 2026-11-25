@@ -2,9 +2,11 @@
 // that tells Facebook you've read it (label 21, see core/net/lightspeed.js). The task is taken
 // out of the request before it leaves the page, and the rest of the request goes as it was. The
 // page is then told the task is done, or it would keep resending it with the chat's queue, your
-// replies included, waiting behind it (core/net/websocket.js). End-to-end encrypted chats send
-// their receipts encrypted, so they aren't covered. A chat whose receipt was held keeps looking
-// unread in the chat list (unread-look.js).
+// replies included, waiting behind it (core/net/websocket.js). An end-to-end encrypted chat
+// queues its label 21 task on the same socket in sync group 95 (live 2026-11-25), so it's held
+// too. Whatever it sends on its own encrypted socket is out of reach and unseen, since the
+// harness keeps that socket offline. #5's reporter says the other side stays unseen.
+// A chat whose receipt was held keeps looking unread in the chat list (unread-look.js).
 
 import { chatSocketRow } from './shared.js';
 import { SEND_MESSAGE, taskThread, UNREAD_LOOK_CSS, watchUnreadLook } from './unread-look.js';
@@ -16,7 +18,7 @@ export default {
   section: 'people',
   android: 'Hide read receipts',
   title: 'Hide read receipts',
-  description: "People you chat with don't see that you've read their messages, and the chat stays unread in your other apps. When you reply they'll know anyway. End-to-end encrypted chats, which most one-to-one chats are now, aren't covered, because their receipts are encrypted before the script can see them.",
+  description: "People you chat with don't see that you've read their messages, and the chat stays unread in your other apps. When you reply they'll know anyway. On end-to-end encrypted chats, which most one-to-one chats are now, it holds back what it can see, but anything sent inside the encryption is out of its reach.",
   default: false,
   needsPage: true,
   options: [
